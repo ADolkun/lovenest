@@ -23,6 +23,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.sync_tasks.sync_all_connections",
         "schedule": 60 * 60,  # every hour; task itself skips connections synced < 4h ago
     },
+    "generate-recurring-daily": {
+        "task": "app.tasks.recurring_tasks.generate_all_recurring",
+        "schedule": 60 * 60,  # every hour; generate_pending is idempotent (advances next_occurrence)
+    },
 }
 
-celery_app.conf.include = ["app.tasks.sync_tasks"]
+celery_app.conf.include = ["app.tasks.sync_tasks", "app.tasks.recurring_tasks"]
