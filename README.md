@@ -18,7 +18,7 @@ We believe personal finance should actually be <em>personal</em>. No corporation
 **Linux & macOS** (installs Docker if needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/securo-finance/securo/main/install.sh | bash
+curl -fsSL https://usesecuro.com/install.sh | bash
 ```
 
 **Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), then:
