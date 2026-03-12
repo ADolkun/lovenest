@@ -15,7 +15,16 @@ We believe personal finance should actually be <em>personal</em>. No corporation
 
 ## Quick Start
 
+**Linux & macOS** (installs Docker if needed):
+
 ```bash
+curl -fsSL https://raw.githubusercontent.com/securo-finance/securo/main/install.sh | bash
+```
+
+**Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), then:
+
+```bash
+git clone https://github.com/securo-finance/securo.git && cd securo
 docker compose up --build
 ```
 
@@ -55,6 +64,10 @@ Then restart: `docker compose up`
 | Frontend | React, TypeScript, Vite, Tailwind CSS |
 | Database | PostgreSQL |
 | Queue | Redis + Celery |
+
+## AI-Assisted Development
+
+Parts of this codebase were built with help of AI. All code is human-reviewed and no data leaves your environment.
 
 ## Development
 
