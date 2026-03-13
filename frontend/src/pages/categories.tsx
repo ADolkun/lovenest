@@ -86,6 +86,7 @@ export default function CategoriesPage() {
   const updateGroupMutation = useMutation({
     mutationFn: ({ id, ...data }: Partial<CategoryGroup> & { id: string }) => groupsApi.update(id, data),
     onSuccess: () => { invalidateAll(); setGroupDialogOpen(false); setEditingGroup(null); toast.success(t('groups.updated')) },
+    onError: () => { toast.error(t('common.error')) },
   })
   const deleteGroupMutation = useMutation({
     mutationFn: (id: string) => groupsApi.delete(id),

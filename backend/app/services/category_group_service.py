@@ -77,7 +77,9 @@ async def get_groups(session: AsyncSession, user_id: uuid.UUID) -> list[Category
 
 async def get_group(session: AsyncSession, group_id: uuid.UUID, user_id: uuid.UUID) -> Optional[CategoryGroup]:
     result = await session.execute(
-        select(CategoryGroup).where(CategoryGroup.id == group_id, CategoryGroup.user_id == user_id)
+        select(CategoryGroup)
+        .where(CategoryGroup.id == group_id, CategoryGroup.user_id == user_id)
+        .options(selectinload(CategoryGroup.categories))
     )
     return result.scalar_one_or_none()
 
@@ -86,8 +88,7 @@ async def create_group(session: AsyncSession, user_id: uuid.UUID, data: Category
     group = CategoryGroup(user_id=user_id, **data.model_dump())
     session.add(group)
     await session.commit()
-    await session.refresh(group)
-    return group
+    return await get_group(session, group.id, user_id)
 
 
 async def update_group(
@@ -101,8 +102,7 @@ async def update_group(
         setattr(group, key, value)
 
     await session.commit()
-    await session.refresh(group)
-    return group
+    return await get_group(session, group_id, user_id)
 
 
 async def delete_group(session: AsyncSession, group_id: uuid.UUID, user_id: uuid.UUID) -> bool:
