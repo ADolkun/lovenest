@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '@/contexts/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -114,12 +115,14 @@ function TransactionForm({
   isSynced: boolean
 }) {
   const { t, i18n } = useTranslation()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction?.amount?.toString() ?? '')
   const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0])
   const [type, setType] = useState<'debit' | 'credit'>(transaction?.type ?? 'debit')
-  const [currency, setCurrency] = useState(transaction?.currency ?? 'BRL')
+  const [currency, setCurrency] = useState(transaction?.currency ?? userCurrency)
   const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts[0]?.id ?? '')
   const [notes, setNotes] = useState(transaction?.notes ?? '')
@@ -204,7 +207,7 @@ function TransactionForm({
             onChange={(e) => setCurrency(e.target.value)}
             disabled={isSynced}
           >
-            <option value="BRL">BRL (R$)</option>
+            <option value={userCurrency}>{userCurrency} ({({ BRL: 'R$', USD: '$', EUR: '€', GBP: '£' } as Record<string, string>)[userCurrency] ?? userCurrency})</option>
           </select>
         </div>
         <div className="space-y-2">

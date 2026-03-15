@@ -37,6 +37,7 @@ import { BankConnectDialog } from '@/components/bank-connect-dialog'
 import { ConnectorSelectDialog } from '@/components/connector-select-dialog'
 import { ConnectionSettingsDialog } from '@/components/connection-settings-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useAuth } from '@/contexts/auth-context'
 
 function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -534,17 +535,19 @@ function AccountDialog({
   loading: boolean
 }) {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
   const [name, setName] = useState(account?.name ?? '')
   const [type, setType] = useState(account?.type ?? 'checking')
   const [balance, setBalance] = useState(account?.balance?.toString() ?? '0')
-  const [currency, setCurrency] = useState(account?.currency ?? 'BRL')
+  const [currency, setCurrency] = useState(account?.currency ?? userCurrency)
   const [balanceDate, setBalanceDate] = useState(new Date().toISOString().slice(0, 10))
 
   useEffect(() => {
     setName(account?.name ?? '')
     setType(account?.type ?? 'checking')
     setBalance(account?.balance?.toString() ?? '0')
-    setCurrency(account?.currency ?? 'BRL')
+    setCurrency(account?.currency ?? userCurrency)
     setBalanceDate(new Date().toISOString().slice(0, 10))
   }, [account])
 
@@ -590,7 +593,7 @@ function AccountDialog({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                <option value="BRL">BRL (R$)</option>
+                <option value={userCurrency}>{userCurrency} ({({ BRL: 'R$', USD: '$', EUR: '€', GBP: '£' } as Record<string, string>)[userCurrency] ?? userCurrency})</option>
               </select>
             </div>
           </div>

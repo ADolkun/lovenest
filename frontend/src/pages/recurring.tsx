@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useAuth } from '@/contexts/auth-context'
 
 function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -250,9 +251,11 @@ function RecurringForm({
   loading: boolean
 }) {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
   const [description, setDescription] = useState(recurring?.description ?? '')
   const [amount, setAmount] = useState(recurring?.amount?.toString() ?? '')
-  const [currency, setCurrency] = useState(recurring?.currency ?? 'BRL')
+  const [currency, setCurrency] = useState(recurring?.currency ?? userCurrency)
   const [type, setType] = useState<'debit' | 'credit'>(recurring?.type ?? 'debit')
   const [frequency, setFrequency] = useState(recurring?.frequency ?? 'monthly')
   const [dayOfMonth, setDayOfMonth] = useState(recurring?.day_of_month?.toString() ?? '')
@@ -296,7 +299,7 @@ function RecurringForm({
         <div className="space-y-2">
           <Label>{t('recurring.currency')}</Label>
           <select className={selectClass} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            <option value="BRL">BRL (R$)</option>
+            <option value={userCurrency}>{userCurrency} ({({ BRL: 'R$', USD: '$', EUR: '€', GBP: '£' } as Record<string, string>)[userCurrency] ?? userCurrency})</option>
           </select>
         </div>
         <div className="space-y-2">

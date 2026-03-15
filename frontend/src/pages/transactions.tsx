@@ -21,6 +21,7 @@ import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useAuth } from '@/contexts/auth-context'
 
 function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -36,6 +37,8 @@ export default function TransactionsPage() {
   const { t, i18n } = useTranslation()
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [filterAccount, setFilterAccount] = useState<string>('')
@@ -104,7 +107,7 @@ export default function TransactionsPage() {
         await recurring.create({
           description: payload.tx.description,
           amount: payload.tx.amount,
-          currency: payload.tx.currency ?? 'BRL',
+          currency: payload.tx.currency ?? userCurrency,
           type: payload.tx.type,
           frequency: payload.recurringData.frequency,
           start_date: payload.tx.date,
