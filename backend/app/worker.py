@@ -27,6 +27,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.recurring_tasks.generate_all_recurring",
         "schedule": 60 * 60,  # every hour; generate_pending is idempotent (advances next_occurrence)
     },
+    "apply-asset-growth-daily": {
+        "task": "app.tasks.asset_tasks.apply_asset_growth_rules",
+        "schedule": 60 * 60,  # every hour; idempotent (checks last value date)
+    },
 }
 
-celery_app.conf.include = ["app.tasks.sync_tasks", "app.tasks.recurring_tasks"]
+celery_app.conf.include = ["app.tasks.sync_tasks", "app.tasks.recurring_tasks", "app.tasks.asset_tasks"]

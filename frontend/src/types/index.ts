@@ -165,6 +165,7 @@ export interface DashboardSummary {
   accounts_count: number
   pending_categorization: number
   pending_categorization_amount: number
+  assets_value: Record<string, number>
 }
 
 export interface SpendingByCategory {
@@ -213,6 +214,37 @@ export interface BudgetVsActual {
   prev_month_amount: number
   percentage_used: number | null
   is_recurring: boolean
+}
+
+export interface Asset {
+  id: string
+  user_id: string
+  name: string
+  type: string
+  currency: string
+  units: number | null
+  valuation_method: string
+  purchase_date: string | null
+  purchase_price: number | null
+  sell_date: string | null
+  sell_price: number | null
+  growth_type: string | null
+  growth_rate: number | null
+  growth_frequency: string | null
+  growth_start_date: string | null
+  is_archived: boolean
+  position: number
+  current_value: number | null
+  gain_loss: number | null
+  value_count: number
+}
+
+export interface AssetValue {
+  id: string
+  asset_id: string
+  amount: number
+  date: string
+  source: string
 }
 
 export interface PaginatedResponse<T> {

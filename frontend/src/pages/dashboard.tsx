@@ -458,6 +458,16 @@ export default function DashboardPage() {
                   </p>
                 )}
               </div>
+
+              {/* Assets Value */}
+              {!summaryLoading && summary?.assets_value && Object.values(summary.assets_value).reduce((a, b) => a + b, 0) > 0 && (
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground mb-0.5">{t('dashboard.assetsValue')}</p>
+                  <p className="text-lg font-bold tabular-nums text-blue-600">
+                    {mask(formatCurrency(Object.values(summary.assets_value).reduce((a, b) => a + b, 0), userCurrency, locale))}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Spending projection */}

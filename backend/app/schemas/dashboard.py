@@ -11,6 +11,7 @@ class DashboardSummary(BaseModel):
     accounts_count: int
     pending_categorization: int
     pending_categorization_amount: float
+    assets_value: dict[str, float] = {}  # currency -> total asset value
 
 
 class SpendingByCategory(BaseModel):

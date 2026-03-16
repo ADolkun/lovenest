@@ -12,6 +12,7 @@ from app.models.category import Category
 from app.models.recurring_transaction import RecurringTransaction
 from app.schemas.dashboard import DashboardSummary, SpendingByCategory, MonthlyTrend, ProjectedTransaction, DailyBalance, BalanceHistory
 from app.services.recurring_transaction_service import get_occurrences_in_range
+from app.services.asset_service import get_total_asset_value
 
 
 def _month_range(month: date) -> tuple[date, date]:
@@ -148,6 +149,13 @@ async def get_summary(
         .where(*pending_cat_filters)
     ) or 0))
 
+    # Asset values
+    assets_value = await get_total_asset_value(session, user_id)
+
+    # Add asset values to total balance
+    for currency, amount in assets_value.items():
+        total_balance[currency] = total_balance.get(currency, 0.0) + amount
+
     return DashboardSummary(
         total_balance=total_balance,
         balance_date=cutoff.isoformat(),
@@ -156,6 +164,7 @@ async def get_summary(
         accounts_count=accounts_count,
         pending_categorization=pending_categorization,
         pending_categorization_amount=pending_categorization_amount,
+        assets_value=assets_value,
     )
 
 

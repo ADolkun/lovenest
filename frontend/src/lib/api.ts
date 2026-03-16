@@ -14,6 +14,8 @@ import type {
   BudgetVsActual,
   Rule,
   ImportLog,
+  Asset,
+  AssetValue,
   DashboardSummary,
   SpendingByCategory,
   MonthlyTrend,
@@ -376,6 +378,50 @@ export const dashboard = {
   },
   balanceHistory: async (month?: string): Promise<BalanceHistory> => {
     const { data } = await api.get('/dashboard/balance-history', { params: { month } })
+    return data
+  },
+}
+
+// Assets
+export const assets = {
+  list: async (includeArchived = false): Promise<Asset[]> => {
+    const { data } = await api.get('/assets', { params: { include_archived: includeArchived } })
+    return data
+  },
+  get: async (id: string): Promise<Asset> => {
+    const { data } = await api.get(`/assets/${id}`)
+    return data
+  },
+  create: async (asset: Partial<Asset> & { name: string; type: string; current_value?: number }): Promise<Asset> => {
+    const { data } = await api.post('/assets', asset)
+    return data
+  },
+  update: async (id: string, asset: Partial<Asset>, opts?: { regenerateGrowth?: boolean }): Promise<Asset> => {
+    const { data } = await api.patch(`/assets/${id}`, asset, {
+      params: opts?.regenerateGrowth ? { regenerate_growth: true } : undefined,
+    })
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/assets/${id}`)
+  },
+  values: async (id: string): Promise<AssetValue[]> => {
+    const { data } = await api.get(`/assets/${id}/values`)
+    return data
+  },
+  valueTrend: async (id: string, months = 12): Promise<{ date: string; amount: number }[]> => {
+    const { data } = await api.get(`/assets/${id}/value-trend`, { params: { months } })
+    return data
+  },
+  addValue: async (id: string, value: { amount: number; date: string }): Promise<AssetValue> => {
+    const { data } = await api.post(`/assets/${id}/values`, value)
+    return data
+  },
+  deleteValue: async (valueId: string): Promise<void> => {
+    await api.delete(`/assets/values/${valueId}`)
+  },
+  portfolioTrend: async (): Promise<{ assets: { id: string; name: string; type: string }[]; trend: Record<string, unknown>[]; total: number }> => {
+    const { data } = await api.get('/assets/portfolio-trend')
     return data
   },
 }
