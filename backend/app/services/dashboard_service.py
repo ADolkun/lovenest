@@ -396,6 +396,7 @@ async def _account_balance_at(
         )
         return current_bal - float(delta_after or 0)
     else:
+        # Manual: sum signed transactions up to cutoff
         result = await session.scalar(
             select(func.coalesce(func.sum(_signed_balance_expr()), 0))
             .where(
@@ -403,7 +404,26 @@ async def _account_balance_at(
                 Transaction.date <= cutoff,
             )
         )
-        return float(result or 0)
+        bal = float(result or 0)
+
+        # If zero and no transactions exist before cutoff, carry opening balance back.
+        # This handles the common case where a user starts tracking an existing account.
+        if bal == 0.0:
+            first_txn_date = await session.scalar(
+                select(func.min(Transaction.date))
+                .where(Transaction.account_id == account.id)
+            )
+            if first_txn_date is not None and first_txn_date > cutoff:
+                opening_bal = await session.scalar(
+                    select(func.coalesce(func.sum(_signed_balance_expr()), 0))
+                    .where(
+                        Transaction.account_id == account.id,
+                        Transaction.source == "opening_balance",
+                    )
+                )
+                bal = float(opening_bal or 0)
+
+        return bal
 
 
 async def _total_balance_by_currency(

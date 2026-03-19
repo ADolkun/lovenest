@@ -20,6 +20,7 @@ const CategoriesPage = lazy(() => import('@/pages/categories'))
 const BudgetsPage = lazy(() => import('@/pages/budgets'))
 const RecurringPage = lazy(() => import('@/pages/recurring'))
 const AssetsPage = lazy(() => import('@/pages/assets'))
+const ReportsPage = lazy(() => import('@/pages/reports'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ function App() {
                   <Route path="/budgets" element={<BudgetsPage />} />
                   <Route path="/recurring" element={<RecurringPage />} />
                   <Route path="/assets" element={<AssetsPage />} />
+                  <Route path="/reports" element={<ReportsPage />} />
                 </Route>
               </Routes>
             </Suspense>

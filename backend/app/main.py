@@ -15,6 +15,7 @@ from app.api.import_transactions import router as import_router
 from app.api.recurring_transactions import router as recurring_router
 from app.api.rules import router as rules_router
 from app.api.assets import router as assets_router
+from app.api.reports import router as reports_router
 from app.api.setup import router as setup_router
 from app.api.transactions import router as transactions_router
 from app.core.auth import auth_backend, fastapi_users
@@ -88,6 +89,7 @@ app.include_router(recurring_router)
 app.include_router(budgets_router)
 app.include_router(assets_router)
 app.include_router(dashboard_router)
+app.include_router(reports_router)
 app.include_router(setup_router)
 
 

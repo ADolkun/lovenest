@@ -253,3 +253,56 @@ export interface PaginatedResponse<T> {
   page: number
   limit: number
 }
+
+// Reports (universal schema for all report types)
+export interface ReportBreakdown {
+  key: string
+  label: string
+  value: number
+  color: string
+}
+
+export interface ReportSummary {
+  primary_value: number
+  change_amount: number
+  change_percent: number | null
+  breakdowns: ReportBreakdown[]
+}
+
+export interface ReportDataPoint {
+  date: string
+  value: number
+  breakdowns: Record<string, number>
+}
+
+export interface ReportMeta {
+  type: string
+  series_keys: string[]
+  currency: string
+  interval: string
+}
+
+export interface ReportCompositionItem {
+  key: string
+  label: string
+  value: number
+  color: string
+  group: string
+}
+
+export interface CategoryTrendItem {
+  key: string
+  label: string
+  color: string
+  total: number
+  group: string
+  series: ReportDataPoint[]
+}
+
+export interface ReportResponse {
+  summary: ReportSummary
+  trend: ReportDataPoint[]
+  meta: ReportMeta
+  composition: ReportCompositionItem[]
+  category_trend: CategoryTrendItem[]
+}

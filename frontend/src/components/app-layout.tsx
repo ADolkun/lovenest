@@ -32,6 +32,7 @@ import {
   EyeOff,
   Repeat,
   Landmark,
+  BarChart3,
   Sun,
   Moon,
 } from 'lucide-react'
@@ -44,6 +45,7 @@ const navItems = [
   { key: 'categories', path: '/categories', icon: Tag },
   { key: 'budgets', path: '/budgets', icon: PiggyBank },
   { key: 'assets', path: '/assets', icon: Landmark },
+  { key: 'reports', path: '/reports', icon: BarChart3 },
   { key: 'recurring', path: '/recurring', icon: Repeat },
   { key: 'rules', path: '/rules', icon: SlidersHorizontal },
   { key: 'import', path: '/import', icon: Upload },

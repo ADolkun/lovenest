@@ -21,6 +21,7 @@ import type {
   MonthlyTrend,
   BalanceHistory,
   PaginatedResponse,
+  ReportResponse,
 } from '@/types'
 
 const api = axios.create({
@@ -422,6 +423,18 @@ export const assets = {
   },
   portfolioTrend: async (): Promise<{ assets: { id: string; name: string; type: string }[]; trend: Record<string, unknown>[]; total: number }> => {
     const { data } = await api.get('/assets/portfolio-trend')
+    return data
+  },
+}
+
+// Reports
+export const reports = {
+  netWorth: async (months = 12, interval = 'monthly'): Promise<ReportResponse> => {
+    const { data } = await api.get('/reports/net-worth', { params: { months, interval } })
+    return data
+  },
+  incomeExpenses: async (months = 12, interval = 'monthly'): Promise<ReportResponse> => {
+    const { data } = await api.get('/reports/income-expenses', { params: { months, interval } })
     return data
   },
 }

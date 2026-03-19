@@ -5,6 +5,8 @@
 <p align="center">
   <a href="https://github.com/securo-finance/securo/actions/workflows/ci.yml"><img src="https://github.com/securo-finance/securo/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
+  <br />
+  <a href="https://usesecuro.com/">Website</a> · <a href="https://github.com/orgs/securo-finance/projects/2">Roadmap</a>
 </p>
 
 <h3 align="center">Finance apps want your data. This one doesn't.</h3>
@@ -41,6 +43,8 @@ Open [http://localhost:3000](http://localhost:3000) and create an account. That'
 - File import (OFX, QIF, CAMT, CSV)
 - Auto-categorization rules engine
 - Recurring transactions and budgets
+- Asset management with valuation tracking and growth rules
+- Reports: Net Worth and Income vs Expenses with category sparklines
 - Dashboard with spending analytics and projections
 - Bank sync via providers (Pluggy supported, extensible)
 - Dark/light theme, multi-language support, privacy mode
