@@ -84,6 +84,10 @@ export const auth = {
     const { data } = await api.patch('/users/me', updates)
     return data
   },
+  changePassword: async (password: string): Promise<User> => {
+    const { data } = await api.patch('/users/me', { password })
+    return data
+  },
 }
 
 // Categories

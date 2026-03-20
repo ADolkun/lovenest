@@ -25,7 +25,14 @@
     "loginDescription": "Sign in to access your account",
     "invalidCredentials": "Invalid email or password",
     "noAccount": "Don't have an account?",
-    "hasAccount": "Already have an account?"
+    "hasAccount": "Already have an account?",
+    "changePassword": "Change password",
+    "newPassword": "New password",
+    "passwordTooShort": "Password must be at least 8 characters",
+    "currentPassword": "Current password",
+    "currentPasswordWrong": "Current password is incorrect",
+    "passwordChanged": "Password changed successfully",
+    "passwordChangeError": "Failed to change password"
   },
   "dashboard": {
     "title": "Dashboard",

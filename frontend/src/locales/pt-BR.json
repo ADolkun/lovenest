@@ -25,7 +25,14 @@
     "loginDescription": "Entre para acessar sua conta",
     "invalidCredentials": "E-mail ou senha incorretos",
     "noAccount": "Não tem uma conta?",
-    "hasAccount": "Já tem uma conta?"
+    "hasAccount": "Já tem uma conta?",
+    "changePassword": "Alterar senha",
+    "newPassword": "Nova senha",
+    "passwordTooShort": "A senha deve ter pelo menos 8 caracteres",
+    "currentPassword": "Senha atual",
+    "currentPasswordWrong": "Senha atual incorreta",
+    "passwordChanged": "Senha alterada com sucesso",
+    "passwordChangeError": "Erro ao alterar a senha"
   },
   "dashboard": {
     "title": "Painel",

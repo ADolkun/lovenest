@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -35,8 +36,10 @@ import {
   BarChart3,
   Sun,
   Moon,
+  KeyRound,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { ChangePasswordDialog } from '@/components/change-password-dialog'
 
 const navItems = [
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
@@ -65,6 +68,7 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
   const showTour = user && !user.preferences?.onboarding_completed && !localStorage.getItem('onboarding_completed')
 
@@ -115,7 +119,7 @@ export function AppLayout() {
           >
             {privacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <UserMenu userInitial={userInitial} logout={logout} dark />
+          <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} dark />
         </div>
       </header>
 
@@ -312,6 +316,14 @@ export function AppLayout() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48" side="top">
                 <DropdownMenuItem
+                  onClick={() => setChangePasswordOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <KeyRound size={14} />
+                  {t('auth.changePassword')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
                   onClick={logout}
                   className="flex items-center gap-2 text-rose-600 focus:text-rose-600"
                 >
@@ -332,11 +344,12 @@ export function AppLayout() {
       </div>
 
       {showTour && <OnboardingTour onComplete={handleTourComplete} />}
+      <ChangePasswordDialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
     </div>
   )
 }
 
-function UserMenu({ userInitial, logout, dark }: { userInitial: string; logout: () => void; dark?: boolean }) {
+function UserMenu({ userInitial, logout, onChangePassword, dark }: { userInitial: string; logout: () => void; onChangePassword: () => void; dark?: boolean }) {
   const { t } = useTranslation()
   return (
     <DropdownMenu>
@@ -350,6 +363,11 @@ function UserMenu({ userInitial, logout, dark }: { userInitial: string; logout: 
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onChangePassword} className="flex items-center gap-2">
+          <KeyRound size={14} />
+          {t('auth.changePassword')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="text-rose-600 focus:text-rose-600">
           {t('auth.logout')}
         </DropdownMenuItem>
