@@ -23,12 +23,12 @@ export default function RegisterPage() {
     setError('')
 
     if (password !== confirmPassword) {
-      setError('As senhas não conferem')
+      setError(t('auth.passwordMismatch'))
       return
     }
 
     if (password.length < 8) {
-      setError('A senha deve ter pelo menos 8 caracteres')
+      setError(t('auth.passwordTooShort'))
       return
     }
 
@@ -37,7 +37,7 @@ export default function RegisterPage() {
       await register(email, password)
       navigate('/')
     } catch {
-      setError('Erro ao criar conta. Tente novamente.')
+      setError(t('auth.registrationError'))
     } finally {
       setIsLoading(false)
     }
@@ -85,7 +85,7 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirmar senha</Label>
+              <Label htmlFor="confirmPassword">{t('auth.confirmPassword')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"

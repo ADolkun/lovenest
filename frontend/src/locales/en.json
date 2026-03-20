@@ -32,7 +32,10 @@
     "currentPassword": "Current password",
     "currentPasswordWrong": "Current password is incorrect",
     "passwordChanged": "Password changed successfully",
-    "passwordChangeError": "Failed to change password"
+    "passwordChangeError": "Failed to change password",
+    "confirmPassword": "Confirm password",
+    "passwordMismatch": "Passwords do not match",
+    "registrationError": "Error creating account. Please try again."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -111,7 +114,14 @@
     "selectCategory": "Select category...",
     "noResults": "No transactions found",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "currency": "Currency",
+    "type": "Type",
+    "expense": "Expense",
+    "income": "Income",
+    "notes": "Notes",
+    "notesHint": "optional — use #tags to categorize",
+    "notesPlaceholder": "E.g.: business dinner #work #reimbursable"
   },
   "accounts": {
     "title": "Accounts",
@@ -463,7 +473,9 @@
     "edit": "Edit",
     "loading": "Loading...",
     "error": "Error",
-    "success": "Success"
+    "success": "Success",
+    "searchIcon": "Search icon...",
+    "noIconsFound": "No icons found"
   },
   "privacy": {
     "hide": "Hide values",

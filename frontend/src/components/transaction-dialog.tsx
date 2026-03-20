@@ -30,12 +30,12 @@ export function extractApiError(error: unknown): string {
       if (Array.isArray(detail)) {
         return detail.map((d: { msg?: string; loc?: string[] }) => {
           const field = d.loc?.slice(-1)[0] ?? ''
-          return `${field}: ${d.msg ?? 'inválido'}`
+          return `${field}: ${d.msg ?? 'invalid'}`
         }).join(', ')
       }
     }
   }
-  return 'Ocorreu um erro inesperado'
+  return 'An unexpected error occurred'
 }
 
 export function TransactionDialog({
@@ -200,7 +200,7 @@ function TransactionForm({
           />
         </div>
         <div className="space-y-2">
-          <Label>Moeda</Label>
+          <Label>{t('transactions.currency')}</Label>
           <select
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background h-9 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
             value={currency}
@@ -222,15 +222,15 @@ function TransactionForm({
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Tipo</Label>
+          <Label>{t('transactions.type')}</Label>
           <select
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
             value={type}
             onChange={(e) => setType(e.target.value as 'debit' | 'credit')}
             disabled={isSynced}
           >
-            <option value="debit">Despesa</option>
-            <option value="credit">Receita</option>
+            <option value="debit">{t('transactions.expense')}</option>
+            <option value="credit">{t('transactions.income')}</option>
           </select>
         </div>
         <div className="space-y-2">
@@ -264,13 +264,13 @@ function TransactionForm({
       )}
 
       <div className="space-y-2">
-        <Label>Notas <span className="text-muted-foreground font-normal text-xs">(opcional — use #tags para categorizar)</span></Label>
+        <Label>{t('transactions.notes')} <span className="text-muted-foreground font-normal text-xs">({t('transactions.notesHint')})</span></Label>
         <textarea
           className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0"
           rows={2}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Ex: jantar de negócios #work #reimbursable"
+          placeholder={t('transactions.notesPlaceholder')}
         />
       </div>
 

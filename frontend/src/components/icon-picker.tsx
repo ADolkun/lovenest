@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CATEGORY_ICONS } from '@/lib/category-icons'
 import { cn } from '@/lib/utils'
 
@@ -9,6 +10,7 @@ interface IconPickerProps {
 }
 
 export function IconPicker({ value, color, onChange }: IconPickerProps) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
@@ -25,7 +27,7 @@ export function IconPicker({ value, color, onChange }: IconPickerProps) {
     <div className="space-y-2">
       <input
         type="text"
-        placeholder="Buscar ícone..."
+        placeholder={t('common.searchIcon')}
         className="w-full border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -58,7 +60,7 @@ export function IconPicker({ value, color, onChange }: IconPickerProps) {
         })}
         {filtered.length === 0 && (
           <p className="col-span-8 text-xs text-muted-foreground text-center py-4">
-            Nenhum ícone encontrado
+            {t('common.noIconsFound')}
           </p>
         )}
       </div>

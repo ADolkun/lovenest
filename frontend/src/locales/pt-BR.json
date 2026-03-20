@@ -32,7 +32,10 @@
     "currentPassword": "Senha atual",
     "currentPasswordWrong": "Senha atual incorreta",
     "passwordChanged": "Senha alterada com sucesso",
-    "passwordChangeError": "Erro ao alterar a senha"
+    "passwordChangeError": "Erro ao alterar a senha",
+    "confirmPassword": "Confirmar senha",
+    "passwordMismatch": "As senhas não conferem",
+    "registrationError": "Erro ao criar conta. Tente novamente."
   },
   "dashboard": {
     "title": "Painel",
@@ -111,7 +114,14 @@
     "selectCategory": "Selecionar categoria...",
     "noResults": "Nenhuma transação encontrada",
     "previous": "Anterior",
-    "next": "Próxima"
+    "next": "Próxima",
+    "currency": "Moeda",
+    "type": "Tipo",
+    "expense": "Despesa",
+    "income": "Receita",
+    "notes": "Notas",
+    "notesHint": "opcional — use #tags para categorizar",
+    "notesPlaceholder": "Ex: jantar de negócios #work #reimbursable"
   },
   "accounts": {
     "title": "Contas",
@@ -463,7 +473,9 @@
     "edit": "Editar",
     "loading": "Carregando...",
     "error": "Erro",
-    "success": "Sucesso"
+    "success": "Sucesso",
+    "searchIcon": "Buscar ícone...",
+    "noIconsFound": "Nenhum ícone encontrado"
   },
   "privacy": {
     "hide": "Ocultar valores",
