@@ -361,6 +361,99 @@ async def test_apply_all_rules(session: AsyncSession, test_user, test_categories
     assert txn2.category_id == test_categories[0].id  # food
 
 
+@pytest.mark.asyncio
+async def test_apply_all_rules_preserves_manual_categories(
+    session: AsyncSession, test_user, test_categories
+):
+    """Manually categorized transactions that don't match any rule must keep their category."""
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        name="ManualCat",
+        type="checking",
+        balance=Decimal("1000"),
+        currency="BRL",
+    )
+    session.add(account)
+    await session.commit()
+
+    manual_cat = test_categories[0]
+    rule_cat = test_categories[1]
+
+    # txn_manual: manually categorized, does NOT match any rule
+    txn_manual = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=account.id,
+        description="PADARIA DO JOAO",
+        amount=Decimal("15"),
+        date=date(2025, 4, 1),
+        type="debit",
+        source="manual",
+        category_id=manual_cat.id,
+        notes="my manual note",
+        created_at=datetime.now(timezone.utc),
+    )
+    # txn_rule: uncategorized, matches a rule
+    txn_rule = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=account.id,
+        description="UBER TRIP",
+        amount=Decimal("25"),
+        date=date(2025, 4, 2),
+        type="debit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    # txn_uncategorized: no category, no rule match — should stay uncategorized
+    txn_uncategorized = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=account.id,
+        description="RANDOM STORE",
+        amount=Decimal("50"),
+        date=date(2025, 4, 3),
+        type="debit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add_all([txn_manual, txn_rule, txn_uncategorized])
+    await session.commit()
+
+    # Only one rule: matches UBER
+    await create_rule(
+        session,
+        test_user.id,
+        RuleCreate(
+            name="UBER preserve-test",
+            conditions_op="or",
+            conditions=[RuleCondition(field="description", op="starts_with", value="UBER")],
+            actions=[RuleAction(op="set_category", value=str(rule_cat.id))],
+            priority=10,
+        ),
+    )
+
+    count = await apply_all_rules(session, test_user.id)
+
+    await session.refresh(txn_manual)
+    await session.refresh(txn_rule)
+    await session.refresh(txn_uncategorized)
+
+    # Manual category and notes must be preserved
+    assert txn_manual.category_id == manual_cat.id
+    assert txn_manual.notes == "my manual note"
+
+    # Rule-matched transaction gets categorized
+    assert txn_rule.category_id == rule_cat.id
+
+    # Unmatched, uncategorized transaction stays uncategorized
+    assert txn_uncategorized.category_id is None
+
+    # Only 1 transaction was affected by rules
+    assert count == 1
+
+
 # ---------------------------------------------------------------------------
 # create_default_rules / install_rule_pack / get_installed_packs
 # ---------------------------------------------------------------------------

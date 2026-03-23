@@ -665,18 +665,22 @@ async def apply_all_rules(session: AsyncSession, user_id: uuid.UUID) -> int:
 
     count = 0
     for tx in transactions:
-        # Reset to re-evaluate from scratch
-        tx.category_id = None
-        tx.notes = None
+        matched = False
         category_set = False
 
         for rule in rules:
             conditions = rule.conditions or []
             actions = rule.actions or []
             if evaluate_conditions(rule.conditions_op, conditions, tx):
+                if not matched:
+                    # First match: reset so rules are applied from scratch
+                    tx.category_id = None
+                    tx.notes = None
+                    matched = True
                 category_set = apply_rule_actions(actions, tx, category_set)
 
-        count += 1
+        if matched:
+            count += 1
 
     await session.commit()
     return count
