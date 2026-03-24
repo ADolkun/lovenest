@@ -65,7 +65,7 @@ async def test_apply_all_rules(client: AsyncClient, auth_headers, test_rules, te
     assert response.status_code == 200
     data = response.json()
     assert "applied" in data
-    assert data["applied"] >= 5  # We have 5 test transactions
+    assert data["applied"] >= 3  # 3 of 5 transactions match test rules (UBER, IFOOD, SALARIO)
 
 
 # --- Integration tests: category assignment, tags, priority, isolation ---
