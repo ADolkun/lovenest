@@ -178,6 +178,30 @@ async def test_update_transaction(
 
 
 @pytest.mark.asyncio
+async def test_update_transaction_remove_category(
+    client: AsyncClient, auth_headers, test_transactions: list[Transaction],
+    test_categories: list[Category],
+):
+    """Setting category_id to null must clear an existing category."""
+    txn_id = str(test_transactions[1].id)  # IFOOD — has category (Alimentação)
+    assert test_transactions[1].category_id is not None
+
+    response = await client.patch(
+        f"/api/transactions/{txn_id}",
+        headers=auth_headers,
+        json={"category_id": None},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category_id"] is None
+
+    # Verify the change persisted
+    response = await client.get(f"/api/transactions/{txn_id}", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["category_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_update_transaction_date(
     client: AsyncClient, auth_headers, test_transactions: list[Transaction],
 ):

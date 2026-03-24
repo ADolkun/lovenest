@@ -198,7 +198,7 @@ function TransactionForm({
         }
         const txData = isSynced
           ? {
-              category_id: categoryId || undefined,
+              category_id: categoryId || null,
               notes: notes.trim() || undefined,
             } as Partial<Transaction>
           : {
@@ -207,7 +207,7 @@ function TransactionForm({
               date,
               type,
               currency,
-              category_id: categoryId || undefined,
+              category_id: categoryId || null,
               account_id: accountId || undefined,
               notes: notes.trim() || undefined,
               ...fxFields,
