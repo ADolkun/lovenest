@@ -10,6 +10,7 @@ from app.models.budget import Budget
 from app.models.import_log import ImportLog
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
+from app.models.fx_rate import FxRate
 
 __all__ = [
     "User",
@@ -24,4 +25,5 @@ __all__ = [
     "ImportLog",
     "Asset",
     "AssetValue",
+    "FxRate",
 ]

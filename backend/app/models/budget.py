@@ -1,9 +1,9 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -27,6 +27,8 @@ class Budget(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2))
     month: Mapped[date] = mapped_column(Date)  # First day of month
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    currency: Mapped[Optional[str]] = mapped_column(String(3), server_default="USD", nullable=True)
+    amount_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship()

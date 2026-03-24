@@ -24,7 +24,7 @@ import { CategoryIcon } from '@/components/category-icon'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
@@ -55,7 +55,7 @@ export default function BudgetsPage() {
   const { t, i18n } = useTranslation()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const queryClient = useQueryClient()
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)

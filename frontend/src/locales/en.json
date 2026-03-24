@@ -76,7 +76,13 @@
     "categorizeNow": "Categorize now",
     "allCategorized": "All caught up!",
     "allCategorizedDesc": "All transactions are categorized",
-    "assetsValue": "Assets"
+    "assetsValue": "Assets",
+    "currencyBreakdown": "Per-currency breakdown",
+    "convertedFrom": "Converted from {{currency}}",
+    "fxRateUsed": "FX rate: {{rate}}",
+    "refreshRates": "Refresh FX rates",
+    "ratesRefreshed": "FX rates updated",
+    "ratesError": "Failed to update FX rates"
   },
   "transactions": {
     "title": "Transactions",
@@ -121,7 +127,14 @@
     "income": "Income",
     "notes": "Notes",
     "notesHint": "optional — use #tags to categorize",
-    "notesPlaceholder": "E.g.: business dinner #work #reimbursable"
+    "notesPlaceholder": "E.g.: business dinner #work #reimbursable",
+    "conversion": "Conversion",
+    "conversionHint": "optional — leave blank for auto rate",
+    "convertedAmount": "Amount in {{currency}}",
+    "exchangeRate": "Exchange rate",
+    "autoCalculated": "auto",
+    "fxFallbackTooltip": "Rate unavailable — using 1:1 fallback. Edit to set manually.",
+    "fxFallbackBanner": "Exchange rate unavailable — using fallback (1:1). Set the rate manually or check your FX provider settings."
   },
   "accounts": {
     "title": "Accounts",
@@ -248,7 +261,8 @@
     "updated": "Recurring transaction updated",
     "deleted": "Recurring transaction deleted",
     "generated": "{{count}} transactions generated",
-    "generatePending": "Generate Pending"
+    "generatePending": "Generate Pending",
+    "fxEstimate": "Estimate based on latest exchange rate ({{rate}}). Final amount may change."
   },
   "rules": {
     "section": "Automation",
@@ -475,7 +489,8 @@
     "error": "Error",
     "success": "Success",
     "searchIcon": "Search icon...",
-    "noIconsFound": "No icons found"
+    "noIconsFound": "No icons found",
+    "primaryCurrency": "Primary Currency"
   },
   "privacy": {
     "hide": "Hide values",

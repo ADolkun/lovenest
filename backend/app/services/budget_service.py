@@ -10,8 +10,16 @@ from app.models.budget import Budget
 from app.models.category import Category
 from app.models.category_group import CategoryGroup
 from app.models.transaction import Transaction
+from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetUpdate, BudgetVsActual
 from app.services.dashboard_service import _get_recurring_projections
+from app.services.fx_rate_service import convert
+from app.core.config import get_settings
+
+
+def _primary_amount_expr():
+    """Amount in primary currency: uses amount_primary when available, falls back to amount."""
+    return func.coalesce(Transaction.amount_primary, Transaction.amount)
 
 
 async def _build_budget_map(
@@ -232,11 +240,16 @@ async def get_budget_vs_actual(
     # Get budgets for this month (with recurring resolution)
     budget_map = await _build_budget_map(session, user_id, month_start)
 
+    # Get user's primary currency for FX conversion
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
     # Get actual spending by category for this month (exclude transfer pairs)
+    # Use amount_primary for multi-currency support
     spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(Transaction.amount),
+            func.sum(_primary_amount_expr()),
         )
         .where(
             Transaction.user_id == user_id,
@@ -252,19 +265,23 @@ async def get_budget_vs_actual(
     for row in spending_result.all():
         spending_map[str(row[0])] = abs(row[1] or Decimal("0"))
 
-    # Add projected recurring transactions for this month
+    # Add projected recurring transactions for this month (converted to primary currency)
     projections = await _get_recurring_projections(session, user_id, month_start, month_end)
     for proj in projections:
         if proj["type"] != "debit" or not proj["category_id"]:
             continue
         cat_id = str(proj["category_id"])
-        spending_map[cat_id] = spending_map.get(cat_id, Decimal("0")) + Decimal(str(proj["amount"]))
+        converted, _ = await convert(
+            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+        )
+        spending_map[cat_id] = spending_map.get(cat_id, Decimal("0")) + converted
 
     # Get previous month spending by category (exclude transfer pairs)
+    # Use amount_primary for multi-currency support
     prev_spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(Transaction.amount),
+            func.sum(_primary_amount_expr()),
         )
         .where(
             Transaction.user_id == user_id,
@@ -280,13 +297,16 @@ async def get_budget_vs_actual(
     for row in prev_spending_result.all():
         prev_spending_map[str(row[0])] = abs(row[1] or Decimal("0"))
 
-    # Add projected recurring transactions for previous month
+    # Add projected recurring transactions for previous month (converted to primary currency)
     prev_projections = await _get_recurring_projections(session, user_id, prev_month_start, prev_month_end)
     for proj in prev_projections:
         if proj["type"] != "debit" or not proj["category_id"]:
             continue
         cat_id = str(proj["category_id"])
-        prev_spending_map[cat_id] = prev_spending_map.get(cat_id, Decimal("0")) + Decimal(str(proj["amount"]))
+        converted, _ = await convert(
+            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+        )
+        prev_spending_map[cat_id] = prev_spending_map.get(cat_id, Decimal("0")) + converted
 
     comparisons = []
     for category, group in all_categories:

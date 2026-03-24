@@ -25,7 +25,7 @@ class Transaction(Base):
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Provider's transaction ID
     description: Mapped[str] = mapped_column(String(500))
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2))
-    currency: Mapped[str] = mapped_column(String(3), default="BRL")
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
     date: Mapped[date] = mapped_column(Date)
     type: Mapped[str] = mapped_column(String(10))  # debit, credit
     source: Mapped[str] = mapped_column(String(20))  # sync, ofx, csv, manual
@@ -35,6 +35,8 @@ class Transaction(Base):
     raw_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     import_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("import_logs.id"), nullable=True)
     transfer_pair_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    amount_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
+    fx_rate_used: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=20, scale=10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     account: Mapped["Account"] = relationship(back_populates="transactions")

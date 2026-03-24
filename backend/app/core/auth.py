@@ -36,7 +36,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # Create default wallet for users registered via /auth/register.
         from app.models.account import Account
         session = self.user_db.session
-        currency = (user.preferences or {}).get("currency_display", "BRL")
+        currency = user.primary_currency
         lang = (user.preferences or {}).get("language", "en")
         wallet_name = "Carteira" if lang.startswith("pt") else "Wallet"
         wallet = Account(

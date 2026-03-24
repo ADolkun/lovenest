@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # Frontend
     frontend_url: str = "http://localhost:5173"
 
+    # Defaults
+    default_currency: str = "USD"  # fallback currency when user preference is unavailable
+
+    # FX Rates
+    openexchangerates_app_id: str = ""
+    supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK"  # comma-separated list
+    fx_sync_mode: str = "on_demand"  # "on_demand" or "scheduled"
+
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 

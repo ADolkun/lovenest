@@ -76,7 +76,13 @@
     "categorizeNow": "Categorizar agora",
     "allCategorized": "Tudo em dia!",
     "allCategorizedDesc": "Todas as transações estão categorizadas",
-    "assetsValue": "Patrimônio"
+    "assetsValue": "Patrimônio",
+    "currencyBreakdown": "Detalhamento por moeda",
+    "convertedFrom": "Convertido de {{currency}}",
+    "fxRateUsed": "Taxa de câmbio: {{rate}}",
+    "refreshRates": "Atualizar taxas de câmbio",
+    "ratesRefreshed": "Taxas de câmbio atualizadas",
+    "ratesError": "Erro ao atualizar taxas de câmbio"
   },
   "transactions": {
     "title": "Transações",
@@ -121,7 +127,14 @@
     "income": "Receita",
     "notes": "Notas",
     "notesHint": "opcional — use #tags para categorizar",
-    "notesPlaceholder": "Ex: jantar de negócios #work #reimbursable"
+    "notesPlaceholder": "Ex: jantar de negócios #work #reimbursable",
+    "conversion": "Conversão",
+    "conversionHint": "opcional — deixe em branco para taxa automática",
+    "convertedAmount": "Valor em {{currency}}",
+    "exchangeRate": "Taxa de câmbio",
+    "autoCalculated": "automático",
+    "fxFallbackTooltip": "Taxa indisponível — usando fallback 1:1. Edite para definir manualmente.",
+    "fxFallbackBanner": "Taxa de câmbio indisponível — usando fallback (1:1). Defina manualmente ou verifique as configurações do provedor de câmbio."
   },
   "accounts": {
     "title": "Contas",
@@ -248,7 +261,8 @@
     "updated": "Transação recorrente atualizada",
     "deleted": "Transação recorrente excluída",
     "generated": "{{count}} transações geradas",
-    "generatePending": "Gerar Pendentes"
+    "generatePending": "Gerar Pendentes",
+    "fxEstimate": "Estimativa baseada na última taxa de câmbio ({{rate}}). O valor final pode mudar."
   },
   "rules": {
     "section": "Automação",
@@ -475,7 +489,8 @@
     "error": "Erro",
     "success": "Sucesso",
     "searchIcon": "Buscar ícone...",
-    "noIconsFound": "Nenhum ícone encontrado"
+    "noIconsFound": "Nenhum ícone encontrado",
+    "primaryCurrency": "Moeda Principal"
   },
   "privacy": {
     "hide": "Ocultar valores",

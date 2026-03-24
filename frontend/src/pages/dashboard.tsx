@@ -34,7 +34,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import type { Transaction } from '@/types'
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
@@ -68,7 +68,7 @@ export default function DashboardPage() {
   const { t, i18n } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const displayName = user?.preferences?.display_name || ''
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
 
@@ -79,14 +79,12 @@ export default function DashboardPage() {
     return displayName ? `${base}, ${displayName}` : base
   })()
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
-  const [balanceDate, setBalanceDate] = useState<string | undefined>()
   const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const queryClient = useQueryClient()
   const [headerCalOpen, setHeaderCalOpen] = useState(false)
   const [hoveredDay, setHoveredDay] = useState<number | null>(null)
-  const [balanceCalOpen, setBalanceCalOpen] = useState(false)
   const dateFnsLocale = i18n.language === 'pt-BR' ? ptBR : enUS
   const monthParam = `${selectedMonth}-01`
   const monthStart = `${selectedMonth}-01`
@@ -95,12 +93,11 @@ export default function DashboardPage() {
 
   const handleMonthChange = (newMonth: string) => {
     setSelectedMonth(newMonth)
-    setBalanceDate(undefined)
-  }
+}
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
-    queryKey: ['dashboard', 'summary', selectedMonth, balanceDate],
-    queryFn: () => dashboard.summary(monthParam, balanceDate),
+    queryKey: ['dashboard', 'summary', selectedMonth],
+    queryFn: () => dashboard.summary(monthParam),
   })
 
   const { data: spending, isLoading: spendingLoading } = useQuery({
@@ -169,6 +166,7 @@ export default function DashboardPage() {
     },
   })
 
+
   const cumulativeData = useMemo(() => {
     if (!balanceHistory) return []
     const daysInMonth = monthLastDay(selectedMonth)
@@ -191,12 +189,13 @@ export default function DashboardPage() {
   const currentLatestBalance = lastCurrentPoint?.current ?? 0
   const monthVariation = currentLatestBalance - currentStartBalance
 
-  const totalBalance = Object.values(summary?.total_balance ?? {}).reduce((a, b) => a + Number(b), 0)
+  const primaryCurrency = summary?.primary_currency ?? userCurrency
+  const totalBalance = summary?.total_balance_primary ?? Object.values(summary?.total_balance ?? {}).reduce((a, b) => a + Number(b), 0)
 
 
   // Savings rate & projection
-  const income = Number(summary?.monthly_income ?? 0)
-  const expenses = Number(summary?.monthly_expenses ?? 0)
+  const income = Number(summary?.monthly_income_primary ?? summary?.monthly_income ?? 0)
+  const expenses = Number(summary?.monthly_expenses_primary ?? summary?.monthly_expenses ?? 0)
   const savingsRate = income > 0 ? ((income - expenses) / income) * 100 : 0
   const isCurrentMonth = selectedMonth === currentMonth()
   const daysElapsed = isCurrentMonth ? new Date().getDate() : monthLastDay(selectedMonth)
@@ -253,6 +252,7 @@ export default function DashboardPage() {
     date: string
     type: 'debit' | 'credit'
     amount: number
+    amountPrimary: number | null
     currency: string
     categoryIcon: string | null
     categoryName: string | null
@@ -270,6 +270,7 @@ export default function DashboardPage() {
         date: tx.date,
         type: tx.type,
         amount: Number(tx.amount),
+        amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
         currency: tx.currency,
         categoryIcon: tx.category?.icon ?? null,
         categoryName: tx.category?.name ?? null,
@@ -284,6 +285,7 @@ export default function DashboardPage() {
         date: pt.date,
         type: pt.type,
         amount: pt.amount,
+        amountPrimary: pt.amount_primary ?? null,
         currency: pt.currency,
         categoryIcon: pt.category_icon,
         categoryName: pt.category_name,
@@ -338,13 +340,12 @@ export default function DashboardPage() {
                 <Calendar
                   mode="single"
                   locale={dateFnsLocale}
-                  selected={new Date((balanceDate ?? `${selectedMonth}-01`) + 'T00:00:00')}
+                  selected={new Date(`${selectedMonth}-01T00:00:00`)}
                   defaultMonth={new Date(`${selectedMonth}-01T00:00:00`)}
                   onSelect={(date) => {
                     if (!date) return
                     const newMonth = format(date, 'yyyy-MM')
                     setSelectedMonth(newMonth)
-                    setBalanceDate(format(date, 'yyyy-MM-dd'))
                     setHeaderCalOpen(false)
                   }}
                 />
@@ -385,36 +386,18 @@ export default function DashboardPage() {
                 ) : (
                   <div>
                     <p className={`text-lg font-bold tabular-nums ${totalBalance < 0 ? 'text-rose-500' : 'text-foreground'}`}>
-                      {mask(formatCurrency(totalBalance, userCurrency, locale))}
+                      {mask(formatCurrency(totalBalance, primaryCurrency, locale))}
                     </p>
-                    <Popover open={balanceCalOpen} onOpenChange={setBalanceCalOpen}>
-                      <PopoverTrigger asChild>
-                        <button className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors cursor-pointer p-0 bg-transparent border-none outline-none">
-                          <CalendarIcon className="size-3" />
-                          {(() => {
-                            const dateStr = balanceDate ?? summary?.balance_date ?? ''
-                            if (!dateStr) return ''
-                            return new Date(dateStr + 'T00:00:00').toLocaleDateString(locale)
-                          })()}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          locale={dateFnsLocale}
-                          selected={(() => {
-                            const dateStr = balanceDate ?? summary?.balance_date ?? ''
-                            return dateStr ? new Date(dateStr + 'T00:00:00') : undefined
-                          })()}
-                          defaultMonth={new Date(`${selectedMonth}-01T00:00:00`)}
-                          onSelect={(date) => {
-                            if (!date) return
-                            setBalanceDate(format(date, 'yyyy-MM-dd'))
-                            setBalanceCalOpen(false)
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    {/* Per-currency breakdown when multiple currencies */}
+                    {summary?.total_balance && Object.keys(summary.total_balance).length > 1 && (
+                      <div className="flex flex-wrap gap-x-2 mt-0.5">
+                        {Object.entries(summary.total_balance).map(([cur, val]) => (
+                          <span key={cur} className="text-[10px] text-muted-foreground tabular-nums">
+                            {mask(formatCurrency(val, cur, locale))}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -434,7 +417,7 @@ export default function DashboardPage() {
                   <Skeleton className="h-7 w-24" />
                 ) : (
                   <p className="text-lg font-bold tabular-nums text-emerald-600">
-                    +{mask(formatCurrency(income, userCurrency, locale))}
+                    +{mask(formatCurrency(income, primaryCurrency, locale))}
                   </p>
                 )}
               </div>
@@ -454,7 +437,7 @@ export default function DashboardPage() {
                   <Skeleton className="h-7 w-24" />
                 ) : (
                   <p className="text-lg font-bold tabular-nums text-rose-500">
-                    -{mask(formatCurrency(expenses, userCurrency, locale))}
+                    -{mask(formatCurrency(expenses, primaryCurrency, locale))}
                   </p>
                 )}
               </div>
@@ -464,7 +447,7 @@ export default function DashboardPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-muted-foreground mb-0.5">{t('dashboard.assetsValue')}</p>
                   <p className="text-lg font-bold tabular-nums text-blue-600">
-                    {mask(formatCurrency(Object.values(summary.assets_value).reduce((a, b) => a + b, 0), userCurrency, locale))}
+                    {mask(formatCurrency(summary.assets_value_primary ?? Object.values(summary.assets_value).reduce((a, b) => a + b, 0), primaryCurrency, locale))}
                   </p>
                 </div>
               )}
@@ -473,7 +456,7 @@ export default function DashboardPage() {
             {/* Spending projection */}
             {projectedSpend !== null && !summaryLoading && (
               <p className="text-xs text-muted-foreground mt-2">
-                {t('dashboard.spendingProjection', { amount: mask(formatCurrency(projectedSpend, userCurrency, locale)) })}
+                {t('dashboard.spendingProjection', { amount: mask(formatCurrency(projectedSpend, primaryCurrency, locale)) })}
               </p>
             )}
           </div>
@@ -792,6 +775,11 @@ export default function DashboardPage() {
                         <span className={`text-sm font-semibold tabular-nums ${row.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                           {mask(`${row.type === 'credit' ? '+' : '-'}${formatCurrency(Math.abs(row.amount), row.currency, locale)}`)}
                         </span>
+                        {row.currency !== userCurrency && row.amountPrimary != null && (
+                          <span className="block text-[10px] text-muted-foreground tabular-nums">
+                            {mask(formatCurrency(Math.abs(row.amountPrimary), userCurrency, locale))}
+                          </span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

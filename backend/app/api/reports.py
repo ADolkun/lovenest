@@ -17,13 +17,8 @@ async def get_net_worth(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    currency = getattr(user, "preferences", None)
-    currency_display = "BRL"
-    if currency and isinstance(currency, dict):
-        currency_display = currency.get("currency_display", "BRL")
-
     return await report_service.get_net_worth_report(
-        session, user.id, months, interval, currency_display
+        session, user.id, months, interval, user.primary_currency
     )
 
 
@@ -34,11 +29,6 @@ async def get_income_expenses(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    currency = getattr(user, "preferences", None)
-    currency_display = "BRL"
-    if currency and isinstance(currency, dict):
-        currency_display = currency.get("currency_display", "BRL")
-
     return await report_service.get_income_expenses_report(
-        session, user.id, months, interval, currency_display
+        session, user.id, months, interval, user.primary_currency
     )

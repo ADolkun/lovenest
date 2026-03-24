@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
+import { currencies as currenciesApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +14,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { AlertTriangle } from 'lucide-react'
 import type { Transaction, RecurringTransaction } from '@/types'
 
 export function extractApiError(error: unknown): string {
@@ -116,8 +119,13 @@ function TransactionForm({
 }) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currenciesApi.list,
+    staleTime: Infinity,
+  })
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction?.amount?.toString() ?? '')
   const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0])
@@ -126,15 +134,68 @@ function TransactionForm({
   const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts[0]?.id ?? '')
   const [notes, setNotes] = useState(transaction?.notes ?? '')
+  const [convertedAmount, setConvertedAmount] = useState(
+    transaction?.amount_primary != null ? transaction.amount_primary.toString() : ''
+  )
+  const [fxRate, setFxRate] = useState(
+    transaction?.fx_rate_used != null ? transaction.fx_rate_used.toString() : ''
+  )
   const [isRecurring, setIsRecurring] = useState(false)
   const [frequency, setFrequency] = useState<'monthly' | 'weekly' | 'yearly'>('monthly')
   const [endDate, setEndDate] = useState('')
   const isCreating = !transaction
+  const showConversion = currency !== userCurrency && !isSynced
+
+  const handleConvertedAmountChange = (val: string) => {
+    setConvertedAmount(val)
+    const numVal = parseFloat(val)
+    const numAmount = parseFloat(amount)
+    if (numVal && numAmount) {
+      setFxRate((numVal / numAmount).toString())
+    } else if (!val) {
+      setFxRate('')
+    }
+  }
+
+  const handleFxRateChange = (val: string) => {
+    setFxRate(val)
+    const numRate = parseFloat(val)
+    const numAmount = parseFloat(amount)
+    if (numRate && numAmount) {
+      setConvertedAmount((numAmount * numRate).toFixed(2))
+    } else if (!val) {
+      setConvertedAmount('')
+    }
+  }
+
+  const handleAmountChange = (val: string) => {
+    setAmount(val)
+    const numAmount = parseFloat(val)
+    const numRate = parseFloat(fxRate)
+    if (numRate && numAmount) {
+      setConvertedAmount((numAmount * numRate).toFixed(2))
+    }
+  }
+
+  const handleCurrencyChange = (val: string) => {
+    setCurrency(val)
+    if (val === userCurrency) {
+      setConvertedAmount('')
+      setFxRate('')
+    }
+  }
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
+        const fxFields: Partial<Transaction> = {}
+        if (showConversion && convertedAmount) {
+          fxFields.amount_primary = parseFloat(convertedAmount)
+        }
+        if (showConversion && fxRate) {
+          fxFields.fx_rate_used = parseFloat(fxRate)
+        }
         const txData = isSynced
           ? {
               category_id: categoryId || undefined,
@@ -149,6 +210,7 @@ function TransactionForm({
               category_id: categoryId || undefined,
               account_id: accountId || undefined,
               notes: notes.trim() || undefined,
+              ...fxFields,
             } as Partial<Transaction>
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
@@ -194,7 +256,7 @@ function TransactionForm({
             type="number"
             step="0.01"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => handleAmountChange(e.target.value)}
             required
             disabled={isSynced}
           />
@@ -204,10 +266,12 @@ function TransactionForm({
           <select
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background h-9 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
             value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
+            onChange={(e) => handleCurrencyChange(e.target.value)}
             disabled={isSynced}
           >
-            <option value={userCurrency}>{userCurrency} ({({ BRL: 'R$', USD: '$', EUR: '€', GBP: '£' } as Record<string, string>)[userCurrency] ?? userCurrency})</option>
+            {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
+              <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
+            ))}
           </select>
         </div>
         <div className="space-y-2">
@@ -220,6 +284,42 @@ function TransactionForm({
           />
         </div>
       </div>
+      {showConversion && (
+        <div className="border border-border rounded-md p-3 space-y-2">
+          {transaction?.fx_fallback && (
+            <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span className="text-xs">{t('transactions.fxFallbackBanner')}</span>
+            </div>
+          )}
+          <div>
+            <span className="text-sm font-medium">{t('transactions.conversion')}</span>
+            <span className="text-xs text-muted-foreground ml-2">({t('transactions.conversionHint')})</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <Label className="text-xs">{t('transactions.convertedAmount', { currency: userCurrency })}</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={convertedAmount}
+                onChange={(e) => handleConvertedAmountChange(e.target.value)}
+                placeholder={t('transactions.autoCalculated')}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t('transactions.exchangeRate')}</Label>
+              <Input
+                type="number"
+                step="0.0001"
+                value={fxRate}
+                onChange={(e) => handleFxRateChange(e.target.value)}
+                placeholder={t('transactions.autoCalculated')}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{t('transactions.type')}</Label>

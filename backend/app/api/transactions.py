@@ -18,6 +18,13 @@ from app.services import transaction_service
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 
+def _tag_fx_fallback(tx: TransactionRead, primary_currency: str) -> TransactionRead:
+    """Set fx_fallback=True when a cross-currency tx used 1:1 fallback rate."""
+    if tx.currency != primary_currency and tx.fx_rate_used is not None and tx.fx_rate_used == 1.0:
+        tx.fx_fallback = True
+    return tx
+
+
 class PaginatedTransactions(BaseModel):
     items: list[TransactionRead]
     total: int
@@ -44,7 +51,9 @@ async def list_transactions(
         session, user.id, account_id, category_id, from_date, to_date, page, limit,
         include_opening_balance, search=q, uncategorized=uncategorized, txn_type=type,
     )
-    return PaginatedTransactions(items=transactions, total=total, page=page, limit=limit)
+    primary_currency = user.primary_currency
+    items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
+    return PaginatedTransactions(items=items, total=total, page=page, limit=limit)
 
 
 @router.get("/export")
@@ -67,7 +76,7 @@ async def export_transactions(
     output = io.StringIO()
     output.write("\ufeff")  # UTF-8 BOM for Excel
     writer = csv.writer(output)
-    writer.writerow(["date", "description", "amount", "type", "currency", "category", "account", "payee", "notes", "status", "source"])
+    writer.writerow(["date", "description", "amount", "type", "currency", "category", "account", "payee", "notes", "status", "source", "amount_primary", "fx_rate_used"])
     for tx in transactions:
         writer.writerow([
             tx.date.isoformat(),
@@ -81,6 +90,8 @@ async def export_transactions(
             tx.notes or "",
             tx.status,
             tx.source,
+            str(tx.amount_primary) if tx.amount_primary is not None else "",
+            str(tx.fx_rate_used) if tx.fx_rate_used is not None else "",
         ])
 
     output.seek(0)
@@ -113,7 +124,8 @@ async def get_transaction(
     transaction = await transaction_service.get_transaction(session, transaction_id, user.id)
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    return transaction
+    primary_currency = user.primary_currency
+    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
 
 
 @router.post("", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
@@ -124,7 +136,9 @@ async def create_transaction(
 ):
     try:
         transaction = await transaction_service.create_transaction(session, user.id, data)
-        return await transaction_service.get_transaction(session, transaction.id, user.id)
+        full_tx = await transaction_service.get_transaction(session, transaction.id, user.id)
+        primary_currency = user.primary_currency
+        return _tag_fx_fallback(TransactionRead.model_validate(full_tx, from_attributes=True), primary_currency)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -139,7 +153,8 @@ async def update_transaction(
     transaction = await transaction_service.update_transaction(session, transaction_id, user.id, data)
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    return transaction
+    primary_currency = user.primary_currency
+    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)

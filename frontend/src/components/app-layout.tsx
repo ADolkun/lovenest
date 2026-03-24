@@ -54,14 +54,14 @@ const navItems = [
   { key: 'import', path: '/import', icon: Upload },
 ] as const
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 export function AppLayout() {
   const { t, i18n } = useTranslation()
   const { user, logout, updateUser } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { theme, setTheme } = useTheme()
   const location = useLocation()

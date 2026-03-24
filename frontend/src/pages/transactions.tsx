@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Check, Download, Search, X } from 'lucide-react'
+import { AlertTriangle, Check, Download, Search, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -23,7 +23,7 @@ import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
@@ -38,7 +38,7 @@ export default function TransactionsPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [filterAccount, setFilterAccount] = useState<string>('')
@@ -418,6 +418,16 @@ export default function TransactionsPage() {
                     <span className={`text-xs md:text-sm font-bold tabular-nums ${tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                       {mask(`${tx.type === 'credit' ? '+' : '−'}${formatCurrency(Math.abs(Number(tx.amount)), tx.currency, locale)}`)}
                     </span>
+                    {tx.amount_primary != null && tx.currency !== userCurrency && (
+                      <div className="flex items-center justify-end gap-1">
+                        {tx.fx_fallback && (
+                          <span title={t('transactions.fxFallbackTooltip')}><AlertTriangle size={11} className="text-amber-500 shrink-0" /></span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {mask(formatCurrency(Math.abs(tx.amount_primary), userCurrency, locale))}
+                        </span>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

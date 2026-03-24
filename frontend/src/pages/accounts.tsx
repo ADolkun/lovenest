@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { accounts, connections } from '@/lib/api'
+import { accounts, connections, currencies } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,7 +39,7 @@ import { ConnectionSettingsDialog } from '@/components/connection-settings-dialo
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
@@ -59,6 +59,8 @@ export default function AccountsPage() {
   const { t, i18n } = useTranslation()
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
@@ -242,9 +244,16 @@ export default function AccountsPage() {
                           <Trash2 size={13} />
                         </button>
                       </div>
-                      <p className={`text-xs sm:text-sm font-semibold tabular-nums text-right ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                        {mask(formatCurrency(bal, acc.currency, locale))}
-                      </p>
+                      <div className="text-right">
+                        <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
+                          {mask(formatCurrency(bal, acc.currency, locale))}
+                        </p>
+                        {acc.balance_primary != null && acc.currency !== userCurrency && (
+                          <p className="text-[10px] text-muted-foreground tabular-nums">
+                            {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -360,9 +369,16 @@ export default function AccountsPage() {
                               >
                                 <Archive size={13} />
                               </button>
-                              <p className={`text-xs sm:text-sm font-semibold tabular-nums text-right ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                                {mask(formatCurrency(bal, acc.currency, locale))}
-                              </p>
+                              <div className="text-right">
+                                <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
+                                  {mask(formatCurrency(bal, acc.currency, locale))}
+                                </p>
+                                {acc.balance_primary != null && acc.currency !== userCurrency && (
+                                  <p className="text-[10px] text-muted-foreground tabular-nums">
+                                    {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
+                                  </p>
+                                )}
+                              </div>
                             </div>
                           )
                         })}
@@ -536,7 +552,12 @@ function AccountDialog({
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currencies.list,
+    staleTime: Infinity,
+  })
   const [name, setName] = useState(account?.name ?? '')
   const [type, setType] = useState(account?.type ?? 'checking')
   const [balance, setBalance] = useState(account?.balance?.toString() ?? '0')
@@ -593,7 +614,9 @@ function AccountDialog({
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
               >
-                <option value={userCurrency}>{userCurrency} ({({ BRL: 'R$', USD: '$', EUR: '€', GBP: '£' } as Record<string, string>)[userCurrency] ?? userCurrency})</option>
+                {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
+                ))}
               </select>
             </div>
           </div>

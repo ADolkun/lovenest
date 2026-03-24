@@ -21,6 +21,8 @@ class TransactionData:
     amount: Decimal
     date: date
     type: str  # debit, credit
+    currency: Optional[str] = None  # ISO currency code (e.g. BRL, USD)
+    amount_in_account_currency: Optional[Decimal] = None  # Bank-provided conversion for intl txns
     pluggy_category: Optional[str] = None
     status: str = "posted"  # posted, pending
     payee: Optional[str] = None
@@ -38,6 +40,26 @@ class ConnectionData:
 @dataclass
 class ConnectTokenData:
     access_token: str
+
+
+class FxRateProvider(ABC):
+    """Abstract interface for FX rate providers."""
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique provider identifier (e.g. 'openexchangerates')."""
+        ...
+
+    @abstractmethod
+    async def fetch_latest(self) -> dict[str, Decimal]:
+        """Return {currency_code: rate_vs_USD} for latest rates."""
+        ...
+
+    @abstractmethod
+    async def fetch_historical(self, target_date: date) -> dict[str, Decimal]:
+        """Return rates for a specific date."""
+        ...
 
 
 class BankProvider(ABC):

@@ -61,6 +61,7 @@ export interface Account {
   balance: number
   current_balance: number
   previous_balance: number | null
+  balance_primary: number | null
   currency: string
   is_closed: boolean
   closed_at: string | null
@@ -90,6 +91,9 @@ export interface Transaction {
   payee: string | null
   notes: string | null
   transfer_pair_id: string | null
+  amount_primary: number | null
+  fx_rate_used: number | null
+  fx_fallback: boolean
 }
 
 export interface RuleCondition {
@@ -142,12 +146,15 @@ export interface RecurringTransaction {
   end_date: string | null
   is_active: boolean
   next_occurrence: string
+  amount_primary: number | null
+  fx_rate_used: number | null
 }
 
 export interface ProjectedTransaction {
   recurring_id: string
   description: string
   amount: number
+  amount_primary: number | null
   currency: string
   type: 'debit' | 'credit'
   date: string
@@ -159,13 +166,18 @@ export interface ProjectedTransaction {
 
 export interface DashboardSummary {
   total_balance: Record<string, number>
+  total_balance_primary: number
   balance_date: string
   monthly_income: number
   monthly_expenses: number
+  monthly_income_primary: number
+  monthly_expenses_primary: number
   accounts_count: number
   pending_categorization: number
   pending_categorization_amount: number
   assets_value: Record<string, number>
+  assets_value_primary: number
+  primary_currency: string
 }
 
 export interface SpendingByCategory {
@@ -235,7 +247,9 @@ export interface Asset {
   is_archived: boolean
   position: number
   current_value: number | null
+  current_value_primary: number | null
   gain_loss: number | null
+  gain_loss_primary: number | null
   value_count: number
 }
 

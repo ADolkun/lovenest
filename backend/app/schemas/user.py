@@ -6,10 +6,10 @@ from pydantic import BaseModel
 
 
 class UserPreferences(BaseModel):
-    language: str = "pt-BR"
-    date_format: str = "DD/MM/YYYY"
-    timezone: str = "America/Sao_Paulo"
-    currency_display: str = "BRL"
+    language: str = "en"
+    date_format: str = "MM/DD/YYYY"
+    timezone: str = "UTC"
+    currency_display: str = "USD"
     onboarding_completed: bool = False
 
 

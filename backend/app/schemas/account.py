@@ -10,7 +10,7 @@ class AccountBase(BaseModel):
     name: str
     type: str
     balance: Decimal
-    currency: str = "BRL"
+    currency: str = "USD"
 
 
 class AccountCreate(BaseModel):
@@ -18,7 +18,7 @@ class AccountCreate(BaseModel):
     type: str
     balance: Decimal = Decimal("0.00")
     balance_date: Optional[date] = None
-    currency: str = "BRL"
+    currency: str = "USD"
 
 
 class AccountUpdate(BaseModel):
@@ -35,6 +35,7 @@ class AccountRead(AccountBase):
     external_id: Optional[str] = None
     current_balance: float = 0.0
     previous_balance: Optional[float] = None
+    balance_primary: Optional[float] = None
     is_closed: bool = False
     closed_at: Optional[datetime] = None
 

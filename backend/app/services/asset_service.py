@@ -6,9 +6,12 @@ from typing import Optional
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
+from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetRead, AssetValueRead
+from app.services.fx_rate_service import convert, stamp_primary_amount
 
 
 def _next_due_date(last_date: date, frequency: str) -> date:
@@ -225,6 +228,16 @@ async def create_asset(
             for v in backfill:
                 session.add(v)
 
+    # Stamp purchase_price_primary
+    if asset.purchase_price is not None:
+        await stamp_primary_amount(
+            session, user_id, asset,
+            amount_field="purchase_price",
+            primary_field="purchase_price_primary",
+            rate_field="_no_rate",  # Asset has no rate field
+            date_field="purchase_date",
+        )
+
     await session.commit()
     await session.refresh(asset)
     latest = await _get_latest_value(session, asset.id)
@@ -278,6 +291,17 @@ async def update_asset(
             )
             for v in backfill:
                 session.add(v)
+
+    # Re-stamp purchase_price_primary if purchase_price or currency changed
+    if "purchase_price" in update_data or "currency" in update_data:
+        if asset.purchase_price is not None:
+            await stamp_primary_amount(
+                session, user_id, asset,
+                amount_field="purchase_price",
+                primary_field="purchase_price_primary",
+                rate_field="_no_rate",
+                date_field="purchase_date",
+            )
 
     await session.commit()
     await session.refresh(asset)
@@ -403,9 +427,17 @@ async def get_portfolio_trend(
     asset_values_map: dict[str, list[tuple[date, float]]] = {}
     all_dates: set[date] = set()
 
+    # Get user's primary currency for conversion
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    # Map asset_id -> currency for conversion
+    asset_currency: dict[str, str] = {}
+
     for asset in active_assets:
         aid = str(asset.id)
         asset_meta.append({"id": aid, "name": asset.name, "type": asset.type})
+        asset_currency[aid] = asset.currency
 
         rows = await session.execute(
             select(AssetValue.date, AssetValue.amount)
@@ -458,8 +490,18 @@ async def get_portfolio_trend(
         row["_total"] = round(date_total, 2)
         trend.append(row)
 
-    # Total = sum of last known values
-    total = sum(last_known[a["id"]] for a in asset_meta)
+    # Total = sum of last known values, converted to primary currency
+    total = 0.0
+    for a in asset_meta:
+        aid = a["id"]
+        val = last_known[aid]
+        if val and asset_currency[aid] != primary_currency:
+            converted, _ = await convert(
+                session, Decimal(str(val)), asset_currency[aid], primary_currency,
+            )
+            total += float(converted)
+        else:
+            total += val
 
     return {"assets": asset_meta, "trend": trend, "total": round(total, 2)}
 

@@ -51,7 +51,7 @@ async def create_user(email: str, password: str) -> None:
                 "language": "pt-BR",
                 "date_format": "DD/MM/YYYY",
                 "timezone": "America/Sao_Paulo",
-                "currency_display": "BRL",
+                "currency_display": "USD",
             },
         )
         session.add(user)

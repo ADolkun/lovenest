@@ -1,9 +1,15 @@
+import uuid
 from datetime import date
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.import_service import parse_csv, parse_ofx, parse_qif, parse_camt
+from app.models.account import Account
+from app.models.fx_rate import FxRate
+from app.models.user import User
+from app.services.import_service import parse_csv, parse_ofx, parse_qif, parse_camt, import_transactions
 
 
 class TestParseCsv:
@@ -516,3 +522,361 @@ class TestParseOfx:
         assert transactions[1].external_id == "FITID_002"
         assert transactions[0].amount == transactions[1].amount
         assert transactions[0].description == transactions[1].description
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MULTI-CURRENCY PARSING TESTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCsvCurrencyParsing:
+    """Tests for CSV parsing with currency and fx_rate columns."""
+
+    def test_parse_csv_with_currency_column(self):
+        """CSV with a 'currency' column should populate the currency field."""
+        csv_content = (
+            "date,description,amount,currency\n"
+            "2026-01-10,Amazon Purchase,-120.50,USD\n"
+            "2026-01-11,Local Store,-45.00,BRL\n"
+            "2026-01-12,Euro Payment,-80.00,EUR\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 3
+        assert transactions[0].currency == "USD"
+        assert transactions[1].currency == "BRL"
+        assert transactions[2].currency == "EUR"
+
+    def test_parse_csv_with_moeda_column(self):
+        """CSV with Portuguese 'moeda' column should detect currency."""
+        csv_content = (
+            "data,descricao,valor,moeda\n"
+            "10/01/2026,AMAZON,-120.50,USD\n"
+            "11/01/2026,PIX RECEBIDO,500.00,BRL\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 2
+        assert transactions[0].currency == "USD"
+        assert transactions[1].currency == "BRL"
+
+    def test_parse_csv_with_fx_rate_column(self):
+        """CSV with 'fx_rate' column should populate the fx_rate field."""
+        csv_content = (
+            "date,description,amount,currency,fx_rate\n"
+            "2026-01-10,Amazon Purchase,-120.50,USD,5.25\n"
+            "2026-01-11,Local Store,-45.00,BRL,\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 2
+        assert transactions[0].currency == "USD"
+        assert transactions[0].fx_rate == Decimal("5.25")
+        assert transactions[1].currency == "BRL"
+        assert transactions[1].fx_rate is None
+
+    def test_parse_csv_with_taxa_cambio_column(self):
+        """CSV with Portuguese 'taxa_cambio' column should detect fx_rate."""
+        csv_content = (
+            "data,descricao,valor,moeda,taxa_cambio\n"
+            '10/01/2026,COMPRA EXTERIOR,-200.00,USD,"5,30"\n'
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 1
+        assert transactions[0].fx_rate == Decimal("5.30")
+
+    def test_parse_csv_without_currency_column(self):
+        """CSV without currency column should leave currency as None."""
+        csv_content = (
+            "date,description,amount\n"
+            "2026-01-10,GROCERY,-50.00\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 1
+        assert transactions[0].currency is None
+        assert transactions[0].fx_rate is None
+
+
+class TestCamtCurrencyParsing:
+    """Tests for CAMT parsing with currency extraction."""
+
+    def _make_camt_xml(self, entries_xml: str) -> bytes:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">'
+            '<BkToCstmrStmt><Stmt>'
+            f'{entries_xml}'
+            '</Stmt></BkToCstmrStmt>'
+            '</Document>'
+        ).encode('utf-8')
+
+    def test_parse_camt_extracts_currency(self):
+        """CAMT parser should extract currency from Ccy attribute on Amt element."""
+        entries = (
+            '<Ntry>'
+            '<Amt Ccy="USD">500.00</Amt>'
+            '<CdtDbtInd>DBIT</CdtDbtInd>'
+            '<BookgDt><Dt>2026-01-15</Dt></BookgDt>'
+            '<NtryDtls><TxDtls><RmtInf><Ustrd>Wire Transfer</Ustrd></RmtInf></TxDtls></NtryDtls>'
+            '</Ntry>'
+            '<Ntry>'
+            '<Amt Ccy="EUR">300.00</Amt>'
+            '<CdtDbtInd>CRDT</CdtDbtInd>'
+            '<BookgDt><Dt>2026-01-16</Dt></BookgDt>'
+            '<NtryDtls><TxDtls><RmtInf><Ustrd>Euro Payment</Ustrd></RmtInf></TxDtls></NtryDtls>'
+            '</Ntry>'
+        )
+        transactions = parse_camt(self._make_camt_xml(entries))
+
+        assert len(transactions) == 2
+        assert transactions[0].currency == "USD"
+        assert transactions[1].currency == "EUR"
+
+    def test_parse_camt_no_ccy_attribute(self):
+        """CAMT entries without Ccy attribute should have currency=None."""
+        entries = (
+            '<Ntry>'
+            '<Amt>100.00</Amt>'
+            '<CdtDbtInd>DBIT</CdtDbtInd>'
+            '<BookgDt><Dt>2026-01-15</Dt></BookgDt>'
+            '<NtryDtls><TxDtls><RmtInf><Ustrd>Test</Ustrd></RmtInf></TxDtls></NtryDtls>'
+            '</Ntry>'
+        )
+        transactions = parse_camt(self._make_camt_xml(entries))
+
+        assert len(transactions) == 1
+        assert transactions[0].currency is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# IMPORT TRANSACTIONS WITH FX — INTEGRATION TESTS (mocked FX provider)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+async def _insert_fx_rate(session: AsyncSession, quote_currency: str, rate: Decimal, rate_date: date) -> None:
+    """Insert a test FX rate (base=USD)."""
+    fx = FxRate(base_currency="USD", quote_currency=quote_currency, date=rate_date, rate=rate, source="test")
+    session.add(fx)
+    await session.commit()
+
+
+class TestImportTransactionsFx:
+    """Tests for import_transactions with multi-currency and FX rate handling.
+
+    All tests mock the external OER provider to avoid real API calls.
+    """
+
+    @pytest.mark.asyncio
+    @patch("app.services.fx_rate_service._provider")
+    async def test_import_with_fx_rate_from_csv(self, mock_provider, session: AsyncSession, test_user: User, test_account: Account):
+        """When CSV provides fx_rate, it should be used directly without calling FX service."""
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        txns = [
+            TransactionBase(
+                description="Amazon US",
+                amount=Decimal("100.00"),
+                date=date(2026, 1, 15),
+                type="debit",
+                currency="USD",
+                fx_rate=Decimal("5.25"),
+            ),
+        ]
+
+        imported, skipped, _ = await import_transactions(
+            session, test_user.id, test_account.id, txns, "csv",
+        )
+
+        assert imported == 1
+        assert skipped == 0
+
+        # Verify the transaction was saved with correct FX fields
+        result = await session.execute(
+            select(Transaction).where(Transaction.description == "Amazon US")
+        )
+        tx = result.scalar_one()
+        assert tx.currency == "USD"
+        assert tx.fx_rate_used == Decimal("5.25")
+        assert tx.amount_primary == Decimal("525.00")  # 100 * 5.25
+
+        # Provider should NOT have been called since fx_rate was provided
+        mock_provider.fetch_latest.assert_not_called()
+        mock_provider.fetch_historical.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("app.services.fx_rate_service._provider")
+    async def test_import_foreign_currency_without_fx_rate_auto_converts(
+        self, mock_provider, session: AsyncSession, test_user: User, test_account: Account,
+    ):
+        """When no fx_rate is provided, stamp_primary_amount should auto-convert using DB rates."""
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        # Insert known FX rates so stamp_primary_amount can convert
+        await _insert_fx_rate(session, "BRL", Decimal("5.0000"), date(2026, 1, 15))
+        await _insert_fx_rate(session, "EUR", Decimal("0.9200"), date(2026, 1, 15))
+
+        # Mock the provider to prevent real API calls during on-demand sync
+        mock_provider.fetch_latest = AsyncMock(return_value={})
+        mock_provider.fetch_historical = AsyncMock(return_value={})
+
+        txns = [
+            TransactionBase(
+                description="Euro Store",
+                amount=Decimal("100.00"),
+                date=date(2026, 1, 15),
+                type="debit",
+                currency="EUR",
+            ),
+        ]
+
+        imported, _, _ = await import_transactions(
+            session, test_user.id, test_account.id, txns, "csv",
+        )
+
+        assert imported == 1
+
+        result = await session.execute(
+            select(Transaction).where(Transaction.description == "Euro Store")
+        )
+        tx = result.scalar_one()
+        assert tx.currency == "EUR"
+        # stamp_primary_amount should have converted EUR -> BRL
+        # Rate: EUR/USD = 0.92, BRL/USD = 5.00 => EUR->BRL = 5.00/0.92 ≈ 5.4348
+        assert tx.amount_primary is not None
+        assert float(tx.amount_primary) > 500  # 100 EUR * ~5.43 = ~543
+
+    @pytest.mark.asyncio
+    @patch("app.services.fx_rate_service._provider")
+    async def test_import_uses_account_currency_as_default(
+        self, mock_provider, session: AsyncSession, test_user: User,
+    ):
+        """When transaction has no currency, the account's currency should be used."""
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        # Create a USD account
+        usd_account = Account(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            name="USD Checking",
+            type="checking",
+            balance=Decimal("5000.00"),
+            currency="USD",
+        )
+        session.add(usd_account)
+        await session.commit()
+        await session.refresh(usd_account)
+
+        # Insert FX rates for conversion
+        await _insert_fx_rate(session, "BRL", Decimal("5.0000"), date(2026, 2, 10))
+
+        mock_provider.fetch_latest = AsyncMock(return_value={})
+        mock_provider.fetch_historical = AsyncMock(return_value={})
+
+        txns = [
+            TransactionBase(
+                description="ATM Withdrawal",
+                amount=Decimal("200.00"),
+                date=date(2026, 2, 10),
+                type="debit",
+                # No currency set — should inherit from account
+            ),
+        ]
+
+        imported, _, _ = await import_transactions(
+            session, test_user.id, usd_account.id, txns, "csv",
+        )
+
+        assert imported == 1
+
+        result = await session.execute(
+            select(Transaction).where(Transaction.description == "ATM Withdrawal")
+        )
+        tx = result.scalar_one()
+        # Should have inherited USD from the account
+        assert tx.currency == "USD"
+
+    @pytest.mark.asyncio
+    @patch("app.services.fx_rate_service._provider")
+    async def test_import_brl_into_brl_account_no_fx(
+        self, mock_provider, session: AsyncSession, test_user: User, test_account: Account,
+    ):
+        """Importing BRL transactions into a BRL account should not trigger FX conversion."""
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        txns = [
+            TransactionBase(
+                description="Supermercado",
+                amount=Decimal("150.00"),
+                date=date(2026, 3, 1),
+                type="debit",
+                # No currency — account is BRL, user primary is BRL
+            ),
+        ]
+
+        imported, _, _ = await import_transactions(
+            session, test_user.id, test_account.id, txns, "csv",
+        )
+
+        assert imported == 1
+
+        result = await session.execute(
+            select(Transaction).where(Transaction.description == "Supermercado")
+        )
+        tx = result.scalar_one()
+        assert tx.currency == "BRL"
+        # For same-currency (BRL->BRL), amount_primary should equal amount
+        # (stamp_primary_amount returns 1:1 for same currency)
+
+        # Provider should NOT have been called for same-currency import
+        mock_provider.fetch_latest.assert_not_called()
+        mock_provider.fetch_historical.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("app.services.fx_rate_service._provider")
+    async def test_import_csv_currency_overrides_account_currency(
+        self, mock_provider, session: AsyncSession, test_user: User, test_account: Account,
+    ):
+        """CSV-provided currency should take priority over account currency."""
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        await _insert_fx_rate(session, "BRL", Decimal("5.0000"), date(2026, 3, 5))
+        await _insert_fx_rate(session, "GBP", Decimal("0.7900"), date(2026, 3, 5))
+
+        mock_provider.fetch_latest = AsyncMock(return_value={})
+        mock_provider.fetch_historical = AsyncMock(return_value={})
+
+        txns = [
+            TransactionBase(
+                description="London Hotel",
+                amount=Decimal("300.00"),
+                date=date(2026, 3, 5),
+                type="debit",
+                currency="GBP",  # Explicit currency from CSV, account is BRL
+            ),
+        ]
+
+        imported, _, _ = await import_transactions(
+            session, test_user.id, test_account.id, txns, "csv",
+        )
+
+        assert imported == 1
+
+        result = await session.execute(
+            select(Transaction).where(Transaction.description == "London Hotel")
+        )
+        tx = result.scalar_one()
+        # Currency from CSV should override account currency
+        assert tx.currency == "GBP"
+        assert tx.amount_primary is not None

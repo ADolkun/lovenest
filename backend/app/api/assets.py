@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from app.core.database import get_async_session
 from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetRead, AssetUpdate, AssetValueCreate, AssetValueRead
 from app.services import asset_service
+from app.services.fx_rate_service import convert
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -18,7 +20,20 @@ async def list_assets(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    return await asset_service.get_assets(session, user.id, include_archived=include_archived)
+    assets = await asset_service.get_assets(session, user.id, include_archived=include_archived)
+    primary_currency = user.primary_currency
+    for asset in assets:
+        if asset.currency != primary_currency and asset.current_value is not None:
+            converted, _ = await convert(
+                session, Decimal(str(asset.current_value)), asset.currency, primary_currency,
+            )
+            asset.current_value_primary = float(converted)
+            if asset.gain_loss is not None:
+                gl_converted, _ = await convert(
+                    session, Decimal(str(asset.gain_loss)), asset.currency, primary_currency,
+                )
+                asset.gain_loss_primary = float(gl_converted)
+    return assets
 
 
 @router.get("/portfolio-trend")

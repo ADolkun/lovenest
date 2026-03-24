@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,6 +11,7 @@ from app.core.database import get_async_session
 from app.models.user import User
 from app.schemas.account import AccountCreate, AccountRead, AccountUpdate, AccountSummary
 from app.services import account_service
+from app.services.fx_rate_service import convert
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -20,7 +22,15 @@ async def list_accounts(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    return await account_service.get_accounts(session, user.id, include_closed=include_closed)
+    accounts = await account_service.get_accounts(session, user.id, include_closed=include_closed)
+    primary_currency = user.primary_currency
+    for acc in accounts:
+        if acc["currency"] != primary_currency:
+            converted, _ = await convert(
+                session, Decimal(str(acc["current_balance"])), acc["currency"], primary_currency,
+            )
+            acc["balance_primary"] = float(converted)
+    return accounts
 
 
 @router.get("/{account_id}/summary", response_model=AccountSummary)

@@ -1,14 +1,18 @@
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 
 from sqlalchemy import String, select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.transaction import Transaction
 from app.models.category import Category
+from app.models.user import User
+from app.services.fx_rate_service import convert
 from app.schemas.report import (
     CategoryTrendItem,
     ReportBreakdown,
@@ -22,9 +26,11 @@ from app.services.dashboard_service import _get_open_accounts, _account_balance_
 
 
 async def _asset_value_at(
-    session: AsyncSession, user_id: uuid.UUID, cutoff: date
+    session: AsyncSession, user_id: uuid.UUID, cutoff: date,
+    primary_currency: str = "USD",
 ) -> float:
-    """Sum of all active (non-archived, non-sold) asset values at a given date.
+    """Sum of all active (non-archived, non-sold) asset values at a given date,
+    converted to primary currency.
 
     For each asset, finds the most recent AssetValue with date <= cutoff.
     Falls back to purchase_price if no value entries exist before the cutoff
@@ -52,20 +58,27 @@ async def _asset_value_at(
             .limit(1)
         )
         row = val_result.scalar_one_or_none()
+        amount = 0.0
         if row is not None:
-            total += float(row)
+            amount = float(row)
         elif asset.purchase_price is not None:
-            # Fall back to purchase_price if the asset existed by cutoff
             if asset.purchase_date is None or asset.purchase_date <= cutoff:
-                total += float(asset.purchase_price)
+                amount = float(asset.purchase_price)
+
+        if amount != 0.0:
+            converted, _ = await convert(
+                session, Decimal(str(amount)), asset.currency, primary_currency, cutoff
+            )
+            total += float(converted)
 
     return total
 
 
 async def _net_worth_at(
-    session: AsyncSession, user_id: uuid.UUID, cutoff: date
+    session: AsyncSession, user_id: uuid.UUID, cutoff: date,
+    primary_currency: str = "USD",
 ) -> ReportDataPoint:
-    """Compute a single net worth snapshot at a given date."""
+    """Compute a single net worth snapshot at a given date, converted to primary currency."""
     accounts = await _get_open_accounts(session, user_id)
 
     accounts_total = 0.0
@@ -73,13 +86,20 @@ async def _net_worth_at(
 
     for account in accounts:
         bal = await _account_balance_at(session, account, cutoff)
+        # Convert to primary currency
+        converted, _ = await convert(
+            session, Decimal(str(abs(bal))), account.currency, primary_currency, cutoff
+        )
+        converted_val = float(converted)
         if account.type == "credit_card":
-            # _account_balance_at already negates credit_card; show as positive liability
-            liabilities_total += abs(bal)
+            liabilities_total += converted_val
         else:
-            accounts_total += bal
+            if bal < 0:
+                accounts_total -= converted_val
+            else:
+                accounts_total += converted_val
 
-    assets_total = await _asset_value_at(session, user_id, cutoff)
+    assets_total = await _asset_value_at(session, user_id, cutoff, primary_currency)
     net_worth = accounts_total + assets_total - liabilities_total
 
     return ReportDataPoint(
@@ -158,19 +178,23 @@ async def get_net_worth_report(
     user_id: uuid.UUID,
     months: int = 12,
     interval: str = "monthly",
-    currency: str = "BRL",
+    currency: str = "USD",
 ) -> ReportResponse:
     """Build a full ReportResponse for net worth over time."""
     today = date.today()
     start = date(today.year, today.month, 1) - timedelta(days=months * 30)
     start = start.replace(day=1)  # Align to month start
 
+    # Get user's primary currency
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
     points = _date_points(start, today, interval)
 
     # Compute snapshot at each date point
     trend: list[ReportDataPoint] = []
     for point in points:
-        dp = await _net_worth_at(session, user_id, point)
+        dp = await _net_worth_at(session, user_id, point, primary_currency)
         dp.date = _format_date_label(point, interval)
         trend.append(dp)
 
@@ -216,7 +240,7 @@ async def get_net_worth_report(
     meta = ReportMeta(
         type="net_worth",
         series_keys=["accounts", "assets", "liabilities"],
-        currency=currency,
+        currency=primary_currency,
         interval=interval,
     )
 
@@ -239,11 +263,15 @@ async def get_net_worth_report(
     accounts = await _get_open_accounts(session, user_id)
     for account in accounts:
         bal = await _account_balance_at(session, account, today)
+        converted, _ = await convert(
+            session, Decimal(str(abs(bal))), account.currency, primary_currency, today
+        )
+        converted_val = float(converted)
         if account.type == "credit_card":
             composition.append(ReportCompositionItem(
                 key=str(account.id),
                 label=account.name,
-                value=round(abs(bal), 2),
+                value=round(converted_val, 2),
                 color=account_type_colors.get(account.type, "#6B7280"),
                 group="liabilities",
             ))
@@ -252,7 +280,7 @@ async def get_net_worth_report(
                 composition.append(ReportCompositionItem(
                     key=str(account.id),
                     label=account.name,
-                    value=round(bal, 2),
+                    value=round(converted_val, 2),
                     color=account_type_colors.get(account.type, "#6B7280"),
                     group="accounts",
                 ))
@@ -282,10 +310,13 @@ async def get_net_worth_report(
         else:
             amount = 0.0
         if amount > 0:
+            converted, _ = await convert(
+                session, Decimal(str(amount)), asset.currency, primary_currency, today
+            )
             composition.append(ReportCompositionItem(
                 key=str(asset.id),
                 label=asset.name,
-                value=round(amount, 2),
+                value=round(float(converted), 2),
                 color=asset_type_colors.get(asset.type, "#6B7280"),
                 group="assets",
             ))
@@ -314,20 +345,27 @@ async def get_income_expenses_report(
     user_id: uuid.UUID,
     months: int = 12,
     interval: str = "monthly",
-    currency: str = "BRL",
+    currency: str = "USD",
 ) -> ReportResponse:
     """Build a ReportResponse for income vs expenses over time."""
     today = date.today()
     start = date(today.year, today.month, 1) - timedelta(days=months * 30)
     start = start.replace(day=1)
 
+    # Get user's primary currency
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
     label_expr = _interval_label_expr(interval).label('period')
+
+    # Use amount_primary when available, fall back to amount
+    amount_expr = func.coalesce(Transaction.amount_primary, Transaction.amount)
 
     result = await session.execute(
         select(
             label_expr,
-            func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
-            func.sum(case((Transaction.type == "debit", Transaction.amount), else_=0)),
+            func.sum(case((Transaction.type == "credit", amount_expr), else_=0)),
+            func.sum(case((Transaction.type == "debit", amount_expr), else_=0)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -348,6 +386,32 @@ async def get_income_expenses_report(
         income = float(row[1] or 0)
         expenses = abs(float(row[2] or 0))
         data_map[row[0]] = (income, expenses)
+
+    # Add recurring projections for each month in the range (consistent with dashboard)
+    from app.services.dashboard_service import _month_range, _get_recurring_projections
+    from app.services.fx_rate_service import convert as fx_convert
+
+    cursor = start
+    while cursor <= today:
+        m_start, m_end = _month_range(cursor)
+        projections = await _get_recurring_projections(session, user_id, m_start, m_end)
+        for proj in projections:
+            # Convert to primary currency
+            converted, _ = await fx_convert(
+                session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+            )
+            proj_amount = float(converted)
+            label = _format_date_label(cursor, interval)
+            existing_income, existing_expenses = data_map.get(label, (0.0, 0.0))
+            if proj["type"] == "credit":
+                data_map[label] = (existing_income + proj_amount, existing_expenses)
+            else:
+                data_map[label] = (existing_income, existing_expenses + proj_amount)
+        # Advance to next month
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
 
     # Generate all expected date points and map to results
     points = _date_points(start, today, interval)
@@ -411,7 +475,7 @@ async def get_income_expenses_report(
     meta = ReportMeta(
         type="income_expenses",
         series_keys=["income", "expenses"],
-        currency=currency,
+        currency=primary_currency,
         interval=interval,
     )
 
@@ -422,7 +486,7 @@ async def get_income_expenses_report(
             Category.name,
             Category.color,
             Transaction.type,
-            func.sum(Transaction.amount),
+            func.sum(amount_expr),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -437,19 +501,22 @@ async def get_income_expenses_report(
         )
         .group_by(Category.id, Category.name, Category.color, Transaction.type)
     )
-    composition: list[ReportCompositionItem] = []
+
+    # Collect composition into a mutable map so projections can be added
+    # Key: (cat_key, group) -> {label, color, value}
+    comp_map: dict[tuple[str, str], dict] = {}
     for row in cat_result.all():
         cat_id, cat_name, cat_color, txn_type, total_amount = row
         amount = abs(float(total_amount or 0))
         if amount <= 0:
             continue
-        composition.append(ReportCompositionItem(
-            key=str(cat_id) if cat_id else "uncategorized",
-            label=cat_name if cat_name else "Uncategorized",
-            value=round(amount, 2),
-            color=cat_color if cat_color else "#6B7280",
-            group="income" if txn_type == "credit" else "expenses",
-        ))
+        cat_key = str(cat_id) if cat_id else "uncategorized"
+        group = "income" if txn_type == "credit" else "expenses"
+        comp_map[(cat_key, group)] = {
+            "label": cat_name if cat_name else "Uncategorized",
+            "color": cat_color if cat_color else "#6B7280",
+            "value": amount,
+        }
 
     # Build per-category trend (sparklines) for the full date range
     cat_trend_result = await session.execute(
@@ -459,7 +526,7 @@ async def get_income_expenses_report(
             Category.name,
             Category.color,
             Transaction.type,
-            func.sum(Transaction.amount),
+            func.sum(amount_expr),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -496,6 +563,79 @@ async def get_income_expenses_report(
         cat_trend_map[map_key]["periods"][period_label] = (
             cat_trend_map[map_key]["periods"].get(period_label, 0.0) + amount
         )
+
+    # Add recurring projections to composition and category trend
+    cat_cache: dict[str, dict] = {}
+    cursor2 = start
+    while cursor2 <= today:
+        m_start, m_end = _month_range(cursor2)
+        projections = await _get_recurring_projections(session, user_id, m_start, m_end)
+        period_label = _format_date_label(cursor2, interval)
+        for proj in projections:
+            cat_id_str = str(proj["category_id"]) if proj["category_id"] else "uncategorized"
+            group = "income" if proj["type"] == "credit" else "expenses"
+
+            # Fetch category info if needed
+            if cat_id_str != "uncategorized" and cat_id_str not in cat_cache:
+                cat_row = await session.execute(
+                    select(Category.name, Category.color)
+                    .where(Category.id == proj["category_id"])
+                )
+                row = cat_row.one_or_none()
+                cat_cache[cat_id_str] = {
+                    "label": row[0] if row else "Uncategorized",
+                    "color": row[1] if row else "#6B7280",
+                }
+
+            info = cat_cache.get(cat_id_str, {"label": "Uncategorized", "color": "#6B7280"})
+
+            # Convert projection amount to primary currency
+            converted, _ = await fx_convert(
+                session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+            )
+            proj_amount = float(converted)
+
+            # Add to composition map
+            comp_key = (cat_id_str, group)
+            if comp_key in comp_map:
+                comp_map[comp_key]["value"] += proj_amount
+            else:
+                comp_map[comp_key] = {
+                    "label": info["label"],
+                    "color": info["color"],
+                    "value": proj_amount,
+                }
+
+            # Add to category trend map
+            if comp_key not in cat_trend_map:
+                cat_trend_map[comp_key] = {
+                    "label": info["label"],
+                    "color": info["color"],
+                    "total": 0.0,
+                    "periods": {},
+                }
+            cat_trend_map[comp_key]["total"] += proj_amount
+            cat_trend_map[comp_key]["periods"][period_label] = (
+                cat_trend_map[comp_key]["periods"].get(period_label, 0.0) + proj_amount
+            )
+
+        if cursor2.month == 12:
+            cursor2 = date(cursor2.year + 1, 1, 1)
+        else:
+            cursor2 = date(cursor2.year, cursor2.month + 1, 1)
+
+    # Build final composition list from map
+    composition: list[ReportCompositionItem] = []
+    for (cat_key, group), info in comp_map.items():
+        if info["value"] <= 0:
+            continue
+        composition.append(ReportCompositionItem(
+            key=cat_key,
+            label=info["label"],
+            value=round(info["value"], 2),
+            color=info["color"],
+            group=group,
+        ))
 
     # Build period labels from the same points used by the trend
     period_labels = [_format_date_label(p, interval) for p in points]

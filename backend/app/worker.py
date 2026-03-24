@@ -31,6 +31,19 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.asset_tasks.apply_asset_growth_rules",
         "schedule": 60 * 60,  # every hour; idempotent (checks last value date)
     },
+    "sync-fx-rates-daily": {
+        "task": "app.tasks.fx_rate_tasks.sync_fx_rates",
+        "schedule": 60 * 60 * 12,  # twice daily (~60 API calls/month)
+    },
+    "restamp-recurring-fx-daily": {
+        "task": "app.tasks.fx_rate_tasks.restamp_recurring_fx",
+        "schedule": 60 * 60 * 12,  # twice daily, after FX rate sync
+    },
 }
 
-celery_app.conf.include = ["app.tasks.sync_tasks", "app.tasks.recurring_tasks", "app.tasks.asset_tasks"]
+celery_app.conf.include = [
+    "app.tasks.sync_tasks",
+    "app.tasks.recurring_tasks",
+    "app.tasks.asset_tasks",
+    "app.tasks.fx_rate_tasks",
+]

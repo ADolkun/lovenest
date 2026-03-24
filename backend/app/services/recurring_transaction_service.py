@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring_transaction import RecurringTransactionCreate, RecurringTransactionUpdate
+from app.services.fx_rate_service import stamp_primary_amount
 
 
 async def get_recurring_transactions(
@@ -53,6 +54,11 @@ async def create_recurring_transaction(
         next_occurrence=next_occ,
     )
     session.add(recurring)
+    await session.flush()
+    await stamp_primary_amount(
+        session, user_id, recurring,
+        date_field="start_date",
+    )
     await session.commit()
     await session.refresh(recurring)
     return recurring
@@ -175,6 +181,8 @@ async def generate_pending(
                 source="recurring",
             )
             session.add(transaction)
+            await session.flush()
+            await stamp_primary_amount(session, user_id, transaction)
             count += 1
 
             # Advance to next occurrence

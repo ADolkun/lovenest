@@ -22,7 +22,7 @@ export default function SetupPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [currency, setCurrency] = useState('BRL')
+  const [currency, setCurrency] = useState('USD')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [checking, setChecking] = useState(true)
@@ -144,10 +144,14 @@ export default function SetupPage() {
               <Label className="text-[13px] font-medium">{t('setup.currency')}</Label>
               <div className="grid grid-cols-4 gap-2">
                 {([
-                  { code: 'BRL', flag: '\u{1F1E7}\u{1F1F7}', symbol: 'R$' },
                   { code: 'USD', flag: '\u{1F1FA}\u{1F1F8}', symbol: '$' },
                   { code: 'EUR', flag: '\u{1F1EA}\u{1F1FA}', symbol: '\u20AC' },
                   { code: 'GBP', flag: '\u{1F1EC}\u{1F1E7}', symbol: '\u00A3' },
+                  { code: 'BRL', flag: '\u{1F1E7}\u{1F1F7}', symbol: 'R$' },
+                  { code: 'CAD', flag: '\u{1F1E8}\u{1F1E6}', symbol: 'C$' },
+                  { code: 'AUD', flag: '\u{1F1E6}\u{1F1FA}', symbol: 'A$' },
+                  { code: 'CHF', flag: '\u{1F1E8}\u{1F1ED}', symbol: 'Fr' },
+                  { code: 'ARS', flag: '\u{1F1E6}\u{1F1F7}', symbol: '$' },
                 ] as const).map(({ code, flag, symbol }) => (
                   <button
                     key={code}

@@ -11,6 +11,33 @@ from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
 from app.services.rule_service import apply_rules_to_transaction
+from app.services.fx_rate_service import stamp_primary_amount
+
+
+def _apply_fx_override(transaction, amount, amount_primary=None, fx_rate_used=None):
+    """Apply manual FX override values to a transaction.
+
+    - Both provided → use as-is
+    - Only amount_primary → derive rate = amount_primary / amount
+    - Only fx_rate_used → derive amount_primary = amount * fx_rate_used
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    amount = Decimal(str(amount))
+    if amount_primary is not None and fx_rate_used is not None:
+        transaction.amount_primary = Decimal(str(amount_primary))
+        transaction.fx_rate_used = Decimal(str(fx_rate_used))
+    elif amount_primary is not None:
+        transaction.amount_primary = Decimal(str(amount_primary))
+        if amount:
+            transaction.fx_rate_used = (Decimal(str(amount_primary)) / amount)
+        else:
+            transaction.fx_rate_used = Decimal("1")
+    elif fx_rate_used is not None:
+        transaction.fx_rate_used = Decimal(str(fx_rate_used))
+        transaction.amount_primary = (amount * Decimal(str(fx_rate_used))).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
 
 async def get_transactions(
@@ -125,13 +152,16 @@ async def create_transaction(
     if not account:
         raise ValueError("Account not found")
 
+    # Resolve currency: explicit value > account currency
+    currency = data.currency or account.currency
+
     transaction = Transaction(
         user_id=user_id,
         account_id=data.account_id,
         category_id=data.category_id,  # use provided category if given
         description=data.description,
         amount=data.amount,
-        currency=data.currency,
+        currency=currency,
         date=data.date,
         type=data.type,
         source="manual",
@@ -143,6 +173,12 @@ async def create_transaction(
     # Apply rules only if no explicit category provided
     if not data.category_id:
         await apply_rules_to_transaction(session, user_id, transaction)
+
+    # Stamp primary currency amount (manual override or auto)
+    if data.amount_primary is not None or data.fx_rate_used is not None:
+        _apply_fx_override(transaction, data.amount, data.amount_primary, data.fx_rate_used)
+    else:
+        await stamp_primary_amount(session, user_id, transaction)
 
     await session.commit()
     await session.refresh(transaction, ["category"])
@@ -156,8 +192,28 @@ async def update_transaction(
     if not transaction:
         return None
 
-    for key, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+
+    # Pop FX override fields before generic setattr loop
+    override_amount_primary = update_data.pop("amount_primary", None)
+    override_fx_rate = update_data.pop("fx_rate_used", None)
+    has_fx_override = override_amount_primary is not None or override_fx_rate is not None
+
+    restamp_fields = {"amount", "currency", "date"}
+    needs_restamp = bool(restamp_fields & update_data.keys())
+
+    for key, value in update_data.items():
         setattr(transaction, key, value)
+
+    if has_fx_override:
+        _apply_fx_override(
+            transaction,
+            transaction.amount,
+            override_amount_primary,
+            override_fx_rate,
+        )
+    elif needs_restamp:
+        await stamp_primary_amount(session, user_id, transaction)
 
     await session.commit()
     await session.refresh(transaction)

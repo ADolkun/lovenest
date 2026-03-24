@@ -20,7 +20,7 @@ class Asset(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(50))  # real_estate, vehicle, valuable, investment, other
-    currency: Mapped[str] = mapped_column(String(3), default="BRL")
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
     units: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=6), nullable=True)
     valuation_method: Mapped[str] = mapped_column(String(20), default="manual")  # manual, growth_rule
     purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
@@ -31,6 +31,7 @@ class Asset(Base):
     growth_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=6), nullable=True)
     growth_frequency: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # daily, weekly, monthly, yearly
     growth_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    purchase_price_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     position: Mapped[int] = mapped_column(Integer, default=0)
 

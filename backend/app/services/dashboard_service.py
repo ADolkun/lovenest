@@ -1,10 +1,12 @@
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import select, func, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
@@ -13,6 +15,8 @@ from app.models.recurring_transaction import RecurringTransaction
 from app.schemas.dashboard import DashboardSummary, SpendingByCategory, MonthlyTrend, ProjectedTransaction, DailyBalance, BalanceHistory
 from app.services.recurring_transaction_service import get_occurrences_in_range
 from app.services.asset_service import get_total_asset_value
+from app.services.fx_rate_service import convert
+from app.models.user import User
 
 
 def _month_range(month: date) -> tuple[date, date]:
@@ -115,6 +119,10 @@ async def get_summary(
     monthly_income = float(monthly_row[0] or 0)
     monthly_expenses = float(monthly_row[1] or 0)
 
+    # Save real-only totals before adding projections (used for primary init)
+    real_monthly_income = monthly_income
+    real_monthly_expenses = monthly_expenses
+
     # Add virtual recurring projections
     projections = await _get_recurring_projections(session, user_id, month_start, month_end)
     for proj in projections:
@@ -156,15 +164,75 @@ async def get_summary(
     for currency, amount in assets_value.items():
         total_balance[currency] = total_balance.get(currency, 0.0) + amount
 
+    # Get user's primary currency
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    # Convert totals to primary currency
+    total_balance_primary = 0.0
+    for currency, amount in total_balance.items():
+        converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency, cutoff)
+        total_balance_primary += float(converted)
+
+    # Convert income/expenses to primary currency using amount_primary when available
+    # Use real-only totals (without projections) to avoid double-counting;
+    # projections are added separately below via convert().
+    monthly_income_primary = real_monthly_income
+    monthly_expenses_primary = abs(real_monthly_expenses)
+
+    # Use amount_primary sums for more accurate multi-currency income/expenses
+    primary_result = await session.execute(
+        select(
+            func.sum(case((Transaction.type == "credit", Transaction.amount_primary), else_=0)),
+            func.sum(case((Transaction.type == "debit", Transaction.amount_primary), else_=0)),
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Transaction.user_id == user_id,
+            Account.is_closed == False,
+            Transaction.date >= month_start,
+            Transaction.date < month_end,
+            Transaction.source != "opening_balance",
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.amount_primary.isnot(None),
+        )
+    )
+    primary_row = primary_result.one()
+    if primary_row[0] is not None or primary_row[1] is not None:
+        monthly_income_primary = float(primary_row[0] or 0)
+        monthly_expenses_primary = abs(float(primary_row[1] or 0))
+
+    # Add recurring projections to primary totals (convert each)
+    for proj in projections:
+        proj_converted, _ = await convert(
+            session, Decimal(str(proj["amount"])),
+            proj["currency"], primary_currency,
+        )
+        if proj["type"] == "credit":
+            monthly_income_primary += float(proj_converted)
+        else:
+            monthly_expenses_primary += float(proj_converted)
+
+    # Convert asset values to primary currency
+    assets_value_primary = 0.0
+    for currency, amount in assets_value.items():
+        converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency)
+        assets_value_primary += float(converted)
+
     return DashboardSummary(
         total_balance=total_balance,
+        total_balance_primary=round(total_balance_primary, 2),
         balance_date=cutoff.isoformat(),
         monthly_income=monthly_income,
         monthly_expenses=abs(monthly_expenses),
+        monthly_income_primary=round(monthly_income_primary, 2),
+        monthly_expenses_primary=round(monthly_expenses_primary, 2),
         accounts_count=accounts_count,
         pending_categorization=pending_categorization,
         pending_categorization_amount=pending_categorization_amount,
         assets_value=assets_value,
+        assets_value_primary=round(assets_value_primary, 2),
+        primary_currency=primary_currency,
     )
 
 
@@ -177,13 +245,14 @@ async def get_spending_by_category(
     month_start, month_end = _month_range(month)
 
     # Real transactions grouped by category (exclude transfer pairs and closed accounts)
+    # Use amount_primary for multi-currency support
     result = await session.execute(
         select(
             Category.id,
             Category.name,
             Category.icon,
             Category.color,
-            func.sum(Transaction.amount),
+            func.sum(_primary_amount_expr()),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -197,7 +266,7 @@ async def get_spending_by_category(
             Transaction.transfer_pair_id.is_(None),
         )
         .group_by(Category.id, Category.name, Category.icon, Category.color)
-        .order_by(func.sum(Transaction.amount).desc())
+        .order_by(func.sum(_primary_amount_expr()).desc())
     )
 
     # Build a dict of category_id -> {name, icon, color, total}
@@ -211,8 +280,10 @@ async def get_spending_by_category(
             "total": abs(float(row[4] or 0)),
         }
 
-    # Add virtual recurring projections (debit only)
+    # Add virtual recurring projections (debit only), converted to primary currency
     projections = await _get_recurring_projections(session, user_id, month_start, month_end)
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
     # We need category info for recurring projections — fetch categories
     cat_cache: dict[str, dict] = {}
     for proj in projections:
@@ -231,15 +302,21 @@ async def get_spending_by_category(
             else:
                 cat_cache[cat_id] = {"name": "Sem categoria", "icon": "circle-help", "color": "#6B7280"}
 
+        # Convert projection amount to primary currency
+        proj_amount, _ = await convert(
+            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+        )
+        proj_amount_float = float(proj_amount)
+
         if cat_id in spending_map:
-            spending_map[cat_id]["total"] += proj["amount"]
+            spending_map[cat_id]["total"] += proj_amount_float
         else:
             info = cat_cache.get(cat_id, {"name": "Sem categoria", "icon": "circle-help", "color": "#6B7280"})
             spending_map[cat_id] = {
                 "name": info["name"],
                 "icon": info["icon"],
                 "color": info["color"],
-                "total": proj["amount"],
+                "total": proj_amount_float,
             }
 
     # Convert to list and compute percentages
@@ -262,11 +339,12 @@ async def get_monthly_trend(
     session: AsyncSession, user_id: uuid.UUID, months: int = 6
 ) -> list[MonthlyTrend]:
     month_label = func.to_char(Transaction.date, 'YYYY-MM').label('month')
+    primary_amt = _primary_amount_expr()
     result = await session.execute(
         select(
             month_label,
-            func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
-            func.sum(case((Transaction.type == "debit", Transaction.amount), else_=0)),
+            func.sum(case((Transaction.type == "credit", primary_amt), else_=0)),
+            func.sum(case((Transaction.type == "debit", primary_amt), else_=0)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -301,6 +379,10 @@ async def get_projected_transactions(
 
     month_start, month_end = _month_range(month)
 
+    # Get user's primary currency for live conversion
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
     result = await session.execute(
         select(RecurringTransaction)
         .where(
@@ -332,11 +414,21 @@ async def get_projected_transactions(
             range_end=month_end,
         )
         cat_name, cat_icon, cat_color = cat_map.get(rec.category_id, (None, None, None)) if rec.category_id else (None, None, None)
+
+        # Convert to primary currency at current rate (consistent with summary)
+        amt_primary = None
+        if rec.currency != primary_currency:
+            converted, _ = await convert(
+                session, Decimal(str(rec.amount)), rec.currency, primary_currency,
+            )
+            amt_primary = float(converted)
+
         for occ_date in occurrences:
             projections.append(ProjectedTransaction(
                 recurring_id=str(rec.id),
                 description=rec.description,
                 amount=float(rec.amount),
+                amount_primary=amt_primary,
                 currency=rec.currency,
                 type=rec.type,
                 date=occ_date.isoformat(),
@@ -350,10 +442,25 @@ async def get_projected_transactions(
 
 
 def _signed_balance_expr():
-    """Reusable SQL expression: credit → +amount, debit → −amount."""
+    """Reusable SQL expression: credit → +amount, debit → −amount.
+    Uses raw amount — suitable for single-account balance calculations."""
     return case(
         (Transaction.type == "credit", Transaction.amount),
         else_=-Transaction.amount,
+    )
+
+
+def _primary_amount_expr():
+    """Amount in primary currency: uses amount_primary when available, falls back to amount."""
+    return func.coalesce(Transaction.amount_primary, Transaction.amount)
+
+
+def _signed_primary_expr():
+    """Signed amount in primary currency: credit → +, debit → −."""
+    amt = _primary_amount_expr()
+    return case(
+        (Transaction.type == "credit", amt),
+        else_=-amt,
     )
 
 
@@ -441,19 +548,35 @@ async def _total_balance_by_currency(
 async def _balance_at(
     session: AsyncSession, user_id: uuid.UUID, cutoff: date
 ) -> float:
-    """Get total balance across all open accounts at a specific date (single currency sum)."""
+    """Get total balance across all open accounts at a specific date, converted to primary currency."""
     totals = await _total_balance_by_currency(session, user_id, cutoff)
-    return sum(totals.values())
+
+    # If all same currency, just sum
+    if len(totals) <= 1:
+        return sum(totals.values())
+
+    # Convert to primary currency
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    total = 0.0
+    for currency, amount in totals.items():
+        converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency, cutoff)
+        total += float(converted)
+    return total
 
 
 async def _daily_deltas(
     session: AsyncSession, user_id: uuid.UUID, start: date, end: date
 ) -> dict[int, float]:
-    """Get daily balance deltas for a date range [start, end)."""
+    """Get daily balance deltas for a date range [start, end).
+    Uses amount_primary for multi-currency support.
+    Excludes opening_balance transactions because they are already accounted
+    for in the starting balance via _account_balance_at's carry-back logic."""
     result = await session.execute(
         select(
             func.extract("day", Transaction.date).label("day"),
-            func.sum(_signed_balance_expr()),
+            func.sum(_signed_primary_expr()),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -461,6 +584,7 @@ async def _daily_deltas(
             Account.is_closed == False,
             Transaction.date >= start,
             Transaction.date < end,
+            Transaction.source != "opening_balance",
         )
         .group_by("day")
     )
@@ -492,14 +616,20 @@ async def get_balance_history(
     current_deltas = await _daily_deltas(session, user_id, month_start, month_end)
     prev_deltas = await _daily_deltas(session, user_id, prev_month_start, prev_month_end)
 
-    # Recurring projections for future days of current month
+    # Recurring projections for future days of current month (converted to primary currency)
     proj_deltas: dict[int, float] = {}
     if month_end > today:
+        user = await session.get(User, user_id)
+        primary_currency = user.primary_currency if user else get_settings().default_currency
         proj_start = max(month_start, today + timedelta(days=1))
         projections = await _get_recurring_projections(session, user_id, proj_start, month_end)
         for proj in projections:
             day = proj["date"].day
-            signed = proj["amount"] if proj["type"] == "credit" else -proj["amount"]
+            proj_converted, _ = await convert(
+                session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+            )
+            amount = float(proj_converted)
+            signed = amount if proj["type"] == "credit" else -amount
             proj_deltas[day] = proj_deltas.get(day, 0) + signed
 
     # Build current month daily balances

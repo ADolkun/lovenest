@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { transactions as transactionsApi, dashboard } from '@/lib/api'
-import { X } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import type { Transaction } from '@/types'
@@ -23,6 +23,7 @@ type DisplayItem = {
   date: string
   type: 'debit' | 'credit'
   amount: number
+  amountPrimary: number | null
   currency: string
   categoryIcon: string | null
   categoryName: string | null
@@ -31,7 +32,7 @@ type DisplayItem = {
   transaction: Transaction | null
 }
 
-function formatCurrency(value: number, currency = 'BRL', locale = 'pt-BR') {
+function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
@@ -46,7 +47,7 @@ export function TransactionDrillDown({
 }) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
-  const userCurrency = user?.preferences?.currency_display ?? 'BRL'
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -85,6 +86,7 @@ export function TransactionDrillDown({
         date: tx.date,
         type: tx.type as 'debit' | 'credit',
         amount: Number(tx.amount),
+        amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
         currency: tx.currency,
         categoryIcon: tx.category?.icon ?? null,
         categoryName: tx.category?.name ?? null,
@@ -108,6 +110,7 @@ export function TransactionDrillDown({
         date: pt.date,
         type: pt.type,
         amount: pt.amount,
+        amountPrimary: pt.amount_primary ?? null,
         currency: pt.currency,
         categoryIcon: pt.category_icon,
         categoryName: pt.category_name,
@@ -149,7 +152,13 @@ export function TransactionDrillDown({
     }
   }, [filter, onClose])
 
-  const absTotal = displayItems.reduce((sum, item) => sum + Math.abs(item.amount), 0)
+  const absTotal = displayItems.reduce((sum, item) => {
+    // Use amount_primary for foreign currency transactions, fall back to amount
+    const effectiveAmount = (item.currency !== userCurrency && item.amountPrimary != null)
+      ? item.amountPrimary
+      : item.amount
+    return sum + Math.abs(effectiveAmount)
+  }, 0)
 
   return (
     <>
@@ -223,14 +232,26 @@ export function TransactionDrillDown({
                       {item.categoryName && ` · ${item.categoryName}`}
                     </p>
                   </div>
-                  <span
-                    className={`text-sm font-semibold tabular-nums shrink-0 ${
-                      item.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'
-                    }`}
-                  >
-                    {item.type === 'credit' ? '+' : '-'}
-                    {formatCurrency(Math.abs(item.amount), item.currency ?? userCurrency, locale)}
-                  </span>
+                  <div className="text-right shrink-0">
+                    <span
+                      className={`text-sm font-semibold tabular-nums ${
+                        item.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'
+                      }`}
+                    >
+                      {item.type === 'credit' ? '+' : '-'}
+                      {formatCurrency(Math.abs(item.amount), item.currency ?? userCurrency, locale)}
+                    </span>
+                    {item.currency !== userCurrency && item.amountPrimary != null && (
+                      <div className="flex items-center justify-end gap-1">
+                        {item.transaction?.fx_fallback && (
+                          <span title={t('transactions.fxFallbackTooltip')}><AlertTriangle size={11} className="text-amber-500 shrink-0" /></span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground tabular-nums">
+                          {formatCurrency(Math.abs(item.amountPrimary), userCurrency, locale)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

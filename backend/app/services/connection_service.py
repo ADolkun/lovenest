@@ -11,9 +11,11 @@ from app.models.bank_connection import BankConnection
 from app.models.account import Account
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.models.user import User
 from app.providers import get_provider
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
+from app.services.fx_rate_service import stamp_primary_amount
 
 settings = get_settings()
 
@@ -133,6 +135,8 @@ async def handle_oauth_callback(
     session.add(connection)
     await session.flush()
 
+    user = await session.get(User, user_id)
+    user_currency = user.primary_currency if user else get_settings().default_currency
     new_tx_ids: list[uuid.UUID] = []
 
     for acc_data in connection_data.accounts:
@@ -162,6 +166,7 @@ async def handle_oauth_callback(
                 external_id=txn_data.external_id,
                 description=txn_data.description,
                 amount=txn_data.amount,
+                currency=txn_data.currency or acc_data.currency or user_currency,
                 date=txn_data.date,
                 type=txn_data.type,
                 source="sync",
@@ -175,6 +180,19 @@ async def handle_oauth_callback(
             new_tx_ids.append(transaction.id)
             if not category_id:
                 await apply_rules_to_transaction(session, user_id, transaction)
+
+            # Prefer bank-provided conversion for international transactions
+            acct_currency = acc_data.currency or user_currency
+            if (
+                txn_data.amount_in_account_currency is not None
+                and txn_data.amount
+                and acct_currency == user_currency
+                and txn_data.currency != acct_currency
+            ):
+                transaction.amount_primary = txn_data.amount_in_account_currency
+                transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
+            else:
+                await stamp_primary_amount(session, user_id, transaction)
 
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, user_id, candidate_ids=new_tx_ids)
@@ -253,6 +271,8 @@ async def sync_connection(
         connection.credentials = credentials
 
         # Update accounts
+        user = await session.get(User, user_id)
+        user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
@@ -326,6 +346,7 @@ async def sync_connection(
                     external_id=txn_data.external_id,
                     description=txn_data.description,
                     amount=txn_data.amount,
+                    currency=txn_data.currency or acc_data.currency or user_currency,
                     date=txn_data.date,
                     type=txn_data.type,
                     source="sync",
@@ -339,6 +360,19 @@ async def sync_connection(
                 new_tx_ids.append(transaction.id)
                 if not category_id:
                     await apply_rules_to_transaction(session, user_id, transaction)
+
+                # Prefer bank-provided conversion for international transactions
+                acct_currency = acc_data.currency or user_currency
+                if (
+                    txn_data.amount_in_account_currency is not None
+                    and txn_data.amount
+                    and acct_currency == user_currency
+                    and txn_data.currency != acct_currency
+                ):
+                    transaction.amount_primary = txn_data.amount_in_account_currency
+                    transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
+                else:
+                    await stamp_primary_amount(session, user_id, transaction)
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:

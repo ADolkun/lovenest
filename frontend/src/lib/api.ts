@@ -55,7 +55,7 @@ export const setup = {
     const { data } = await api.get('/setup/status')
     return data
   },
-  createAdmin: async (email: string, password: string, currency = 'BRL', name = '', language = 'pt-BR'): Promise<{ access_token: string }> => {
+  createAdmin: async (email: string, password: string, currency = 'USD', name = '', language = 'en'): Promise<{ access_token: string }> => {
     const { data } = await api.post('/setup/create-admin', { email, password, currency, name, language })
     return data
   },
@@ -439,6 +439,26 @@ export const reports = {
   },
   incomeExpenses: async (months = 12, interval = 'monthly'): Promise<ReportResponse> => {
     const { data } = await api.get('/reports/income-expenses', { params: { months, interval } })
+    return data
+  },
+}
+
+// Currencies
+export const currencies = {
+  list: async (): Promise<{ code: string; symbol: string; name: string; flag: string }[]> => {
+    const { data } = await api.get('/currencies')
+    return data
+  },
+}
+
+// FX Rates
+export const fxRates = {
+  refresh: async (): Promise<{ synced: boolean; rates_count: number; date: string }> => {
+    const { data } = await api.post('/fx-rates/refresh')
+    return data
+  },
+  status: async (): Promise<{ last_sync_date: string | null; total_rates: number }> => {
+    const { data } = await api.get('/fx-rates/status')
     return data
   },
 }

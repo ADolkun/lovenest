@@ -10,9 +10,12 @@ from ofxparse import OfxParser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
+from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionBase
 from app.services.rule_service import apply_rules_to_transaction
+from app.services.fx_rate_service import stamp_primary_amount
 
 
 def parse_ofx(content: bytes) -> list[TransactionBase]:
@@ -151,11 +154,15 @@ def parse_camt(content: bytes) -> list[TransactionBase]:
                 or "Unknown"
             )
 
+            # Extract currency from Ccy attribute on Amt element
+            txn_currency = amt_el.get('Ccy') or None
+
             transactions.append(TransactionBase(
                 description=description,
                 amount=abs(amount),
                 date=txn_date,
                 type=txn_type,
+                currency=txn_currency,
             ))
 
     return transactions
@@ -196,6 +203,8 @@ def parse_csv(
     date_cols = ['date', 'data', 'dt', 'transaction_date', 'data_transacao']
     desc_cols = ['description', 'descricao', 'desc', 'memo', 'historico', 'lancamento']
     amount_cols = ['amount', 'valor', 'value', 'quantia']
+    currency_cols = ['currency', 'moeda', 'currency_code']
+    fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
 
     def find_col(candidates):
         for c in candidates:
@@ -217,6 +226,9 @@ def parse_csv(
         amount_col = None
     else:
         amount_col = find_col(amount_cols)
+
+    currency_col = find_col(currency_cols)
+    fx_rate_col = find_col(fx_rate_cols)
 
     if not date_col or not desc_col:
         raise ValueError("Could not detect CSV columns. Expected: date, description, amount")
@@ -283,11 +295,26 @@ def parse_csv(
             txn_type = "credit" if amount > 0 else "debit"
             amount = abs(amount)
 
+        # Extract optional currency and fx_rate from CSV columns
+        txn_currency = None
+        txn_fx_rate = None
+        if currency_col and row.get(currency_col):
+            txn_currency = row[currency_col].strip().upper() or None
+        if fx_rate_col and row.get(fx_rate_col):
+            fx_str = normalize_amount(row[fx_rate_col].strip())
+            if fx_str:
+                try:
+                    txn_fx_rate = Decimal(fx_str)
+                except Exception:
+                    pass
+
         transactions.append(TransactionBase(
             description=row[desc_col].strip(),
             amount=abs(amount),
             date=txn_date,
             type=txn_type,
+            currency=txn_currency,
+            fx_rate=txn_fx_rate,
         ))
 
     return transactions
@@ -322,9 +349,19 @@ async def import_transactions(
     session.add(import_log)
     await session.flush()  # Get the import_log.id
 
+    # Look up account currency for fallback
+    account_result = await session.execute(
+        select(Account).where(Account.id == account_id)
+    )
+    account = account_result.scalar_one_or_none()
+    account_currency = account.currency if account else get_settings().default_currency
+
     imported = 0
     skipped = 0
     for txn_data in transactions:
+        # Resolve currency: CSV value > account currency
+        txn_currency = txn_data.currency or account_currency
+
         # Duplicate detection: use external_id when available (OFX FITID),
         # fall back to field-based matching for formats without unique IDs
         if txn_data.external_id:
@@ -358,10 +395,22 @@ async def import_transactions(
             source=source,
             import_id=import_log.id,
             external_id=txn_data.external_id,
+            currency=txn_currency,
         )
+
+        # If CSV provided an fx_rate, use it directly
+        if txn_data.fx_rate:
+            transaction.fx_rate_used = txn_data.fx_rate
+            transaction.amount_primary = txn_data.amount * txn_data.fx_rate
+
         session.add(transaction)
         await session.flush()
         await apply_rules_to_transaction(session, user_id, transaction)
+
+        # Only auto-convert if no fx_rate was provided by the CSV
+        if not txn_data.fx_rate:
+            await stamp_primary_amount(session, user_id, transaction)
+
         imported += 1
 
     # Update import log with actual imported count

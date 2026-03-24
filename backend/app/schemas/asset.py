@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class AssetCreate(BaseModel):
     name: str
     type: str
-    currency: str = "BRL"
+    currency: str = "USD"
     units: Optional[Decimal] = None
     valuation_method: str = "manual"
     purchase_date: Optional[date] = None
@@ -62,7 +62,9 @@ class AssetRead(BaseModel):
     is_archived: bool
     position: int
     current_value: Optional[float] = None
+    current_value_primary: Optional[float] = None
     gain_loss: Optional[float] = None
+    gain_loss_primary: Optional[float] = None
     value_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)

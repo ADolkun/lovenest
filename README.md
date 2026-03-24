@@ -48,6 +48,7 @@ Open [http://localhost:3000](http://localhost:3000) and create an account. That'
 - Reports: Net Worth and Income vs Expenses with category sparklines
 - Dashboard with spending analytics and projections
 - Bank sync via providers (Pluggy supported, extensible)
+- Multi-currency support with automatic FX conversion
 - Dark/light theme, multi-language support, privacy mode
 
 ## Bank Sync (Optional)
@@ -60,6 +61,16 @@ PLUGGY_CLIENT_SECRET=your-client-secret
 ```
 
 Then restart: `docker compose up`
+
+## Exchange Rates (Optional)
+
+For automatic currency conversion, add a free [Open Exchange Rates](https://openexchangerates.org/) key to `.env`:
+
+```
+OPENEXCHANGERATES_APP_ID=your-app-id
+```
+
+Rates are fetched on-demand when foreign-currency transactions are created. Without a key, cross-currency amounts default to a 1:1 fallback rate with a visual warning.
 
 ## Tech Stack
 
