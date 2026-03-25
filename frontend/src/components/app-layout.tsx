@@ -3,7 +3,8 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
-import { auth as authApi } from '@/lib/api'
+import { auth as authApi, backup as backupApi } from '@/lib/api'
+import { toast } from 'sonner'
 import { OnboardingTour } from '@/components/onboarding-tour'
 import { useTheme } from 'next-themes'
 import { accounts as accountsApi } from '@/lib/api'
@@ -37,6 +38,7 @@ import {
   Sun,
   Moon,
   KeyRound,
+  HardDriveDownload,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
@@ -69,6 +71,7 @@ export function AppLayout() {
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
 
   const showTour = user && !user.preferences?.onboarding_completed && !localStorage.getItem('onboarding_completed')
 
@@ -119,7 +122,17 @@ export function AppLayout() {
           >
             {privacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} dark />
+          <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} backingUp={backingUp} onBackup={async () => {
+                    setBackingUp(true)
+                    try {
+                      await backupApi.download()
+                      toast.success(t('backup.success'))
+                    } catch {
+                      toast.error(t('backup.error'))
+                    } finally {
+                      setBackingUp(false)
+                    }
+                  }} dark />
         </div>
       </header>
 
@@ -322,6 +335,24 @@ export function AppLayout() {
                   <KeyRound size={14} />
                   {t('auth.changePassword')}
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={backingUp}
+                  onClick={async () => {
+                    setBackingUp(true)
+                    try {
+                      await backupApi.download()
+                      toast.success(t('backup.success'))
+                    } catch {
+                      toast.error(t('backup.error'))
+                    } finally {
+                      setBackingUp(false)
+                    }
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <HardDriveDownload size={14} />
+                  {backingUp ? t('backup.downloading') : t('backup.button')}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={logout}
@@ -349,7 +380,7 @@ export function AppLayout() {
   )
 }
 
-function UserMenu({ userInitial, logout, onChangePassword, dark }: { userInitial: string; logout: () => void; onChangePassword: () => void; dark?: boolean }) {
+function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, dark }: { userInitial: string; logout: () => void; onChangePassword: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean }) {
   const { t } = useTranslation()
   return (
     <DropdownMenu>
@@ -366,6 +397,10 @@ function UserMenu({ userInitial, logout, onChangePassword, dark }: { userInitial
         <DropdownMenuItem onClick={onChangePassword} className="flex items-center gap-2">
           <KeyRound size={14} />
           {t('auth.changePassword')}
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={backingUp} onClick={onBackup} className="flex items-center gap-2">
+          <HardDriveDownload size={14} />
+          {backingUp ? t('backup.downloading') : t('backup.button')}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="text-rose-600 focus:text-rose-600">

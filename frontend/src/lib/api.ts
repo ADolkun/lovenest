@@ -474,4 +474,20 @@ export const importLogs = {
   },
 }
 
+// Backup
+export const backup = {
+  download: async (): Promise<void> => {
+    const { data } = await api.get('/export/backup', { responseType: 'blob' })
+    const blob = new Blob([data], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `securo-backup-${new Date().toISOString().slice(0, 10)}.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+}
+
 export default api

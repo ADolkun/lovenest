@@ -510,6 +510,12 @@
     "name": "Your name",
     "namePlaceholder": "How should we call you?"
   },
+  "backup": {
+    "button": "Backup",
+    "downloading": "Downloading...",
+    "success": "Backup downloaded successfully",
+    "error": "Failed to download backup"
+  },
   "onboarding": {
     "sidebar": "Sidebar Navigation",
     "sidebarDesc": "Use the sidebar to navigate between sections of the app.",
