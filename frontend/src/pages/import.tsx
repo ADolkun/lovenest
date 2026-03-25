@@ -23,6 +23,13 @@ function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  checking: 'accounts.typeChecking',
+  savings: 'accounts.typeSavings',
+  credit_card: 'accounts.typeCreditCard',
+  investment: 'accounts.typeInvestment',
+}
+
 export default function ImportPage() {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
@@ -254,7 +261,7 @@ export default function ImportPage() {
               >
                 <option value="">{t('import.selectAccount')}</option>
                 {accountsList?.map((acc) => (
-                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                  <option key={acc.id} value={acc.id}>{acc.name} ({t(TYPE_LABELS[acc.type] || acc.type)})</option>
                 ))}
               </select>
               {!selectedAccount && (
