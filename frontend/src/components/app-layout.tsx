@@ -43,18 +43,25 @@ import {
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
 
-const navItems = [
-  { key: 'dashboard', path: '/', icon: LayoutDashboard },
-  { key: 'transactions', path: '/transactions', icon: ArrowLeftRight },
-  { key: 'accounts', path: '/accounts', icon: Building2 },
-  { key: 'categories', path: '/categories', icon: Tag },
-  { key: 'budgets', path: '/budgets', icon: PiggyBank },
-  { key: 'assets', path: '/assets', icon: Landmark },
-  { key: 'reports', path: '/reports', icon: BarChart3 },
-  { key: 'recurring', path: '/recurring', icon: Repeat },
-  { key: 'rules', path: '/rules', icon: SlidersHorizontal },
-  { key: 'import', path: '/import', icon: Upload },
-] as const
+type NavItem =
+  | { type: 'link'; key: string; path: string; icon: React.ElementType }
+  | { type: 'separator'; labelKey: string }
+
+const navItems: NavItem[] = [
+  { type: 'link', key: 'dashboard',    path: '/',             icon: LayoutDashboard },
+  { type: 'link', key: 'transactions', path: '/transactions', icon: ArrowLeftRight },
+  { type: 'separator', labelKey: 'nav.groupAccounts' },
+  { type: 'link', key: 'accounts',     path: '/accounts',     icon: Building2 },
+  { type: 'link', key: 'import',       path: '/import',       icon: Upload },
+  { type: 'separator', labelKey: 'nav.groupAnalysis' },
+  { type: 'link', key: 'reports',      path: '/reports',      icon: BarChart3 },
+  { type: 'link', key: 'assets',       path: '/assets',       icon: Landmark },
+  { type: 'separator', labelKey: 'nav.groupSetup' },
+  { type: 'link', key: 'budgets',      path: '/budgets',      icon: PiggyBank },
+  { type: 'link', key: 'recurring',    path: '/recurring',    icon: Repeat },
+  { type: 'link', key: 'categories',   path: '/categories',   icon: Tag },
+  { type: 'link', key: 'rules',        path: '/rules',        icon: SlidersHorizontal },
+]
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -168,8 +175,18 @@ export function AppLayout() {
           </div>
 
           {/* Nav */}
-          <nav className="flex flex-col gap-1 p-3" data-tour="sidebar">
-            {navItems.map((item) => {
+          <nav className="flex flex-col gap-0.5 p-3" data-tour="sidebar">
+            {navItems.map((item, idx) => {
+              if (item.type === 'separator') {
+                return (
+                  <div key={`sep-${idx}`} className="pt-3 pb-1 px-3">
+                    <span className="text-[10px] uppercase tracking-[0.12em] font-semibold text-sidebar-muted/50">
+                      {t(item.labelKey)}
+                    </span>
+                  </div>
+                )
+              }
+
               const isActive = item.path === '/'
                 ? location.pathname === '/'
                 : location.pathname.startsWith(item.path)
@@ -181,14 +198,14 @@ export function AppLayout() {
                   data-tour={`nav-${item.key}`}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    'flex items-center gap-3 text-[15px] font-medium transition-all',
+                    'flex items-center gap-3 text-[13px] font-medium transition-all rounded-lg px-3 py-2',
                     isActive
-                      ? 'bg-primary/[0.08] text-primary rounded-lg border-l-[3px] border-primary pl-[9px] pr-3 py-2'
-                      : 'rounded-lg px-3 py-2 text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                      ? 'bg-primary/[0.08] text-primary border-l-[3px] border-primary pl-[9px]'
+                      : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
                   )}
                 >
                   <Icon
-                    size={20}
+                    size={17}
                     className={cn('shrink-0', isActive ? 'text-primary' : 'text-sidebar-muted')}
                   />
                   <span>{t(`nav.${item.key}`)}</span>

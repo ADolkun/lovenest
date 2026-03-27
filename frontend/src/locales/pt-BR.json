@@ -13,7 +13,10 @@
     "settings": "Configurações",
     "recurring": "Recorrentes",
     "assets": "Patrimônio",
-    "reports": "Relatórios"
+    "reports": "Relatórios",
+    "groupAnalysis": "Análise",
+    "groupSetup": "Configuração",
+    "groupAccounts": "Contas"
   },
   "auth": {
     "login": "Entrar",

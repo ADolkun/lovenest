@@ -13,7 +13,10 @@
     "settings": "Settings",
     "recurring": "Recurring",
     "assets": "Assets",
-    "reports": "Reports"
+    "reports": "Reports",
+    "groupAnalysis": "Analysis",
+    "groupSetup": "Setup",
+    "groupAccounts": "Accounts"
   },
   "auth": {
     "login": "Login",
