@@ -1,11 +1,19 @@
 """Pure rule evaluation engine — no DB access."""
 import re
+import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.transaction import Transaction
+
+
+def _normalize(text: str) -> str:
+    """Normalize text: uppercase and remove diacritics (accents)."""
+    upper = text.upper()
+    nfkd = unicodedata.normalize("NFKD", upper)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 def _to_decimal(val) -> Decimal:
@@ -24,8 +32,8 @@ def _match_condition(condition: dict, tx: "Transaction") -> bool:
 
     # String operators
     if op in ("contains", "not_contains", "starts_with", "ends_with", "equals", "not_equals", "regex"):
-        tx_str = str(tx_val or "").upper()
-        val_str = str(value or "").upper()
+        tx_str = _normalize(str(tx_val or ""))
+        val_str = _normalize(str(value or ""))
 
         if op == "contains":
             return val_str in tx_str
@@ -41,7 +49,9 @@ def _match_condition(condition: dict, tx: "Transaction") -> bool:
             return tx_str != val_str
         if op == "regex":
             try:
-                return bool(re.search(str(value), str(tx_val or ""), re.IGNORECASE))
+                # Normalize both sides so accents don't break matches
+                pattern = _normalize(str(value or ""))
+                return bool(re.search(pattern, tx_str, re.IGNORECASE))
             except re.error:
                 return False
 
