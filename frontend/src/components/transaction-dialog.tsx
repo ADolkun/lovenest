@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
-import { currencies as currenciesApi, transactions as transactionsApi } from '@/lib/api'
+import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { AlertTriangle, ChevronLeft, Download } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, Download, Paperclip, Upload, X, FileText, Plus } from 'lucide-react'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import type { Transaction, RecurringTransaction } from '@/types'
@@ -68,7 +68,7 @@ export function TransactionDialog({
   categories: { id: string; name: string; icon: string }[]
   accounts: { id: string; name: string }[]
   recurringMatch?: RecurringTransaction
-  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }) => void
+  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[]) => void
   onDelete?: () => void
   loading: boolean
   error: string | null
@@ -260,7 +260,7 @@ function TransactionForm({
   categories: { id: string; name: string; icon: string }[]
   accounts: { id: string; name: string }[]
   recurringMatch?: RecurringTransaction
-  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }) => void
+  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[]) => void
   onDelete?: () => void
   onCancel: () => void
   loading: boolean
@@ -298,6 +298,49 @@ function TransactionForm({
   const [endDate, setEndDate] = useState('')
   const isCreating = !transaction
   const showConversion = currency !== userCurrency && !isSynced
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [pendingDragOver, setPendingDragOver] = useState(false)
+  const pendingFileInputRef = useRef<HTMLInputElement>(null)
+
+  const { data: attachmentSettings } = useQuery({
+    queryKey: ['settings', 'attachments'],
+    queryFn: () => settingsApi.attachments(),
+    staleTime: 5 * 60 * 1000,
+    enabled: isCreating,
+  })
+  const allowedExtensions = attachmentSettings?.allowed_extensions ?? ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf']
+  const maxFileSize = (attachmentSettings?.max_file_size_mb ?? 10) * 1024 * 1024
+  const maxAttachments = attachmentSettings?.max_attachments_per_transaction ?? 10
+
+  const addPendingFiles = useCallback((files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    setPendingFiles(prev => {
+      let current = prev.length
+      const next = [...prev]
+      for (const file of fileArray) {
+        if (current >= maxAttachments) {
+          toast.error(t('transactions.attachmentMaxReached'))
+          break
+        }
+        const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : ''
+        if (!allowedExtensions.includes(ext)) {
+          toast.error(t('transactions.attachmentTypeNotAllowed'))
+          continue
+        }
+        if (file.size > maxFileSize) {
+          toast.error(t('transactions.attachmentTooLarge'))
+          continue
+        }
+        next.push(file)
+        current++
+      }
+      return next
+    })
+  }, [maxAttachments, allowedExtensions, maxFileSize, t])
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index))
+  }
 
   const handleConvertedAmountChange = (val: string) => {
     setConvertedAmount(val)
@@ -368,7 +411,7 @@ function TransactionForm({
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
           : undefined
-        onSave(txData, recurringData)
+        onSave(txData, recurringData, isCreating && pendingFiles.length > 0 ? pendingFiles : undefined)
       }}
       className={cn(
         'flex flex-col',
@@ -532,11 +575,24 @@ function TransactionForm({
         />
       </div>
 
-      {!isCreating && transaction && (
+      {!isCreating && transaction ? (
         <TransactionAttachments
           transactionId={transaction.id}
           onPreviewChange={onPreviewChange}
           activePreviewId={activePreviewId}
+        />
+      ) : isCreating && (
+        <PendingAttachmentsSection
+          files={pendingFiles}
+          dragOver={pendingDragOver}
+          maxAttachments={maxAttachments}
+          allowedExtensions={allowedExtensions}
+          fileInputRef={pendingFileInputRef}
+          onDragOver={() => setPendingDragOver(true)}
+          onDragLeave={() => setPendingDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setPendingDragOver(false); if (e.dataTransfer.files?.length) addPendingFiles(e.dataTransfer.files) }}
+          onFileChange={(e) => { if (e.target.files?.length) { addPendingFiles(e.target.files); e.target.value = '' } }}
+          onRemove={removePendingFile}
         />
       )}
 
@@ -601,5 +657,159 @@ function TransactionForm({
         </div>
       </DialogFooter>
     </form>
+  )
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function PendingAttachmentsSection({
+  files,
+  dragOver,
+  maxAttachments,
+  allowedExtensions,
+  fileInputRef,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onFileChange,
+  onRemove,
+}: {
+  files: File[]
+  dragOver: boolean
+  maxAttachments: number
+  allowedExtensions: string[]
+  fileInputRef: React.RefObject<HTMLInputElement | null>
+  onDragOver: () => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+  onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onRemove: (index: number) => void
+}) {
+  const { t } = useTranslation()
+  const hasFiles = files.length > 0
+  const atMax = files.length >= maxAttachments
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Paperclip size={14} />
+        {t('transactions.attachments')}
+        {hasFiles && (
+          <span className="text-xs text-muted-foreground font-normal">({files.length})</span>
+        )}
+      </div>
+
+      {hasFiles ? (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {files.map((file, index) => {
+              const isImg = file.type.startsWith('image/')
+              const isPdf = file.type === 'application/pdf'
+              const ext = file.name.includes('.') ? file.name.split('.').pop()!.toUpperCase() : 'FILE'
+
+              return (
+                <div
+                  key={`${file.name}-${index}`}
+                  className="group relative rounded-xl overflow-hidden ring-1 ring-border hover:ring-border/80 hover:shadow-md hover:shadow-black/5"
+                >
+                  <div className="aspect-square bg-muted/50 flex items-center justify-center overflow-hidden relative">
+                    {isImg ? (
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className={`w-12 h-14 rounded-lg flex items-center justify-center ${
+                          isPdf ? 'bg-red-500/10' : 'bg-muted'
+                        }`}>
+                          <FileText size={24} className={isPdf ? 'text-red-500' : 'text-muted-foreground'} />
+                        </div>
+                        <span className="text-[10px] font-semibold tracking-widest text-muted-foreground/70 uppercase">
+                          {ext}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Remove button */}
+                  <div className="absolute left-0 right-0 bottom-[44px] flex items-center justify-center gap-1 px-2 py-1.5 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200">
+                    <div className="flex items-center gap-1 bg-background/90 dark:bg-card/90 backdrop-blur-sm rounded-lg ring-1 ring-border/50 shadow-lg shadow-black/10 px-1 py-0.5">
+                      <button
+                        type="button"
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer transition-colors"
+                        onClick={() => onRemove(index)}
+                        title={t('common.delete')}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-2.5 bg-card">
+                    <p className="text-[12px] font-medium truncate leading-tight" title={file.name}>
+                      {file.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-tight">
+                      {formatFileSize(file.size)}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {!atMax && (
+            <button
+              type="button"
+              className={`w-full mt-2 rounded-lg border-2 border-dashed py-3 flex items-center justify-center gap-2 cursor-pointer transition-all duration-200 ${
+                dragOver
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30'
+              }`}
+              onDragOver={(e) => { e.preventDefault(); onDragOver() }}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Plus size={14} className="text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">{t('transactions.attachmentsUpload')}</span>
+            </button>
+          )}
+        </>
+      ) : (
+        <div
+          className={`rounded-xl border-2 border-dashed py-6 px-4 text-center transition-all cursor-pointer ${
+            dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/40'
+          }`}
+          onDragOver={(e) => { e.preventDefault(); onDragOver() }}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+              <Upload size={14} className="text-muted-foreground" />
+            </div>
+            <span className="text-xs text-muted-foreground">{t('transactions.attachmentsUpload')}</span>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={allowedExtensions.map(ext => `.${ext}`).join(',')}
+        onChange={onFileChange}
+        className="hidden"
+      />
+    </div>
   )
 }

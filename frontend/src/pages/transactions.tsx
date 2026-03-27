@@ -101,7 +101,7 @@ export default function TransactionsPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: async (payload: { tx: Partial<Transaction>; recurringData?: { frequency: string; end_date?: string } }) => {
+    mutationFn: async (payload: { tx: Partial<Transaction>; recurringData?: { frequency: string; end_date?: string }; pendingFiles?: File[] }) => {
       const created = await transactions.create(payload.tx)
       if (payload.recurringData) {
         await recurring.create({
@@ -116,6 +116,11 @@ export default function TransactionsPage() {
           account_id: payload.tx.account_id || undefined,
           skip_first: true,
         } as Record<string, unknown>)
+      }
+      if (payload.pendingFiles?.length) {
+        await Promise.all(
+          payload.pendingFiles.map(file => transactions.attachments.upload(created.id, file))
+        )
       }
       return created
     },
@@ -522,11 +527,11 @@ export default function TransactionsPage() {
         categories={categoriesList ?? []}
         accounts={accountsList ?? []}
         recurringMatch={editingTx ? recurringList?.find(r => r.description === editingTx.description && r.type === editingTx.type) : undefined}
-        onSave={(data, recurringData) => {
+        onSave={(data, recurringData, pendingFiles) => {
           if (editingTx) {
             updateMutation.mutate({ id: editingTx.id, ...data })
           } else {
-            createMutation.mutate({ tx: data, recurringData })
+            createMutation.mutate({ tx: data, recurringData, pendingFiles })
           }
         }}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
