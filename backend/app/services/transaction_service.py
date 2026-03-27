@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.transaction import Transaction
+from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.schemas.transaction import TransactionCreate, TransactionUpdate
@@ -111,6 +112,21 @@ async def get_transactions(
     result = await session.execute(query)
     transactions = list(result.scalars().all())
 
+    # Batch-load attachment counts in a single query
+    if transactions:
+        tx_ids = [tx.id for tx in transactions]
+        count_rows = await session.execute(
+            select(
+                TransactionAttachment.transaction_id,
+                func.count(TransactionAttachment.id),
+            )
+            .where(TransactionAttachment.transaction_id.in_(tx_ids))
+            .group_by(TransactionAttachment.transaction_id)
+        )
+        counts = dict(count_rows.all())
+        for tx in transactions:
+            tx.attachment_count = counts.get(tx.id, 0)
+
     return transactions, total or 0
 
 
@@ -130,7 +146,15 @@ async def get_transaction(
         )
         .options(selectinload(Transaction.category))
     )
-    return result.scalar_one_or_none()
+    transaction = result.scalar_one_or_none()
+    if transaction:
+        count_result = await session.execute(
+            select(func.count(TransactionAttachment.id)).where(
+                TransactionAttachment.transaction_id == transaction.id
+            )
+        )
+        transaction.attachment_count = count_result.scalar_one()
+    return transaction
 
 
 async def create_transaction(
@@ -244,6 +268,10 @@ async def delete_transaction(
     transaction = await get_transaction(session, transaction_id, user_id)
     if not transaction:
         return False
+
+    # Clean up attachment files from storage before ORM cascade deletes DB records
+    from app.services.attachment_service import cleanup_attachment_files
+    await cleanup_attachment_files(session, [transaction_id])
 
     await session.delete(transaction)
     await session.commit()

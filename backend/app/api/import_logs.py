@@ -58,6 +58,23 @@ async def delete_import_log(
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import log not found")
 
+    # Clean up attachment files before deleting transactions
+    from app.services.attachment_service import cleanup_attachment_files
+    tx_result = await session.execute(
+        select(Transaction.id).where(Transaction.import_id == log_id)
+    )
+    tx_ids = [row[0] for row in tx_result.all()]
+    await cleanup_attachment_files(session, tx_ids)
+
+    # Also delete attachment DB records (raw SQL delete bypasses ORM cascade)
+    from app.models.transaction_attachment import TransactionAttachment
+    if tx_ids:
+        await session.execute(
+            delete(TransactionAttachment).where(
+                TransactionAttachment.transaction_id.in_(tx_ids)
+            )
+        )
+
     # Delete all transactions from this import
     await session.execute(
         delete(Transaction).where(Transaction.import_id == log_id)

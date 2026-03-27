@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { transactions as transactionsApi, dashboard } from '@/lib/api'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import type { Transaction } from '@/types'
@@ -29,6 +29,7 @@ type DisplayItem = {
   categoryName: string | null
   categoryColor: string | null
   isProjected: boolean
+  attachmentCount: number
   transaction: Transaction | null
 }
 
@@ -92,6 +93,7 @@ export function TransactionDrillDown({
         categoryName: tx.category?.name ?? null,
         categoryColor: tx.category?.color ?? null,
         isProjected: false,
+        attachmentCount: tx.attachment_count ?? 0,
         transaction: tx,
       })
     }
@@ -116,6 +118,7 @@ export function TransactionDrillDown({
         categoryName: pt.category_name,
         categoryColor: pt.category_color ?? null,
         isProjected: true,
+        attachmentCount: 0,
         transaction: null,
       })
     }
@@ -225,6 +228,9 @@ export function TransactionDrillDown({
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                           {t('transactions.recurringBadge')}
                         </span>
+                      )}
+                      {item.attachmentCount > 0 && (
+                        <Paperclip size={12} className="text-muted-foreground shrink-0" />
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">

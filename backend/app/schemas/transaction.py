@@ -54,6 +54,7 @@ class TransactionRead(TransactionBase):
     amount_primary: Optional[float] = None
     fx_rate_used: Optional[float] = None
     fx_fallback: bool = False
+    attachment_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

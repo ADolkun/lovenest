@@ -16,6 +16,7 @@ import type {
   ImportLog,
   Asset,
   AssetValue,
+  Attachment,
   DashboardSummary,
   SpendingByCategory,
   MonthlyTrend,
@@ -284,6 +285,31 @@ export const transactions = {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   },
+  attachments: {
+    list: async (transactionId: string): Promise<Attachment[]> => {
+      const { data } = await api.get(`/transactions/${transactionId}/attachments`)
+      return data
+    },
+    upload: async (transactionId: string, file: File): Promise<Attachment> => {
+      const formData = new FormData()
+      formData.append('file', file)
+      const { data } = await api.post(`/transactions/${transactionId}/attachments`, formData)
+      return data
+    },
+    downloadUrl: async (transactionId: string, attachmentId: string): Promise<string> => {
+      const { data } = await api.get(`/transactions/${transactionId}/attachments/${attachmentId}`, {
+        responseType: 'blob',
+      })
+      return URL.createObjectURL(data)
+    },
+    rename: async (transactionId: string, attachmentId: string, filename: string): Promise<Attachment> => {
+      const { data } = await api.patch(`/transactions/${transactionId}/attachments/${attachmentId}`, { filename })
+      return data
+    },
+    delete: async (transactionId: string, attachmentId: string): Promise<void> => {
+      await api.delete(`/transactions/${transactionId}/attachments/${attachmentId}`)
+    },
+  },
 }
 
 // Categorization Rules
@@ -471,6 +497,14 @@ export const importLogs = {
   },
   delete: async (id: string): Promise<void> => {
     await api.delete(`/import-logs/${id}`)
+  },
+}
+
+// Settings
+export const settings = {
+  attachments: async (): Promise<{ allowed_extensions: string[]; max_file_size_mb: number; max_attachments_per_transaction: number }> => {
+    const { data } = await api.get('/settings/attachments')
+    return data
   },
 }
 

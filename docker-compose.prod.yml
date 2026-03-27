@@ -9,6 +9,7 @@ x-backend-env: &backend-env
   PLUGGY_CLIENT_SECRET: ${PLUGGY_CLIENT_SECRET:-}
   PLUGGY_OAUTH_REDIRECT_URI: ${PLUGGY_OAUTH_REDIRECT_URI:-http://localhost:3000/oauth/callback}
   REDIS_URL: redis://redis:6379/0
+  STORAGE_LOCAL_PATH: /app/data/attachments
 
 x-backend-base: &backend-base
   image: ghcr.io/securo-finance/securo-backend:latest
@@ -16,6 +17,8 @@ x-backend-base: &backend-base
   depends_on:
     db: { condition: service_healthy }
     redis: { condition: service_healthy }
+  volumes:
+    - attachments:/app/data/attachments
   restart: unless-stopped
 
 services:
@@ -66,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  attachments:

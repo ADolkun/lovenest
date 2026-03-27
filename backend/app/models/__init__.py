@@ -11,6 +11,7 @@ from app.models.import_log import ImportLog
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.fx_rate import FxRate
+from app.models.transaction_attachment import TransactionAttachment
 
 __all__ = [
     "User",
@@ -26,4 +27,5 @@ __all__ = [
     "Asset",
     "AssetValue",
     "FxRate",
+    "TransactionAttachment",
 ]

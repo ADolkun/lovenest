@@ -11,6 +11,7 @@ x-backend-env: &backend-env
   REDIS_URL: redis://redis:6379/0
   OPENEXCHANGERATES_APP_ID: ${OPENEXCHANGERATES_APP_ID:-}
   FX_SYNC_MODE: ${FX_SYNC_MODE:-on_demand}
+  STORAGE_LOCAL_PATH: /app/data/attachments
 
 x-backend-base: &backend-base
   build: ./backend
@@ -20,6 +21,7 @@ x-backend-base: &backend-base
     redis: { condition: service_healthy }
   volumes:
     - ./backend:/app
+    - attachments:/app/data/attachments
   restart: unless-stopped
 
 services:
@@ -77,3 +79,4 @@ services:
 
 volumes:
   pgdata:
+  attachments:

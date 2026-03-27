@@ -25,7 +25,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { CheckCircle2, CalendarIcon } from 'lucide-react'
+import { CheckCircle2, CalendarIcon, Paperclip } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
@@ -258,6 +258,7 @@ export default function DashboardPage() {
     categoryName: string | null
     categoryColor: string | null
     isProjected: boolean
+    attachmentCount: number
   }
 
   const TX_PER_PAGE = 10
@@ -276,6 +277,7 @@ export default function DashboardPage() {
         categoryName: tx.category?.name ?? null,
         categoryColor: tx.category?.color ?? null,
         isProjected: false,
+        attachmentCount: tx.attachment_count ?? 0,
       })
     }
     for (const pt of projectedTxs ?? []) {
@@ -291,6 +293,7 @@ export default function DashboardPage() {
         categoryName: pt.category_name,
         categoryColor: pt.category_color ?? null,
         isProjected: true,
+        attachmentCount: 0,
       })
     }
     rows.sort((a, b) => a.date.localeCompare(b.date))
@@ -765,6 +768,9 @@ export default function DashboardPage() {
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                                   {t('transactions.recurringBadge')}
                                 </span>
+                              )}
+                              {row.attachmentCount > 0 && (
+                                <Paperclip size={12} className="text-muted-foreground shrink-0" />
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground">{formatDate(row.date, locale)}</p>

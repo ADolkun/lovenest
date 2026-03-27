@@ -20,6 +20,8 @@ from app.api.setup import router as setup_router
 from app.api.currencies import router as currencies_router
 from app.api.export import router as export_router
 from app.api.fx_rates import router as fx_rates_router
+from app.api.attachments import router as attachments_router
+from app.api.settings import router as settings_router
 from app.api.transactions import router as transactions_router
 from app.core.auth import auth_backend, fastapi_users
 from app.core.config import get_settings
@@ -97,6 +99,8 @@ app.include_router(setup_router)
 app.include_router(currencies_router)
 app.include_router(fx_rates_router)
 app.include_router(export_router)
+app.include_router(attachments_router)
+app.include_router(settings_router)
 
 
 @app.get("/api/health")

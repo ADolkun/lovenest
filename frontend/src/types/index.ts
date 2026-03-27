@@ -94,6 +94,7 @@ export interface Transaction {
   amount_primary: number | null
   fx_rate_used: number | null
   fx_fallback: boolean
+  attachment_count?: number
 }
 
 export interface RuleCondition {
@@ -311,6 +312,15 @@ export interface CategoryTrendItem {
   total: number
   group: string
   series: ReportDataPoint[]
+}
+
+export interface Attachment {
+  id: string
+  transaction_id: string
+  filename: string
+  content_type: string
+  size: number
+  created_at: string
 }
 
 export interface ReportResponse {

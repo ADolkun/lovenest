@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.category import Category
     from app.models.import_log import ImportLog
+    from app.models.transaction_attachment import TransactionAttachment
 
 
 class Transaction(Base):
@@ -42,3 +43,6 @@ class Transaction(Base):
     account: Mapped["Account"] = relationship(back_populates="transactions")
     category: Mapped[Optional["Category"]] = relationship()
     import_log: Mapped[Optional["ImportLog"]] = relationship(back_populates="transactions")
+    attachments: Mapped[list["TransactionAttachment"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )

@@ -137,7 +137,19 @@
     "exchangeRate": "Taxa de câmbio",
     "autoCalculated": "automático",
     "fxFallbackTooltip": "Taxa indisponível — usando fallback 1:1. Edite para definir manualmente.",
-    "fxFallbackBanner": "Taxa de câmbio indisponível — usando fallback (1:1). Defina manualmente ou verifique as configurações do provedor de câmbio."
+    "fxFallbackBanner": "Taxa de câmbio indisponível — usando fallback (1:1). Defina manualmente ou verifique as configurações do provedor de câmbio.",
+    "attachments": "Anexos",
+    "attachmentsUpload": "Arraste arquivos aqui ou clique para enviar",
+    "attachmentsUploading": "Enviando...",
+    "attachmentsEmpty": "Nenhum anexo ainda",
+    "attachmentUploaded": "Anexo enviado",
+    "attachmentDeleted": "Anexo excluído",
+    "attachmentDeleteConfirm": "Excluir este anexo?",
+    "attachmentTooLarge": "Arquivo muito grande. Tamanho máximo: 10 MB.",
+    "attachmentTypeNotAllowed": "Tipo de arquivo não suportado. Permitidos: jpg, jpeg, png, webp, gif, heic, pdf",
+    "attachmentMaxReached": "Número máximo de anexos atingido",
+    "attachmentRenamed": "Anexo renomeado",
+    "attachmentRename": "Renomear"
   },
   "accounts": {
     "title": "Contas",

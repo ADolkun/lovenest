@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import type { Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, ArrowLeftRight, Clock, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, Clock, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
@@ -412,6 +412,9 @@ export default function AccountDetailPage() {
                                 <Clock className="h-3 w-3" />
                                 {t('transactions.pending')}
                               </span>
+                            )}
+                            {(tx.attachment_count ?? 0) > 0 && (
+                              <Paperclip size={12} className="ml-2 inline text-muted-foreground" />
                             )}
                           </div>
                           {tx.payee && tx.payee !== tx.description && (

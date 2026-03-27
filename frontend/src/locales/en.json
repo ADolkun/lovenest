@@ -137,7 +137,19 @@
     "exchangeRate": "Exchange rate",
     "autoCalculated": "auto",
     "fxFallbackTooltip": "Rate unavailable — using 1:1 fallback. Edit to set manually.",
-    "fxFallbackBanner": "Exchange rate unavailable — using fallback (1:1). Set the rate manually or check your FX provider settings."
+    "fxFallbackBanner": "Exchange rate unavailable — using fallback (1:1). Set the rate manually or check your FX provider settings.",
+    "attachments": "Attachments",
+    "attachmentsUpload": "Drop files here or click to upload",
+    "attachmentsUploading": "Uploading...",
+    "attachmentsEmpty": "No attachments yet",
+    "attachmentUploaded": "Attachment uploaded",
+    "attachmentDeleted": "Attachment deleted",
+    "attachmentDeleteConfirm": "Delete this attachment?",
+    "attachmentTooLarge": "File is too large. Maximum size is 10 MB.",
+    "attachmentTypeNotAllowed": "File type not supported. Allowed: jpg, jpeg, png, webp, gif, heic, pdf",
+    "attachmentMaxReached": "Maximum number of attachments reached",
+    "attachmentRenamed": "Attachment renamed",
+    "attachmentRename": "Rename"
   },
   "accounts": {
     "title": "Accounts",

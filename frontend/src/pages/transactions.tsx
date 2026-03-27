@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, Check, Download, Search, X } from 'lucide-react'
+import { AlertTriangle, Check, Download, Paperclip, Search, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -374,6 +374,9 @@ export default function TransactionsPage() {
                             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">
                               {t('transactions.recurringBadge')}
                             </span>
+                          )}
+                          {(tx.attachment_count ?? 0) > 0 && (
+                            <Paperclip size={12} className="text-muted-foreground shrink-0" />
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">{new Date(tx.date + 'T00:00:00').toLocaleDateString(locale)}</p>

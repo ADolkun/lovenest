@@ -31,6 +31,20 @@ class Settings(BaseSettings):
     supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK"  # comma-separated list
     fx_sync_mode: str = "on_demand"  # "on_demand" or "scheduled"
 
+    # Storage
+    storage_provider: str = "local"  # "local" or "s3"
+    storage_local_path: str = "./data/attachments"
+    storage_max_file_size_mb: int = 10
+    storage_allowed_extensions: str = "jpg,jpeg,png,webp,gif,heic,pdf"
+    storage_max_attachments_per_transaction: int = 10
+
+    # S3 Storage (for future use)
+    storage_s3_bucket: str = ""
+    storage_s3_region: str = ""
+    storage_s3_access_key: str = ""
+    storage_s3_secret_key: str = ""
+    storage_s3_endpoint_url: str = ""  # for S3-compatible services (MinIO, DigitalOcean Spaces)
+
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 

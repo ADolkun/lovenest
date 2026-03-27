@@ -57,6 +57,28 @@ def _auto_register_providers() -> None:
 _auto_register_providers()
 
 
+_storage_provider = None
+
+
+def get_storage_provider():
+    """Get the configured storage provider (singleton)."""
+    global _storage_provider
+    if _storage_provider is None:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if settings.storage_provider == "local":
+            from app.providers.local_storage import LocalStorageProvider
+
+            _storage_provider = LocalStorageProvider()
+        else:
+            raise NotImplementedError(
+                f"Storage provider '{settings.storage_provider}' is not yet implemented. "
+                "Supported: 'local'"
+            )
+    return _storage_provider
+
+
 __all__ = [
     "BankProvider",
     "AccountData",
@@ -67,4 +89,5 @@ __all__ = [
     "get_provider",
     "list_providers",
     "all_known_providers",
+    "get_storage_provider",
 ]

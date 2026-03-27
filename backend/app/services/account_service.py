@@ -197,6 +197,14 @@ async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: 
     if account.connection_id is not None:
         raise ValueError("Cannot delete bank-connected accounts")
 
+    # Clean up attachment files for all transactions in this account
+    from app.services.attachment_service import cleanup_attachment_files
+    tx_result = await session.execute(
+        select(Transaction.id).where(Transaction.account_id == account_id)
+    )
+    tx_ids = [row[0] for row in tx_result.all()]
+    await cleanup_attachment_files(session, tx_ids)
+
     await session.delete(account)
     await session.commit()
     return True
