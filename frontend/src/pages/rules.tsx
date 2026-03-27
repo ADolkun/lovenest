@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, rules as rulesApi, accounts as accountsApi } from '@/lib/api'
@@ -14,7 +14,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import type { Category, Rule, RuleCondition, RuleAction } from '@/types'
-import { Trash2, Plus, RefreshCw, X, Package, Check } from 'lucide-react'
+import { Trash2, Plus, RefreshCw, X, Package, Check, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
 
@@ -171,6 +171,27 @@ export default function RulesPage() {
 
   const categories = categoriesList ?? []
 
+  const [sortBy, setSortBy] = useState<'priority' | 'name' | 'category'>('priority')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const sortedRules = useMemo(() => {
+    const list = [...(rulesList ?? [])]
+    const dir = sortDir === 'asc' ? 1 : -1
+    if (sortBy === 'name') {
+      return list.sort((a, b) => dir * a.name.localeCompare(b.name))
+    }
+    if (sortBy === 'category') {
+      const getCategoryName = (rule: Rule) => {
+        const action = rule.actions.find(a => a.op === 'set_category')
+        if (!action) return ''
+        const cat = categories.find(c => c.id === action.value)
+        return cat?.name ?? ''
+      }
+      return list.sort((a, b) => dir * getCategoryName(a).localeCompare(getCategoryName(b)))
+    }
+    return list.sort((a, b) => dir * (a.priority - b.priority))
+  }, [rulesList, categories, sortBy, sortDir])
+
   return (
     <div>
       <PageHeader section={t('rules.section')} title={t('nav.rules')} />
@@ -205,9 +226,32 @@ export default function RulesPage() {
             </div>
           }
         />
+        <div className="px-4 sm:px-5 py-2 bg-muted/50 border-b border-border flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{t('rules.sortLabel')}</span>
+          {(['priority', 'name', 'category'] as const).map(opt => (
+            <button
+              key={opt}
+              onClick={() => {
+                if (sortBy === opt) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                else { setSortBy(opt); setSortDir('asc') }
+              }}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                sortBy === opt
+                  ? 'bg-background border border-border text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
+              )}
+            >
+              {t(`rules.sortBy_${opt}`)}
+              {sortBy === opt
+                ? sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+                : <ArrowUpDown size={11} className="opacity-30" />}
+            </button>
+          ))}
+        </div>
         {rulesList && rulesList.length > 0 ? (
           <div className="divide-y divide-border">
-            {rulesList.map((rule) => (
+            {sortedRules.map((rule) => (
               <div
                 key={rule.id}
                 className="px-4 sm:px-5 py-3 hover:bg-muted transition-colors cursor-pointer"

@@ -315,7 +315,11 @@
     "opIs": "é",
     "typeExpense": "Despesa (debit)",
     "typeIncome": "Receita (credit)",
-    "valuePlaceholder": "Valor..."
+    "valuePlaceholder": "Valor...",
+    "sortLabel": "Ordenar por",
+    "sortBy_priority": "Prioridade",
+    "sortBy_name": "Nome",
+    "sortBy_category": "Categoria"
   },
   "categories": {
     "title": "Categorias",
