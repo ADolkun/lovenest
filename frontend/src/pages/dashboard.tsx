@@ -171,13 +171,17 @@ export default function DashboardPage() {
     if (!balanceHistory) return []
     const daysInMonth = monthLastDay(selectedMonth)
     const result: { day: number; current: number | null; previous: number }[] = []
+    let lastPrevBalance = 0
     for (let day = 1; day <= daysInMonth; day++) {
       const cur = balanceHistory.current.find(d => d.day === day)
       const prev = balanceHistory.previous.find(d => d.day === day)
+      if (prev) {
+        lastPrevBalance = prev.balance
+      }
       result.push({
         day,
         current: cur?.balance ?? null,
-        previous: prev?.balance ?? 0,
+        previous: prev?.balance ?? lastPrevBalance,
       })
     }
     return result
