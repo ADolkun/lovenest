@@ -145,15 +145,20 @@ async def test_account_balance_at_manual(session: AsyncSession, test_user):
 
 @pytest.mark.asyncio
 async def test_account_balance_at_manual_opening_fallback(session: AsyncSession, test_user):
-    """Manual account falls back to opening_balance when no transactions before cutoff."""
+    """Opening balance dated after cutoff is not carried back — it appears as a delta on its actual date."""
     account = await _make_account(session, test_user.id, "Fallback Bal")
     today = date.today()
 
     # Opening balance dated today, cutoff is yesterday
     await _add_txn(session, test_user.id, account.id, 5000, "credit", today, source="opening_balance")
 
+    # Balance at yesterday is 0 — the opening balance hasn't happened yet
     bal = await _account_balance_at(session, account, today - timedelta(days=1))
-    assert bal == pytest.approx(5000.0)
+    assert bal == pytest.approx(0.0)
+
+    # Balance at today includes the opening balance
+    bal_today = await _account_balance_at(session, account, today)
+    assert bal_today == pytest.approx(5000.0)
 
 
 @pytest.mark.asyncio

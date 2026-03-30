@@ -441,12 +441,19 @@ async def get_projected_transactions(
     return projections
 
 
-def _signed_balance_expr():
+def _signed_balance_expr(account_currency: str = ""):
     """Reusable SQL expression: credit → +amount, debit → −amount.
-    Uses raw amount — suitable for single-account balance calculations."""
+    Uses amount_primary when tx currency differs from account currency."""
+    if account_currency:
+        effective = case(
+            (Transaction.currency == account_currency, Transaction.amount),
+            else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+        )
+    else:
+        effective = Transaction.amount
     return case(
-        (Transaction.type == "credit", Transaction.amount),
-        else_=-Transaction.amount,
+        (Transaction.type == "credit", effective),
+        else_=-effective,
     )
 
 
@@ -495,7 +502,7 @@ async def _account_balance_at(
             current_bal = -current_bal
         # Subtract activity after cutoff to get the balance AT cutoff
         delta_after = await session.scalar(
-            select(func.coalesce(func.sum(_signed_balance_expr()), 0))
+            select(func.coalesce(func.sum(_signed_balance_expr(account.currency)), 0))
             .where(
                 Transaction.account_id == account.id,
                 Transaction.date > cutoff,
@@ -505,32 +512,13 @@ async def _account_balance_at(
     else:
         # Manual: sum signed transactions up to cutoff
         result = await session.scalar(
-            select(func.coalesce(func.sum(_signed_balance_expr()), 0))
+            select(func.coalesce(func.sum(_signed_balance_expr(account.currency)), 0))
             .where(
                 Transaction.account_id == account.id,
                 Transaction.date <= cutoff,
             )
         )
-        bal = float(result or 0)
-
-        # If zero and no transactions exist before cutoff, carry opening balance back.
-        # This handles the common case where a user starts tracking an existing account.
-        if bal == 0.0:
-            first_txn_date = await session.scalar(
-                select(func.min(Transaction.date))
-                .where(Transaction.account_id == account.id)
-            )
-            if first_txn_date is not None and first_txn_date > cutoff:
-                opening_bal = await session.scalar(
-                    select(func.coalesce(func.sum(_signed_balance_expr()), 0))
-                    .where(
-                        Transaction.account_id == account.id,
-                        Transaction.source == "opening_balance",
-                    )
-                )
-                bal = float(opening_bal or 0)
-
-        return bal
+        return float(result or 0)
 
 
 async def _total_balance_by_currency(
@@ -561,7 +549,7 @@ async def _balance_at(
 
     total = 0.0
     for currency, amount in totals.items():
-        converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency, cutoff)
+        converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency)
         total += float(converted)
     return total
 
@@ -570,13 +558,23 @@ async def _daily_deltas(
     session: AsyncSession, user_id: uuid.UUID, start: date, end: date
 ) -> dict[int, float]:
     """Get daily balance deltas for a date range [start, end).
-    Uses amount_primary for multi-currency support.
-    Excludes opening_balance transactions because they are already accounted
-    for in the starting balance via _account_balance_at's carry-back logic."""
+    Computes per-account in native currency (using amount_primary only for
+    foreign txs within an account), grouped by day and account currency,
+    then converts each currency to primary. This is consistent with _balance_at."""
+    # Use amount_primary only when tx currency differs from account currency
+    effective = case(
+        (Transaction.currency == Account.currency, Transaction.amount),
+        else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+    )
+    signed = case(
+        (Transaction.type == "credit", effective),
+        else_=-effective,
+    )
     result = await session.execute(
         select(
             func.extract("day", Transaction.date).label("day"),
-            func.sum(_signed_primary_expr()),
+            Account.currency,
+            func.sum(signed),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -584,11 +582,30 @@ async def _daily_deltas(
             Account.is_closed == False,
             Transaction.date >= start,
             Transaction.date < end,
-            Transaction.source != "opening_balance",
         )
-        .group_by("day")
+        .group_by("day", Account.currency)
     )
-    return {int(row[0]): float(row[1] or 0) for row in result.all()}
+    rows = result.all()
+
+    # Check if all same currency — skip conversion
+    currencies_seen = {row[1] for row in rows}
+    if len(currencies_seen) <= 1:
+        return {int(row[0]): float(row[2] or 0) for row in rows}
+
+    # Multiple currencies: convert each to primary
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    deltas: dict[int, float] = {}
+    for row in rows:
+        day = int(row[0])
+        currency = row[1]
+        amount = float(row[2] or 0)
+        if currency != primary_currency:
+            converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency)
+            amount = float(converted)
+        deltas[day] = deltas.get(day, 0) + amount
+    return deltas
 
 
 async def get_balance_history(

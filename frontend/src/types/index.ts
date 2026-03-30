@@ -72,6 +72,9 @@ export interface AccountSummary {
   current_balance: number
   monthly_income: number
   monthly_expenses: number
+  current_balance_primary: number | null
+  monthly_income_primary: number | null
+  monthly_expenses_primary: number | null
 }
 
 export interface Transaction {

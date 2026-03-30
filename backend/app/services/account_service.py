@@ -14,9 +14,15 @@ from app.schemas.account import AccountCreate, AccountUpdate
 
 async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
     # Subquery: compute current_balance per account from transactions in one pass
+    # Use amount_primary only when tx currency differs from account currency
+    # (converts foreign txs to account's reporting currency)
+    effective_amount = case(
+        (Transaction.currency == Account.currency, Transaction.amount),
+        else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+    )
     signed_amount = case(
-        (Transaction.type == "credit", Transaction.amount),
-        else_=-Transaction.amount,
+        (Transaction.type == "credit", effective_amount),
+        else_=-effective_amount,
     )
 
     balance_sq = (
@@ -24,6 +30,7 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
             Transaction.account_id,
             func.coalesce(func.sum(signed_amount), 0).label("current_balance"),
         )
+        .join(Account, Transaction.account_id == Account.id)
         .group_by(Transaction.account_id)
         .subquery()
     )
@@ -38,6 +45,7 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
             Transaction.account_id,
             func.coalesce(func.sum(signed_amount), 0).label("previous_balance"),
         )
+        .join(Account, Transaction.account_id == Account.id)
         .where(Transaction.date <= prev_month_end)
         .group_by(Transaction.account_id)
         .subquery()
@@ -262,6 +270,12 @@ async def get_account_summary(
     if not date_to:
         date_to = today
 
+    # Use amount_primary only when tx currency differs from account currency
+    effective_amount = case(
+        (Transaction.currency == account.currency, Transaction.amount),
+        else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+    )
+
     # For bank-connected accounts, use the stored balance from the provider
     if account.connection_id:
         current_balance = float(account.balance)
@@ -272,8 +286,8 @@ async def get_account_summary(
                 func.coalesce(
                     func.sum(
                         case(
-                            (Transaction.type == "credit", Transaction.amount),
-                            else_=-Transaction.amount,
+                            (Transaction.type == "credit", effective_amount),
+                            else_=-effective_amount,
                         )
                     ),
                     0,
@@ -289,7 +303,7 @@ async def get_account_summary(
 
     # Income = SUM of credit transactions in [date_from, date_to] (excluding opening_balance and transfers)
     income_result = await session.execute(
-        select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+        select(func.coalesce(func.sum(effective_amount), 0)).where(
             Transaction.account_id == account_id,
             Transaction.type == "credit",
             Transaction.source != "opening_balance",
@@ -302,7 +316,7 @@ async def get_account_summary(
 
     # Expenses = SUM of debit transactions in [date_from, date_to] (as positive value, excluding transfers)
     expenses_result = await session.execute(
-        select(func.coalesce(func.sum(func.abs(Transaction.amount)), 0)).where(
+        select(func.coalesce(func.sum(func.abs(effective_amount)), 0)).where(
             Transaction.account_id == account_id,
             Transaction.type == "debit",
             Transaction.transfer_pair_id.is_(None),
@@ -320,20 +334,26 @@ async def get_account_summary(
     }
 
 
-def _signed_amount_expr():
-    """credit → +amount, debit → −amount."""
+def _signed_amount_expr(account_currency: str):
+    """credit → +amount, debit → −amount.
+    Uses amount_primary only when tx currency differs from account currency."""
+    effective = case(
+        (Transaction.currency == account_currency, Transaction.amount),
+        else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+    )
     return case(
-        (Transaction.type == "credit", Transaction.amount),
-        else_=-Transaction.amount,
+        (Transaction.type == "credit", effective),
+        else_=-effective,
     )
 
 
 async def _account_balance_at(
-    session: AsyncSession, account_id: uuid.UUID, cutoff: _Date
+    session: AsyncSession, account_id: uuid.UUID, cutoff: _Date,
+    account_currency: str = "",
 ) -> float:
     """Get balance for a single account at a specific date."""
     result = await session.execute(
-        select(func.coalesce(func.sum(_signed_amount_expr()), 0))
+        select(func.coalesce(func.sum(_signed_amount_expr(account_currency)), 0))
         .where(
             Transaction.account_id == account_id,
             Transaction.date <= cutoff,
@@ -345,16 +365,17 @@ async def _account_balance_at(
 async def _account_daily_balance_series(
     session: AsyncSession, account_id: uuid.UUID,
     date_from: _Date, date_to: _Date,
+    account_currency: str = "",
 ) -> list[dict]:
     """Build daily balance series for [date_from, date_to] inclusive."""
     # Get balance at end of day before range start
-    start_balance = await _account_balance_at(session, account_id, date_from - timedelta(days=1))
+    start_balance = await _account_balance_at(session, account_id, date_from - timedelta(days=1), account_currency)
 
     # Get daily deltas within range: group by actual date
     result = await session.execute(
         select(
             Transaction.date,
-            func.sum(_signed_amount_expr()),
+            func.sum(_signed_amount_expr(account_currency)),
         )
         .where(
             Transaction.account_id == account_id,
@@ -393,7 +414,7 @@ async def get_account_balance_history(
 
     sign = -1.0 if (account.type == "credit_card" and account.connection_id) else 1.0
 
-    series = await _account_daily_balance_series(session, account_id, date_from, date_to)
+    series = await _account_daily_balance_series(session, account_id, date_from, date_to, account.currency)
 
     if sign != 1.0:
         for point in series:

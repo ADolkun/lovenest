@@ -48,6 +48,17 @@ async def get_account_summary(
     )
     if not summary:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    account = await account_service.get_account(session, account_id, user.id)
+    primary_currency = user.primary_currency
+    if account and account.currency != primary_currency:
+        bal, _ = await convert(session, Decimal(str(summary["current_balance"])), account.currency, primary_currency)
+        inc, _ = await convert(session, Decimal(str(summary["monthly_income"])), account.currency, primary_currency)
+        exp, _ = await convert(session, Decimal(str(summary["monthly_expenses"])), account.currency, primary_currency)
+        summary["current_balance_primary"] = float(bal)
+        summary["monthly_income_primary"] = float(inc)
+        summary["monthly_expenses_primary"] = float(exp)
+
     return summary
 
 
@@ -66,6 +77,17 @@ async def get_account_balance_history(
     )
     if history is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    account = await account_service.get_account(session, account_id, user.id)
+    primary_currency = user.primary_currency
+    if account and account.currency != primary_currency:
+        for point in history:
+            point_date = date.fromisoformat(point["date"])
+            converted, _ = await convert(
+                session, Decimal(str(point["balance"])), account.currency, primary_currency, target_date=point_date,
+            )
+            point["balance_primary"] = float(converted)
+
     return history
 
 

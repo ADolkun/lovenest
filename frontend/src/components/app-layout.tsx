@@ -103,7 +103,7 @@ export function AppLayout() {
 
   const allAccounts = accountsList ?? []
   const totalBalance = allAccounts.reduce((sum, a) => {
-    return sum + Number(a.current_balance)
+    return sum + Number(a.balance_primary ?? a.current_balance)
   }, 0)
 
   return (
