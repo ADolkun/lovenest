@@ -62,6 +62,11 @@ export default function AccountDetailPage() {
     enabled: !!id,
   })
 
+  const { data: accountsList } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => accounts.list(),
+  })
+
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['accounts', id, 'summary', filterFrom, filterTo],
     queryFn: () => accounts.summary(id!, filterFrom || undefined, filterTo || undefined),
@@ -489,7 +494,7 @@ export default function AccountDetailPage() {
         onClose={() => { setDialogOpen(false); setEditingTx(null) }}
         transaction={editingTx}
         categories={categoriesList ?? []}
-        accounts={[]}
+        accounts={accountsList ?? []}
         onSave={(data) => {
           if (editingTx) {
             updateMutation.mutate({ id: editingTx.id, ...data })
