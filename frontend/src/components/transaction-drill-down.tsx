@@ -5,6 +5,7 @@ import { transactions as transactionsApi, dashboard } from '@/lib/api'
 import { AlertTriangle, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import type { Transaction } from '@/types'
 
 export type DrillDownFilter = {
@@ -48,6 +49,7 @@ export function TransactionDrillDown({
 }) {
   const { t, i18n } = useTranslation()
   const { user } = useAuth()
+  const { mask } = usePrivacyMode()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const panelRef = useRef<HTMLDivElement>(null)
@@ -245,7 +247,7 @@ export function TransactionDrillDown({
                       }`}
                     >
                       {item.type === 'credit' ? '+' : '-'}
-                      {formatCurrency(Math.abs(item.amount), item.currency ?? userCurrency, locale)}
+                      {mask(formatCurrency(Math.abs(item.amount), item.currency ?? userCurrency, locale))}
                     </span>
                     {item.currency !== userCurrency && item.amountPrimary != null && (
                       <div className="flex items-center justify-end gap-1">
@@ -253,7 +255,7 @@ export function TransactionDrillDown({
                           <span title={t('transactions.fxFallbackTooltip')}><AlertTriangle size={11} className="text-amber-500 shrink-0" /></span>
                         )}
                         <span className="text-[10px] text-muted-foreground tabular-nums">
-                          {formatCurrency(Math.abs(item.amountPrimary), userCurrency, locale)}
+                          {mask(formatCurrency(Math.abs(item.amountPrimary), userCurrency, locale))}
                         </span>
                       </div>
                     )}
@@ -271,11 +273,11 @@ export function TransactionDrillDown({
               <span className="text-xs text-muted-foreground">
                 {t('dashboard.drillDownTotal', {
                   count: displayItems.length,
-                  total: formatCurrency(absTotal, userCurrency, locale),
+                  total: mask(formatCurrency(absTotal, userCurrency, locale)),
                 })}
               </span>
               <span className="text-sm font-bold tabular-nums text-foreground">
-                {formatCurrency(absTotal, userCurrency, locale)}
+                {mask(formatCurrency(absTotal, userCurrency, locale))}
               </span>
             </div>
           </div>
