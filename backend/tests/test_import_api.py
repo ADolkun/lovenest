@@ -29,6 +29,27 @@ async def test_preview_invalid_file(client: AsyncClient, auth_headers, test_acco
         files={"file": ("bad.csv", b"col1,col2,col3\na,b,c\n", "text/csv")},
     )
     assert response.status_code == 400
+    data = response.json()
+    assert "detail" in data
+    assert data["detail"]  # must not be empty
+
+
+@pytest.mark.asyncio
+async def test_preview_invalid_file_returns_specific_error(
+    client: AsyncClient, auth_headers, test_account
+):
+    """Error response should tell the user what columns were found and what is expected."""
+    response = await client.post(
+        "/api/transactions/import/preview",
+        headers=auth_headers,
+        files={"file": ("bad.csv", b"foo,bar,baz\n1,2,3\n", "text/csv")},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    # Should mention what columns were found in the file
+    assert "foo" in detail
+    # Should mention what columns are expected
+    assert "date" in detail and "description" in detail and "amount" in detail
 
 
 @pytest.mark.asyncio

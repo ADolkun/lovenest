@@ -367,6 +367,7 @@
   },
   "import": {
     "acceptedFormats": "Accepted formats: OFX, CSV, QIF, CAMT",
+    "downloadTemplate": "Download CSV template",
     "transactionsImported": "transactions imported",
     "importedWithSkipped": "{{imported}} imported, {{skipped}} duplicates skipped",
     "csvOptions": "CSV Options",

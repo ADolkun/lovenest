@@ -67,13 +67,16 @@ class TestParseCsv:
         assert transactions[1].type == "credit"
 
     def test_parse_csv_invalid_columns(self):
-        """CSV with unrecognized column names should raise ValueError."""
+        """CSV with unrecognized column names should raise ValueError with found and expected columns."""
         csv_content = (
             "col_a,col_b,col_c\n"
             "foo,bar,baz\n"
         )
-        with pytest.raises(ValueError, match="Could not detect CSV columns"):
+        with pytest.raises(ValueError, match="Found: col_a, col_b, col_c") as exc_info:
             parse_csv(csv_content.encode("utf-8"))
+        # Should also tell the user what columns are expected
+        assert "date" in str(exc_info.value)
+        assert "description" in str(exc_info.value)
 
     def test_parse_csv_brl_amounts(self):
         """CSV with R$ prefix and comma-as-decimal amounts should be parsed correctly.

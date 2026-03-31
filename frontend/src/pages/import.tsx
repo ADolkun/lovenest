@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import type { Transaction, ImportLog } from '@/types'
-import { Upload, FileText, X, CheckCircle2, AlertCircle, History, Trash2, Settings2 } from 'lucide-react'
+import { Upload, FileText, X, CheckCircle2, AlertCircle, History, Trash2, Settings2, Download } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/page-header'
 import { useAuth } from '@/contexts/auth-context'
@@ -66,7 +66,10 @@ export default function ImportPage() {
     mutationFn: ({ file, options }: { file: File; options?: { date_format?: string; flip_amount?: boolean; inflow_column?: string; outflow_column?: string } }) =>
       transactionsApi.previewImport(file, options),
     onSuccess: (data) => setPreviewData(data),
-    onError: () => toast.error(t('import.processError')),
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(detail || t('import.processError'))
+    },
   })
 
   const importMutation = useMutation({
@@ -86,7 +89,10 @@ export default function ImportPage() {
       resetCsvOptions()
       if (fileInputRef.current) fileInputRef.current.value = ''
     },
-    onError: () => toast.error(t('import.importError')),
+    onError: (error: unknown) => {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(detail || t('import.importError'))
+    },
   })
 
   const deleteMutation = useMutation({
@@ -223,6 +229,23 @@ export default function ImportPage() {
                 {t('import.dragOrClick')}
               </p>
               <p className="text-xs text-muted-foreground">{t('import.acceptedFormats')}</p>
+              <button
+                className="mt-2 text-xs text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const csv = 'date,description,amount,currency,fx_rate\n2026-01-15,Grocery Store,-120.50,USD,\n2026-01-20,Salary Payment,5000.00,EUR,1.08\n'
+                  const blob = new Blob([csv], { type: 'text/csv' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'template.csv'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}
+              >
+                <Download size={12} />
+                {t('import.downloadTemplate')}
+              </button>
             </>
           )}
         </div>

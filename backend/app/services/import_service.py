@@ -222,7 +222,7 @@ def parse_csv(
 
     if use_split:
         if inflow_col not in fieldnames or outflow_col not in fieldnames:
-            raise ValueError(f"Inflow/outflow columns not found in CSV. Available: {fieldnames}")
+            raise ValueError(f"Inflow/outflow columns not found in CSV. Available columns: {', '.join(fieldnames)}")
         amount_col = None
     else:
         amount_col = find_col(amount_cols)
@@ -231,9 +231,15 @@ def parse_csv(
     fx_rate_col = find_col(fx_rate_cols)
 
     if not date_col or not desc_col:
-        raise ValueError("Could not detect CSV columns. Expected: date, description, amount")
+        raise ValueError(
+            f"Could not detect CSV columns. Found: {', '.join(fieldnames)}. "
+            f"Expected columns like: date, description, amount (or Portuguese equivalents: data, descricao, valor)"
+        )
     if not use_split and not amount_col:
-        raise ValueError("Could not detect CSV columns. Expected: date, description, amount")
+        raise ValueError(
+            f"Could not detect amount column. Found: {', '.join(fieldnames)}. "
+            f"Expected a column named: {', '.join(amount_cols)}"
+        )
 
     # Determine date formats to try
     if date_format and date_format in DATE_FORMAT_MAP:
