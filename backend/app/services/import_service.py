@@ -38,7 +38,11 @@ def parse_ofx(content: bytes) -> list[TransactionBase]:
 
 def parse_qif(content: bytes) -> list[TransactionBase]:
     """Parse QIF file content and return transactions."""
-    text = content.decode('utf-8-sig')
+    # Try UTF-8 first, fall back to Latin-1 for legacy software (e.g. Microsoft Money)
+    try:
+        text = content.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        text = content.decode('latin-1')
     transactions = []
 
     # Split into transaction blocks by "^"
@@ -59,8 +63,12 @@ def parse_qif(content: bytes) -> list[TransactionBase]:
                 continue
             tag, value = line[0], line[1:]
             if tag == 'D':
-                # Try common date formats
-                for fmt in ['%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d', "%m/%d'%Y"]:
+                # Try common date formats (including 2-digit year variants)
+                for fmt in [
+                    '%m/%d/%Y', '%d/%m/%Y', '%Y-%m-%d',
+                    "%m/%d'%Y", "%m/%d'%y",
+                    '%m/%d/%y', '%d/%m/%y',
+                ]:
                     try:
                         txn_date = datetime.strptime(value.strip(), fmt).date()
                         break

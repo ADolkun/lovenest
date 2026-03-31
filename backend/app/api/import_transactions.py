@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -9,6 +10,8 @@ from app.models.user import User
 from app.schemas.transaction import TransactionImportPreview, TransactionImportRequest
 from app.services import import_service
 from app.services import account_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/transactions", tags=["import"])
 
@@ -24,6 +27,11 @@ async def preview_import(
 ):
     content = await file.read()
     filename = file.filename or ""
+
+    logger.info(
+        "Import preview requested: filename=%s, size=%d bytes, content_type=%s",
+        filename, len(content), file.content_type,
+    )
 
     try:
         if filename.lower().endswith('.ofx') or filename.lower().endswith('.qfx'):
@@ -61,10 +69,22 @@ async def preview_import(
                         transactions = import_service.parse_csv(content)
                         detected_format = "csv"
     except Exception as e:
+        logger.error(
+            "Failed to parse import file: filename=%s, size=%d bytes, "
+            "content_type=%s, first_100_bytes=%r, error=%s",
+            filename, len(content), file.content_type,
+            content[:100], e,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to parse file: {str(e)}",
         )
+
+    logger.info(
+        "Import preview parsed: filename=%s, format=%s, transactions=%d",
+        filename, detected_format, len(transactions),
+    )
 
     return TransactionImportPreview(transactions=transactions, detected_format=detected_format)
 
