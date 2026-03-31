@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +22,7 @@ from app.services.recurring_transaction_service import (
 )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_account_for_recurring(session: AsyncSession, test_user) -> Account:
     account = Account(
         id=uuid.uuid4(),

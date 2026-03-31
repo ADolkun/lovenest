@@ -3,7 +3,9 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import AsyncGenerator
+from unittest.mock import AsyncMock, patch
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -279,3 +281,25 @@ async def test_rules(
     for rule in rules:
         await session.refresh(rule)
     return rules
+
+
+@pytest.fixture(autouse=True)
+def _no_external_fx_sync():
+    """Prevent tests from hitting the real OpenExchangeRates API."""
+    with patch("app.services.fx_rate_service._provider") as mock_provider:
+        mock_provider.name = "test"
+        mock_provider.fetch_latest = AsyncMock(return_value={})
+        mock_provider.fetch_historical = AsyncMock(return_value={})
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_provider_registry():
+    """Reset the provider registry so local env config doesn't leak into tests."""
+    from app.providers import _PROVIDERS
+
+    original = dict(_PROVIDERS)
+    _PROVIDERS.clear()
+    yield
+    _PROVIDERS.clear()
+    _PROVIDERS.update(original)

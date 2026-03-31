@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -19,7 +20,7 @@ from app.services.transaction_service import (
 )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def txn_account(session: AsyncSession, test_user) -> Account:
     account = Account(
         id=uuid.uuid4(),
