@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { categories as categoriesApi, rules as rulesApi, accounts as accountsApi } from '@/lib/api'
+import { categories as categoriesApi, rules as rulesApi, accounts as accountsApi, payees as payeesApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import type { Category, Rule, RuleCondition, RuleAction } from '@/types'
+import type { Category, Payee, Rule, RuleCondition, RuleAction } from '@/types'
 import { Trash2, Plus, RefreshCw, X, Package, Check, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
@@ -81,11 +81,15 @@ function conditionSummary(conditions: RuleCondition[], conditionsOp: string, t: 
   return parts.join(` ${conditionsOp === 'or' ? t('rules.orOp') : t('rules.andOp')} `) || t('rules.noConditions')
 }
 
-function actionSummary(actions: RuleAction[], categories: Category[], t: (key: string) => string): string {
+function actionSummary(actions: RuleAction[], categories: Category[], payeesList: Payee[], t: (key: string) => string): string {
   return actions.map(a => {
     if (a.op === 'set_category') {
       const cat = categories.find(c => c.id === a.value)
       return cat ? `→ ${cat.name}` : `→ ${t('transactions.category')}`
+    }
+    if (a.op === 'set_payee') {
+      const p = payeesList.find(p => p.id === a.value)
+      return p ? `→ ${t('payees.payee')}: ${p.name}` : `→ ${t('payees.payee')}`
     }
     if (a.op === 'append_notes') return `→ ${t('rules.fieldNotes')}: ${a.value}`
     return a.op
@@ -112,6 +116,11 @@ export default function RulesPage() {
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
+  })
+
+  const { data: payeesList } = useQuery({
+    queryKey: ['payees'],
+    queryFn: payeesApi.list,
   })
 
   const createMutation = useMutation({
@@ -170,6 +179,7 @@ export default function RulesPage() {
   })
 
   const categories = categoriesList ?? []
+  const payees = payeesList ?? []
 
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'category'>('priority')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -274,7 +284,7 @@ export default function RulesPage() {
                       {conditionSummary(rule.conditions, rule.conditions_op, t)}
                     </p>
                     <p className="text-xs text-emerald-600 font-medium mt-0.5">
-                      {actionSummary(rule.actions, categories, t)}
+                      {actionSummary(rule.actions, categories, payees, t)}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -307,6 +317,7 @@ export default function RulesPage() {
         rule={editing}
         categories={categories}
         accounts={accountsList ?? []}
+        payees={payees}
         onSave={(data) => {
           if (editing) {
             updateMutation.mutate({ id: editing.id, ...data })
@@ -389,13 +400,14 @@ function RulePacksDialog({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 function RuleDialog({
-  open, onClose, rule, categories, accounts, onSave, loading,
+  open, onClose, rule, categories, accounts, payees, onSave, loading,
 }: {
   open: boolean
   onClose: () => void
   rule: Rule | null
   categories: Category[]
   accounts: { id: string; name: string }[]
+  payees: Payee[]
   onSave: (data: Partial<Rule>) => void
   loading: boolean
 }) {
@@ -562,6 +574,7 @@ function RuleDialog({
                     onChange={(e) => updateAction(i, 'op', e.target.value)}
                   >
                     <option value="set_category">{t('rules.setCategory')}</option>
+                    <option value="set_payee">{t('rules.setPayee')}</option>
                     <option value="append_notes">{t('rules.appendNotes')}</option>
                   </select>
                   {action.op === 'set_category' ? (
@@ -574,6 +587,18 @@ function RuleDialog({
                       <option value="">{t('rules.selectCategory')}</option>
                       {categories.map(cat => (
                         <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
+                  ) : action.op === 'set_payee' ? (
+                    <select
+                      className={`${selectClass} flex-1`}
+                      value={action.value}
+                      onChange={(e) => updateAction(i, 'value', e.target.value)}
+                      required
+                    >
+                      <option value="">{t('rules.selectPayee')}</option>
+                      {payees.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
                   ) : (

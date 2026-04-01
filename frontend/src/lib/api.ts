@@ -8,6 +8,8 @@ import type {
   Account,
   AccountSummary,
   Transaction,
+  Payee,
+  PayeeSummary,
   RecurringTransaction,
   ProjectedTransaction,
   Budget,
@@ -212,6 +214,7 @@ export const transactions = {
   list: async (params?: {
     account_id?: string
     category_id?: string
+    payee_id?: string
     uncategorized?: boolean
     type?: string
     from?: string
@@ -321,6 +324,37 @@ export const transactions = {
     delete: async (transactionId: string, attachmentId: string): Promise<void> => {
       await api.delete(`/transactions/${transactionId}/attachments/${attachmentId}`)
     },
+  },
+}
+
+// Payees
+export const payees = {
+  list: async (): Promise<Payee[]> => {
+    const { data } = await api.get('/payees')
+    return data
+  },
+  get: async (id: string): Promise<Payee> => {
+    const { data } = await api.get(`/payees/${id}`)
+    return data
+  },
+  summary: async (id: string, from?: string, to?: string): Promise<PayeeSummary> => {
+    const { data } = await api.get(`/payees/${id}/summary`, { params: { from, to } })
+    return data
+  },
+  create: async (payee: { name: string; type?: string; notes?: string }): Promise<Payee> => {
+    const { data } = await api.post('/payees', payee)
+    return data
+  },
+  update: async (id: string, payee: Partial<Payee>): Promise<Payee> => {
+    const { data } = await api.patch(`/payees/${id}`, payee)
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/payees/${id}`)
+  },
+  merge: async (targetId: string, sourceIds: string[]): Promise<{ merged: number; transactions_reassigned: number }> => {
+    const { data } = await api.post('/payees/merge', { target_id: targetId, source_ids: sourceIds })
+    return data
   },
 }
 

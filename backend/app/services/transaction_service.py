@@ -10,6 +10,7 @@ from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
+from app.models.payee import Payee
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
@@ -46,6 +47,7 @@ async def get_transactions(
     user_id: uuid.UUID,
     account_id: Optional[uuid.UUID] = None,
     category_id: Optional[uuid.UUID] = None,
+    payee_id: Optional[uuid.UUID] = None,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
     page: int = 1,
@@ -61,13 +63,14 @@ async def get_transactions(
         select(Transaction)
         .outerjoin(Account)
         .outerjoin(BankConnection)
+        .outerjoin(Payee, Transaction.payee_id == Payee.id)
         .where(
             or_(
                 Transaction.user_id == user_id,
                 BankConnection.user_id == user_id,
             )
         )
-        .options(selectinload(Transaction.category), selectinload(Transaction.account))
+        .options(selectinload(Transaction.category), selectinload(Transaction.account), selectinload(Transaction.payee_entity))
     )
 
     # Exclude opening_balance transactions from the normal list unless explicitly requested
@@ -79,6 +82,8 @@ async def get_transactions(
         base_query = base_query.where(Transaction.account_id == account_id)
     if category_id:
         base_query = base_query.where(Transaction.category_id == category_id)
+    if payee_id:
+        base_query = base_query.where(Transaction.payee_id == payee_id)
     if uncategorized:
         base_query = base_query.where(
             Transaction.category_id == None,
@@ -97,6 +102,7 @@ async def get_transactions(
                 Transaction.description.ilike(term),
                 Transaction.payee.ilike(term),
                 Transaction.notes.ilike(term),
+                Payee.name.ilike(term),
             )
         )
 
@@ -126,6 +132,7 @@ async def get_transactions(
         counts = dict(count_rows.all())
         for tx in transactions:
             tx.attachment_count = counts.get(tx.id, 0)
+            tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
 
     return transactions, total or 0
 
@@ -144,7 +151,7 @@ async def get_transaction(
                 BankConnection.user_id == user_id,
             ),
         )
-        .options(selectinload(Transaction.category))
+        .options(selectinload(Transaction.category), selectinload(Transaction.payee_entity))
     )
     transaction = result.scalar_one_or_none()
     if transaction:
@@ -154,6 +161,7 @@ async def get_transaction(
             )
         )
         transaction.attachment_count = count_result.scalar_one()
+        transaction.payee_name = transaction.payee_entity.name if transaction.payee_entity else None
     return transaction
 
 
@@ -183,6 +191,7 @@ async def create_transaction(
         user_id=user_id,
         account_id=data.account_id,
         category_id=data.category_id,  # use provided category if given
+        payee_id=data.payee_id,
         description=data.description,
         amount=data.amount,
         currency=currency,

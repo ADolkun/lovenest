@@ -486,8 +486,8 @@ export default function AccountDetailPage() {
                               <Paperclip size={12} className="ml-2 inline text-muted-foreground" />
                             )}
                           </div>
-                          {tx.payee && tx.payee !== tx.description && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{tx.payee}</p>
+                          {(tx.payee_name || tx.payee) && (tx.payee_name || tx.payee) !== tx.description && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{tx.payee_name || tx.payee}</p>
                           )}
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">

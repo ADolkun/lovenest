@@ -12,6 +12,7 @@ from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.fx_rate import FxRate
 from app.models.transaction_attachment import TransactionAttachment
+from app.models.payee import Payee, PayeeMapping
 
 __all__ = [
     "User",
@@ -28,4 +29,6 @@ __all__ = [
     "AssetValue",
     "FxRate",
     "TransactionAttachment",
+    "Payee",
+    "PayeeMapping",
 ]

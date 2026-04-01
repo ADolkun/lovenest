@@ -92,12 +92,34 @@ export interface Transaction {
   source: string
   status: 'posted' | 'pending'
   payee: string | null
+  payee_id: string | null
+  payee_name: string | null
   notes: string | null
   transfer_pair_id: string | null
   amount_primary: number | null
   fx_rate_used: number | null
   fx_fallback: boolean
   attachment_count?: number
+}
+
+export interface Payee {
+  id: string
+  user_id: string
+  name: string
+  type: 'merchant' | 'person' | 'company'
+  is_favorite: boolean
+  notes: string | null
+  created_at: string
+  transaction_count: number
+}
+
+export interface PayeeSummary {
+  payee: Payee
+  total_spent: number
+  total_received: number
+  transaction_count: number
+  most_common_category: Category | null
+  last_transaction_date: string | null
 }
 
 export interface RuleCondition {

@@ -304,3 +304,37 @@ def test_rule_priority_ordering():
     category_set = apply_rule_actions(actions_high, tx, category_already_set=category_set)
 
     assert tx.category_id == cat_low
+
+
+# --- set_payee action tests ---
+
+
+def test_set_payee_action():
+    payee_id = uuid.uuid4()
+    actions = [{"op": "set_payee", "value": str(payee_id)}]
+    tx = make_tx()
+    tx.payee_id = None
+    apply_rule_actions(actions, tx, category_already_set=False)
+    assert tx.payee_id == payee_id
+
+
+def test_set_payee_invalid_uuid_ignored():
+    actions = [{"op": "set_payee", "value": "not-a-uuid"}]
+    tx = make_tx()
+    tx.payee_id = None
+    apply_rule_actions(actions, tx, category_already_set=False)
+    assert tx.payee_id is None
+
+
+def test_set_payee_combined_with_category():
+    cat_id = uuid.uuid4()
+    payee_id = uuid.uuid4()
+    actions = [
+        {"op": "set_category", "value": str(cat_id)},
+        {"op": "set_payee", "value": str(payee_id)},
+    ]
+    tx = make_tx()
+    tx.payee_id = None
+    apply_rule_actions(actions, tx, category_already_set=False)
+    assert tx.category_id == cat_id
+    assert tx.payee_id == payee_id

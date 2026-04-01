@@ -34,6 +34,7 @@ import {
   EyeOff,
   Repeat,
   Landmark,
+  Users,
   BarChart3,
   Sun,
   Moon,
@@ -60,6 +61,7 @@ const navItems: NavItem[] = [
   { type: 'link', key: 'budgets',      path: '/budgets',      icon: PiggyBank },
   { type: 'link', key: 'recurring',    path: '/recurring',    icon: Repeat },
   { type: 'link', key: 'categories',   path: '/categories',   icon: Tag },
+  { type: 'link', key: 'payees',      path: '/payees',       icon: Users },
   { type: 'link', key: 'rules',        path: '/rules',        icon: SlidersHorizontal },
 ]
 

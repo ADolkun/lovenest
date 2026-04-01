@@ -16,6 +16,7 @@ from app.providers import get_provider
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
+from app.services.payee_service import get_or_create_payee
 
 settings = get_settings()
 
@@ -160,6 +161,12 @@ async def handle_oauth_callback(
             category_id = await _match_pluggy_category(
                 session, user_id, txn_data.pluggy_category
             )
+            # Resolve payee entity from raw payee text
+            payee_id = None
+            if txn_data.payee:
+                payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
+                payee_id = payee_entity.id
+
             transaction = Transaction(
                 user_id=user_id,
                 account_id=account.id,
@@ -172,6 +179,7 @@ async def handle_oauth_callback(
                 source="sync",
                 status=txn_data.status,
                 payee=txn_data.payee,
+                payee_id=payee_id,
                 raw_data=txn_data.raw_data,
                 category_id=category_id,
             )
@@ -340,6 +348,13 @@ async def sync_connection(
                 category_id = await _match_pluggy_category(
                     session, user_id, txn_data.pluggy_category
                 )
+
+                # Resolve payee entity from raw payee text
+                sync_payee_id = None
+                if txn_data.payee:
+                    sync_payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
+                    sync_payee_id = sync_payee_entity.id
+
                 transaction = Transaction(
                     user_id=user_id,
                     account_id=account.id,
@@ -352,6 +367,7 @@ async def sync_connection(
                     source="sync",
                     status=txn_data.status,
                     payee=txn_data.payee,
+                    payee_id=sync_payee_id,
                     raw_data=txn_data.raw_data,
                     category_id=category_id,
                 )

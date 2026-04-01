@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { transactions, categories as categoriesApi, accounts as accountsApi, recurring } from '@/lib/api'
+import { transactions, categories as categoriesApi, accounts as accountsApi, recurring, payees as payeesApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -36,6 +37,7 @@ function parseHashtags(notes: string | null): string[] {
 
 export default function TransactionsPage() {
   const { t, i18n } = useTranslation()
+  const [searchParams] = useSearchParams()
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
@@ -50,6 +52,7 @@ export default function TransactionsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
+  const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
@@ -70,16 +73,17 @@ export default function TransactionsPage() {
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkCategory('')
-  }, [page, filterAccount, filterCategory, filterFrom, filterTo, searchQuery])
+  }, [page, filterAccount, filterCategory, filterPayee, filterFrom, filterTo, searchQuery])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccount, filterCategory, filterFrom, filterTo, searchQuery],
+    queryKey: ['transactions', page, filterAccount, filterCategory, filterPayee, filterFrom, filterTo, searchQuery],
     queryFn: () =>
       transactions.list({
         page,
         limit: 20,
         account_id: filterAccount || undefined,
         category_id: filterCategory === '__uncategorized__' ? undefined : (filterCategory || undefined),
+        payee_id: filterPayee || undefined,
         uncategorized: filterCategory === '__uncategorized__' ? true : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
@@ -95,6 +99,11 @@ export default function TransactionsPage() {
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list(),
+  })
+
+  const { data: payeesList } = useQuery({
+    queryKey: ['payees'],
+    queryFn: payeesApi.list,
   })
 
   const { data: recurringList } = useQuery({
@@ -311,6 +320,16 @@ export default function TransactionsPage() {
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
+            <select
+              className="border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px] min-w-0"
+              value={filterPayee}
+              onChange={(e) => { setFilterPayee(e.target.value); setPage(1) }}
+            >
+              <option value="">{t('payees.payee')}: {t('transactions.all')}</option>
+              {payeesList?.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
           <div className="grid grid-cols-2 gap-2 md:flex md:gap-3">
             <div className="flex items-center gap-2">
@@ -330,12 +349,12 @@ export default function TransactionsPage() {
               />
             </div>
           </div>
-          {(filterFrom || filterTo || filterAccount || filterCategory || searchInput) && (
+          {(filterFrom || filterTo || filterAccount || filterCategory || filterPayee || searchInput) && (
             <Button
               variant="ghost"
               size="sm"
               className="text-muted-foreground hover:text-foreground"
-              onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterAccount(''); setFilterCategory(''); setSearchInput(''); setSearchQuery(''); setPage(1) }}
+              onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterAccount(''); setFilterCategory(''); setFilterPayee(''); setSearchInput(''); setSearchQuery(''); setPage(1) }}
             >
               {t('transactions.clearFilters')}
             </Button>

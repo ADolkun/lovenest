@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
-import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi } from '@/lib/api'
+import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -279,12 +279,17 @@ function TransactionForm({
     queryFn: currenciesApi.list,
     staleTime: Infinity,
   })
+  const { data: payeesList } = useQuery({
+    queryKey: ['payees'],
+    queryFn: payeesApi.list,
+  })
   const [description, setDescription] = useState(transaction?.description ?? '')
   const [amount, setAmount] = useState(transaction?.amount?.toString() ?? '')
   const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().split('T')[0])
   const [type, setType] = useState<'debit' | 'credit'>(transaction?.type ?? 'debit')
   const [currency, setCurrency] = useState(transaction?.currency ?? userCurrency)
   const [categoryId, setCategoryId] = useState(transaction?.category_id ?? '')
+  const [payeeId, setPayeeId] = useState(transaction?.payee_id ?? '')
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts[0]?.id ?? '')
   const [notes, setNotes] = useState(transaction?.notes ?? '')
   const [convertedAmount, setConvertedAmount] = useState(
@@ -395,6 +400,7 @@ function TransactionForm({
         const txData = isSynced
           ? {
               category_id: categoryId || null,
+              payee_id: payeeId || null,
               notes: notes.trim() || undefined,
             } as Partial<Transaction>
           : {
@@ -404,6 +410,7 @@ function TransactionForm({
               type,
               currency,
               category_id: categoryId || null,
+              payee_id: payeeId || null,
               account_id: accountId || undefined,
               notes: notes.trim() || undefined,
               ...fxFields,
@@ -554,21 +561,39 @@ function TransactionForm({
           </select>
         </div>
       </div>
-      {!isSynced && (
+      <div className={cn("grid gap-4", isSynced ? "grid-cols-1" : "grid-cols-2")}>
         <div className="space-y-2">
-          <Label>{t('transactions.account')}</Label>
+          <Label>{t('payees.payee')}</Label>
           <select
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            required
+            value={payeeId}
+            onChange={(e) => setPayeeId(e.target.value)}
           >
-            {accounts.map((acc) => (
-              <option key={acc.id} value={acc.id}>{acc.name}</option>
+            <option value="">{t('payees.noPayee')}</option>
+            {(payeesList ?? []).map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+          {isSynced && transaction?.payee && (
+            <p className="text-xs text-muted-foreground">{t('payees.rawPayee')}: {transaction.payee}</p>
+          )}
         </div>
-      )}
+        {!isSynced && (
+          <div className="space-y-2">
+            <Label>{t('transactions.account')}</Label>
+            <select
+              className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              required
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>{acc.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-2">
         <Label>{t('transactions.notes')} <span className="text-muted-foreground font-normal text-xs">({t('transactions.notesHint')})</span></Label>

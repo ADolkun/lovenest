@@ -16,6 +16,7 @@ from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionBase
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount
+from app.services.payee_service import get_or_create_payee
 
 
 def parse_ofx(content: bytes) -> list[TransactionBase]:
@@ -25,12 +26,14 @@ def parse_ofx(content: bytes) -> list[TransactionBase]:
 
     for account in ofx.accounts:
         for txn in account.statement.transactions:
+            raw_payee = getattr(txn, 'payee', None) or None
             transactions.append(TransactionBase(
                 description=txn.memo or txn.payee or "Unknown",
                 amount=abs(Decimal(str(txn.amount))),
                 date=txn.date.date() if hasattr(txn.date, 'date') else txn.date,
                 type="credit" if txn.amount > 0 else "debit",
                 external_id=getattr(txn, 'id', None),
+                payee_raw=raw_payee,
             ))
 
     return transactions
@@ -93,6 +96,7 @@ def parse_qif(content: bytes) -> list[TransactionBase]:
             amount=abs(amount),
             date=txn_date,
             type="credit" if amount > 0 else "debit",
+            payee_raw=payee,
         ))
 
     return transactions
@@ -399,6 +403,13 @@ async def import_transactions(
             skipped += 1
             continue
 
+        # Resolve payee entity from raw payee text (OFX/QIF)
+        import_payee_id = None
+        import_payee_raw = getattr(txn_data, "payee_raw", None)
+        if import_payee_raw:
+            import_payee_entity = await get_or_create_payee(session, user_id, import_payee_raw)
+            import_payee_id = import_payee_entity.id
+
         transaction = Transaction(
             user_id=user_id,
             account_id=account_id,
@@ -410,6 +421,8 @@ async def import_transactions(
             import_id=import_log.id,
             external_id=txn_data.external_id,
             currency=txn_currency,
+            payee=import_payee_raw,
+            payee_id=import_payee_id,
         )
 
         # If CSV provided an fx_rate, use it directly

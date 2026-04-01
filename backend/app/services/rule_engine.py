@@ -98,6 +98,12 @@ def apply_rule_actions(
             except (ValueError, AttributeError):
                 pass
 
+        elif op == "set_payee":
+            try:
+                tx.payee_id = uuid.UUID(str(value))
+            except (ValueError, AttributeError):
+                pass
+
         elif op == "append_notes":
             new_tags = str(value or "").strip()
             if not new_tags:

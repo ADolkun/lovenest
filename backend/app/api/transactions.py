@@ -36,6 +36,7 @@ class PaginatedTransactions(BaseModel):
 async def list_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
+    payee_id: Optional[uuid.UUID] = Query(None),
     from_date: Optional[date] = Query(None, alias="from"),
     to_date: Optional[date] = Query(None, alias="to"),
     q: Optional[str] = Query(None),
@@ -48,7 +49,7 @@ async def list_transactions(
     user: User = Depends(current_active_user),
 ):
     transactions, total = await transaction_service.get_transactions(
-        session, user.id, account_id, category_id, from_date, to_date, page, limit,
+        session, user.id, account_id, category_id, payee_id, from_date, to_date, page, limit,
         include_opening_balance, search=q, uncategorized=uncategorized, txn_type=type,
     )
     primary_currency = user.primary_currency
@@ -60,6 +61,7 @@ async def list_transactions(
 async def export_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
+    payee_id: Optional[uuid.UUID] = Query(None),
     from_date: Optional[date] = Query(None, alias="from"),
     to_date: Optional[date] = Query(None, alias="to"),
     q: Optional[str] = Query(None),
@@ -69,14 +71,14 @@ async def export_transactions(
     user: User = Depends(current_active_user),
 ):
     transactions, _ = await transaction_service.get_transactions(
-        session, user.id, account_id, category_id, from_date, to_date,
+        session, user.id, account_id, category_id, payee_id, from_date, to_date,
         search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
     )
 
     output = io.StringIO()
     output.write("\ufeff")  # UTF-8 BOM for Excel
     writer = csv.writer(output)
-    writer.writerow(["date", "description", "amount", "type", "currency", "category", "account", "payee", "notes", "status", "source", "amount_primary", "fx_rate_used"])
+    writer.writerow(["date", "description", "amount", "type", "currency", "category", "account", "payee", "payee_name", "notes", "status", "source", "amount_primary", "fx_rate_used"])
     for tx in transactions:
         writer.writerow([
             tx.date.isoformat(),
@@ -87,6 +89,7 @@ async def export_transactions(
             tx.category.name if tx.category else "",
             tx.account.name if tx.account else "",
             tx.payee or "",
+            getattr(tx, "payee_name", "") or "",
             tx.notes or "",
             tx.status,
             tx.source,
