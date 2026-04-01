@@ -430,6 +430,11 @@ function TransactionForm({
           {t('transactions.syncedInfo')}
         </div>
       )}
+      {!!transaction?.transfer_pair_id && (
+        <div className="flex items-center gap-2 p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300">
+          {t('transactions.transferInfo')}
+        </div>
+      )}
       {recurringMatch && (
         <div className="flex items-center gap-2 p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
           <span>{t('transactions.recurringInfo', {
@@ -537,9 +542,10 @@ function TransactionForm({
         <div className="space-y-2">
           <Label>{t('transactions.category')}</Label>
           <select
-            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
+            disabled={!!transaction?.transfer_pair_id}
           >
             <option value="">{t('transactions.noCategory')}</option>
             {categories.map((cat) => (

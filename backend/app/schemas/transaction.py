@@ -64,6 +64,22 @@ class BulkCategorizeRequest(BaseModel):
     category_id: Optional[uuid.UUID] = None
 
 
+class TransferCreate(BaseModel):
+    from_account_id: uuid.UUID
+    to_account_id: uuid.UUID
+    amount: Decimal
+    date: _Date
+    description: str
+    notes: Optional[str] = None
+    fx_rate: Optional[Decimal] = None
+
+
+class TransferRead(BaseModel):
+    debit: TransactionRead
+    credit: TransactionRead
+    transfer_pair_id: uuid.UUID
+
+
 class TransactionImportPreview(BaseModel):
     transactions: list[TransactionBase]
     detected_format: str

@@ -14,11 +14,12 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, Check, Download, Paperclip, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Check, Download, Paperclip, Search, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
+import { TransferDialog } from '@/components/transfer-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -51,6 +52,7 @@ export default function TransactionsPage() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategory, setBulkCategory] = useState<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -178,6 +180,28 @@ export default function TransactionsPage() {
     },
   })
 
+  const transferMutation = useMutation({
+    mutationFn: (data: {
+      from_account_id: string
+      to_account_id: string
+      amount: number
+      date: string
+      description: string
+      notes?: string
+      fx_rate?: number
+    }) => transactions.createTransfer(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setTransferDialogOpen(false)
+      toast.success(t('transactions.transferCreated'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -240,6 +264,10 @@ export default function TransactionsPage() {
             >
               <Download size={16} className="mr-1.5" />
               {exporting ? t('transactions.exporting') : t('transactions.exportCsv')}
+            </Button>
+            <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
+              <ArrowLeftRight size={16} className="mr-1.5" />
+              {t('transactions.transfer')}
             </Button>
             <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
               + {t('transactions.addManual')}
@@ -375,6 +403,12 @@ export default function TransactionsPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold text-foreground truncate">{tx.description}</p>
+                          {!!tx.transfer_pair_id && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                              <ArrowLeftRight className="h-3 w-3" />
+                              {t('transactions.transfer')}
+                            </span>
+                          )}
                           {recurringList?.some(r => r.description === tx.description && r.type === tx.type) && (
                             <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">
                               {t('transactions.recurringBadge')}
@@ -518,6 +552,15 @@ export default function TransactionsPage() {
           </div>
         </div>
       </div>
+
+      {/* Transfer Dialog */}
+      <TransferDialog
+        open={transferDialogOpen}
+        onClose={() => setTransferDialogOpen(false)}
+        accounts={accountsList ?? []}
+        onSave={(data) => transferMutation.mutate(data)}
+        loading={transferMutation.isPending}
+      />
 
       {/* Add/Edit Dialog */}
       <TransactionDialog

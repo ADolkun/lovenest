@@ -149,7 +149,17 @@
     "attachmentTypeNotAllowed": "Tipo de arquivo não suportado. Permitidos: jpg, jpeg, png, webp, gif, heic, pdf",
     "attachmentMaxReached": "Número máximo de anexos atingido",
     "attachmentRenamed": "Anexo renomeado",
-    "attachmentRename": "Renomear"
+    "attachmentRename": "Renomear",
+    "transferCreated": "Transferência criada",
+    "transferTitle": "Transferência Entre Contas",
+    "transferFromAccount": "Conta de origem",
+    "transferToAccount": "Conta de destino",
+    "transferAmount": "Valor",
+    "transferCrossCurrency": "Moedas diferentes — o valor será convertido automaticamente",
+    "transferSameAccount": "Origem e destino devem ser diferentes",
+    "transferDescription": "Descrição",
+    "transferNotes": "Notas",
+    "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados"
   },
   "accounts": {
     "title": "Contas",

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.transaction import BulkCategorizeRequest, TransactionCreate, TransactionRead, TransactionUpdate
+from app.schemas.transaction import BulkCategorizeRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -113,6 +113,26 @@ async def bulk_categorize(
         session, user.id, data.transaction_ids, data.category_id
     )
     return {"updated": count}
+
+
+@router.post("/transfer", response_model=TransferRead, status_code=status.HTTP_201_CREATED)
+async def create_transfer(
+    data: TransferCreate,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    try:
+        debit_tx, credit_tx = await transaction_service.create_transfer(session, user.id, data)
+        debit_full = await transaction_service.get_transaction(session, debit_tx.id, user.id)
+        credit_full = await transaction_service.get_transaction(session, credit_tx.id, user.id)
+        primary_currency = user.primary_currency
+        return TransferRead(
+            debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
+            credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
+            transfer_pair_id=debit_tx.transfer_pair_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)

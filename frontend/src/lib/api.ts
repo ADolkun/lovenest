@@ -239,6 +239,18 @@ export const transactions = {
   delete: async (id: string): Promise<void> => {
     await api.delete(`/transactions/${id}`)
   },
+  createTransfer: async (transfer: {
+    from_account_id: string
+    to_account_id: string
+    amount: number
+    date: string
+    description: string
+    notes?: string
+    fx_rate?: number
+  }): Promise<{ debit: Transaction; credit: Transaction; transfer_pair_id: string }> => {
+    const { data } = await api.post('/transactions/transfer', transfer)
+    return data
+  },
   bulkCategorize: async (transactionIds: string[], categoryId: string | null): Promise<{ updated: number }> => {
     const { data } = await api.patch('/transactions/bulk-categorize', {
       transaction_ids: transactionIds,

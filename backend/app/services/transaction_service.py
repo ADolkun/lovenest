@@ -10,9 +10,9 @@ from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
-from app.schemas.transaction import TransactionCreate, TransactionUpdate
+from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
 from app.services.rule_service import apply_rules_to_transaction
-from app.services.fx_rate_service import stamp_primary_amount
+from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
 
 
 def _apply_fx_override(transaction, amount, amount_primary=None, fx_rate_used=None):
@@ -209,6 +209,101 @@ async def create_transaction(
     return transaction
 
 
+async def create_transfer(
+    session: AsyncSession, user_id: uuid.UUID, data: TransferCreate
+) -> tuple[Transaction, Transaction]:
+    if data.from_account_id == data.to_account_id:
+        raise ValueError("Cannot transfer to the same account")
+
+    # Verify both accounts belong to user
+    from_result = await session.execute(
+        select(Account)
+        .outerjoin(BankConnection)
+        .where(
+            Account.id == data.from_account_id,
+            or_(Account.user_id == user_id, BankConnection.user_id == user_id),
+        )
+    )
+    from_account = from_result.scalar_one_or_none()
+    if not from_account:
+        raise ValueError("Source account not found")
+
+    to_result = await session.execute(
+        select(Account)
+        .outerjoin(BankConnection)
+        .where(
+            Account.id == data.to_account_id,
+            or_(Account.user_id == user_id, BankConnection.user_id == user_id),
+        )
+    )
+    to_account = to_result.scalar_one_or_none()
+    if not to_account:
+        raise ValueError("Destination account not found")
+
+    transfer_pair_id = uuid.uuid4()
+    from decimal import Decimal
+
+    # Debit transaction (from account)
+    debit_tx = Transaction(
+        user_id=user_id,
+        account_id=data.from_account_id,
+        description=data.description,
+        amount=data.amount,
+        currency=from_account.currency,
+        date=data.date,
+        type="debit",
+        source="transfer",
+        notes=data.notes,
+        transfer_pair_id=transfer_pair_id,
+    )
+    session.add(debit_tx)
+
+    # Credit transaction (to account) — convert if cross-currency
+    if from_account.currency != to_account.currency:
+        if data.fx_rate is not None:
+            from decimal import ROUND_HALF_UP
+            credit_amount = (Decimal(str(data.amount)) * Decimal(str(data.fx_rate))).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+        else:
+            converted_amount, _ = await fx_convert(
+                session, Decimal(str(data.amount)), from_account.currency, to_account.currency, data.date
+            )
+            credit_amount = converted_amount
+    else:
+        credit_amount = data.amount
+
+    credit_tx = Transaction(
+        user_id=user_id,
+        account_id=data.to_account_id,
+        description=data.description,
+        amount=credit_amount,
+        currency=to_account.currency,
+        date=data.date,
+        type="credit",
+        source="transfer",
+        notes=data.notes,
+        transfer_pair_id=transfer_pair_id,
+    )
+    session.add(credit_tx)
+    await session.flush()
+
+    # Stamp primary amounts on both
+    await stamp_primary_amount(session, user_id, debit_tx)
+    await stamp_primary_amount(session, user_id, credit_tx)
+
+    # For cross-currency transfers, both sides should show the same primary amount
+    if from_account.currency != to_account.currency and debit_tx.amount_primary is not None:
+        credit_tx.amount_primary = debit_tx.amount_primary
+        if credit_tx.amount and Decimal(str(credit_tx.amount)):
+            credit_tx.fx_rate_used = debit_tx.amount_primary / Decimal(str(credit_tx.amount))
+
+    await session.commit()
+    await session.refresh(debit_tx, ["category"])
+    await session.refresh(credit_tx, ["category"])
+    return debit_tx, credit_tx
+
+
 async def update_transaction(
     session: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, data: TransactionUpdate
 ) -> Optional[Transaction]:
@@ -238,6 +333,31 @@ async def update_transaction(
         )
     elif needs_restamp:
         await stamp_primary_amount(session, user_id, transaction)
+
+    # Cascade changes to paired transfer transaction
+    cascade_fields = {"amount", "date", "description", "notes"}
+    if transaction.transfer_pair_id and (cascade_fields & update_data.keys()):
+        paired = await session.execute(
+            select(Transaction).where(
+                Transaction.transfer_pair_id == transaction.transfer_pair_id,
+                Transaction.id != transaction.id,
+            )
+        )
+        paired_tx = paired.scalar_one_or_none()
+        if paired_tx:
+            for key in cascade_fields & update_data.keys():
+                if key == "amount" and paired_tx.currency != transaction.currency:
+                    from decimal import Decimal
+                    converted, _ = await fx_convert(
+                        session, Decimal(str(transaction.amount)),
+                        transaction.currency, paired_tx.currency, transaction.date,
+                    )
+                    paired_tx.amount = converted
+                elif key != "amount":
+                    setattr(paired_tx, key, update_data[key])
+                else:
+                    paired_tx.amount = update_data[key]
+            await stamp_primary_amount(session, user_id, paired_tx)
 
     await session.commit()
     await session.refresh(transaction)
@@ -271,8 +391,26 @@ async def delete_transaction(
 
     # Clean up attachment files from storage before ORM cascade deletes DB records
     from app.services.attachment_service import cleanup_attachment_files
-    await cleanup_attachment_files(session, [transaction_id])
 
+    tx_ids_to_cleanup = [transaction_id]
+
+    # Cascade delete paired transfer transaction
+    paired_tx = None
+    if transaction.transfer_pair_id:
+        paired_result = await session.execute(
+            select(Transaction).where(
+                Transaction.transfer_pair_id == transaction.transfer_pair_id,
+                Transaction.id != transaction.id,
+            )
+        )
+        paired_tx = paired_result.scalar_one_or_none()
+        if paired_tx:
+            tx_ids_to_cleanup.append(paired_tx.id)
+
+    await cleanup_attachment_files(session, tx_ids_to_cleanup)
+
+    if paired_tx:
+        await session.delete(paired_tx)
     await session.delete(transaction)
     await session.commit()
     return True

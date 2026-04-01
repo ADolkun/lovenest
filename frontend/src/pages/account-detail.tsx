@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft, ArrowLeftRight, Clock, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
+import { TransferDialog } from '@/components/transfer-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -52,6 +53,7 @@ export default function AccountDetailPage() {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [filterFrom, setFilterFrom] = useState(defaultFrom)
   const [filterTo, setFilterTo] = useState(defaultTo)
   const [showPrimary, setShowPrimary] = useState(false)
@@ -137,6 +139,30 @@ export default function AccountDetailPage() {
     onError: () => toast.error(t('common.error')),
   })
 
+  const transferMutation = useMutation({
+    mutationFn: (data: {
+      from_account_id: string
+      to_account_id: string
+      amount: number
+      date: string
+      description: string
+      notes?: string
+      fx_rate?: number
+    }) => transactions.createTransfer(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setTransferDialogOpen(false)
+      toast.success(t('transactions.transferCreated'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   // Whether to use primary currency amounts (for foreign-currency accounts with toggle, or domestic accounts with foreign txs)
   const isCreditCard = account?.type === 'credit_card'
   const isForeignCurrency = account ? account.currency !== userCurrency : false
@@ -212,6 +238,12 @@ export default function AccountDetailPage() {
           <span className="text-xs font-medium bg-muted text-muted-foreground px-2.5 py-1 rounded-full capitalize">
             {account.type}
           </span>
+          {!account.is_closed && (
+            <Button variant="outline" size="sm" className="ml-auto" onClick={() => setTransferDialogOpen(true)}>
+              <ArrowLeftRight className="h-4 w-4 mr-1" />
+              {t('transactions.transfer')}
+            </Button>
+          )}
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <div className="flex items-center gap-2">
@@ -504,6 +536,15 @@ export default function AccountDetailPage() {
         loading={updateMutation.isPending || deleteMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
+      />
+
+      <TransferDialog
+        open={transferDialogOpen}
+        onClose={() => setTransferDialogOpen(false)}
+        accounts={accountsList ?? []}
+        onSave={(data) => transferMutation.mutate(data)}
+        loading={transferMutation.isPending}
+        defaultFromAccountId={id}
       />
     </div>
   )
