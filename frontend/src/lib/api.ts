@@ -94,6 +94,20 @@ export const auth = {
     const { data } = await api.patch('/users/me', { password })
     return data
   },
+  setup2fa: async (): Promise<{ secret: string; otpauth_uri: string }> => {
+    const { data } = await api.post('/auth/2fa/setup')
+    return data
+  },
+  enable2fa: async (code: string): Promise<void> => {
+    await api.post('/auth/2fa/enable', { code })
+  },
+  disable2fa: async (password: string, code: string): Promise<void> => {
+    await api.post('/auth/2fa/disable', { password, code })
+  },
+  verify2fa: async (tempToken: string, code: string): Promise<{ access_token: string; token_type: string }> => {
+    const { data } = await api.post('/auth/2fa/verify', { temp_token: tempToken, code })
+    return data
+  },
 }
 
 // Categories

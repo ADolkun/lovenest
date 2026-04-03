@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import { cn } from '@/lib/utils'
+import type { AxiosError } from 'axios'
 
 const currencies = [
   { code: 'USD', flag: '\u{1F1FA}\u{1F1F8}', symbol: '$' },
@@ -60,8 +61,13 @@ export default function RegisterPage() {
         language: lang,
       })
       navigate('/')
-    } catch {
-      setError(t('auth.registrationError'))
+    } catch (err) {
+      const axiosErr = err as AxiosError
+      if (axiosErr?.response?.status === 429) {
+        setError(t('auth.tooManyAttempts'))
+      } else {
+        setError(t('auth.registrationError'))
+      }
     } finally {
       setIsLoading(false)
     }

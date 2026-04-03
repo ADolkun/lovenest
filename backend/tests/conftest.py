@@ -329,6 +329,70 @@ async def test_rules(
     return rules
 
 
+@pytest_asyncio.fixture
+async def test_user_with_2fa(session: AsyncSession, clean_db) -> User:
+    """Create a test user with 2FA enabled."""
+    import bcrypt as _bcrypt
+    import pyotp
+
+    hashed = _bcrypt.hashpw(b"testpass123", _bcrypt.gensalt()).decode()
+    totp_secret = pyotp.random_base32()
+    user = User(
+        id=uuid.uuid4(),
+        email="2fa@example.com",
+        hashed_password=hashed,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+        totp_secret=totp_secret,
+        is_2fa_enabled=True,
+        preferences={
+            "language": "en",
+            "date_format": "MM/DD/YYYY",
+            "timezone": "UTC",
+            "currency_display": "USD",
+        },
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+@pytest.fixture(autouse=True)
+def _mock_redis():
+    """Provide a no-op Redis mock so rate limiting never blocks tests."""
+    mock = AsyncMock()
+    # Pipeline mock that always reports 0 prior requests (never rate-limits)
+    pipe_mock = AsyncMock()
+    pipe_mock.zremrangebyscore = AsyncMock()
+    pipe_mock.zcard = AsyncMock()
+    pipe_mock.zadd = AsyncMock()
+    pipe_mock.expire = AsyncMock()
+    pipe_mock.execute = AsyncMock(return_value=[0, 0, True, True])
+    mock.pipeline = lambda: pipe_mock
+    # Key-value ops for 2FA temp tokens
+    mock.get = AsyncMock(return_value=None)
+    mock.set = AsyncMock()
+    mock.delete = AsyncMock()
+
+    async def _fake_get_redis():
+        return mock
+
+    # Reset the cached singleton so no real Redis connection leaks into tests
+    import app.core.redis as redis_mod
+    original = redis_mod._redis
+    redis_mod._redis = None
+
+    with patch("app.core.redis.get_redis", _fake_get_redis), \
+         patch("app.core.rate_limit.get_redis", _fake_get_redis), \
+         patch("app.api.custom_auth.get_redis", _fake_get_redis), \
+         patch("app.api.two_factor.get_redis", _fake_get_redis):
+        yield mock
+
+    redis_mod._redis = original
+
+
 @pytest.fixture(autouse=True)
 def _no_external_fx_sync():
     """Prevent tests from hitting the real OpenExchangeRates API."""

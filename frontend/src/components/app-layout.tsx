@@ -41,9 +41,11 @@ import {
   KeyRound,
   HardDriveDownload,
   Shield,
+  ShieldCheck,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
+import { TwoFactorSetup } from '@/components/two-factor-setup'
 
 type NavItem =
   | { type: 'link'; key: string; path: string; icon: React.ElementType }
@@ -82,6 +84,7 @@ export function AppLayout() {
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const [twoFactorOpen, setTwoFactorOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
 
   const showTour = user && !user.preferences?.onboarding_completed && !localStorage.getItem('onboarding_completed')
@@ -133,7 +136,7 @@ export function AppLayout() {
           >
             {privacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
-          <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} backingUp={backingUp} onBackup={async () => {
+          <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} onTwoFactor={() => setTwoFactorOpen(true)} backingUp={backingUp} onBackup={async () => {
                     setBackingUp(true)
                     try {
                       await backupApi.download()
@@ -369,6 +372,13 @@ export function AppLayout() {
                   {t('auth.changePassword')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  onClick={() => setTwoFactorOpen(true)}
+                  className="flex items-center gap-2"
+                >
+                  <ShieldCheck size={14} />
+                  {t('auth.twoFactorTitle')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   disabled={backingUp}
                   onClick={async () => {
                     setBackingUp(true)
@@ -409,11 +419,12 @@ export function AppLayout() {
 
       {showTour && <OnboardingTour onComplete={handleTourComplete} />}
       <ChangePasswordDialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
+      <TwoFactorSetup open={twoFactorOpen} onClose={() => setTwoFactorOpen(false)} />
     </div>
   )
 }
 
-function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, dark, isAdmin }: { userInitial: string; logout: () => void; onChangePassword: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean; isAdmin?: boolean }) {
+function UserMenu({ userInitial, logout, onChangePassword, onTwoFactor, onBackup, backingUp, dark, isAdmin }: { userInitial: string; logout: () => void; onChangePassword: () => void; onTwoFactor: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean; isAdmin?: boolean }) {
   const { t } = useTranslation()
   const nav = useNavigate()
   return (
@@ -440,6 +451,10 @@ function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, 
         <DropdownMenuItem onClick={onChangePassword} className="flex items-center gap-2">
           <KeyRound size={14} />
           {t('auth.changePassword')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onTwoFactor} className="flex items-center gap-2">
+          <ShieldCheck size={14} />
+          {t('auth.twoFactorTitle')}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={backingUp} onClick={onBackup} className="flex items-center gap-2">
           <HardDriveDownload size={14} />

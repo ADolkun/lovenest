@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -24,6 +24,9 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
             "currency_display": "USD",
         },
     )
+
+    totp_secret: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, default=None)
+    is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     categories: Mapped[list["Category"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     category_groups: Mapped[list["CategoryGroup"]] = relationship(back_populates="user", cascade="all, delete-orphan")

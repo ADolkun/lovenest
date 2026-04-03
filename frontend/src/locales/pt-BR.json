@@ -42,7 +42,21 @@
     "passwordMismatch": "As senhas não conferem",
     "registrationError": "Erro ao criar conta. Tente novamente.",
     "registerDescription": "Crie sua conta para começar",
-    "currency": "Moeda"
+    "currency": "Moeda",
+    "twoFactor": "Código de verificação",
+    "twoFactorTitle": "Autenticação 2FA",
+    "twoFactorDescription": "Digite o código de 6 dígitos do seu app autenticador",
+    "verify": "Verificar",
+    "invalid2faCode": "Código de verificação inválido",
+    "tooManyAttempts": "Muitas tentativas. Tente novamente mais tarde.",
+    "setup2fa": "Configurar Autenticação em Dois Fatores",
+    "setup2faDescription": "Adicione uma camada extra de segurança à sua conta ativando a autenticação em dois fatores com um app autenticador.",
+    "manualEntry": "Ou insira esta chave manualmente:",
+    "enable2fa": "Ativar 2FA",
+    "disable2fa": "Desativar 2FA",
+    "disable2faDescription": "Digite sua senha e um código de verificação para desativar a autenticação em dois fatores.",
+    "twoFactorEnabled": "Autenticação em dois fatores ativada",
+    "twoFactorDisabled": "Autenticação em dois fatores desativada"
   },
   "dashboard": {
     "title": "Painel",

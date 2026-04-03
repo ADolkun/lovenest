@@ -1,0 +1,177 @@
+from unittest.mock import AsyncMock, patch
+
+import pyotp
+import pytest
+from httpx import AsyncClient
+
+
+def _make_redis_mock_with_store():
+    """Create a Redis mock that actually stores and retrieves key-value pairs."""
+    store = {}
+    mock = AsyncMock()
+
+    async def mock_get(key):
+        return store.get(key)
+
+    async def mock_set(key, value, ex=None):
+        store[key] = value
+
+    async def mock_delete(key):
+        store.pop(key, None)
+
+    mock.get = AsyncMock(side_effect=mock_get)
+    mock.set = AsyncMock(side_effect=mock_set)
+    mock.delete = AsyncMock(side_effect=mock_delete)
+
+    # Pipeline for rate limiter (always allow)
+    pipe_mock = AsyncMock()
+    pipe_mock.zremrangebyscore = AsyncMock()
+    pipe_mock.zcard = AsyncMock()
+    pipe_mock.zadd = AsyncMock()
+    pipe_mock.expire = AsyncMock()
+    pipe_mock.execute = AsyncMock(return_value=[0, 0, True, True])
+    mock.pipeline = lambda: pipe_mock
+
+    return mock
+
+
+@pytest.fixture(autouse=True)
+def _override_redis_with_store(_mock_redis):
+    """Override the autouse _mock_redis with one that has a real key-value store."""
+    mock = _make_redis_mock_with_store()
+
+    async def _fake():
+        return mock
+
+    with patch("app.core.redis.get_redis", _fake), \
+         patch("app.core.rate_limit.get_redis", _fake), \
+         patch("app.api.custom_auth.get_redis", _fake), \
+         patch("app.api.two_factor.get_redis", _fake):
+        yield mock
+
+
+async def test_setup_2fa(client: AsyncClient, auth_headers: dict):
+    response = await client.post("/api/auth/2fa/setup", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert "secret" in data
+    assert "otpauth_uri" in data
+    assert "otpauth://totp/" in data["otpauth_uri"]
+
+
+async def test_enable_2fa(client: AsyncClient, auth_headers: dict, test_user):
+    # First setup
+    setup_resp = await client.post("/api/auth/2fa/setup", headers=auth_headers)
+    secret = setup_resp.json()["secret"]
+
+    # Generate valid code
+    totp = pyotp.TOTP(secret)
+    code = totp.now()
+
+    response = await client.post(
+        "/api/auth/2fa/enable",
+        json={"code": code},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["detail"] == "2FA enabled"
+
+
+async def test_enable_2fa_invalid_code(client: AsyncClient, auth_headers: dict, test_user):
+    # First setup
+    await client.post("/api/auth/2fa/setup", headers=auth_headers)
+
+    response = await client.post(
+        "/api/auth/2fa/enable",
+        json={"code": "000000"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+async def test_login_with_2fa(client: AsyncClient, test_user_with_2fa):
+    response = await client.post(
+        "/api/auth/login",
+        data={"username": "2fa@example.com", "password": "testpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["requires_2fa"] is True
+    assert "temp_token" in data
+
+
+async def test_verify_2fa(client: AsyncClient, test_user_with_2fa):
+    # Login to get temp token
+    login_resp = await client.post(
+        "/api/auth/login",
+        data={"username": "2fa@example.com", "password": "testpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    temp_token = login_resp.json()["temp_token"]
+
+    # Generate valid TOTP code
+    totp = pyotp.TOTP(test_user_with_2fa.totp_secret)
+    code = totp.now()
+
+    response = await client.post(
+        "/api/auth/2fa/verify",
+        json={"temp_token": temp_token, "code": code},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+
+async def test_verify_2fa_invalid_code(client: AsyncClient, test_user_with_2fa):
+    # Login to get temp token
+    login_resp = await client.post(
+        "/api/auth/login",
+        data={"username": "2fa@example.com", "password": "testpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    temp_token = login_resp.json()["temp_token"]
+
+    response = await client.post(
+        "/api/auth/2fa/verify",
+        json={"temp_token": temp_token, "code": "000000"},
+    )
+    assert response.status_code == 400
+
+
+async def test_verify_2fa_expired_token(client: AsyncClient):
+    response = await client.post(
+        "/api/auth/2fa/verify",
+        json={"temp_token": "nonexistent-token", "code": "123456"},
+    )
+    assert response.status_code == 401
+
+
+async def test_disable_2fa(client: AsyncClient, test_user_with_2fa):
+    # Get auth token for 2FA user by verifying 2FA
+    login_resp = await client.post(
+        "/api/auth/login",
+        data={"username": "2fa@example.com", "password": "testpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    temp_token = login_resp.json()["temp_token"]
+    totp = pyotp.TOTP(test_user_with_2fa.totp_secret)
+    code = totp.now()
+
+    verify_resp = await client.post(
+        "/api/auth/2fa/verify",
+        json={"temp_token": temp_token, "code": code},
+    )
+    token = verify_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Now disable 2FA
+    new_code = totp.now()
+    response = await client.post(
+        "/api/auth/2fa/disable",
+        json={"password": "testpass123", "code": new_code},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["detail"] == "2FA disabled"

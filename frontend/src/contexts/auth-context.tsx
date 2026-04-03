@@ -3,11 +3,17 @@ import { useQueryClient } from '@tanstack/react-query'
 import { auth } from '@/lib/api'
 import type { User } from '@/types'
 
+interface LoginResult {
+  requires_2fa: boolean
+  temp_token?: string
+}
+
 interface AuthContextType {
   user: User | null
   token: string | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<LoginResult>
+  verify2fa: (tempToken: string, code: string) => Promise<void>
   loginWithToken: (accessToken: string) => void
   register: (email: string, password: string, preferences?: Record<string, string>) => Promise<void>
   updateUser: (user: User) => void
@@ -48,11 +54,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const data = await auth.login(email, password)
+
+    if (data.requires_2fa) {
+      return { requires_2fa: true, temp_token: data.temp_token }
+    }
+
     const accessToken = data.access_token
     localStorage.setItem('token', accessToken)
     setToken(accessToken)
+    const me = await auth.me()
+    setUser(me)
+    return { requires_2fa: false }
+  }, [])
+
+  const verify2fa = useCallback(async (tempToken: string, code: string) => {
+    const data = await auth.verify2fa(tempToken, code)
+    localStorage.setItem('token', data.access_token)
+    setToken(data.access_token)
     const me = await auth.me()
     setUser(me)
   }, [])
@@ -80,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient])
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, loginWithToken, register, updateUser, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, verify2fa, loginWithToken, register, updateUser, logout }}>
       {children}
     </AuthContext.Provider>
   )
