@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/tassionoronha/ae627b744aaa2ba89d850ea541c311be/raw/coverage.json" alt="Coverage" />
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
   <br />
-  <a href="https://usesecuro.com/">Website</a> · <a href="https://github.com/orgs/securo-finance/projects/2">Roadmap</a>
+  <a href="https://usesecuro.com/">Website</a> · <a href="https://docs.usesecuro.com/">Docs</a> · <a href="https://github.com/orgs/securo-finance/projects/2">Roadmap</a>
 </p>
 
 <h3 align="center">Finance apps want your data. This one doesn't.</h3>
@@ -49,6 +49,8 @@ Open [http://localhost:3000](http://localhost:3000) and create an account. That'
 - Dashboard with spending analytics and projections
 - Bank sync via providers (Pluggy supported, extensible)
 - Multi-currency support with automatic FX conversion
+- Multi-user support with admin panel and registration controls
+- Two-factor authentication (TOTP) with brute-force protection
 - Dark/light theme, multi-language support, privacy mode
 
 ## Bank Sync (Optional)
