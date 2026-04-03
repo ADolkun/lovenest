@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.accounts import router as accounts_router
@@ -24,6 +24,7 @@ from app.api.attachments import router as attachments_router
 from app.api.payees import router as payees_router
 from app.api.settings import router as settings_router
 from app.api.transactions import router as transactions_router
+from app.api.admin import router as admin_router, check_registration_enabled
 from app.core.auth import auth_backend, fastapi_users
 from app.core.config import get_settings
 from app.schemas.user import UserCreate, UserRead, UserUpdate
@@ -70,6 +71,7 @@ app.include_router(
     fastapi_users.get_register_router(UserRead, UserCreate),
     prefix="/api/auth",
     tags=["auth"],
+    dependencies=[Depends(check_registration_enabled)],
 )
 app.include_router(
     fastapi_users.get_reset_password_router(),
@@ -103,6 +105,7 @@ app.include_router(export_router)
 app.include_router(attachments_router)
 app.include_router(payees_router)
 app.include_router(settings_router)
+app.include_router(admin_router)
 
 
 @app.get("/api/health")

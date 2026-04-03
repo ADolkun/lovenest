@@ -17,7 +17,8 @@
     "reports": "Reports",
     "groupAnalysis": "Analysis",
     "groupSetup": "Setup",
-    "groupAccounts": "Accounts"
+    "groupAccounts": "Accounts",
+    "groupAdmin": "Administration"
   },
   "auth": {
     "login": "Login",
@@ -39,7 +40,9 @@
     "passwordChangeError": "Failed to change password",
     "confirmPassword": "Confirm password",
     "passwordMismatch": "Passwords do not match",
-    "registrationError": "Error creating account. Please try again."
+    "registrationError": "Error creating account. Please try again.",
+    "registerDescription": "Create your account to get started",
+    "currency": "Currency"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -580,6 +583,41 @@
     "downloading": "Downloading...",
     "success": "Backup downloaded successfully",
     "error": "Failed to download backup"
+  },
+  "admin": {
+    "users": {
+      "title": "User Management",
+      "searchPlaceholder": "Search users...",
+      "add": "Add User",
+      "edit": "Edit User",
+      "email": "Email",
+      "status": "Status",
+      "role": "Role",
+      "active": "Active",
+      "inactive": "Inactive",
+      "admin": "Admin",
+      "user": "User",
+      "you": "You",
+      "empty": "No users found",
+      "created": "User created",
+      "updated": "User updated",
+      "deleted": "User deleted",
+      "confirmDeleteTitle": "Delete user?",
+      "confirmDeleteDesc": "This will permanently delete the user {{email}} and all their data. This action cannot be undone.",
+      "resetPassword": "Reset password",
+      "resetPasswordPlaceholder": "Leave blank to keep current",
+      "addDesc": "Create a new user account with access to the application.",
+      "adminRole": "Administrator privileges",
+      "enabled": "On",
+      "disabled": "Off"
+    },
+    "settings": {
+      "title": "Admin Settings",
+      "registrationTitle": "Registration",
+      "registration": "Allow user registration",
+      "registrationDesc": "When disabled, only admins can create new user accounts.",
+      "updated": "Setting updated"
+    }
   },
   "onboarding": {
     "sidebar": "Sidebar Navigation",

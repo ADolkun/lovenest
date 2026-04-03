@@ -17,7 +17,8 @@
     "reports": "Relatórios",
     "groupAnalysis": "Análise",
     "groupSetup": "Configuração",
-    "groupAccounts": "Contas"
+    "groupAccounts": "Contas",
+    "groupAdmin": "Administração"
   },
   "auth": {
     "login": "Entrar",
@@ -39,7 +40,9 @@
     "passwordChangeError": "Erro ao alterar a senha",
     "confirmPassword": "Confirmar senha",
     "passwordMismatch": "As senhas não conferem",
-    "registrationError": "Erro ao criar conta. Tente novamente."
+    "registrationError": "Erro ao criar conta. Tente novamente.",
+    "registerDescription": "Crie sua conta para começar",
+    "currency": "Moeda"
   },
   "dashboard": {
     "title": "Painel",
@@ -580,6 +583,41 @@
     "downloading": "Baixando...",
     "success": "Backup baixado com sucesso",
     "error": "Erro ao baixar backup"
+  },
+  "admin": {
+    "users": {
+      "title": "Gerenciamento de Usuários",
+      "searchPlaceholder": "Buscar usuários...",
+      "add": "Adicionar Usuário",
+      "edit": "Editar Usuário",
+      "email": "E-mail",
+      "status": "Status",
+      "role": "Função",
+      "active": "Ativo",
+      "inactive": "Inativo",
+      "admin": "Admin",
+      "user": "Usuário",
+      "you": "Você",
+      "empty": "Nenhum usuário encontrado",
+      "created": "Usuário criado",
+      "updated": "Usuário atualizado",
+      "deleted": "Usuário excluído",
+      "confirmDeleteTitle": "Excluir usuário?",
+      "confirmDeleteDesc": "Isso excluirá permanentemente o usuário {{email}} e todos os seus dados. Esta ação não pode ser desfeita.",
+      "resetPassword": "Redefinir senha",
+      "resetPasswordPlaceholder": "Deixe em branco para manter a atual",
+      "addDesc": "Criar uma nova conta de usuário com acesso ao aplicativo.",
+      "adminRole": "Privilégios de administrador",
+      "enabled": "Sim",
+      "disabled": "Não"
+    },
+    "settings": {
+      "title": "Configurações Admin",
+      "registrationTitle": "Registro",
+      "registration": "Permitir registro de usuários",
+      "registrationDesc": "Quando desativado, apenas admins podem criar novas contas.",
+      "updated": "Configuração atualizada"
+    }
   },
   "onboarding": {
     "sidebar": "Navegação Lateral",

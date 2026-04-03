@@ -18,7 +18,7 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
 
 
 class UserCreate(schemas.BaseUserCreate):
-    pass
+    preferences: Optional[dict] = None
 
 
 class UserUpdate(schemas.BaseUserUpdate):

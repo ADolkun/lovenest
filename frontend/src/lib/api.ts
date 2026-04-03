@@ -1,6 +1,9 @@
 import axios from 'axios'
 import type {
   User,
+  AdminUser,
+  AdminUserList,
+  AppSetting,
   Category,
   CategoryGroup,
   BankConnection,
@@ -75,8 +78,8 @@ export const auth = {
     })
     return data
   },
-  register: async (email: string, password: string) => {
-    const { data } = await api.post('/auth/register', { email, password })
+  register: async (email: string, password: string, preferences?: Record<string, string>) => {
+    const { data } = await api.post('/auth/register', { email, password, preferences })
     return data
   },
   me: async (): Promise<User> => {
@@ -567,6 +570,41 @@ export const backup = {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  },
+}
+
+// Admin
+export const admin = {
+  listUsers: async (params?: { search?: string; page?: number; limit?: number }): Promise<AdminUserList> => {
+    const { data } = await api.get('/admin/users', { params })
+    return data
+  },
+  getUser: async (id: string): Promise<AdminUser> => {
+    const { data } = await api.get(`/admin/users/${id}`)
+    return data
+  },
+  createUser: async (user: { email: string; password: string; is_superuser?: boolean; preferences?: Record<string, unknown> }): Promise<AdminUser> => {
+    const { data } = await api.post('/admin/users', user)
+    return data
+  },
+  updateUser: async (id: string, user: Partial<{ email: string; password: string; is_active: boolean; is_superuser: boolean; preferences: Record<string, unknown> }>): Promise<AdminUser> => {
+    const { data } = await api.patch(`/admin/users/${id}`, user)
+    return data
+  },
+  deleteUser: async (id: string): Promise<void> => {
+    await api.delete(`/admin/users/${id}`)
+  },
+  getSetting: async (key: string): Promise<AppSetting> => {
+    const { data } = await api.get(`/admin/settings/${key}`)
+    return data
+  },
+  updateSetting: async (key: string, value: string): Promise<AppSetting> => {
+    const { data } = await api.patch(`/admin/settings/${key}`, { value })
+    return data
+  },
+  registrationStatus: async (): Promise<{ enabled: boolean }> => {
+    const { data } = await api.get('/admin/registration-status')
+    return data
   },
 }
 

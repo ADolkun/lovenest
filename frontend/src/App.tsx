@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/contexts/auth-context'
 import { ProtectedRoute } from '@/components/protected-route'
+import { AdminRoute } from '@/components/admin-route'
 import { AppLayout } from '@/components/app-layout'
 
 const SetupPage = lazy(() => import('@/pages/setup'))
@@ -22,6 +23,7 @@ const RecurringPage = lazy(() => import('@/pages/recurring'))
 const AssetsPage = lazy(() => import('@/pages/assets'))
 const ReportsPage = lazy(() => import('@/pages/reports'))
 const PayeesPage = lazy(() => import('@/pages/payees'))
+const AdminSettingsPage = lazy(() => import('@/pages/admin/settings'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +72,7 @@ function App() {
                   <Route path="/assets" element={<AssetsPage />} />
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/payees" element={<PayeesPage />} />
+                  <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
                 </Route>
               </Routes>
             </Suspense>

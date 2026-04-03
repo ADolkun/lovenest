@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { Sun, Moon, Globe } from 'lucide-react'
 import { ShellLogo } from '@/components/shell-logo'
@@ -74,74 +74,71 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background via-background to-primary/5 px-4">
-      <div className="flex items-center gap-3 mb-10">
-        <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-          <ShellLogo size={24} className="text-primary" />
-        </div>
-        <span className="text-2xl font-bold tracking-tight text-foreground">{t('app.name')}</span>
-      </div>
-      <Card className="w-full max-w-[400px] shadow-lg border-border/60">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background px-4">
+      <Card className="w-full max-w-[400px] shadow-sm">
         <form onSubmit={handleSubmit}>
-          <CardHeader className="text-center pb-2 pt-8 px-8">
-            <CardTitle className="text-2xl font-bold tracking-tight">{t('setup.title')}</CardTitle>
-            <CardDescription className="text-[13px] mt-1">{t('setup.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5 px-8 pt-4">
+          <div className="flex flex-col items-center pt-8 pb-2 px-8">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+              <ShellLogo size={22} className="text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight">{t('setup.title')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('setup.description')}</p>
+          </div>
+          <CardContent className="space-y-4 px-8 pt-4">
             {error && (
               <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
                 {error}
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-[13px] font-medium">{t('setup.name')}</Label>
+              <Label htmlFor="name" className="text-sm">{t('setup.name')}</Label>
               <Input
                 id="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="h-11 rounded-lg text-sm"
+
                 placeholder={t('setup.namePlaceholder')}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-[13px] font-medium">{t('auth.email')}</Label>
+              <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
               <Input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 rounded-lg text-sm"
+
                 placeholder="you@example.com"
                 required
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-[13px] font-medium">{t('auth.password')}</Label>
+              <Label htmlFor="password" className="text-sm">{t('auth.password')}</Label>
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-11 rounded-lg text-sm"
+
                 required
                 minLength={8}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword" className="text-[13px] font-medium">{t('setup.confirmPassword')}</Label>
+              <Label htmlFor="confirmPassword" className="text-sm">{t('setup.confirmPassword')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="h-11 rounded-lg text-sm"
+
                 required
                 minLength={8}
               />
             </div>
             <div className="space-y-2 pt-1">
-              <Label className="text-[13px] font-medium">{t('setup.currency')}</Label>
+              <Label className="text-sm">{t('setup.currency')}</Label>
               <div className="grid grid-cols-4 gap-2">
                 {([
                   { code: 'USD', flag: '\u{1F1FA}\u{1F1F8}', symbol: '$' },
@@ -173,7 +170,7 @@ export default function SetupPage() {
             </div>
             <div className="flex items-center justify-between gap-4 pt-1">
               <div className="space-y-1.5">
-                <Label className="text-[13px] font-medium flex items-center gap-1.5">
+                <Label className="text-sm flex items-center gap-1.5">
                   <Globe size={14} />
                   {t('setup.language')}
                 </Label>
@@ -205,7 +202,7 @@ export default function SetupPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px] font-medium">{t('setup.theme')}</Label>
+                <Label className="text-sm">{t('setup.theme')}</Label>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -236,7 +233,7 @@ export default function SetupPage() {
             </div>
           </CardContent>
           <CardFooter className="px-8 pb-8 pt-2">
-            <Button type="submit" className="w-full h-11 rounded-lg text-sm font-semibold" disabled={isLoading}>
+            <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? t('setup.creating') : t('setup.createAdmin')}
             </Button>
           </CardFooter>

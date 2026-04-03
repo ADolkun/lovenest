@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     storage_s3_secret_key: str = ""
     storage_s3_endpoint_url: str = ""  # for S3-compatible services (MinIO, DigitalOcean Spaces)
 
+    # Registration
+    registration_enabled: bool = True
+
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 

@@ -1,7 +1,29 @@
 export interface User {
   id: string
   email: string
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
   preferences: UserPreferences
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  is_active: boolean
+  is_superuser: boolean
+  is_verified: boolean
+  preferences: UserPreferences | null
+}
+
+export interface AdminUserList {
+  items: AdminUser[]
+  total: number
+}
+
+export interface AppSetting {
+  key: string
+  value: string
 }
 
 export interface UserPreferences {

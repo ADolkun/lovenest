@@ -22,6 +22,7 @@ from app.models.asset import Asset  # noqa: F401
 from app.models.asset_value import AssetValue  # noqa: F401
 from app.models.transaction_attachment import TransactionAttachment  # noqa: F401
 from app.models.payee import Payee, PayeeMapping  # noqa: F401
+from app.models.app_settings import AppSetting  # noqa: F401
 
 # Use SQLite for tests — fast, no external dependency
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
@@ -135,6 +136,50 @@ async def auth_token(client: AsyncClient, test_user: User) -> str:
 def auth_headers(auth_token: str) -> dict:
     """Auth headers for authenticated requests."""
     return {"Authorization": f"Bearer {auth_token}"}
+
+
+@pytest_asyncio.fixture
+async def test_superuser(session: AsyncSession, clean_db) -> User:
+    """Create a test superuser (admin)."""
+    import bcrypt as _bcrypt
+
+    hashed = _bcrypt.hashpw(b"adminpass123", _bcrypt.gensalt()).decode()
+    user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        hashed_password=hashed,
+        is_active=True,
+        is_superuser=True,
+        is_verified=True,
+        preferences={
+            "language": "en",
+            "date_format": "MM/DD/YYYY",
+            "timezone": "UTC",
+            "currency_display": "USD",
+        },
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def admin_auth_token(client: AsyncClient, test_superuser: User) -> str:
+    """Get an auth token for the superuser."""
+    response = await client.post(
+        "/api/auth/login",
+        data={"username": "admin@example.com", "password": "adminpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 200, f"Admin login failed: {response.text}"
+    return response.json()["access_token"]
+
+
+@pytest_asyncio.fixture
+def admin_auth_headers(admin_auth_token: str) -> dict:
+    """Auth headers for admin requests."""
+    return {"Authorization": f"Bearer {admin_auth_token}"}
 
 
 @pytest_asyncio.fixture

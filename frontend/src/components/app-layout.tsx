@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
@@ -40,6 +40,7 @@ import {
   Moon,
   KeyRound,
   HardDriveDownload,
+  Shield,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
@@ -76,6 +77,7 @@ export function AppLayout() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { theme, setTheme } = useTheme()
   const location = useLocation()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
@@ -141,7 +143,7 @@ export function AppLayout() {
                     } finally {
                       setBackingUp(false)
                     }
-                  }} dark />
+                  }} dark isAdmin={user?.is_superuser} />
         </div>
       </header>
 
@@ -347,6 +349,18 @@ export function AppLayout() {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48" side="top">
+                {user?.is_superuser && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/admin')}
+                      className="flex items-center gap-2"
+                    >
+                      <Shield size={14} />
+                      {t('nav.groupAdmin')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={() => setChangePasswordOpen(true)}
                   className="flex items-center gap-2"
@@ -399,8 +413,9 @@ export function AppLayout() {
   )
 }
 
-function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, dark }: { userInitial: string; logout: () => void; onChangePassword: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean }) {
+function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, dark, isAdmin }: { userInitial: string; logout: () => void; onChangePassword: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean; isAdmin?: boolean }) {
   const { t } = useTranslation()
+  const nav = useNavigate()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -413,6 +428,15 @@ function UserMenu({ userInitial, logout, onChangePassword, onBackup, backingUp, 
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {isAdmin && (
+          <>
+            <DropdownMenuItem onClick={() => nav('/admin')} className="flex items-center gap-2">
+              <Shield size={14} />
+              {t('nav.groupAdmin')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem onClick={onChangePassword} className="flex items-center gap-2">
           <KeyRound size={14} />
           {t('auth.changePassword')}
