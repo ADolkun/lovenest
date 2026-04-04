@@ -254,3 +254,111 @@ async def test_unlink_nonexistent_pair(session: AsyncSession, test_user):
     """Unlinking a nonexistent pair returns 0."""
     unlinked = await unlink_transfer_pair(session, test_user.id, uuid.uuid4())
     assert unlinked == 0
+
+
+# ---------------------------------------------------------------------------
+# Reverse-direction candidate_ids detection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_candidate_credit_matches_existing_debit(session: AsyncSession, test_user):
+    """When candidate_ids contains only a credit, it pairs with an existing debit.
+
+    Simulates: Account A synced first (debit already exists), then Account B
+    syncs and imports the matching credit.
+    """
+    acc1 = await _make_account(session, test_user.id, "Rev A")
+    acc2 = await _make_account(session, test_user.id, "Rev B")
+    today = date.today()
+
+    # Existing debit (from a previous sync)
+    debit = await _add_txn(session, test_user.id, acc1.id, 750, "debit", today)
+
+    # New credit just imported
+    credit = await _add_txn(session, test_user.id, acc2.id, 750, "credit", today)
+
+    # Only the credit is in candidate_ids (second sync)
+    pairs = await detect_transfer_pairs(session, test_user.id, candidate_ids=[credit.id])
+    await session.commit()
+    assert pairs == 1
+
+    await session.refresh(debit)
+    await session.refresh(credit)
+    assert debit.transfer_pair_id is not None
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_candidate_debit_matches_existing_credit(session: AsyncSession, test_user):
+    """When candidate_ids contains only a debit, it pairs with an existing credit.
+
+    Simulates: Account B synced first (credit already exists), then Account A
+    syncs and imports the matching debit.
+    """
+    acc1 = await _make_account(session, test_user.id, "Fwd A")
+    acc2 = await _make_account(session, test_user.id, "Fwd B")
+    today = date.today()
+
+    # Existing credit (from a previous sync)
+    credit = await _add_txn(session, test_user.id, acc2.id, 600, "credit", today)
+
+    # New debit just imported
+    debit = await _add_txn(session, test_user.id, acc1.id, 600, "debit", today)
+
+    # Only the debit is in candidate_ids (second sync)
+    pairs = await detect_transfer_pairs(session, test_user.id, candidate_ids=[debit.id])
+    await session.commit()
+    assert pairs == 1
+
+    await session.refresh(debit)
+    await session.refresh(credit)
+    assert debit.transfer_pair_id is not None
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_reverse_detection_does_not_pair_two_old_transactions(session: AsyncSession, test_user):
+    """Reverse detection must not pair two transactions that are both outside candidate_ids."""
+    acc1 = await _make_account(session, test_user.id, "Guard A")
+    acc2 = await _make_account(session, test_user.id, "Guard B")
+    acc3 = await _make_account(session, test_user.id, "Guard C")
+    today = date.today()
+
+    # Two old unpaired transactions that could match each other
+    old_debit = await _add_txn(session, test_user.id, acc1.id, 300, "debit", today)
+    old_credit = await _add_txn(session, test_user.id, acc2.id, 300, "credit", today)
+
+    # A new unrelated credit (different amount) triggers detection
+    new_credit = await _add_txn(session, test_user.id, acc3.id, 999, "credit", today)
+
+    pairs = await detect_transfer_pairs(session, test_user.id, candidate_ids=[new_credit.id])
+    await session.commit()
+    assert pairs == 0
+
+    # Old transactions must remain unpaired
+    await session.refresh(old_debit)
+    await session.refresh(old_credit)
+    assert old_debit.transfer_pair_id is None
+    assert old_credit.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_both_sides_imported_together(session: AsyncSession, test_user):
+    """When both debit and credit are new (same sync), both are in candidate_ids."""
+    acc1 = await _make_account(session, test_user.id, "Both A")
+    acc2 = await _make_account(session, test_user.id, "Both B")
+    today = date.today()
+
+    debit = await _add_txn(session, test_user.id, acc1.id, 200, "debit", today)
+    credit = await _add_txn(session, test_user.id, acc2.id, 200, "credit", today)
+
+    pairs = await detect_transfer_pairs(
+        session, test_user.id, candidate_ids=[debit.id, credit.id],
+    )
+    await session.commit()
+    assert pairs == 1
+
+    await session.refresh(debit)
+    await session.refresh(credit)
+    assert debit.transfer_pair_id == credit.transfer_pair_id

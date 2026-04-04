@@ -65,6 +65,7 @@ export function TransactionDrillDown({
         from: filter?.from,
         to: filter?.to,
         limit: 200,
+        exclude_transfers: true,
       }),
     enabled: !!filter,
   })

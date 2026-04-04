@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import type { Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, ArrowLeftRight, Clock, Paperclip, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, Clock, HelpCircle, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
@@ -474,6 +474,7 @@ export default function AccountDetailPage() {
                               <span className="ml-2 inline-flex items-center gap-1 text-xs text-blue-600 font-normal bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
                                 <ArrowLeftRight className="h-3 w-3" />
                                 {t('transactions.transfer')}
+                                <span title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
                               </span>
                             )}
                             {isPending && (

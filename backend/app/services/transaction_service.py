@@ -57,6 +57,7 @@ async def get_transactions(
     uncategorized: bool = False,
     txn_type: Optional[str] = None,
     skip_pagination: bool = False,
+    exclude_transfers: bool = False,
 ) -> tuple[list[Transaction], int]:
     # Base query: user's own transactions (manual or via account)
     base_query = (
@@ -89,6 +90,8 @@ async def get_transactions(
             Transaction.category_id == None,
             Transaction.transfer_pair_id.is_(None),
         )
+    if exclude_transfers:
+        base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
     if from_date:

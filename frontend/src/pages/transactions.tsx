@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, Check, Download, Paperclip, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Paperclip, Search, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -426,6 +426,7 @@ export default function TransactionsPage() {
                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
                               <ArrowLeftRight className="h-3 w-3" />
                               {t('transactions.transfer')}
+                              <span title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
                             </span>
                           )}
                           {recurringList?.some(r => r.description === tx.description && r.type === tx.type) && (

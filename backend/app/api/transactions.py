@@ -45,12 +45,14 @@ async def list_transactions(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
     include_opening_balance: bool = Query(False),
+    exclude_transfers: bool = Query(False),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
     transactions, total = await transaction_service.get_transactions(
         session, user.id, account_id, category_id, payee_id, from_date, to_date, page, limit,
         include_opening_balance, search=q, uncategorized=uncategorized, txn_type=type,
+        exclude_transfers=exclude_transfers,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]

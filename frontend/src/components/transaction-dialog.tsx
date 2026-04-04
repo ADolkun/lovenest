@@ -438,8 +438,11 @@ function TransactionForm({
         </div>
       )}
       {!!transaction?.transfer_pair_id && (
-        <div className="flex items-center gap-2 p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300">
-          {t('transactions.transferInfo')}
+        <div className="p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300 space-y-1">
+          <div className="flex items-center gap-2">
+            {t('transactions.transferInfo')}
+          </div>
+          <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
         </div>
       )}
       {recurringMatch && (

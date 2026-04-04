@@ -17,14 +17,15 @@ async def detect_transfer_pairs(
     """Detect inter-account transfer pairs and link them with a shared UUID.
 
     Algorithm:
-    1. Load unpaired debit transactions (optionally filtered to candidate_ids)
+    1. When candidate_ids is given, load candidate debits AND candidate credits
+       so that detection works regardless of which side was just imported.
     2. For each debit, find an unpaired credit with: same user, different account,
        same absolute amount, date within ±tolerance days
     3. Greedy closest-date-first matching; each tx can only pair once
 
     Returns the number of pairs created.
     """
-    # Load candidate debits
+    # Load candidate debits — filtered to candidate_ids when provided
     debit_query = select(Transaction).where(
         Transaction.user_id == user_id,
         Transaction.type == "debit",
@@ -37,7 +38,24 @@ async def detect_transfer_pairs(
     debit_result = await session.execute(debit_query)
     debits = list(debit_result.scalars().all())
 
-    if not debits:
+    # When candidate_ids is given, also load ALL unpaired debits that could
+    # match new credits (the reverse direction).
+    if candidate_ids:
+        reverse_debit_query = select(Transaction).where(
+            Transaction.user_id == user_id,
+            Transaction.type == "debit",
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.source != "opening_balance",
+            Transaction.id.not_in(candidate_ids),
+        )
+        reverse_result = await session.execute(reverse_debit_query)
+        reverse_debits = list(reverse_result.scalars().all())
+    else:
+        reverse_debits = []
+
+    all_debits = debits + reverse_debits
+
+    if not all_debits:
         return 0
 
     # Load all unpaired credits for the user (potential partners)
@@ -53,26 +71,36 @@ async def detect_transfer_pairs(
     if not credits:
         return 0
 
+    # When candidate_ids is given, restrict reverse debits to only match
+    # credits that are in candidate_ids (avoid pairing two old transactions).
+    candidate_id_set = set(candidate_ids) if candidate_ids else None
+
     # Build a lookup: amount -> list of credits
     credit_by_amount: dict[float, list[Transaction]] = defaultdict(list)
     for c in credits:
         credit_by_amount[abs(float(c.amount))].append(c)
 
     paired_credit_ids: set[uuid.UUID] = set()
+    paired_debit_ids: set[uuid.UUID] = set()
     pairs_created = 0
 
-    for debit in debits:
+    for debit in all_debits:
         debit_amount = abs(float(debit.amount))
-        candidates = credit_by_amount.get(debit_amount, [])
+        amount_candidates = credit_by_amount.get(debit_amount, [])
+
+        is_reverse_debit = candidate_id_set is not None and debit.id not in candidate_id_set
 
         # Find closest-date match in a different account
         best_match: Optional[Transaction] = None
         best_delta: Optional[int] = None
 
-        for credit in candidates:
+        for credit in amount_candidates:
             if credit.id in paired_credit_ids:
                 continue
             if credit.account_id == debit.account_id:
+                continue
+            # Reverse debits may only match credits from candidate_ids
+            if is_reverse_debit and candidate_id_set and credit.id not in candidate_id_set:
                 continue
 
             delta = abs((credit.date - debit.date).days)
@@ -88,6 +116,7 @@ async def detect_transfer_pairs(
             debit.transfer_pair_id = pair_id
             best_match.transfer_pair_id = pair_id
             paired_credit_ids.add(best_match.id)
+            paired_debit_ids.add(debit.id)
             pairs_created += 1
 
     return pairs_created

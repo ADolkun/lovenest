@@ -118,6 +118,7 @@ export default function DashboardPage() {
       from: `${selectedMonth}-01`,
       to: `${selectedMonth}-${String(monthLastDay(selectedMonth)).padStart(2, '0')}`,
       limit: 500,
+      exclude_transfers: true,
     }),
   })
 

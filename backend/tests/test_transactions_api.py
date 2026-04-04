@@ -1,9 +1,16 @@
+import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal
+
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.models.category import Category
+from app.models.user import User
 
 
 @pytest.mark.asyncio
@@ -290,3 +297,86 @@ async def test_create_transaction_without_account_fails(
         },
     )
     assert response.status_code == 422
+
+
+# --- exclude_transfers tests ---
+
+@pytest_asyncio.fixture
+async def test_transactions_with_transfers(
+    session: AsyncSession, test_user: User, test_account: Account,
+) -> list[Transaction]:
+    """Create a mix of regular and transfer transactions."""
+    today = date.today()
+    pair_id = uuid.uuid4()
+    transactions = []
+    data = [
+        ("GROCERIES", Decimal("50.00"), today, "debit", None, None),
+        ("SALARY", Decimal("3000.00"), today, "credit", None, None),
+        ("Transfer out", Decimal("200.00"), today, "debit", None, pair_id),
+        ("Transfer in", Decimal("200.00"), today, "credit", None, pair_id),
+    ]
+    for desc, amount, dt, typ, cat_id, transfer_id in data:
+        txn = Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            account_id=test_account.id,
+            category_id=cat_id,
+            description=desc,
+            amount=amount,
+            date=dt,
+            type=typ,
+            source="transfer" if transfer_id else "manual",
+            transfer_pair_id=transfer_id,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(txn)
+        transactions.append(txn)
+    await session.commit()
+    for txn in transactions:
+        await session.refresh(txn)
+    return transactions
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_includes_transfers_by_default(
+    client: AsyncClient, auth_headers, test_transactions_with_transfers,
+):
+    """Without exclude_transfers, all transactions including transfers are returned."""
+    response = await client.get("/api/transactions", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 4
+    descriptions = [item["description"] for item in data["items"]]
+    assert "Transfer out" in descriptions
+    assert "Transfer in" in descriptions
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_exclude_transfers(
+    client: AsyncClient, auth_headers, test_transactions_with_transfers,
+):
+    """With exclude_transfers=true, transfer transactions are hidden."""
+    response = await client.get(
+        "/api/transactions?exclude_transfers=true", headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    descriptions = [item["description"] for item in data["items"]]
+    assert "GROCERIES" in descriptions
+    assert "SALARY" in descriptions
+    assert "Transfer out" not in descriptions
+    assert "Transfer in" not in descriptions
+
+
+@pytest.mark.asyncio
+async def test_exclude_transfers_false_includes_all(
+    client: AsyncClient, auth_headers, test_transactions_with_transfers,
+):
+    """Explicitly setting exclude_transfers=false still includes transfers."""
+    response = await client.get(
+        "/api/transactions?exclude_transfers=false", headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 4
