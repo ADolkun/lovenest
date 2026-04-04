@@ -82,6 +82,7 @@ export function AppLayout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(true)
+  const [accountsShowAll, setAccountsShowAll] = useState(false)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const [twoFactorOpen, setTwoFactorOpen] = useState(false)
@@ -167,7 +168,7 @@ export function AppLayout() {
           )}
         >
           {/* Logo */}
-          <div className="flex h-16 items-center justify-between px-5 border-b border-sidebar-border">
+          <div className="flex h-16 min-h-16 items-center justify-between px-5 border-b border-sidebar-border shrink-0">
             <div className="flex items-center gap-2.5">
               <ShellLogo size={24} className="text-primary shrink-0" />
               <span className="font-bold text-lg text-sidebar-foreground tracking-tight">{t('app.name')}</span>
@@ -241,7 +242,7 @@ export function AppLayout() {
               </button>
               {accountsExpanded && (
                 <div className="mt-1 space-y-0.5">
-                  {allAccounts.map((acc) => {
+                  {[...allAccounts].sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).slice(0, accountsShowAll ? allAccounts.length : 3).map((acc) => {
                     const balance = Number(acc.current_balance)
                     const prevBalance = acc.previous_balance ?? 0
                     const pctChange = prevBalance !== 0
@@ -254,20 +255,20 @@ export function AppLayout() {
                         key={acc.id}
                         to={`/accounts/${acc.id}`}
                         onClick={() => setSidebarOpen(false)}
-                        className="flex items-center justify-between px-3 py-2 rounded-lg text-[13px] text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
+                        className="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
                       >
                         <div className="truncate min-w-0">
-                          <span className="block truncate">{acc.name}</span>
-                          <span className="block text-[11px] text-sidebar-muted/60">
+                          <span className="block truncate font-medium">{acc.name}</span>
+                          <span className="block text-[10px] text-sidebar-muted/60">
                             {t(`accounts.type${typeKey}`)}
                           </span>
                         </div>
                         <div className="text-right shrink-0 ml-2">
-                          <span className={`block tabular-nums font-medium text-[13px] ${balance < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
+                          <span className={`block tabular-nums font-medium text-xs ${balance < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
                             {mask(formatCurrency(balance, acc.currency))}
                           </span>
                           {pctChange !== null && (
-                            <span className={`block text-[11px] tabular-nums font-medium ${pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            <span className={`block text-[10px] tabular-nums font-medium ${pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {mask(`${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(1)}%`)}
                             </span>
                           )}
@@ -275,6 +276,16 @@ export function AppLayout() {
                       </Link>
                     )
                   })}
+                  {allAccounts.length > 3 && (
+                    <button
+                      onClick={() => setAccountsShowAll(!accountsShowAll)}
+                      className="w-full px-3 py-1.5 text-[11px] font-medium text-sidebar-muted/70 hover:text-sidebar-foreground transition-colors text-center"
+                    >
+                      {accountsShowAll
+                        ? t('common.showLess', { defaultValue: 'Show less' })
+                        : t('common.showMore', { count: allAccounts.length - 3, defaultValue: `+${allAccounts.length - 3} more` })}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
