@@ -1,22 +1,23 @@
-"""Service-level tests for connection_service.
-
-Tests: _match_pluggy_category, _description_similarity, get_connections,
-get_connection, delete_connection, update_connection_settings.
-"""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
+from app.providers.base import AccountData, ConnectionData, ConnectTokenData, TransactionData
 from app.services.connection_service import (
     _description_similarity,
     _match_pluggy_category,
+    create_connect_token,
     delete_connection,
     get_connection,
     get_connections,
+    handle_oauth_callback,
+    sync_connection,
     update_connection_settings,
 )
 
@@ -260,3 +261,202 @@ async def test_delete_connection_not_found(session: AsyncSession, test_user):
     """Returns False for nonexistent connection."""
     result = await delete_connection(session, uuid.uuid4(), test_user.id)
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# create_connect_token
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_connect_token_success(test_user):
+    mock_provider = AsyncMock()
+    mock_provider.create_connect_token = AsyncMock(
+        return_value=ConnectTokenData(access_token="tok-123")
+    )
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider):
+        result = await create_connect_token("pluggy", test_user.id)
+    assert result == {"access_token": "tok-123"}
+
+
+# ---------------------------------------------------------------------------
+# handle_oauth_callback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_oauth_callback_creates_connection(session: AsyncSession, test_user):
+    mock_provider = AsyncMock()
+    mock_provider.handle_oauth_callback = AsyncMock(return_value=ConnectionData(
+        external_id="ext-oauth-1",
+        institution_name="Test Bank",
+        credentials={"token": "abc"},
+        accounts=[
+            AccountData(
+                external_id="acc-1", name="Checking",
+                type="checking", balance=Decimal("1000"), currency="BRL",
+            ),
+        ],
+    ))
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="tx-1", description="UBER", amount=Decimal("25"),
+            date=date.today(), type="debit", currency="BRL",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        conn = await handle_oauth_callback(session, test_user.id, "auth-code", "pluggy")
+
+    assert conn.institution_name == "Test Bank"
+    assert conn.external_id == "ext-oauth-1"
+    assert conn.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_handle_oauth_callback_with_payee(session: AsyncSession, test_user):
+    mock_provider = AsyncMock()
+    mock_provider.handle_oauth_callback = AsyncMock(return_value=ConnectionData(
+        external_id="ext-oauth-2",
+        institution_name="Payee Bank",
+        credentials={"token": "def"},
+        accounts=[
+            AccountData(
+                external_id="acc-2", name="Savings",
+                type="savings", balance=Decimal("500"), currency="BRL",
+            ),
+        ],
+    ))
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="tx-2", description="IFOOD", amount=Decimal("30"),
+            date=date.today(), type="debit", currency="BRL",
+            payee="iFood Restaurant",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        conn = await handle_oauth_callback(session, test_user.id, "code2", "pluggy")
+
+    assert conn.institution_name == "Payee Bank"
+
+
+# ---------------------------------------------------------------------------
+# sync_connection
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_new_transactions(session: AsyncSession, test_user):
+    conn = await _make_connection(session, test_user.id, "Sync Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "refreshed"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="sync-acc-1", name="Checking",
+            type="checking", balance=Decimal("2000"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="sync-tx-1", description="GROCERY",
+            amount=Decimal("80"), date=date.today(), type="debit", currency="BRL",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, merged = await sync_connection(session, conn.id, test_user.id)
+
+    assert result_conn.status == "active"
+    assert merged == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_not_found(session: AsyncSession, test_user):
+    with pytest.raises(ValueError, match="not found"):
+        await sync_connection(session, uuid.uuid4(), test_user.id)
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_with_category_mapping(session: AsyncSession, test_user):
+    conn = await _make_connection(session, test_user.id, "Cat Bank")
+    await _make_category(session, test_user.id, "Alimentação")
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="cat-acc-1", name="Checking",
+            type="checking", balance=Decimal("100"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="cat-tx-1", description="RESTAURANT",
+            amount=Decimal("50"), date=date.today(), type="debit",
+            currency="BRL", pluggy_category="Eating out",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock):
+        result_conn, _ = await sync_connection(session, conn.id, test_user.id)
+
+    assert result_conn.status == "active"
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_error_raises(session: AsyncSession, test_user):
+    conn = await _make_connection(session, test_user.id, "Error Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(side_effect=RuntimeError("API down"))
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider):
+        with pytest.raises(RuntimeError, match="API down"):
+            await sync_connection(session, conn.id, test_user.id)
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_skips_pending(session: AsyncSession, test_user):
+    conn = await _make_connection(
+        session, test_user.id, "Pending Bank",
+        settings={"import_pending": False},
+    )
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="pend-acc-1", name="Checking",
+            type="checking", balance=Decimal("100"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="pend-tx-1", description="PENDING TXN",
+            amount=Decimal("10"), date=date.today(), type="debit",
+            currency="BRL", status="pending",
+        ),
+        TransactionData(
+            external_id="pend-tx-2", description="POSTED TXN",
+            amount=Decimal("20"), date=date.today(), type="debit",
+            currency="BRL", status="posted",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, _ = await sync_connection(session, conn.id, test_user.id)
+
+    assert result_conn.status == "active"

@@ -380,3 +380,87 @@ async def test_exclude_transfers_false_includes_all(
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 4
+
+
+@pytest.mark.asyncio
+async def test_export_csv_format(client: AsyncClient, auth_headers, test_transactions):
+    resp = await client.get("/api/transactions/export", headers=auth_headers)
+    assert resp.status_code == 200
+    assert "text/csv" in resp.headers.get("content-type", "")
+    content = resp.text
+    assert content.startswith("\ufeff")
+    assert "date" in content
+    assert "description" in content
+    assert "amount" in content
+
+
+@pytest.mark.asyncio
+async def test_export_csv_with_type_filter(client: AsyncClient, auth_headers, test_transactions):
+    resp = await client.get(
+        "/api/transactions/export",
+        params={"type": "debit"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_export_csv_uncategorized(client: AsyncClient, auth_headers, test_transactions):
+    resp = await client.get(
+        "/api/transactions/export",
+        params={"uncategorized": "true"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_bulk_categorize(
+    client: AsyncClient, auth_headers, test_transactions, test_categories,
+):
+    txn_id = str(test_transactions[4].id)
+    resp = await client.patch(
+        "/api/transactions/bulk-categorize",
+        json={"transaction_ids": [txn_id], "category_id": str(test_categories[0].id)},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 1
+
+
+@pytest.mark.asyncio
+async def test_create_transfer_api(client: AsyncClient, auth_headers, test_account):
+    dest_resp = await client.post(
+        "/api/accounts",
+        json={"name": "Transfer Dest", "type": "savings", "balance": 0, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    dest_id = dest_resp.json()["id"]
+    resp = await client.post(
+        "/api/transactions/transfer",
+        json={
+            "from_account_id": str(test_account.id),
+            "to_account_id": dest_id,
+            "description": "API Transfer",
+            "amount": 500,
+            "date": date.today().isoformat(),
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_create_transfer_invalid_account(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/transactions/transfer",
+        json={
+            "from_account_id": str(uuid.uuid4()),
+            "to_account_id": str(uuid.uuid4()),
+            "description": "Bad Transfer",
+            "amount": 100,
+            "date": date.today().isoformat(),
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400

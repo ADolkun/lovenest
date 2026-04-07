@@ -1,17 +1,22 @@
-"""Tests for report service and API endpoints."""
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.asset import Asset
+from app.models.asset_value import AssetValue
+from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
+from app.models.user import User
 from app.schemas.report import CategoryTrendItem, ReportDataPoint, ReportResponse
 from app.services.report_service import (
+    _asset_value_at,
     _date_points,
     _format_date_label,
+    _net_worth_at,
     get_net_worth_report,
 )
 
@@ -534,3 +539,233 @@ async def test_income_expenses_has_category_trend(client, auth_headers, test_tra
         for point in item["series"]:
             assert "date" in point
             assert "value" in point
+
+
+# ---------------------------------------------------------------------------
+# _asset_value_at
+# ---------------------------------------------------------------------------
+
+
+async def _make_manual_account(session, user_id, name, currency="BRL", acct_type="checking"):
+    acct = Account(
+        id=uuid.uuid4(), user_id=user_id, name=name,
+        type=acct_type, balance=Decimal("0"), currency=currency,
+    )
+    session.add(acct)
+    await session.commit()
+    await session.refresh(acct)
+    return acct
+
+
+async def _add_txn(session, user_id, account_id, amount, txn_type, txn_date, source="manual"):
+    txn = Transaction(
+        id=uuid.uuid4(), user_id=user_id, account_id=account_id,
+        description=f"Test {txn_type}", amount=Decimal(str(amount)),
+        date=txn_date, type=txn_type, source=source, currency="BRL",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(txn)
+    await session.commit()
+    return txn
+
+
+@pytest.mark.asyncio
+async def test_asset_value_at_with_entries(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="House",
+        type="real_estate", currency="BRL",
+    )
+    session.add(asset)
+    await session.flush()
+
+    v1 = AssetValue(
+        id=uuid.uuid4(), asset_id=asset.id,
+        amount=Decimal("100000"), date=date.today() - timedelta(days=30),
+    )
+    v2 = AssetValue(
+        id=uuid.uuid4(), asset_id=asset.id,
+        amount=Decimal("110000"), date=date.today(),
+    )
+    session.add_all([v1, v2])
+    await session.commit()
+
+    total = await _asset_value_at(session, test_user.id, date.today(), "BRL")
+    assert total == 110000.0
+
+
+@pytest.mark.asyncio
+async def test_asset_value_at_fallback_purchase_price(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Car",
+        type="vehicle", currency="BRL",
+        purchase_price=Decimal("50000"),
+        purchase_date=date.today() - timedelta(days=60),
+    )
+    session.add(asset)
+    await session.commit()
+
+    total = await _asset_value_at(session, test_user.id, date.today(), "BRL")
+    assert total == 50000.0
+
+
+@pytest.mark.asyncio
+async def test_asset_value_at_excludes_archived(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Sold Car",
+        type="vehicle", currency="BRL",
+        purchase_price=Decimal("30000"), is_archived=True,
+    )
+    session.add(asset)
+    await session.commit()
+
+    total = await _asset_value_at(session, test_user.id, date.today(), "BRL")
+    assert total == 0.0
+
+
+@pytest.mark.asyncio
+async def test_asset_value_at_excludes_sold(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Sold Asset",
+        type="vehicle", currency="BRL",
+        purchase_price=Decimal("20000"),
+        sell_date=date.today() - timedelta(days=10),
+    )
+    session.add(asset)
+    await session.commit()
+
+    total = await _asset_value_at(session, test_user.id, date.today(), "BRL")
+    assert total == 0.0
+
+
+@pytest.mark.asyncio
+async def test_asset_value_at_purchase_date_after_cutoff(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Future Asset",
+        type="other", currency="BRL",
+        purchase_price=Decimal("5000"),
+        purchase_date=date.today() + timedelta(days=30),
+    )
+    session.add(asset)
+    await session.commit()
+
+    total = await _asset_value_at(session, test_user.id, date.today(), "BRL")
+    assert total == 0.0
+
+
+# ---------------------------------------------------------------------------
+# _net_worth_at
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_net_worth_with_credit_card(session: AsyncSession, test_user: User):
+    checking = await _make_manual_account(session, test_user.id, "NW Check")
+    await _add_txn(session, test_user.id, checking.id, 5000, "credit", date.today())
+
+    conn = BankConnection(
+        id=uuid.uuid4(), user_id=test_user.id, provider="test",
+        external_id="ext-cc-nw", institution_name="CC",
+        credentials={}, status="active",
+        last_sync_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(conn)
+    await session.flush()
+    cc = Account(
+        id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
+        name="CC", type="credit_card", balance=Decimal("1000"), currency="BRL",
+    )
+    session.add(cc)
+    await session.commit()
+
+    dp = await _net_worth_at(session, test_user.id, date.today(), "BRL")
+    assert dp.breakdowns["accounts"] == 5000.0
+    assert dp.breakdowns["liabilities"] == 1000.0
+    assert dp.value == 4000.0
+
+
+@pytest.mark.asyncio
+async def test_net_worth_with_assets(session: AsyncSession, test_user: User):
+    checking = await _make_manual_account(session, test_user.id, "NW Assets Check")
+    await _add_txn(session, test_user.id, checking.id, 3000, "credit", date.today())
+
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Apartment",
+        type="real_estate", currency="BRL",
+        purchase_price=Decimal("200000"),
+        purchase_date=date.today() - timedelta(days=30),
+    )
+    session.add(asset)
+    await session.commit()
+
+    dp = await _net_worth_at(session, test_user.id, date.today(), "BRL")
+    assert dp.breakdowns["accounts"] == 3000.0
+    assert dp.breakdowns["assets"] == 200000.0
+    assert dp.value == 203000.0
+
+
+@pytest.mark.asyncio
+async def test_net_worth_negative_manual_balance(session: AsyncSession, test_user: User):
+    acct = await _make_manual_account(session, test_user.id, "NW Negative")
+    await _add_txn(session, test_user.id, acct.id, 1000, "debit", date.today())
+
+    dp = await _net_worth_at(session, test_user.id, date.today(), "BRL")
+    assert dp.breakdowns["accounts"] == -1000.0
+
+
+# ---------------------------------------------------------------------------
+# get_net_worth_report — composition and intervals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_net_worth_composition_includes_accounts(session: AsyncSession, test_user: User):
+    acct = await _make_manual_account(session, test_user.id, "Comp Acct")
+    await _add_txn(session, test_user.id, acct.id, 10000, "credit", date.today())
+
+    report = await get_net_worth_report(session, test_user.id, months=1, interval="monthly")
+    comp_labels = [c.label for c in report.composition]
+    assert "Comp Acct" in comp_labels
+
+
+@pytest.mark.asyncio
+async def test_net_worth_composition_includes_assets(session: AsyncSession, test_user: User):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Comp Asset",
+        type="investment", currency="BRL",
+        purchase_price=Decimal("5000"),
+        purchase_date=date.today() - timedelta(days=5),
+    )
+    session.add(asset)
+    await session.commit()
+
+    report = await get_net_worth_report(session, test_user.id, months=1, interval="monthly")
+    comp_labels = [c.label for c in report.composition]
+    assert "Comp Asset" in comp_labels
+
+
+@pytest.mark.asyncio
+async def test_net_worth_weekly_interval(session: AsyncSession, test_user: User):
+    acct = await _make_manual_account(session, test_user.id, "Weekly Test")
+    await _add_txn(session, test_user.id, acct.id, 1000, "credit", date.today())
+
+    report = await get_net_worth_report(session, test_user.id, months=2, interval="weekly")
+    assert report.meta.interval == "weekly"
+    assert len(report.trend) > 1
+
+
+@pytest.mark.asyncio
+async def test_net_worth_daily_interval(session: AsyncSession, test_user: User):
+    acct = await _make_manual_account(session, test_user.id, "Daily Test")
+    await _add_txn(session, test_user.id, acct.id, 500, "credit", date.today())
+
+    report = await get_net_worth_report(session, test_user.id, months=1, interval="daily")
+    assert report.meta.interval == "daily"
+    assert len(report.trend) > 10
+
+
+@pytest.mark.asyncio
+async def test_net_worth_change_percent_zero_previous(session: AsyncSession, test_user: User):
+    report = await get_net_worth_report(session, test_user.id, months=1, interval="monthly")
+    if report.summary.primary_value == 0:
+        assert report.summary.change_percent is None

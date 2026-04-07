@@ -389,3 +389,119 @@ async def test_list_accounts_includes_previous_balance(client: AsyncClient, auth
     test_acc = [a for a in data if a["name"] == "Test PB"][0]
     assert "previous_balance" in test_acc
     assert isinstance(test_acc["previous_balance"], (int, float))
+
+
+@pytest.mark.asyncio
+async def test_list_accounts_include_closed(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "ClosedTest", "type": "checking", "balance": 0, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    await client.post(f"/api/accounts/{acct_id}/close", headers=auth_headers)
+
+    resp_default = await client.get("/api/accounts", headers=auth_headers)
+    ids_default = [a["id"] for a in resp_default.json()]
+    assert acct_id not in ids_default
+
+    resp_all = await client.get("/api/accounts?include_closed=true", headers=auth_headers)
+    ids_all = [a["id"] for a in resp_all.json()]
+    assert acct_id in ids_all
+
+
+@pytest.mark.asyncio
+async def test_get_account_balance_history(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "BH Acct", "type": "checking", "balance": 1000, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    resp = await client.get(f"/api/accounts/{acct_id}/balance-history", headers=auth_headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+@pytest.mark.asyncio
+async def test_get_account_balance_history_with_dates(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "BH Dates", "type": "checking", "balance": 500, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    from datetime import date
+    today = date.today().isoformat()
+    resp = await client.get(
+        f"/api/accounts/{acct_id}/balance-history",
+        params={"from": today, "to": today},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_account_balance_history_not_found(client: AsyncClient, auth_headers):
+    import uuid
+    resp = await client.get(f"/api/accounts/{uuid.uuid4()}/balance-history", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_close_account(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "Close Me", "type": "checking", "balance": 0, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    resp = await client.post(f"/api/accounts/{acct_id}/close", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["is_closed"] is True
+
+
+@pytest.mark.asyncio
+async def test_reopen_account(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "Reopen Me", "type": "checking", "balance": 0, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    await client.post(f"/api/accounts/{acct_id}/close", headers=auth_headers)
+    resp = await client.post(f"/api/accounts/{acct_id}/reopen", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["is_closed"] is False
+
+
+@pytest.mark.asyncio
+async def test_close_account_not_found(client: AsyncClient, auth_headers):
+    import uuid
+    resp = await client.post(f"/api/accounts/{uuid.uuid4()}/close", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_reopen_account_not_found(client: AsyncClient, auth_headers):
+    import uuid
+    resp = await client.post(f"/api/accounts/{uuid.uuid4()}/reopen", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_account_summary_with_dates(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/accounts",
+        json={"name": "Sum Dates", "type": "checking", "balance": 1000, "currency": "BRL"},
+        headers=auth_headers,
+    )
+    acct_id = resp.json()["id"]
+    from datetime import date
+    today = date.today().isoformat()
+    resp = await client.get(
+        f"/api/accounts/{acct_id}/summary",
+        params={"from": today, "to": today},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200

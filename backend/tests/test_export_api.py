@@ -1,14 +1,21 @@
 import io
 import json
+import uuid
 import zipfile
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.asset import Asset
+from app.models.asset_value import AssetValue
 from app.models.category import Category
 from app.models.rule import Rule
 from app.models.transaction import Transaction
+from app.models.user import User
 
 
 @pytest.mark.asyncio
@@ -93,3 +100,45 @@ async def test_backup_with_data(
         assert isinstance(transactions[0]["date"], str)
         # Verify decimals are serialized as strings
         assert isinstance(transactions[0]["amount"], str)
+
+
+@pytest.mark.asyncio
+async def test_backup_with_assets(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user: User,
+):
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, name="Export Asset",
+        type="other", currency="BRL", purchase_price=Decimal("1000"),
+    )
+    session.add(asset)
+    await session.flush()
+    av = AssetValue(
+        id=uuid.uuid4(), asset_id=asset.id,
+        amount=Decimal("1200"), date=date.today(),
+    )
+    session.add(av)
+    await session.commit()
+
+    resp = await client.get("/api/export/backup", headers=auth_headers)
+    assert resp.status_code == 200
+    buf = io.BytesIO(resp.content)
+    with zipfile.ZipFile(buf) as zf:
+        assets = json.loads(zf.read("assets.json"))
+        asset_values = json.loads(zf.read("asset_values.json"))
+        assert len(assets) >= 1
+        assert len(asset_values) >= 1
+
+
+@pytest.mark.asyncio
+async def test_backup_metadata_structure(client: AsyncClient, auth_headers):
+    resp = await client.get("/api/export/backup", headers=auth_headers)
+    assert resp.status_code == 200
+    assert "application/zip" in resp.headers.get("content-type", "")
+    buf = io.BytesIO(resp.content)
+    with zipfile.ZipFile(buf) as zf:
+        names = zf.namelist()
+        assert "metadata.json" in names
+        meta = json.loads(zf.read("metadata.json"))
+        assert "export_date" in meta
+        assert meta["format_version"] == "1.0"
+        assert "entity_counts" in meta

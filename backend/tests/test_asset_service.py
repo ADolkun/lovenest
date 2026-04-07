@@ -11,6 +11,12 @@ from app.models.asset_value import AssetValue
 from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate
 from app.services import asset_service
+from app.services.asset_service import (
+    _compute_current_value,
+    _generate_growth_values,
+    _next_due_date,
+    get_portfolio_trend,
+)
 
 
 @pytest_asyncio.fixture
@@ -663,3 +669,144 @@ def test_generate_growth_values_absolute():
     assert len(result) >= 6
     # First generated value: 1000 + 100 = 1100
     assert abs(float(result[0].amount) - 1100.0) < 0.01
+
+
+def test_next_due_date_unknown_frequency():
+    assert _next_due_date(date(2025, 1, 1), "biweekly") == date(2025, 1, 2)
+
+
+def test_generate_growth_values_yearly():
+    result = _generate_growth_values(
+        asset_id=uuid.uuid4(), base_amount=10000.0,
+        base_date=date.today() - timedelta(days=400),
+        growth_type="percentage", growth_rate=5.0,
+        growth_frequency="yearly", growth_start_date=None,
+    )
+    assert len(result) >= 1
+
+
+def test_generate_growth_values_unknown_type():
+    result = _generate_growth_values(
+        asset_id=uuid.uuid4(), base_amount=1000.0,
+        base_date=date.today() - timedelta(days=90),
+        growth_type="unknown", growth_rate=5.0,
+        growth_frequency="monthly", growth_start_date=None,
+    )
+    assert result == []
+
+
+def test_compute_current_value_with_latest():
+    asset = Asset(id=uuid.uuid4(), user_id=uuid.uuid4(), name="A", type="other", currency="USD")
+    val = AssetValue(id=uuid.uuid4(), asset_id=asset.id, amount=Decimal("500"), date=date.today())
+    assert _compute_current_value(asset, val) == 500.0
+
+
+def test_compute_current_value_fallback_purchase_price():
+    asset = Asset(
+        id=uuid.uuid4(), user_id=uuid.uuid4(), name="A", type="other",
+        currency="USD", purchase_price=Decimal("1000"),
+    )
+    assert _compute_current_value(asset, None) == 1000.0
+
+
+def test_compute_current_value_none_without_data():
+    asset = Asset(id=uuid.uuid4(), user_id=uuid.uuid4(), name="A", type="other", currency="USD")
+    assert _compute_current_value(asset, None) is None
+
+
+@pytest.mark.asyncio
+async def test_update_asset_regenerate_growth(session: AsyncSession, test_user: User):
+    purchase_date = date.today() - timedelta(days=60)
+    data = AssetCreate(
+        name="Regen Asset", type="investment", currency="BRL",
+        valuation_method="growth_rule",
+        purchase_date=purchase_date, purchase_price=Decimal("5000"),
+        growth_type="percentage", growth_rate=Decimal("3"), growth_frequency="monthly",
+    )
+    created = await asset_service.create_asset(session, test_user.id, data)
+
+    update_data = AssetUpdate(growth_rate=Decimal("5"))
+    updated = await asset_service.update_asset(
+        session, created.id, test_user.id, update_data, regenerate_growth=True,
+    )
+    assert updated is not None
+    assert updated.name == "Regen Asset"
+
+
+@pytest.mark.asyncio
+async def test_update_asset_purchase_price(session: AsyncSession, test_user: User):
+    data = AssetCreate(
+        name="Price Update", type="other", currency="BRL",
+        purchase_price=Decimal("1000"),
+    )
+    created = await asset_service.create_asset(session, test_user.id, data)
+    update_data = AssetUpdate(purchase_price=Decimal("2000"))
+    updated = await asset_service.update_asset(session, created.id, test_user.id, update_data)
+    assert updated.purchase_price == 2000.0
+
+
+@pytest.mark.asyncio
+async def test_get_asset_values_not_found(session: AsyncSession, test_user: User):
+    result = await asset_service.get_asset_values(session, uuid.uuid4(), test_user.id)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_add_asset_value_not_found(session: AsyncSession, test_user: User):
+    val_data = AssetValueCreate(amount=Decimal("100"), date=date.today())
+    result = await asset_service.add_asset_value(session, uuid.uuid4(), test_user.id, val_data)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_delete_asset_value_not_found(session: AsyncSession, test_user: User):
+    assert await asset_service.delete_asset_value(session, uuid.uuid4(), test_user.id) is False
+
+
+@pytest.mark.asyncio
+async def test_get_asset_value_trend_not_found(session: AsyncSession, test_user: User):
+    result = await asset_service.get_asset_value_trend(session, uuid.uuid4(), test_user.id)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_portfolio_trend_empty(session: AsyncSession, test_user: User):
+    result = await get_portfolio_trend(session, test_user.id)
+    assert result["assets"] == []
+    assert result["trend"] == []
+    assert result["total"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_trend_with_assets(session: AsyncSession, test_user: User):
+    a1 = AssetCreate(
+        name="House", type="real_estate", currency="BRL",
+        purchase_date=date.today() - timedelta(days=30),
+        purchase_price=Decimal("300000"), current_value=Decimal("350000"),
+    )
+    a2 = AssetCreate(
+        name="Car", type="vehicle", currency="BRL",
+        purchase_date=date.today() - timedelta(days=10),
+        purchase_price=Decimal("50000"), current_value=Decimal("45000"),
+    )
+    await asset_service.create_asset(session, test_user.id, a1)
+    await asset_service.create_asset(session, test_user.id, a2)
+
+    result = await get_portfolio_trend(session, test_user.id)
+    assert len(result["assets"]) == 2
+    assert len(result["trend"]) > 0
+    assert result["total"] > 0
+
+
+@pytest.mark.asyncio
+async def test_get_assets_include_archived(session: AsyncSession, test_user: User):
+    await asset_service.create_asset(
+        session, test_user.id, AssetCreate(name="A1", type="other", currency="BRL"),
+    )
+    await asset_service.create_asset(
+        session, test_user.id, AssetCreate(name="A2", type="other", currency="BRL", is_archived=True),
+    )
+    assets = await asset_service.get_assets(session, test_user.id, include_archived=True)
+    names = [a.name for a in assets]
+    assert "A1" in names
+    assert "A2" in names
