@@ -22,6 +22,8 @@ import type {
   Asset,
   AssetValue,
   Attachment,
+  Goal,
+  GoalSummary,
   DashboardSummary,
   SpendingByCategory,
   MonthlyTrend,
@@ -449,6 +451,33 @@ export const budgets = {
   },
   comparison: async (month?: string): Promise<BudgetVsActual[]> => {
     const { data } = await api.get('/budgets/comparison', { params: { month } })
+    return data
+  },
+}
+
+// Goals
+export const goals = {
+  list: async (status?: string): Promise<Goal[]> => {
+    const { data } = await api.get('/goals', { params: { status } })
+    return data
+  },
+  get: async (id: string): Promise<Goal> => {
+    const { data } = await api.get(`/goals/${id}`)
+    return data
+  },
+  create: async (goal: Partial<Goal>): Promise<Goal> => {
+    const { data } = await api.post('/goals', goal)
+    return data
+  },
+  update: async (id: string, goal: Partial<Goal>): Promise<Goal> => {
+    const { data } = await api.patch(`/goals/${id}`, goal)
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/goals/${id}`)
+  },
+  summary: async (limit = 3): Promise<GoalSummary[]> => {
+    const { data } = await api.get('/goals/summary', { params: { limit } })
     return data
   },
 }

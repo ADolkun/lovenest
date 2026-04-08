@@ -14,6 +14,7 @@ from app.models.fx_rate import FxRate
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.payee import Payee, PayeeMapping
 from app.models.app_settings import AppSetting
+from app.models.goal import Goal
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "Payee",
     "PayeeMapping",
     "AppSetting",
+    "Goal",
 ]

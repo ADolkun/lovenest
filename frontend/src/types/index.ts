@@ -310,6 +310,48 @@ export interface AssetValue {
   source: string
 }
 
+export interface Goal {
+  id: string
+  user_id: string
+  name: string
+  target_amount: number
+  current_amount: number
+  currency: string
+  target_amount_primary: number | null
+  current_amount_primary: number | null
+  target_date: string | null
+  tracking_type: 'manual' | 'account' | 'asset' | 'net_worth'
+  account_id: string | null
+  asset_id: string | null
+  status: 'active' | 'completed' | 'paused' | 'archived'
+  icon: string | null
+  color: string | null
+  position: number
+  metadata_json: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+  percentage: number
+  monthly_contribution: number | null
+  on_track: 'ahead' | 'on_track' | 'behind' | 'overdue' | 'achieved' | null
+  account_name: string | null
+  asset_name: string | null
+}
+
+export interface GoalSummary {
+  id: string
+  name: string
+  target_amount: number
+  current_amount: number
+  currency: string
+  target_date: string | null
+  status: string
+  icon: string | null
+  color: string | null
+  percentage: number
+  monthly_contribution: number | null
+  on_track: string | null
+}
+
 export interface PaginatedResponse<T> {
   items: T[]
   total: number

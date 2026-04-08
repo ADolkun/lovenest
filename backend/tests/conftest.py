@@ -23,6 +23,7 @@ from app.models.asset_value import AssetValue  # noqa: F401
 from app.models.transaction_attachment import TransactionAttachment  # noqa: F401
 from app.models.payee import Payee, PayeeMapping  # noqa: F401
 from app.models.app_settings import AppSetting  # noqa: F401
+from app.models.goal import Goal  # noqa: F401
 
 # Use SQLite for tests — fast, no external dependency
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
