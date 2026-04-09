@@ -44,6 +44,7 @@ Open [http://localhost:3000](http://localhost:3000) and create an account. That'
 - File import (OFX, QIF, CAMT, CSV)
 - Auto-categorization rules engine
 - Recurring transactions and budgets
+- Goals and savings targets with progress tracking
 - Asset management with valuation tracking and growth rules
 - Reports: Net Worth and Income vs Expenses with category sparklines
 - Dashboard with spending analytics and projections
