@@ -234,7 +234,7 @@ export function TransactionsFilterBar({
 
   return (
     <div className="mb-4">
-      <Popover open={dateCustomOpen} onOpenChange={setDateCustomOpen}>
+      <Popover open={dateCustomOpen} onOpenChange={setDateCustomOpen} modal={true}>
       <PopoverAnchor asChild>
       <div
         className={cn(
