@@ -232,7 +232,9 @@ export const accounts = {
 export const transactions = {
   list: async (params?: {
     account_id?: string
+    account_ids?: string[]
     category_id?: string
+    category_ids?: string[]
     payee_id?: string
     uncategorized?: boolean
     type?: string
@@ -244,7 +246,10 @@ export const transactions = {
     include_opening_balance?: boolean
     exclude_transfers?: boolean
   }): Promise<PaginatedResponse<Transaction>> => {
-    const { data } = await api.get('/transactions', { params })
+    const { data } = await api.get('/transactions', {
+      params,
+      paramsSerializer: { indexes: null },
+    })
     return data
   },
   get: async (id: string): Promise<Transaction> => {
@@ -302,14 +307,20 @@ export const transactions = {
   },
   export: async (params?: {
     account_id?: string
+    account_ids?: string[]
     category_id?: string
+    category_ids?: string[]
     uncategorized?: boolean
     type?: string
     from?: string
     to?: string
     q?: string
   }): Promise<void> => {
-    const { data } = await api.get('/transactions/export', { params, responseType: 'blob' })
+    const { data } = await api.get('/transactions/export', {
+      params,
+      responseType: 'blob',
+      paramsSerializer: { indexes: null },
+    })
     const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -649,6 +660,36 @@ export const admin = {
   registrationStatus: async (): Promise<{ enabled: boolean }> => {
     const { data } = await api.get('/admin/registration-status')
     return data
+  },
+}
+
+// Global search (powers the command palette)
+export type SearchHitType =
+  | 'transaction'
+  | 'account'
+  | 'payee'
+  | 'category'
+  | 'goal'
+  | 'asset'
+
+export interface SearchHit {
+  type: SearchHitType
+  id: string
+  label: string
+  subtitle: string | null
+  amount: number | null
+  currency: string | null
+  date: string | null
+  icon: string | null
+  color: string | null
+  meta: Record<string, unknown>
+}
+
+export const search = {
+  query: async (q: string, limit = 5): Promise<SearchHit[]> => {
+    if (!q.trim()) return []
+    const { data } = await api.get('/search', { params: { q, limit } })
+    return data.results as SearchHit[]
   },
 }
 

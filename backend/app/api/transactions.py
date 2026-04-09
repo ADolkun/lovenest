@@ -2,7 +2,7 @@ import csv
 import io
 import uuid
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -32,10 +32,24 @@ class PaginatedTransactions(BaseModel):
     limit: int
 
 
+def _merge_id_filters(
+    single: Optional[uuid.UUID], many: Optional[List[uuid.UUID]]
+) -> Optional[List[uuid.UUID]]:
+    """Combine the legacy single-id query param with the new list param."""
+    ids: list[uuid.UUID] = []
+    if many:
+        ids.extend(many)
+    if single and single not in ids:
+        ids.append(single)
+    return ids or None
+
+
 @router.get("", response_model=PaginatedTransactions)
 async def list_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
+    account_ids: Optional[List[uuid.UUID]] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
+    category_ids: Optional[List[uuid.UUID]] = Query(None),
     payee_id: Optional[uuid.UUID] = Query(None),
     from_date: Optional[date] = Query(None, alias="from"),
     to_date: Optional[date] = Query(None, alias="to"),
@@ -50,9 +64,12 @@ async def list_transactions(
     user: User = Depends(current_active_user),
 ):
     transactions, total = await transaction_service.get_transactions(
-        session, user.id, account_id, category_id, payee_id, from_date, to_date, page, limit,
-        include_opening_balance, search=q, uncategorized=uncategorized, txn_type=type,
-        exclude_transfers=exclude_transfers,
+        session, user.id,
+        account_ids=_merge_id_filters(account_id, account_ids),
+        category_ids=_merge_id_filters(category_id, category_ids),
+        payee_id=payee_id, from_date=from_date, to_date=to_date, page=page, limit=limit,
+        include_opening_balance=include_opening_balance, search=q, uncategorized=uncategorized,
+        txn_type=type, exclude_transfers=exclude_transfers,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
@@ -62,7 +79,9 @@ async def list_transactions(
 @router.get("/export")
 async def export_transactions(
     account_id: Optional[uuid.UUID] = Query(None),
+    account_ids: Optional[List[uuid.UUID]] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
+    category_ids: Optional[List[uuid.UUID]] = Query(None),
     payee_id: Optional[uuid.UUID] = Query(None),
     from_date: Optional[date] = Query(None, alias="from"),
     to_date: Optional[date] = Query(None, alias="to"),
@@ -73,7 +92,10 @@ async def export_transactions(
     user: User = Depends(current_active_user),
 ):
     transactions, _ = await transaction_service.get_transactions(
-        session, user.id, account_id, category_id, payee_id, from_date, to_date,
+        session, user.id,
+        account_ids=_merge_id_filters(account_id, account_ids),
+        category_ids=_merge_id_filters(category_id, category_ids),
+        payee_id=payee_id, from_date=from_date, to_date=to_date,
         search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
     )
 

@@ -14,7 +14,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -39,7 +44,9 @@ import {
   BarChart3,
   Sun,
   Moon,
+  Languages,
   KeyRound,
+  Check,
   HardDriveDownload,
   Shield,
   ShieldCheck,
@@ -47,6 +54,9 @@ import {
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
 import { TwoFactorSetup } from '@/components/two-factor-setup'
+import { CommandPalette } from '@/components/command-palette'
+import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
+import { Search } from 'lucide-react'
 
 type NavItem =
   | { type: 'link'; key: string; path: string; icon: React.ElementType }
@@ -89,6 +99,9 @@ export function AppLayout() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const [twoFactorOpen, setTwoFactorOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  useCommandPaletteHotkey(setPaletteOpen)
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 
   const showTour = user && !user.preferences?.onboarding_completed && !localStorage.getItem('onboarding_completed')
 
@@ -105,6 +118,12 @@ export function AppLayout() {
 
   const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?'
   const currentLang = i18n.language
+  const resolvedTheme = theme === 'system' ? undefined : theme
+  const isDark = resolvedTheme
+    ? resolvedTheme === 'dark'
+    : typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
 
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
@@ -133,11 +152,27 @@ export function AppLayout() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
+            onClick={() => setPaletteOpen(true)}
+            className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1"
+            title={t('cmdk.triggerAria')}
+            aria-label={t('cmdk.triggerAria')}
+          >
+            <Search size={18} />
+          </button>
+          <button
             onClick={togglePrivacyMode}
             className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1"
             title={privacyMode ? t('privacy.show') : t('privacy.hide')}
           >
             {privacyMode ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+          <button
+            onClick={toggleTheme}
+            className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1"
+            title={isDark ? t('settings.themeLight') : t('settings.themeDark')}
+            aria-label={isDark ? t('settings.themeLight') : t('settings.themeDark')}
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <UserMenu userInitial={userInitial} logout={logout} onChangePassword={() => setChangePasswordOpen(true)} onTwoFactor={() => setTwoFactorOpen(true)} backingUp={backingUp} onBackup={async () => {
                     setBackingUp(true)
@@ -175,12 +210,43 @@ export function AppLayout() {
               <ShellLogo size={24} className="text-primary shrink-0" />
               <span className="font-bold text-lg text-sidebar-foreground tracking-tight">{t('app.name')}</span>
             </div>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={togglePrivacyMode}
+                className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent"
+                title={privacyMode ? t('privacy.show') : t('privacy.hide')}
+                aria-label={privacyMode ? t('privacy.show') : t('privacy.hide')}
+              >
+                {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+              <button
+                onClick={toggleTheme}
+                className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent"
+                title={isDark ? t('settings.themeLight') : t('settings.themeDark')}
+                aria-label={isDark ? t('settings.themeLight') : t('settings.themeDark')}
+              >
+                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Command palette trigger */}
+          <div className="px-3 pt-3">
             <button
-              onClick={togglePrivacyMode}
-              className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent"
-              title={privacyMode ? t('privacy.show') : t('privacy.hide')}
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className={cn(
+                'group flex w-full items-center gap-2 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/40 px-3 py-2',
+                'text-[12.5px] text-sidebar-muted transition-all',
+                'hover:bg-sidebar-accent hover:text-sidebar-foreground hover:border-sidebar-border'
+              )}
+              aria-label={t('cmdk.triggerAria')}
             >
-              {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+              <Search size={13} className="shrink-0" />
+              <span className="flex-1 text-left">{t('cmdk.triggerLabel')}</span>
+              <kbd className="hidden lg:inline-flex h-[17px] items-center rounded border border-sidebar-border bg-sidebar px-1 font-mono text-[9.5px] font-semibold text-sidebar-muted/80">
+                {isMac ? '⌘' : 'Ctrl'}&nbsp;K
+              </kbd>
             </button>
           </div>
 
@@ -295,62 +361,6 @@ export function AppLayout() {
 
           <div className="flex-1" />
 
-          {/* Language & Theme toggles */}
-          <div className="group/toggles px-3 pb-2 border-b border-sidebar-border">
-            <div className="flex items-center justify-between gap-2 px-1 py-2">
-              {/* Language toggle */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => i18n.changeLanguage('pt-BR')}
-                  className={cn(
-                    'px-2 py-1 rounded text-[11px] font-semibold transition-all duration-300',
-                    currentLang === 'pt-BR'
-                      ? 'bg-primary/15 text-primary group-hover/toggles:bg-primary/25'
-                      : 'text-sidebar-muted/40 group-hover/toggles:text-sidebar-muted group-hover/toggles:hover:text-sidebar-foreground'
-                  )}
-                >
-                  PT
-                </button>
-                <button
-                  onClick={() => i18n.changeLanguage('en')}
-                  className={cn(
-                    'px-2 py-1 rounded text-[11px] font-semibold transition-all duration-300',
-                    currentLang === 'en'
-                      ? 'bg-primary/15 text-primary group-hover/toggles:bg-primary/25'
-                      : 'text-sidebar-muted/40 group-hover/toggles:text-sidebar-muted group-hover/toggles:hover:text-sidebar-foreground'
-                  )}
-                >
-                  EN
-                </button>
-              </div>
-              {/* Theme toggle */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setTheme('light')}
-                  className={cn(
-                    'p-1.5 rounded transition-all duration-300',
-                    theme === 'light'
-                      ? 'bg-primary/15 text-primary group-hover/toggles:bg-primary/25'
-                      : 'text-sidebar-muted/40 group-hover/toggles:text-sidebar-muted group-hover/toggles:hover:text-sidebar-foreground'
-                  )}
-                >
-                  <Sun size={14} />
-                </button>
-                <button
-                  onClick={() => setTheme('dark')}
-                  className={cn(
-                    'p-1.5 rounded transition-all duration-300',
-                    theme === 'dark'
-                      ? 'bg-primary/15 text-primary group-hover/toggles:bg-primary/25'
-                      : 'text-sidebar-muted/40 group-hover/toggles:text-sidebar-muted group-hover/toggles:hover:text-sidebar-foreground'
-                  )}
-                >
-                  <Moon size={14} />
-                </button>
-              </div>
-            </div>
-          </div>
-
           {/* User section */}
           <div className="p-3">
             <DropdownMenu>
@@ -409,6 +419,40 @@ export function AppLayout() {
                   <HardDriveDownload size={14} />
                   {backingUp ? t('backup.downloading') : t('backup.button')}
                 </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="flex items-center gap-2">
+                    <Languages size={14} />
+                    <span className="flex-1">{t('setup.language')}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {currentLang === 'pt-BR' ? 'PT' : 'EN'}
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-40">
+                      <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+                        {t('setup.language')}
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onClick={() => i18n.changeLanguage('pt-BR')}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="flex-1">Português</span>
+                        {currentLang === 'pt-BR' && (
+                          <Check size={13} className="text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => i18n.changeLanguage('en')}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="flex-1">English</span>
+                        {currentLang === 'en' && (
+                          <Check size={13} className="text-primary" />
+                        )}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={logout}
@@ -433,13 +477,15 @@ export function AppLayout() {
       {showTour && <OnboardingTour onComplete={handleTourComplete} />}
       <ChangePasswordDialog open={changePasswordOpen} onClose={() => setChangePasswordOpen(false)} />
       <TwoFactorSetup open={twoFactorOpen} onClose={() => setTwoFactorOpen(false)} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   )
 }
 
 function UserMenu({ userInitial, logout, onChangePassword, onTwoFactor, onBackup, backingUp, dark, isAdmin }: { userInitial: string; logout: () => void; onChangePassword: () => void; onTwoFactor: () => void; onBackup: () => void; backingUp: boolean; dark?: boolean; isAdmin?: boolean }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const nav = useNavigate()
+  const currentLang = i18n.language
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -473,6 +519,40 @@ function UserMenu({ userInitial, logout, onChangePassword, onTwoFactor, onBackup
           <HardDriveDownload size={14} />
           {backingUp ? t('backup.downloading') : t('backup.button')}
         </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="flex items-center gap-2">
+            <Languages size={14} />
+            <span className="flex-1">{t('setup.language')}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {currentLang === 'pt-BR' ? 'PT' : 'EN'}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuSubContent className="w-40">
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+                {t('setup.language')}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('pt-BR')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Português</span>
+                {currentLang === 'pt-BR' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('en')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">English</span>
+                {currentLang === 'en' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuPortal>
+        </DropdownMenuSub>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="text-rose-600 focus:text-rose-600">
           {t('auth.logout')}

@@ -13,15 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Paperclip, Search, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Paperclip, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
-import { DatePickerInput } from '@/components/ui/date-picker-input'
+import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 
@@ -44,12 +43,16 @@ export default function TransactionsPage() {
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
-  const [filterAccount, setFilterAccount] = useState<string>('')
-  const [filterCategory, setFilterCategory] = useState<string>('')
+  const [filterAccountIds, setFilterAccountIds] = useState<string[]>([])
+  const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>(() => {
+    const initial = searchParams.get('category_id')
+    return initial ? [initial] : []
+  })
+  const [filterUncategorized, setFilterUncategorized] = useState<boolean>(false)
   const [filterFrom, setFilterFrom] = useState<string>('')
   const [filterTo, setFilterTo] = useState<string>('')
-  const [searchInput, setSearchInput] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') ?? '')
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
@@ -59,6 +62,22 @@ export default function TransactionsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategory, setBulkCategory] = useState<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
+  const highlightId = searchParams.get('highlight')
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null)
+
+  // Sync state from URL when navigating (e.g. from the command palette) while
+  // the page is already mounted. Typing in the search box does not touch the
+  // URL, so this effect only fires on genuine navigation events.
+  useEffect(() => {
+    const nextQ = searchParams.get('q') ?? ''
+    setSearchInput(nextQ)
+    setSearchQuery(nextQ)
+    setFilterPayee(searchParams.get('payee_id') ?? '')
+    const nextCategory = searchParams.get('category_id')
+    setFilterCategoryIds(nextCategory ? [nextCategory] : [])
+    setFilterUncategorized(false)
+    setPage(1)
+  }, [searchParams])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -73,18 +92,39 @@ export default function TransactionsPage() {
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkCategory('')
-  }, [page, filterAccount, filterCategory, filterPayee, filterFrom, filterTo, searchQuery])
+  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterFrom, filterTo, searchQuery])
+
+  // Scroll to and flash a highlighted row after navigation (e.g. opened via
+  // the command palette). Re-runs whenever highlightId or the current data
+  // set changes so that when results finish loading we animate the row.
+  useEffect(() => {
+    if (!highlightId) return
+    const el = highlightedRowRef.current
+    if (!el) return
+    const raf = requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('securo-highlight-flash')
+    })
+    const timer = setTimeout(() => {
+      el.classList.remove('securo-highlight-flash')
+    }, 2500)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(timer)
+      el.classList.remove('securo-highlight-flash')
+    }
+  }, [highlightId, searchQuery, filterPayee, filterCategoryIds, page])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccount, filterCategory, filterPayee, filterFrom, filterTo, searchQuery],
+    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterFrom, filterTo, searchQuery],
     queryFn: () =>
       transactions.list({
         page,
         limit: 20,
-        account_id: filterAccount || undefined,
-        category_id: filterCategory === '__uncategorized__' ? undefined : (filterCategory || undefined),
+        account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
+        category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
         payee_id: filterPayee || undefined,
-        uncategorized: filterCategory === '__uncategorized__' ? true : undefined,
+        uncategorized: filterUncategorized ? true : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
         q: searchQuery || undefined,
@@ -256,9 +296,9 @@ export default function TransactionsPage() {
                 setExporting(true)
                 try {
                   await transactions.export({
-                    account_id: filterAccount || undefined,
-                    category_id: filterCategory === '__uncategorized__' ? undefined : (filterCategory || undefined),
-                    uncategorized: filterCategory === '__uncategorized__' ? true : undefined,
+                    account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
+                    category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
+                    uncategorized: filterUncategorized ? true : undefined,
                     from: filterFrom || undefined,
                     to: filterTo || undefined,
                     q: searchQuery || undefined,
@@ -286,92 +326,46 @@ export default function TransactionsPage() {
       />
 
       {/* Filters */}
-      <div className="bg-card rounded-xl border border-border shadow-sm p-3 md:p-4 mb-4">
-        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end md:gap-3">
-          <div className="relative w-full md:w-auto">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-            <Input
-              type="text"
-              placeholder={t('transactions.searchPlaceholder')}
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9 w-full md:w-[240px] h-[38px] text-sm"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:flex md:gap-3">
-            <select
-              className="border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px] min-w-0"
-              value={filterAccount}
-              onChange={(e) => { setFilterAccount(e.target.value); setPage(1) }}
-            >
-              <option value="">{t('transactions.account')}: {t('transactions.all')}</option>
-              {accountsList?.map((acc) => (
-                <option key={acc.id} value={acc.id}>{acc.name}</option>
-              ))}
-            </select>
-            <select
-              className="border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px] min-w-0"
-              value={filterCategory}
-              onChange={(e) => { setFilterCategory(e.target.value); setPage(1) }}
-            >
-              <option value="">{t('transactions.category')}: {t('transactions.all')}</option>
-              <option value="__uncategorized__">{t('transactions.uncategorized')}</option>
-              {categoriesList?.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-            <select
-              className="border border-border rounded-lg px-3 py-2 text-sm bg-card text-foreground focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px] min-w-0"
-              value={filterPayee}
-              onChange={(e) => { setFilterPayee(e.target.value); setPage(1) }}
-            >
-              <option value="">{t('payees.payee')}: {t('transactions.all')}</option>
-              {payeesList?.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:flex md:gap-3">
-            <div className="flex items-center gap-2">
-              <label className="hidden md:inline text-sm text-muted-foreground">{t('transactions.from')}</label>
-              <DatePickerInput
-                value={filterFrom}
-                onChange={(v) => { setFilterFrom(v); setPage(1) }}
-                placeholder={t('transactions.from')}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="hidden md:inline text-sm text-muted-foreground">{t('transactions.to')}</label>
-              <DatePickerInput
-                value={filterTo}
-                onChange={(v) => { setFilterTo(v); setPage(1) }}
-                placeholder={t('transactions.to')}
-              />
-            </div>
-          </div>
-          {(filterFrom || filterTo || filterAccount || filterCategory || filterPayee || searchInput) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterAccount(''); setFilterCategory(''); setFilterPayee(''); setSearchInput(''); setSearchQuery(''); setPage(1) }}
-            >
-              {t('transactions.clearFilters')}
-            </Button>
-          )}
-          {tagFilter && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/5 border border-primary/10 rounded-lg text-xs text-primary font-medium">
-              <span>{tagFilter}</span>
-              <button
-                onClick={() => setTagFilter(null)}
-                className="text-primary/60 hover:text-primary ml-0.5"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
+      <TransactionsFilterBar
+        searchInput={searchInput}
+        onSearchChange={(v) => setSearchInput(v)}
+        filterAccountIds={filterAccountIds}
+        onAccountIdsChange={(v) => { setFilterAccountIds(v); setPage(1) }}
+        filterCategoryIds={filterCategoryIds}
+        onCategoryIdsChange={(v) => { setFilterCategoryIds(v); setPage(1) }}
+        filterUncategorized={filterUncategorized}
+        onUncategorizedChange={(v) => { setFilterUncategorized(v); setPage(1) }}
+        filterPayee={filterPayee}
+        onPayeeChange={(v) => { setFilterPayee(v); setPage(1) }}
+        filterFrom={filterFrom}
+        filterTo={filterTo}
+        onDateRangeChange={(from, to) => { setFilterFrom(from); setFilterTo(to); setPage(1) }}
+        onClearAll={() => {
+          setFilterFrom('')
+          setFilterTo('')
+          setFilterAccountIds([])
+          setFilterCategoryIds([])
+          setFilterUncategorized(false)
+          setFilterPayee('')
+          setSearchInput('')
+          setSearchQuery('')
+          setPage(1)
+        }}
+        accounts={accountsList ?? []}
+        categories={categoriesList ?? []}
+        payees={payeesList ?? []}
+      />
+      {tagFilter && (
+        <div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+          <span>{tagFilter}</span>
+          <button
+            onClick={() => setTagFilter(null)}
+            className="ml-0.5 text-primary/60 hover:text-primary"
+          >
+            <X size={12} />
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Table */}
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden mb-4">
@@ -404,6 +398,7 @@ export default function TransactionsPage() {
               {filteredItems.map((tx) => (
                 <TableRow
                   key={tx.id}
+                  ref={tx.id === highlightId ? highlightedRowRef : undefined}
                   className={`cursor-pointer hover:bg-muted border-b border-border last:border-0 ${selectedIds.has(tx.id) ? 'bg-primary/5' : ''}`}
                   onClick={() => { setEditingTx(tx); setDialogOpen(true) }}
                 >

@@ -130,3 +130,22 @@
     letter-spacing: -0.035em;
   }
 }
+
+@keyframes securo-highlight-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--primary) 22%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary);
+  }
+  60% {
+    background-color: color-mix(in srgb, var(--primary) 14%, transparent);
+    box-shadow: inset 3px 0 0 var(--primary);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+.securo-highlight-flash {
+  animation: securo-highlight-flash 2.4s ease-out;
+}

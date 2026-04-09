@@ -58,6 +58,8 @@ async def get_transactions(
     txn_type: Optional[str] = None,
     skip_pagination: bool = False,
     exclude_transfers: bool = False,
+    account_ids: Optional[list[uuid.UUID]] = None,
+    category_ids: Optional[list[uuid.UUID]] = None,
 ) -> tuple[list[Transaction], int]:
     # Base query: user's own transactions (manual or via account)
     base_query = (
@@ -79,9 +81,14 @@ async def get_transactions(
         base_query = base_query.where(Transaction.source != "opening_balance")
 
     # Apply filters
-    if account_id:
+    # Multi-id filters take precedence over single-id filters.
+    if account_ids:
+        base_query = base_query.where(Transaction.account_id.in_(account_ids))
+    elif account_id:
         base_query = base_query.where(Transaction.account_id == account_id)
-    if category_id:
+    if category_ids:
+        base_query = base_query.where(Transaction.category_id.in_(category_ids))
+    elif category_id:
         base_query = base_query.where(Transaction.category_id == category_id)
     if payee_id:
         base_query = base_query.where(Transaction.payee_id == payee_id)

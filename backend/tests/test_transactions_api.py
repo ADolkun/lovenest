@@ -68,6 +68,173 @@ async def test_list_transactions_filter_by_category(
 
 
 @pytest.mark.asyncio
+async def test_list_transactions_filter_by_category_ids_multi(
+    client: AsyncClient, auth_headers, test_transactions: list[Transaction],
+    test_categories: list[Category],
+):
+    """Passing multiple ``category_ids`` should return the union of matches."""
+    alimentacao = test_categories[0].id  # IFOOD
+    transporte = test_categories[1].id   # UBER
+    response = await client.get(
+        f"/api/transactions?category_ids={alimentacao}&category_ids={transporte}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    descriptions = {item["description"] for item in data["items"]}
+    assert descriptions == {"UBER TRIP", "IFOOD RESTAURANTE"}
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_filter_by_category_ids_single_element(
+    client: AsyncClient, auth_headers, test_transactions: list[Transaction],
+    test_categories: list[Category],
+):
+    """A one-element ``category_ids`` list should behave like the legacy single filter."""
+    cat_id = test_categories[0].id  # Alimentação
+    response = await client.get(
+        f"/api/transactions?category_ids={cat_id}", headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["description"] == "IFOOD RESTAURANTE"
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_merge_category_id_and_category_ids(
+    client: AsyncClient, auth_headers, test_transactions: list[Transaction],
+    test_categories: list[Category],
+):
+    """When both the legacy ``category_id`` and the new ``category_ids`` are sent,
+    results should be the union of both."""
+    alimentacao = test_categories[0].id
+    transporte = test_categories[1].id
+    response = await client.get(
+        f"/api/transactions?category_id={alimentacao}&category_ids={transporte}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    descriptions = {item["description"] for item in data["items"]}
+    assert descriptions == {"UBER TRIP", "IFOOD RESTAURANTE"}
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_filter_by_category_ids_no_match(
+    client: AsyncClient, auth_headers, test_transactions: list[Transaction],
+):
+    """A non-existent ``category_ids`` filter should return zero rows, not leak other txns."""
+    ghost_id = uuid.uuid4()
+    response = await client.get(
+        f"/api/transactions?category_ids={ghost_id}", headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert data["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_filter_by_account_ids_multi(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+    test_account: Account,
+    test_transactions: list[Transaction],
+):
+    """Passing multiple ``account_ids`` should include transactions from every account."""
+    # Create a second account under the same user with one transaction.
+    second_account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        connection_id=None,
+        external_id="acc-ext-second",
+        name="Poupança",
+        type="savings",
+        balance=Decimal("500.00"),
+        currency="BRL",
+    )
+    session.add(second_account)
+    await session.flush()
+    extra_txn = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=second_account.id,
+        category_id=None,
+        description="APORTE POUPANCA",
+        amount=Decimal("100.00"),
+        date=date.today(),
+        type="credit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(extra_txn)
+    await session.commit()
+
+    response = await client.get(
+        f"/api/transactions?account_ids={test_account.id}&account_ids={second_account.id}",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # 5 from test_account + 1 from second_account
+    assert data["total"] == 6
+    account_ids_in_response = {item["account_id"] for item in data["items"]}
+    assert str(test_account.id) in account_ids_in_response
+    assert str(second_account.id) in account_ids_in_response
+
+
+@pytest.mark.asyncio
+async def test_list_transactions_filter_by_account_ids_isolates_other_accounts(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+    test_account: Account,
+    test_transactions: list[Transaction],
+):
+    """``account_ids`` should exclude txns from accounts not in the list."""
+    second_account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        connection_id=None,
+        external_id="acc-ext-isolated",
+        name="Isolada",
+        type="savings",
+        balance=Decimal("0"),
+        currency="BRL",
+    )
+    session.add(second_account)
+    await session.flush()
+    isolated_txn = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=second_account.id,
+        category_id=None,
+        description="ISOLATED TXN",
+        amount=Decimal("10.00"),
+        date=date.today(),
+        type="debit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(isolated_txn)
+    await session.commit()
+
+    response = await client.get(
+        f"/api/transactions?account_ids={second_account.id}", headers=auth_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["items"][0]["description"] == "ISOLATED TXN"
+
+
+@pytest.mark.asyncio
 async def test_list_transactions_filter_by_date(
     client: AsyncClient, auth_headers, test_transactions: list[Transaction]
 ):

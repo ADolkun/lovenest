@@ -2,6 +2,41 @@
   "app": {
     "name": "Securo"
   },
+  "cmdk": {
+    "title": "Command palette",
+    "description": "Search transactions, accounts, categories and more.",
+    "triggerLabel": "Search everything…",
+    "triggerAria": "Open command palette",
+    "placeholder": "What are you looking for?",
+    "groups": {
+      "recent": "Recent",
+      "quickActions": "Quick actions",
+      "navigation": "Go to",
+      "transactions": "Transactions",
+      "accounts": "Accounts",
+      "payees": "Payees",
+      "categories": "Categories",
+      "goals": "Goals",
+      "assets": "Assets"
+    },
+    "actions": {
+      "newTransaction": "New transaction",
+      "importFile": "Import CSV / OFX / QIF",
+      "newBudget": "New budget",
+      "newGoal": "New goal",
+      "openReports": "Open reports"
+    },
+    "empty": {
+      "title": "No results for \"{{query}}\"",
+      "hint": "Try a different keyword, a payee name, or an amount."
+    },
+    "footer": {
+      "tagline": "own your finances",
+      "navigate": "navigate",
+      "open": "open",
+      "close": "close"
+    }
+  },
   "nav": {
     "dashboard": "Dashboard",
     "transactions": "Transactions",
@@ -179,7 +214,30 @@
     "transferDescription": "Description",
     "transferNotes": "Notes",
     "transferInfo": "This is a transfer — changes to description, date, and notes will apply to both sides",
-    "transferTooltip": "Transfers are excluded from report and dashboard totals"
+    "transferTooltip": "Transfers are excluded from report and dashboard totals",
+    "filtersBar": {
+      "filters": "Filters",
+      "filterBy": "Filter by",
+      "date": "Date",
+      "customRange": "Custom range…",
+      "pickRange": "Pick a start and end date",
+      "noOptions": "Nothing here yet",
+      "nSelected": "{{count}} selected",
+      "clearSelection": "Clear selection",
+      "fromLabel": "From",
+      "toLabel": "To",
+      "reset": "Reset",
+      "cancel": "Cancel",
+      "apply": "Apply",
+      "datePresets": {
+        "today": "Today",
+        "last7": "Last 7 days",
+        "last30": "Last 30 days",
+        "thisMonth": "This month",
+        "last90": "Last 90 days",
+        "thisYear": "This year"
+      }
+    }
   },
   "accounts": {
     "title": "Accounts",

@@ -2,6 +2,41 @@
   "app": {
     "name": "Securo"
   },
+  "cmdk": {
+    "title": "Paleta de comandos",
+    "description": "Busque transações, contas, categorias e muito mais.",
+    "triggerLabel": "Buscar em tudo…",
+    "triggerAria": "Abrir paleta de comandos",
+    "placeholder": "O que você está procurando?",
+    "groups": {
+      "recent": "Recentes",
+      "quickActions": "Ações rápidas",
+      "navigation": "Ir para",
+      "transactions": "Transações",
+      "accounts": "Contas",
+      "payees": "Beneficiários",
+      "categories": "Categorias",
+      "goals": "Metas",
+      "assets": "Patrimônio"
+    },
+    "actions": {
+      "newTransaction": "Nova transação",
+      "importFile": "Importar CSV / OFX / QIF",
+      "newBudget": "Novo orçamento",
+      "newGoal": "Nova meta",
+      "openReports": "Abrir relatórios"
+    },
+    "empty": {
+      "title": "Nenhum resultado para \"{{query}}\"",
+      "hint": "Tente outra palavra, um beneficiário, ou um valor."
+    },
+    "footer": {
+      "tagline": "controle total das suas finanças",
+      "navigate": "navegar",
+      "open": "abrir",
+      "close": "fechar"
+    }
+  },
   "nav": {
     "dashboard": "Painel",
     "transactions": "Transações",
@@ -179,7 +214,30 @@
     "transferDescription": "Descrição",
     "transferNotes": "Notas",
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
-    "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard"
+    "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard",
+    "filtersBar": {
+      "filters": "Filtros",
+      "filterBy": "Filtrar por",
+      "date": "Data",
+      "customRange": "Período personalizado…",
+      "pickRange": "Escolha uma data inicial e final",
+      "noOptions": "Nada por aqui ainda",
+      "nSelected": "{{count}} selecionados",
+      "clearSelection": "Limpar seleção",
+      "fromLabel": "De",
+      "toLabel": "Até",
+      "reset": "Redefinir",
+      "cancel": "Cancelar",
+      "apply": "Aplicar",
+      "datePresets": {
+        "today": "Hoje",
+        "last7": "Últimos 7 dias",
+        "last30": "Últimos 30 dias",
+        "thisMonth": "Este mês",
+        "last90": "Últimos 90 dias",
+        "thisYear": "Este ano"
+      }
+    }
   },
   "accounts": {
     "title": "Contas",
