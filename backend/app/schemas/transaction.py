@@ -79,6 +79,10 @@ class TransferCreate(BaseModel):
     fx_rate: Optional[Decimal] = None
 
 
+class LinkTransferRequest(BaseModel):
+    transaction_ids: list[uuid.UUID]
+
+
 class TransferRead(BaseModel):
     debit: TransactionRead
     credit: TransactionRead

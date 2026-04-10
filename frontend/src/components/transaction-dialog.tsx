@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { AlertTriangle, ChevronLeft, Download, Paperclip, Upload, X, FileText, Plus } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, Download, Paperclip, Upload, X, FileText, Plus, Unlink } from 'lucide-react'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import type { Transaction, RecurringTransaction } from '@/types'
@@ -58,6 +58,7 @@ export function TransactionDialog({
   recurringMatch,
   onSave,
   onDelete,
+  onUnlinkTransfer,
   loading,
   error,
   isSynced = false,
@@ -70,6 +71,7 @@ export function TransactionDialog({
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[]) => void
   onDelete?: () => void
+  onUnlinkTransfer?: (pairId: string) => void
   loading: boolean
   error: string | null
   isSynced?: boolean
@@ -135,6 +137,7 @@ export function TransactionDialog({
               recurringMatch={recurringMatch}
               onSave={onSave}
               onDelete={onDelete}
+              onUnlinkTransfer={onUnlinkTransfer}
               onCancel={onClose}
               loading={loading}
               error={error}
@@ -248,6 +251,7 @@ function TransactionForm({
   recurringMatch,
   onSave,
   onDelete,
+  onUnlinkTransfer,
   onCancel,
   loading,
   error,
@@ -262,6 +266,7 @@ function TransactionForm({
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[]) => void
   onDelete?: () => void
+  onUnlinkTransfer?: (pairId: string) => void
   onCancel: () => void
   loading: boolean
   error: string | null
@@ -438,11 +443,29 @@ function TransactionForm({
         </div>
       )}
       {!!transaction?.transfer_pair_id && (
-        <div className="p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300 space-y-1">
-          <div className="flex items-center gap-2">
-            {t('transactions.transferInfo')}
+        <div className="p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <p>{t('transactions.transferInfo')}</p>
+              <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
+            </div>
+            {onUnlinkTransfer && transaction?.transfer_pair_id && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  if (transaction?.transfer_pair_id) {
+                    onUnlinkTransfer(transaction.transfer_pair_id)
+                  }
+                }}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-blue-200 dark:border-blue-800 bg-white/60 dark:bg-blue-900/40 px-2.5 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-200 hover:bg-white dark:hover:bg-blue-900/70 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title={t('transactions.unlinkTransferConfirm')}
+              >
+                <Unlink size={12} />
+                {t('transactions.unlinkTransfer')}
+              </button>
+            )}
           </div>
-          <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
         </div>
       )}
       {recurringMatch && (

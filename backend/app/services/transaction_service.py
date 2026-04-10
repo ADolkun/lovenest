@@ -323,6 +323,152 @@ async def create_transfer(
     return debit_tx, credit_tx
 
 
+async def get_transfer_candidates(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    limit: int = 10,
+    window_days: int = 30,
+) -> list[Transaction]:
+    """Return ranked transfer-pair candidates for the given anchor transaction.
+
+    Filters: different account, opposing type, not already linked, within
+    ``window_days`` of the anchor's date. Ranked by date proximity, then
+    primary-currency amount closeness (so cross-currency pairs match well).
+    """
+    from datetime import timedelta
+    from decimal import Decimal
+
+    anchor = await get_transaction(session, transaction_id, user_id)
+    if not anchor:
+        return []
+    if anchor.transfer_pair_id is not None:
+        return []
+
+    opposing_type = "credit" if anchor.type == "debit" else "debit"
+    from_date = anchor.date - timedelta(days=window_days)
+    to_date = anchor.date + timedelta(days=window_days)
+
+    result = await session.execute(
+        select(Transaction)
+        .outerjoin(Account)
+        .outerjoin(BankConnection)
+        .where(
+            or_(
+                Transaction.user_id == user_id,
+                BankConnection.user_id == user_id,
+            ),
+            Transaction.id != anchor.id,
+            Transaction.account_id != anchor.account_id,
+            Transaction.type == opposing_type,
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.source != "opening_balance",
+            Transaction.date >= from_date,
+            Transaction.date <= to_date,
+        )
+        .options(
+            selectinload(Transaction.category),
+            selectinload(Transaction.account),
+            selectinload(Transaction.payee_entity),
+        )
+    )
+    candidates = list(result.scalars().all())
+
+    anchor_amount_primary = (
+        Decimal(str(anchor.amount_primary)) if anchor.amount_primary is not None else None
+    )
+
+    def score(tx: Transaction) -> tuple[int, Decimal]:
+        date_diff = abs((tx.date - anchor.date).days)
+        if anchor_amount_primary is not None and tx.amount_primary is not None:
+            amount_diff = abs(
+                Decimal(str(tx.amount_primary)).copy_abs()
+                - anchor_amount_primary.copy_abs()
+            )
+        else:
+            amount_diff = abs(
+                Decimal(str(tx.amount)).copy_abs()
+                - Decimal(str(anchor.amount)).copy_abs()
+            )
+        return (date_diff, amount_diff)
+
+    candidates.sort(key=score)
+    candidates = candidates[:limit]
+
+    # Hydrate fields the schema needs
+    if candidates:
+        tx_ids = [tx.id for tx in candidates]
+        count_rows = await session.execute(
+            select(
+                TransactionAttachment.transaction_id,
+                func.count(TransactionAttachment.id),
+            )
+            .where(TransactionAttachment.transaction_id.in_(tx_ids))
+            .group_by(TransactionAttachment.transaction_id)
+        )
+        counts = dict(count_rows.all())
+        for tx in candidates:
+            tx.attachment_count = counts.get(tx.id, 0)
+            tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
+
+    return candidates
+
+
+async def link_existing_as_transfer(
+    session: AsyncSession, user_id: uuid.UUID, transaction_ids: list[uuid.UUID]
+) -> tuple[Transaction, Transaction]:
+    """Link two existing transactions as a transfer pair.
+
+    Permissive by design: amounts don't have to match. Validation enforces
+    ownership, opposing types, different accounts, and that neither side is
+    already part of an existing transfer.
+    """
+    if len(transaction_ids) != 2:
+        raise ValueError("Exactly two transactions are required")
+    if transaction_ids[0] == transaction_ids[1]:
+        raise ValueError("Cannot link a transaction to itself")
+
+    result = await session.execute(
+        select(Transaction)
+        .outerjoin(Account)
+        .outerjoin(BankConnection)
+        .where(
+            Transaction.id.in_(transaction_ids),
+            or_(
+                Transaction.user_id == user_id,
+                BankConnection.user_id == user_id,
+            ),
+        )
+    )
+    txns = list(result.scalars().all())
+    if len(txns) != 2:
+        raise ValueError("Transaction not found")
+
+    for tx in txns:
+        if tx.transfer_pair_id is not None:
+            raise ValueError("Transaction is already part of a transfer")
+
+    if txns[0].account_id == txns[1].account_id:
+        raise ValueError("Transactions must be in different accounts")
+
+    types = {tx.type for tx in txns}
+    if types != {"debit", "credit"}:
+        raise ValueError("Transactions must be one debit and one credit")
+
+    transfer_pair_id = uuid.uuid4()
+    for tx in txns:
+        tx.transfer_pair_id = transfer_pair_id
+        tx.category_id = None  # transfers are excluded from category reports
+
+    await session.commit()
+    for tx in txns:
+        await session.refresh(tx, ["category"])
+
+    debit_tx = next(tx for tx in txns if tx.type == "debit")
+    credit_tx = next(tx for tx in txns if tx.type == "credit")
+    return debit_tx, credit_tx
+
+
 async def update_transaction(
     session: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, data: TransactionUpdate
 ) -> Optional[Transaction]:

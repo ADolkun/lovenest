@@ -20,6 +20,7 @@ import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
+import { LinkTransferDialog } from '@/components/link-transfer-dialog'
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -59,6 +60,7 @@ export default function TransactionsPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+  const [linkTransferDialogOpen, setLinkTransferDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategory, setBulkCategory] = useState<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -229,6 +231,35 @@ export default function TransactionsPage() {
     },
   })
 
+  const linkTransferMutation = useMutation({
+    mutationFn: (ids: [string, string]) => transactions.linkTransfer(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['transfer-candidates'] })
+      setLinkTransferDialogOpen(false)
+      setSelectedIds(new Set())
+      toast.success(t('transactions.linkTransferSuccess'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
+  const unlinkTransferMutation = useMutation({
+    mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setDialogOpen(false)
+      setEditingTx(null)
+      toast.success(t('transactions.unlinkTransferSuccess'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   const transferMutation = useMutation({
     mutationFn: (data: {
       from_account_id: string
@@ -279,6 +310,37 @@ export default function TransactionsPage() {
 
   const allSelected = filteredItems.length > 0 && filteredItems.every(tx => selectedIds.has(tx.id))
   const someSelected = filteredItems.some(tx => selectedIds.has(tx.id)) && !allSelected
+
+  // Resolve the currently-selected transactions into a valid debit/credit pair
+  // for the "Link as transfer" action. Returns null if the pair is invalid
+  // (wrong count, same account, same type, or already linked).
+  const linkablePair = useMemo(() => {
+    if (selectedIds.size !== 2) return null
+    const selected = (data?.items ?? []).filter(tx => selectedIds.has(tx.id))
+    if (selected.length !== 2) return null
+    if (selected.some(tx => tx.transfer_pair_id)) return null
+    if (selected[0].account_id === selected[1].account_id) return null
+    const debit = selected.find(tx => tx.type === 'debit')
+    const credit = selected.find(tx => tx.type === 'credit')
+    if (!debit || !credit) return null
+    return { debit, credit }
+  }, [selectedIds, data?.items])
+
+  // Single-selection picker mode: when exactly one unlinked transaction is
+  // selected, the user can search for its counterpart across all accounts.
+  const linkAnchor = useMemo(() => {
+    if (selectedIds.size !== 1) return null
+    const selected = (data?.items ?? []).find(tx => selectedIds.has(tx.id))
+    if (!selected) return null
+    if (selected.transfer_pair_id) return null
+    return selected
+  }, [selectedIds, data?.items])
+
+  const canOpenLinkDialog = !!linkablePair || !!linkAnchor
+  const linkDisabledTooltip =
+    !canOpenLinkDialog && selectedIds.size >= 2
+      ? t('transactions.linkTransferInvalidPair')
+      : undefined
 
   const totalPages = data ? Math.ceil(data.total / 20) : 0
 
@@ -530,7 +592,7 @@ export default function TransactionsPage() {
         className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
       >
         <div className="mx-auto max-w-2xl px-3 md:px-4 pb-4 md:pb-6">
-          <div className="flex items-center gap-2 md:gap-3 bg-card border border-border shadow-lg rounded-xl px-3 md:px-5 py-2.5 md:py-3">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3 bg-card border border-border shadow-lg rounded-xl px-3 md:px-5 py-2.5 md:py-3">
             <span className="text-xs md:text-sm font-medium text-foreground whitespace-nowrap">
               {t('transactions.selected', { count: selectedIds.size })}
             </span>
@@ -558,6 +620,17 @@ export default function TransactionsPage() {
               <Check size={14} className="mr-1" />
               {t('transactions.bulkCategorize')}
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canOpenLinkDialog}
+              title={linkDisabledTooltip}
+              onClick={() => setLinkTransferDialogOpen(true)}
+              className="shrink-0"
+            >
+              <ArrowLeftRight size={14} className="mr-1" />
+              {t('transactions.linkAsTransfer')}
+            </Button>
             <button
               onClick={() => { setSelectedIds(new Set()); setBulkCategory('') }}
               className="text-muted-foreground hover:text-foreground p-1 shrink-0"
@@ -567,6 +640,20 @@ export default function TransactionsPage() {
           </div>
         </div>
       </div>
+
+      {/* Link Transfer Dialog */}
+      <LinkTransferDialog
+        open={linkTransferDialogOpen}
+        onClose={() => setLinkTransferDialogOpen(false)}
+        debit={linkablePair?.debit ?? null}
+        credit={linkablePair?.credit ?? null}
+        anchor={linkAnchor}
+        accounts={accountsList ?? []}
+        onConfirm={(debitId, creditId) => {
+          linkTransferMutation.mutate([debitId, creditId])
+        }}
+        loading={linkTransferMutation.isPending}
+      />
 
       {/* Transfer Dialog */}
       <TransferDialog
@@ -593,7 +680,8 @@ export default function TransactionsPage() {
           }
         }}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
-        loading={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending}
+        onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        loading={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={createMutation.error || updateMutation.error ? extractApiError(createMutation.error || updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
       />

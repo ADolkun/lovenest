@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.transaction import BulkCategorizeRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.schemas.transaction import BulkCategorizeRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -160,6 +160,51 @@ async def create_transfer(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/link-transfer", response_model=TransferRead)
+async def link_transfer(
+    data: LinkTransferRequest,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    """Link two existing transactions as an inter-account transfer pair."""
+    try:
+        debit_tx, credit_tx = await transaction_service.link_existing_as_transfer(
+            session, user.id, data.transaction_ids
+        )
+        debit_full = await transaction_service.get_transaction(session, debit_tx.id, user.id)
+        credit_full = await transaction_service.get_transaction(session, credit_tx.id, user.id)
+        primary_currency = user.primary_currency
+        return TransferRead(
+            debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
+            credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
+            transfer_pair_id=debit_tx.transfer_pair_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{transaction_id}/transfer-candidates", response_model=list[TransactionRead])
+async def get_transfer_candidates(
+    transaction_id: uuid.UUID,
+    limit: int = Query(10, ge=1, le=50),
+    window_days: int = Query(30, ge=1, le=365),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    """Return ranked candidate transactions to link as a transfer counterpart."""
+    anchor = await transaction_service.get_transaction(session, transaction_id, user.id)
+    if not anchor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    candidates = await transaction_service.get_transfer_candidates(
+        session, user.id, transaction_id, limit=limit, window_days=window_days
+    )
+    primary_currency = user.primary_currency
+    return [
+        _tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency)
+        for tx in candidates
+    ]
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)

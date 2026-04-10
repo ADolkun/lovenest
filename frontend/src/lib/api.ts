@@ -286,6 +286,19 @@ export const transactions = {
     })
     return data
   },
+  linkTransfer: async (transactionIds: string[]): Promise<{ debit: Transaction; credit: Transaction; transfer_pair_id: string }> => {
+    const { data } = await api.post('/transactions/link-transfer', {
+      transaction_ids: transactionIds,
+    })
+    return data
+  },
+  transferCandidates: async (transactionId: string, params?: { limit?: number; window_days?: number }): Promise<Transaction[]> => {
+    const { data } = await api.get(`/transactions/${transactionId}/transfer-candidates`, { params })
+    return data
+  },
+  unlinkTransfer: async (pairId: string): Promise<void> => {
+    await api.delete(`/connections/transfers/${pairId}`)
+  },
   previewImport: async (file: File, options?: {
     date_format?: string
     flip_amount?: boolean

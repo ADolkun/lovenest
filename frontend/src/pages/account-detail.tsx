@@ -129,6 +129,22 @@ export default function AccountDetailPage() {
     },
   })
 
+  const unlinkTransferMutation = useMutation({
+    mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setDialogOpen(false)
+      setEditingTx(null)
+      toast.success(t('transactions.unlinkTransferSuccess'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   const reopenMutation = useMutation({
     mutationFn: () => accounts.reopen(id!),
     onSuccess: () => {
@@ -534,7 +550,8 @@ export default function AccountDetailPage() {
           }
         }}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
-        loading={updateMutation.isPending || deleteMutation.isPending}
+        onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
       />

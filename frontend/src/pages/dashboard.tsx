@@ -174,6 +174,18 @@ export default function DashboardPage() {
     },
   })
 
+  const unlinkTransferMutation = useMutation({
+    mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['budgets'] })
+      queryClient.invalidateQueries({ queryKey: ['drill-down'] })
+      setDialogOpen(false)
+      setEditingTx(null)
+    },
+  })
+
 
   const cumulativeData = useMemo(() => {
     if (!balanceHistory) return []
@@ -922,7 +934,8 @@ export default function DashboardPage() {
         onDelete={() => {
           if (editingTx) deleteMutation.mutate(editingTx.id)
         }}
-        loading={updateMutation.isPending || deleteMutation.isPending}
+        onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : deleteMutation.error ? extractApiError(deleteMutation.error) : null}
         isSynced={!!editingTx?.external_id}
       />
