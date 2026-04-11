@@ -799,3 +799,94 @@ async def test_delete_transfer_cascades(session: AsyncSession, test_user, txn_ac
     ))
     assert await delete_transaction(session, debit_tx.id, test_user.id) is True
     assert await get_transaction(session, credit_tx.id, test_user.id) is None
+
+
+# ---------------------------------------------------------------------------
+# update_transaction — changing account_id (regression for #63)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_changes_account(
+    session: AsyncSession, test_user, txn_account
+):
+    other_account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, name="OtherAcc",
+        type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(other_account)
+    await session.commit()
+
+    txn = await create_transaction(session, test_user.id, TransactionCreate(
+        account_id=txn_account.id, description="Move me",
+        amount=Decimal("42"), date=date.today(), type="debit",
+    ))
+
+    updated = await update_transaction(
+        session, txn.id, test_user.id,
+        TransactionUpdate(account_id=other_account.id),
+    )
+    assert updated is not None
+    assert updated.account_id == other_account.id
+
+    # Re-fetch to make sure the change was committed, not just set in memory.
+    reloaded = await get_transaction(session, txn.id, test_user.id)
+    assert reloaded.account_id == other_account.id
+
+
+@pytest.mark.asyncio
+async def test_update_transaction_rejects_foreign_account(
+    session: AsyncSession, test_user, txn_account
+):
+    from app.models.user import User
+    import bcrypt as _bcrypt
+
+    other_user = User(
+        id=uuid.uuid4(),
+        email="other@example.com",
+        hashed_password=_bcrypt.hashpw(b"x", _bcrypt.gensalt()).decode(),
+        is_active=True, is_superuser=False, is_verified=True,
+    )
+    session.add(other_user)
+    foreign_account = Account(
+        id=uuid.uuid4(), user_id=other_user.id, name="ForeignAcc",
+        type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(foreign_account)
+    await session.commit()
+
+    txn = await create_transaction(session, test_user.id, TransactionCreate(
+        account_id=txn_account.id, description="Stay put",
+        amount=Decimal("10"), date=date.today(), type="debit",
+    ))
+
+    with pytest.raises(ValueError, match="Account not found"):
+        await update_transaction(
+            session, txn.id, test_user.id,
+            TransactionUpdate(account_id=foreign_account.id),
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_transfer_rejects_collapsing_accounts(
+    session: AsyncSession, test_user, txn_account
+):
+    acct2 = Account(
+        id=uuid.uuid4(), user_id=test_user.id, name="XferSav",
+        type="savings", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(acct2)
+    await session.commit()
+
+    debit_tx, credit_tx = await create_transfer(session, test_user.id, TransferCreate(
+        from_account_id=txn_account.id, to_account_id=acct2.id,
+        description="Xfer", amount=Decimal("100"), date=date.today(),
+    ))
+
+    # Moving the debit side to acct2 would put both legs of the transfer
+    # in the same account, which is invalid.
+    with pytest.raises(ValueError, match="same account"):
+        await update_transaction(
+            session, debit_tx.id, test_user.id,
+            TransactionUpdate(account_id=acct2.id),
+        )

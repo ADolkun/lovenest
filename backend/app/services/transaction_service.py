@@ -478,6 +478,37 @@ async def update_transaction(
 
     update_data = data.model_dump(exclude_unset=True)
 
+    # Verify the new account belongs to the user before touching the row.
+    # When changing the account on one side of a transfer pair, refuse to
+    # collide with the paired transaction's account (a transfer must have two
+    # distinct accounts).
+    new_account_id = update_data.get("account_id")
+    if new_account_id is not None and new_account_id != transaction.account_id:
+        account_result = await session.execute(
+            select(Account)
+            .outerjoin(BankConnection)
+            .where(
+                Account.id == new_account_id,
+                or_(
+                    Account.user_id == user_id,
+                    BankConnection.user_id == user_id,
+                ),
+            )
+        )
+        if account_result.scalar_one_or_none() is None:
+            raise ValueError("Account not found")
+
+        if transaction.transfer_pair_id:
+            paired_result = await session.execute(
+                select(Transaction).where(
+                    Transaction.transfer_pair_id == transaction.transfer_pair_id,
+                    Transaction.id != transaction.id,
+                )
+            )
+            paired_tx = paired_result.scalar_one_or_none()
+            if paired_tx and paired_tx.account_id == new_account_id:
+                raise ValueError("Cannot move transfer to the same account as its paired transaction")
+
     # Pop FX override fields before generic setattr loop
     override_amount_primary = update_data.pop("amount_primary", None)
     override_fx_rate = update_data.pop("fx_rate_used", None)

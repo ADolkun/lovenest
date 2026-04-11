@@ -35,6 +35,7 @@ class TransactionUpdate(BaseModel):
     date: Optional[_Date] = None
     type: Optional[str] = None
     currency: Optional[str] = None
+    account_id: Optional[uuid.UUID] = None
     category_id: Optional[uuid.UUID] = None
     payee_id: Optional[uuid.UUID] = None
     notes: Optional[str] = None

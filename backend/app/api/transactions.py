@@ -242,7 +242,10 @@ async def update_transaction(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    transaction = await transaction_service.update_transaction(session, transaction_id, user.id, data)
+    try:
+        transaction = await transaction_service.update_transaction(session, transaction_id, user.id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     primary_currency = user.primary_currency
