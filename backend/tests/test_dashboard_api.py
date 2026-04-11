@@ -97,7 +97,7 @@ async def test_summary_numeric_fields(client, auth_headers, test_transactions):
 
 @pytest.mark.asyncio
 async def test_dashboard_virtual_recurring_projection(
-    client, auth_headers, test_categories
+    client, auth_headers, test_categories, test_account
 ):
     """Dashboard includes recurring projections via virtual computation — no DB writes."""
     # Use a future month so projections always apply regardless of today's date.
@@ -115,6 +115,7 @@ async def test_dashboard_virtual_recurring_projection(
             "frequency": "weekly",
             "start_date": next_month,
             "category_id": str(test_categories[0].id),
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -164,7 +165,7 @@ async def test_dashboard_virtual_recurring_projection(
 
 @pytest.mark.asyncio
 async def test_dashboard_no_duplicates_on_concurrent_calls(
-    client, auth_headers, test_categories
+    client, auth_headers, test_categories, test_account
 ):
     """Calling summary and spending concurrently does NOT create duplicates."""
     import asyncio
@@ -182,6 +183,7 @@ async def test_dashboard_no_duplicates_on_concurrent_calls(
             "frequency": "monthly",
             "start_date": next_month,
             "category_id": str(test_categories[1].id),
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -225,7 +227,7 @@ async def test_dashboard_no_duplicates_on_concurrent_calls(
 
 @pytest.mark.asyncio
 async def test_recurring_projection_respects_end_date(
-    client, auth_headers, test_categories
+    client, auth_headers, test_categories, test_account
 ):
     """Recurring with end_date stops projecting after that date."""
     next_month = _next_month_str()
@@ -242,6 +244,7 @@ async def test_recurring_projection_respects_end_date(
             "start_date": next_month,
             "end_date": end_date,
             "category_id": str(test_categories[0].id),
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -365,6 +368,7 @@ async def test_future_month_balance_includes_recurring_projections(
         headers=auth_headers,
     )
     assert acc_resp.status_code == 201
+    acc_id = acc_resp.json()["id"]
 
     # Create a monthly recurring expense of 500 starting next month
     rec_resp = await client.post(
@@ -377,6 +381,7 @@ async def test_future_month_balance_includes_recurring_projections(
             "frequency": "monthly",
             "start_date": next_month,
             "category_id": str(test_categories[1].id),
+            "account_id": acc_id,
         },
         headers=auth_headers,
     )

@@ -5,7 +5,7 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_create_recurring_transaction(client, auth_headers, test_categories):
+async def test_create_recurring_transaction(client, auth_headers, test_categories, test_account):
     """Creating a recurring transaction sets next_occurrence to start_date."""
     response = await client.post(
         "/api/recurring-transactions",
@@ -17,6 +17,7 @@ async def test_create_recurring_transaction(client, auth_headers, test_categorie
             "frequency": "monthly",
             "start_date": "2026-03-01",
             "category_id": str(test_categories[0].id),
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -30,7 +31,7 @@ async def test_create_recurring_transaction(client, auth_headers, test_categorie
 
 
 @pytest.mark.asyncio
-async def test_create_recurring_with_skip_first(client, auth_headers, test_categories):
+async def test_create_recurring_with_skip_first(client, auth_headers, test_categories, test_account):
     """skip_first=true advances next_occurrence by one frequency period."""
     response = await client.post(
         "/api/recurring-transactions",
@@ -43,6 +44,7 @@ async def test_create_recurring_with_skip_first(client, auth_headers, test_categ
             "start_date": "2026-02-25",
             "skip_first": True,
             "category_id": str(test_categories[0].id),
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -55,7 +57,7 @@ async def test_create_recurring_with_skip_first(client, auth_headers, test_categ
 
 
 @pytest.mark.asyncio
-async def test_create_recurring_skip_first_monthly(client, auth_headers):
+async def test_create_recurring_skip_first_monthly(client, auth_headers, test_account):
     """skip_first with monthly frequency advances by one month."""
     response = await client.post(
         "/api/recurring-transactions",
@@ -67,6 +69,7 @@ async def test_create_recurring_skip_first_monthly(client, auth_headers):
             "frequency": "monthly",
             "start_date": "2026-01-15",
             "skip_first": True,
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -185,7 +188,7 @@ async def test_generate_no_duplicate_with_skip_first(client, auth_headers, test_
 
 
 @pytest.mark.asyncio
-async def test_list_recurring_transactions(client, auth_headers):
+async def test_list_recurring_transactions(client, auth_headers, test_account):
     """List returns all recurring transactions for the user."""
     # Create two
     for desc in ["Sub A", "Sub B"]:
@@ -197,6 +200,7 @@ async def test_list_recurring_transactions(client, auth_headers):
                 "type": "debit",
                 "frequency": "monthly",
                 "start_date": "2026-03-01",
+                "account_id": str(test_account.id),
             },
             headers=auth_headers,
         )
@@ -209,7 +213,7 @@ async def test_list_recurring_transactions(client, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_delete_recurring_transaction(client, auth_headers):
+async def test_delete_recurring_transaction(client, auth_headers, test_account):
     """Delete removes a recurring transaction."""
     create_resp = await client.post(
         "/api/recurring-transactions",
@@ -219,6 +223,7 @@ async def test_delete_recurring_transaction(client, auth_headers):
             "type": "debit",
             "frequency": "weekly",
             "start_date": "2026-03-01",
+            "account_id": str(test_account.id),
         },
         headers=auth_headers,
     )
@@ -229,3 +234,59 @@ async def test_delete_recurring_transaction(client, auth_headers):
         headers=auth_headers,
     )
     assert del_resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for #64 — account_id is required
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_create_recurring_without_account_rejected(client, auth_headers):
+    """Omitting account_id should return a validation error, not a 500 later."""
+    response = await client.post(
+        "/api/recurring-transactions",
+        json={
+            "description": "No account",
+            "amount": 10.00,
+            "type": "debit",
+            "frequency": "monthly",
+            "start_date": "2026-03-01",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_generate_pending_skips_legacy_null_account(
+    session, test_user, test_account
+):
+    """Legacy rows with account_id=None (predating the schema fix) must not crash
+    generate_pending — they are skipped instead."""
+    import uuid as _uuid
+    from datetime import date as _date
+    from decimal import Decimal as _Decimal
+    from app.models.recurring_transaction import RecurringTransaction
+    from app.services.recurring_transaction_service import generate_pending
+
+    # Bypass the schema by creating the row directly.
+    legacy = RecurringTransaction(
+        id=_uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=None,
+        description="Legacy",
+        amount=_Decimal("10"),
+        currency="BRL",
+        type="debit",
+        frequency="monthly",
+        start_date=_date(2026, 1, 1),
+        next_occurrence=_date(2026, 1, 1),
+        is_active=True,
+    )
+    session.add(legacy)
+    await session.commit()
+
+    # Should not raise; should report 0 generated for the legacy row.
+    count = await generate_pending(session, test_user.id, up_to=_date(2026, 4, 1))
+    assert count == 0

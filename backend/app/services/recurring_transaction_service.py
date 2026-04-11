@@ -3,13 +3,34 @@ import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
+from app.models.bank_connection import BankConnection
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring_transaction import RecurringTransactionCreate, RecurringTransactionUpdate
 from app.services.fx_rate_service import stamp_primary_amount
+
+
+async def _verify_account_owned(
+    session: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID
+) -> None:
+    """Raise ValueError if the account does not belong to the user (directly or via a bank connection)."""
+    result = await session.execute(
+        select(Account)
+        .outerjoin(BankConnection)
+        .where(
+            Account.id == account_id,
+            or_(
+                Account.user_id == user_id,
+                BankConnection.user_id == user_id,
+            ),
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise ValueError("Account not found")
 
 
 async def get_recurring_transactions(
@@ -36,6 +57,7 @@ async def get_recurring_transaction(
 async def create_recurring_transaction(
     session: AsyncSession, user_id: uuid.UUID, data: RecurringTransactionCreate
 ) -> RecurringTransaction:
+    await _verify_account_owned(session, user_id, data.account_id)
     next_occ = data.start_date
     if data.skip_first:
         next_occ = _advance_date(data.start_date, data.frequency)
@@ -71,7 +93,18 @@ async def update_recurring_transaction(
     if not recurring:
         return None
 
-    for key, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+
+    # A recurring transaction must always have an account — reject an explicit
+    # null, and verify ownership of any new account_id.
+    if "account_id" in update_data:
+        new_account_id = update_data["account_id"]
+        if new_account_id is None:
+            raise ValueError("account_id is required")
+        if new_account_id != recurring.account_id:
+            await _verify_account_owned(session, user_id, new_account_id)
+
+    for key, value in update_data.items():
         setattr(recurring, key, value)
 
     await session.commit()
@@ -162,6 +195,11 @@ async def generate_pending(
 
     count = 0
     for recurring in recurring_list:
+        # Legacy rows may exist with a null account_id from before account_id
+        # was required. Skip them rather than crashing on Transaction's NOT NULL
+        # constraint — the user should edit the recurring to fix it.
+        if recurring.account_id is None:
+            continue
         # Generate transactions until next_occurrence is past the cutoff
         while recurring.next_occurrence <= cutoff:
             # Check if past end_date

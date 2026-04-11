@@ -30,7 +30,10 @@ async def create_recurring_transaction(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    return await recurring_transaction_service.create_recurring_transaction(session, user.id, data)
+    try:
+        return await recurring_transaction_service.create_recurring_transaction(session, user.id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.patch("/{recurring_id}", response_model=RecurringTransactionRead)
@@ -40,9 +43,12 @@ async def update_recurring_transaction(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    recurring = await recurring_transaction_service.update_recurring_transaction(
-        session, recurring_id, user.id, data
-    )
+    try:
+        recurring = await recurring_transaction_service.update_recurring_transaction(
+            session, recurring_id, user.id, data
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not recurring:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurring transaction not found")
     return recurring

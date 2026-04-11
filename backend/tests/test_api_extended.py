@@ -468,7 +468,7 @@ async def test_reconnect_token_no_item_id(
 
 @pytest.mark.asyncio
 async def test_dashboard_projected_transactions(
-    client: AsyncClient, auth_headers, test_categories,
+    client: AsyncClient, auth_headers, test_categories, test_account,
 ):
     """GET /api/dashboard/projected-transactions returns projections."""
     # Create a recurring transaction
@@ -488,6 +488,7 @@ async def test_dashboard_projected_transactions(
             "frequency": "monthly",
             "start_date": next_month.isoformat(),
             "category_id": str(test_categories[0].id),
+            "account_id": str(test_account.id),
         },
     )
 

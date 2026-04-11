@@ -15,7 +15,7 @@ class RecurringTransactionCreate(BaseModel):
     day_of_month: Optional[int] = None
     start_date: _Date
     end_date: Optional[_Date] = None
-    account_id: Optional[uuid.UUID] = None
+    account_id: uuid.UUID
     category_id: Optional[uuid.UUID] = None
     skip_first: bool = False  # Set true when first occurrence already created as a transaction
 
