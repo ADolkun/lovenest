@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionBase
+from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
@@ -424,6 +425,7 @@ async def import_transactions(
             payee=import_payee_raw,
             payee_id=import_payee_id,
         )
+        apply_effective_date(transaction, account)
 
         # If CSV provided an fx_rate, use it directly
         if txn_data.fx_rate:

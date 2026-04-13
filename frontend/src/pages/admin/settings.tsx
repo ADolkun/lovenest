@@ -19,7 +19,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/page-header'
-import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users } from 'lucide-react'
+import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale } from 'lucide-react'
 import type { AdminUser } from '@/types'
 
 export default function AdminSettingsPage() {
@@ -103,6 +103,26 @@ export default function AdminSettingsPage() {
       toast.error(t('common.error'))
     },
   })
+
+  // Credit card accounting mode: returns 404 when unset → defaults to "cash".
+  const { data: ccModeSetting } = useQuery({
+    queryKey: ['admin', 'settings', 'credit_card_accounting_mode'],
+    queryFn: () => adminApi.getSetting('credit_card_accounting_mode').catch(() => null),
+    retry: false,
+  })
+
+  const updateAccountingModeMutation = useMutation({
+    mutationFn: (value: string) => adminApi.updateSetting('credit_card_accounting_mode', value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings', 'credit_card_accounting_mode'] })
+      toast.success(t('admin.settings.updated'))
+    },
+    onError: () => {
+      toast.error(t('common.error'))
+    },
+  })
+
+  const accountingMode = (ccModeSetting?.value === 'accrual' ? 'accrual' : 'cash') as 'cash' | 'accrual'
 
   function resetCreateForm() {
     setFormEmail('')
@@ -213,6 +233,47 @@ export default function AdminSettingsPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Accounting section */}
+      <div className="rounded-xl border border-border/60 bg-card overflow-hidden mb-8">
+        <div className="px-5 py-4 border-b border-border/40">
+          <div className="flex items-center gap-2 mb-0.5">
+            <Scale size={15} className="text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t('admin.settings.accountingTitle')}</h3>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('admin.settings.accountingSubtitle')}</p>
+        </div>
+        <div className="divide-y divide-border/40">
+          <button
+            type="button"
+            onClick={() => updateAccountingModeMutation.mutate('cash')}
+            disabled={updateAccountingModeMutation.isPending}
+            className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${accountingMode === 'cash' ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
+              {accountingMode === 'cash' && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">{t('admin.settings.accountingCash')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.settings.accountingCashDesc')}</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => updateAccountingModeMutation.mutate('accrual')}
+            disabled={updateAccountingModeMutation.isPending}
+            className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${accountingMode === 'accrual' ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
+              {accountingMode === 'accrual' && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground">{t('admin.settings.accountingAccrual')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('admin.settings.accountingAccrualDesc')}</p>
+            </div>
+          </button>
+        </div>
       </div>
 
       {/* Settings section */}

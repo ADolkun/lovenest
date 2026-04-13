@@ -12,6 +12,7 @@ from app.models.asset_value import AssetValue
 from app.models.transaction import Transaction
 from app.models.category import Category
 from app.models.user import User
+from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.fx_rate_service import convert
 from app.schemas.report import (
     CategoryTrendItem,
@@ -324,20 +325,21 @@ async def get_net_worth_report(
     return ReportResponse(summary=summary, trend=trend, meta=meta, composition=composition)
 
 
-def _interval_label_expr(interval: str):
+def _interval_label_expr(interval: str, date_col=None):
     """SQL expression that groups transaction dates into interval buckets."""
+    col = date_col if date_col is not None else Transaction.date
     if interval == "daily":
-        return func.to_char(Transaction.date, 'YYYY-MM-DD')
+        return func.to_char(col, 'YYYY-MM-DD')
     elif interval == "weekly":
         return func.concat(
-            func.extract('isoyear', Transaction.date).cast(String),
+            func.extract('isoyear', col).cast(String),
             '-W',
-            func.lpad(func.extract('week', Transaction.date).cast(String), 2, '0'),
+            func.lpad(func.extract('week', col).cast(String), 2, '0'),
         )
     elif interval == "yearly":
-        return func.to_char(Transaction.date, 'YYYY')
+        return func.to_char(col, 'YYYY')
     else:  # monthly (default)
-        return func.to_char(Transaction.date, 'YYYY-MM')
+        return func.to_char(col, 'YYYY-MM')
 
 
 async def get_income_expenses_report(
@@ -352,11 +354,15 @@ async def get_income_expenses_report(
     start = date(today.year, today.month, 1) - timedelta(days=months * 30)
     start = start.replace(day=1)
 
-    # Get user's primary currency
+    # Get user's primary currency + global reporting mode
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    report_date = (
+        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
+    )
 
-    label_expr = _interval_label_expr(interval).label('period')
+    label_expr = _interval_label_expr(interval, report_date).label('period')
 
     # Use amount_primary when available, fall back to amount
     amount_expr = func.coalesce(Transaction.amount_primary, Transaction.amount)
@@ -371,8 +377,8 @@ async def get_income_expenses_report(
         .where(
             Transaction.user_id == user_id,
             Account.is_closed == False,
-            Transaction.date >= start,
-            Transaction.date <= today,
+            report_date >= start,
+            report_date <= today,
             Transaction.source != "opening_balance",
             Transaction.transfer_pair_id.is_(None),
         )
@@ -494,8 +500,8 @@ async def get_income_expenses_report(
         .where(
             Transaction.user_id == user_id,
             Account.is_closed == False,
-            Transaction.date >= start,
-            Transaction.date <= today,
+            report_date >= start,
+            report_date <= today,
             Transaction.source != "opening_balance",
             Transaction.transfer_pair_id.is_(None),
         )
@@ -534,8 +540,8 @@ async def get_income_expenses_report(
         .where(
             Transaction.user_id == user_id,
             Account.is_closed == False,
-            Transaction.date >= start,
-            Transaction.date <= today,
+            report_date >= start,
+            report_date <= today,
             Transaction.source != "opening_balance",
             Transaction.transfer_pair_id.is_(None),
         )

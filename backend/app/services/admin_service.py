@@ -210,3 +210,14 @@ async def is_registration_enabled(session: AsyncSession) -> bool:
         return setting.value.lower() == "true"
     # Fall back to env var
     return get_settings().registration_enabled
+
+
+async def get_credit_card_accounting_mode(session: AsyncSession) -> str:
+    """Return the global CC accounting mode: 'cash' or 'accrual'.
+
+    Global app setting — affects how dashboard/reports/budgets bucket credit
+    card transactions. Defaults to 'cash' (current behavior) when unset."""
+    setting = await get_app_setting(session, "credit_card_accounting_mode")
+    if setting and setting.value in ("cash", "accrual"):
+        return setting.value
+    return "cash"

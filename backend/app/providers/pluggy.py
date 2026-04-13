@@ -17,6 +17,55 @@ from app.providers.base import (
 PLUGGY_API_BASE = "https://api.pluggy.ai"
 
 
+def _parse_day(value) -> Optional[int]:
+    """Extract day-of-month from a Pluggy ISO date string (yyyy-mm-dd or datetime)."""
+    if not value:
+        return None
+    try:
+        return int(str(value)[8:10])
+    except (ValueError, IndexError):
+        return None
+
+
+def _build_account_data(acc: dict, type_mapper) -> AccountData:
+    """Map a Pluggy account payload to AccountData, including creditData when present."""
+    account_type = type_mapper(acc.get("type", ""))
+    credit_data = acc.get("creditData") or {}
+
+    credit_limit: Optional[Decimal] = None
+    statement_close_day: Optional[int] = None
+    payment_due_day: Optional[int] = None
+    minimum_payment: Optional[Decimal] = None
+    card_brand: Optional[str] = None
+    card_level: Optional[str] = None
+
+    if account_type == "credit_card" and credit_data:
+        raw_limit = credit_data.get("creditLimit")
+        if raw_limit is not None:
+            credit_limit = Decimal(str(raw_limit))
+        statement_close_day = _parse_day(credit_data.get("balanceCloseDate"))
+        payment_due_day = _parse_day(credit_data.get("balanceDueDate"))
+        raw_min = credit_data.get("minimumPayment")
+        if raw_min is not None:
+            minimum_payment = Decimal(str(raw_min))
+        card_brand = credit_data.get("brand") or None
+        card_level = credit_data.get("level") or None
+
+    return AccountData(
+        external_id=acc["id"],
+        name=acc["name"],
+        type=account_type,
+        balance=Decimal(str(acc.get("balance", 0))),
+        currency=acc.get("currencyCode", "USD"),
+        credit_limit=credit_limit,
+        statement_close_day=statement_close_day,
+        payment_due_day=payment_due_day,
+        minimum_payment=minimum_payment,
+        card_brand=card_brand,
+        card_level=card_level,
+    )
+
+
 class PluggyProvider(BankProvider):
     """Pluggy (MeuPluggy) open finance provider.
 
@@ -118,15 +167,7 @@ class PluggyProvider(BankProvider):
 
         account_list = []
         for acc in accounts_data.get("results", []):
-            account_list.append(
-                AccountData(
-                    external_id=acc["id"],
-                    name=acc["name"],
-                    type=self._map_account_type(acc.get("type", "")),
-                    balance=Decimal(str(acc.get("balance", 0))),
-                    currency=acc.get("currencyCode", "USD"),
-                )
-            )
+            account_list.append(_build_account_data(acc, self._map_account_type))
 
         return ConnectionData(
             external_id=item_id,
@@ -150,15 +191,7 @@ class PluggyProvider(BankProvider):
 
         accounts = []
         for acc in data.get("results", []):
-            accounts.append(
-                AccountData(
-                    external_id=acc["id"],
-                    name=acc["name"],
-                    type=self._map_account_type(acc.get("type", "")),
-                    balance=Decimal(str(acc.get("balance", 0))),
-                    currency=acc.get("currencyCode", "USD"),
-                )
-            )
+            accounts.append(_build_account_data(acc, self._map_account_type))
         return accounts
 
     async def get_transactions(
@@ -218,6 +251,26 @@ class PluggyProvider(BankProvider):
                         Decimal(str(abs(amt_in_acct))) if amt_in_acct is not None else None
                     )
 
+                    # Installment metadata from creditCardMetadata (parcelamento).
+                    # Pluggy reports installment_number, total, original amount and
+                    # purchase date on each charge for CC connectors that support it.
+                    cc_meta = txn.get("creditCardMetadata") or {}
+                    inst_number = cc_meta.get("installmentNumber")
+                    inst_total = cc_meta.get("totalInstallments")
+                    inst_total_amount = cc_meta.get("totalAmount")
+                    inst_purchase_date_raw = cc_meta.get("purchaseDate")
+                    inst_purchase_date: Optional[date] = None
+                    if inst_purchase_date_raw:
+                        try:
+                            inst_purchase_date = date.fromisoformat(str(inst_purchase_date_raw)[:10])
+                        except ValueError:
+                            inst_purchase_date = None
+                    inst_total_amount_dec = (
+                        Decimal(str(abs(inst_total_amount)))
+                        if inst_total_amount is not None
+                        else None
+                    )
+
                     all_transactions.append(
                         TransactionData(
                             external_id=txn["id"],
@@ -231,6 +284,10 @@ class PluggyProvider(BankProvider):
                             status=status,
                             payee=payee,
                             raw_data=txn,
+                            installment_number=inst_number if isinstance(inst_number, int) else None,
+                            total_installments=inst_total if isinstance(inst_total, int) else None,
+                            installment_total_amount=inst_total_amount_dec,
+                            installment_purchase_date=inst_purchase_date,
                         )
                     )
 

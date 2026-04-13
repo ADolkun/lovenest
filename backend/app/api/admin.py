@@ -18,7 +18,7 @@ from app.services import admin_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-ALLOWED_SETTINGS = {"registration_enabled"}
+ALLOWED_SETTINGS = {"registration_enabled", "credit_card_accounting_mode"}
 
 
 @router.get("/users", response_model=AdminUserList)
@@ -118,6 +118,7 @@ async def update_setting(
         )
     SETTING_VALIDATORS = {
         "registration_enabled": {"true", "false"},
+        "credit_card_accounting_mode": {"cash", "accrual"},
     }
     if key in SETTING_VALIDATORS and data.value not in SETTING_VALIDATORS[key]:
         raise HTTPException(

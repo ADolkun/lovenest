@@ -86,6 +86,15 @@ export interface Account {
   previous_balance: number | null
   balance_primary: number | null
   currency: string
+  credit_limit: number | null
+  available_credit: number | null
+  statement_close_day: number | null
+  payment_due_day: number | null
+  next_close_date: string | null
+  next_due_date: string | null
+  minimum_payment: number | null
+  card_brand: string | null
+  card_level: string | null
   is_closed: boolean
   closed_at: string | null
 }
@@ -123,6 +132,10 @@ export interface Transaction {
   fx_rate_used: number | null
   fx_fallback: boolean
   attachment_count?: number
+  installment_number: number | null
+  total_installments: number | null
+  installment_total_amount: number | null
+  installment_purchase_date: string | null
 }
 
 export interface Payee {

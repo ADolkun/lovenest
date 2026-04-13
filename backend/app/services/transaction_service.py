@@ -12,6 +12,7 @@ from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.payee import Payee
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
+from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
 
@@ -210,6 +211,7 @@ async def create_transaction(
         source="manual",
         notes=data.notes,
     )
+    apply_effective_date(transaction, account)
     session.add(transaction)
     await session.flush()  # get ID without committing
 
@@ -275,6 +277,7 @@ async def create_transfer(
         notes=data.notes,
         transfer_pair_id=transfer_pair_id,
     )
+    apply_effective_date(debit_tx, from_account)
     session.add(debit_tx)
 
     # Credit transaction (to account) — convert if cross-currency
@@ -304,6 +307,7 @@ async def create_transfer(
         notes=data.notes,
         transfer_pair_id=transfer_pair_id,
     )
+    apply_effective_date(credit_tx, to_account)
     session.add(credit_tx)
     await session.flush()
 
@@ -530,6 +534,11 @@ async def update_transaction(
     elif needs_restamp:
         await stamp_primary_amount(session, user_id, transaction)
 
+    # Refresh effective_date when the purchase date or the account changed.
+    if "date" in update_data or "account_id" in update_data:
+        account_for_tx = await session.get(Account, transaction.account_id)
+        apply_effective_date(transaction, account_for_tx)
+
     # Cascade changes to paired transfer transaction
     cascade_fields = {"amount", "date", "description", "notes"}
     if transaction.transfer_pair_id and (cascade_fields & update_data.keys()):
@@ -554,6 +563,9 @@ async def update_transaction(
                 else:
                     paired_tx.amount = update_data[key]
             await stamp_primary_amount(session, user_id, paired_tx)
+            if "date" in update_data:
+                paired_account = await session.get(Account, paired_tx.account_id)
+                apply_effective_date(paired_tx, paired_account)
 
     await session.commit()
     await session.refresh(transaction)

@@ -100,7 +100,7 @@ async def get_account(
     account = await account_service.get_account(session, account_id, user.id)
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+    return account_service.serialize_account(account, None, None)
 
 
 @router.post("", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
@@ -109,7 +109,8 @@ async def create_account(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
-    return await account_service.create_account(session, user.id, data)
+    account = await account_service.create_account(session, user.id, data)
+    return account_service.serialize_account(account, None, None)
 
 
 @router.patch("/{account_id}", response_model=AccountRead)
@@ -125,7 +126,7 @@ async def update_account(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+    return account_service.serialize_account(account, None, None)
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)

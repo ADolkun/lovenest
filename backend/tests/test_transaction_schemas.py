@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.transaction import TransactionCreate, TransactionUpdate
+from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
 
 
 class TestTransactionUpdateDateField:
@@ -68,6 +68,56 @@ class TestTransactionUpdateAllFields:
         data = TransactionUpdate.model_validate({"amount": "99.99", "currency": "EUR"})
         dumped = data.model_dump(exclude_unset=True)
         assert dumped == {"amount": Decimal("99.99"), "currency": "EUR"}
+
+
+class TestTransactionReadInstallmentFields:
+    """Verify the installment metadata fields (issue #14 v1) round-trip
+    through TransactionRead without loss."""
+
+    def _base(self, **overrides):
+        data = {
+            "id": "11111111-1111-1111-1111-111111111111",
+            "user_id": "22222222-2222-2222-2222-222222222222",
+            "description": "AMAZON PARCELADO",
+            "amount": "120.50",
+            "date": "2026-04-10",
+            "type": "debit",
+            "source": "pluggy",
+        }
+        data.update(overrides)
+        return data
+
+    def test_all_installment_fields_round_trip(self):
+        data = TransactionRead.model_validate(self._base(
+            installment_number=3,
+            total_installments=12,
+            installment_total_amount="1446.00",
+            installment_purchase_date="2026-02-10",
+        ))
+        assert data.installment_number == 3
+        assert data.total_installments == 12
+        assert data.installment_total_amount == 1446.00
+        assert data.installment_purchase_date == date(2026, 2, 10)
+
+    def test_installment_fields_default_none(self):
+        data = TransactionRead.model_validate(self._base())
+        assert data.installment_number is None
+        assert data.total_installments is None
+        assert data.installment_total_amount is None
+        assert data.installment_purchase_date is None
+
+    def test_installment_fields_serialize_in_api_response(self):
+        data = TransactionRead.model_validate(self._base(
+            installment_number=1,
+            total_installments=6,
+            installment_total_amount="300.00",
+            installment_purchase_date="2026-03-25",
+        ))
+        dumped = data.model_dump(mode="json")
+        assert dumped["installment_number"] == 1
+        assert dumped["total_installments"] == 6
+        assert dumped["installment_total_amount"] == 300.00
+        assert dumped["installment_purchase_date"] == "2026-03-25"
 
 
 class TestTransactionCreateDateField:

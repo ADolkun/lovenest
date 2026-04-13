@@ -61,6 +61,10 @@ class TransactionRead(TransactionBase):
     fx_rate_used: Optional[float] = None
     fx_fallback: bool = False
     attachment_count: int = 0
+    installment_number: Optional[int] = None
+    total_installments: Optional[int] = None
+    installment_total_amount: Optional[float] = None
+    installment_purchase_date: Optional[_Date] = None
 
     model_config = ConfigDict(from_attributes=True)
 

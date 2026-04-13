@@ -4,10 +4,12 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
+from app.models.transaction import Transaction
 from app.providers.base import AccountData, ConnectionData, ConnectTokenData, TransactionData
 from app.services.connection_service import (
     _description_similarity,
@@ -460,3 +462,110 @@ async def test_sync_connection_skips_pending(session: AsyncSession, test_user):
         result_conn, _ = await sync_connection(session, conn.id, test_user.id)
 
     assert result_conn.status == "active"
+
+
+# ---------------------------------------------------------------------------
+# Installment metadata persistence (issue #14 v1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_oauth_callback_persists_installment_metadata(
+    session: AsyncSession, test_user,
+):
+    """handle_oauth_callback must store all 4 installment fields on the
+    Transaction row exactly as the provider returned them."""
+    mock_provider = AsyncMock()
+    mock_provider.handle_oauth_callback = AsyncMock(return_value=ConnectionData(
+        external_id="ext-inst-1",
+        institution_name="Inst Bank",
+        credentials={"token": "x"},
+        accounts=[
+            AccountData(
+                external_id="inst-acc-1", name="Nubank Gold",
+                type="credit_card", balance=Decimal("0"), currency="BRL",
+                credit_limit=Decimal("5000"),
+            ),
+        ],
+    ))
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="inst-tx-1", description="AMAZON PARCELADO",
+            amount=Decimal("120.50"), date=date(2026, 4, 10),
+            type="debit", currency="BRL",
+            installment_number=3,
+            total_installments=12,
+            installment_total_amount=Decimal("1446.00"),
+            installment_purchase_date=date(2026, 2, 10),
+        ),
+        TransactionData(
+            external_id="inst-tx-2", description="SINGLE CHARGE",
+            amount=Decimal("40.00"), date=date(2026, 4, 11),
+            type="debit", currency="BRL",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await handle_oauth_callback(session, test_user.id, "code", "pluggy")
+
+    rows = (await session.execute(
+        select(Transaction).where(Transaction.user_id == test_user.id)
+        .order_by(Transaction.external_id)
+    )).scalars().all()
+    assert len(rows) == 2
+
+    parcel = next(t for t in rows if t.external_id == "inst-tx-1")
+    assert parcel.installment_number == 3
+    assert parcel.total_installments == 12
+    assert parcel.installment_total_amount == Decimal("1446.00")
+    assert parcel.installment_purchase_date == date(2026, 2, 10)
+
+    single = next(t for t in rows if t.external_id == "inst-tx-2")
+    assert single.installment_number is None
+    assert single.total_installments is None
+    assert single.installment_total_amount is None
+    assert single.installment_purchase_date is None
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_persists_installment_metadata(
+    session: AsyncSession, test_user,
+):
+    """Incremental sync path must also persist installment fields."""
+    conn = await _make_connection(session, test_user.id, "Sync Inst Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="sync-inst-acc-1", name="Credit Card",
+            type="credit_card", balance=Decimal("0"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="sync-inst-tx-1", description="PARCELA MAGALU",
+            amount=Decimal("50.00"), date=date(2026, 4, 1),
+            type="debit", currency="BRL",
+            installment_number=1,
+            total_installments=6,
+            installment_total_amount=Decimal("300.00"),
+            installment_purchase_date=date(2026, 3, 25),
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_user.id)
+
+    row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "sync-inst-tx-1")
+    )).scalar_one()
+    assert row.installment_number == 1
+    assert row.total_installments == 6
+    assert row.installment_total_amount == Decimal("300.00")
+    assert row.installment_purchase_date == date(2026, 3, 25)

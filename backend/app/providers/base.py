@@ -12,6 +12,12 @@ class AccountData:
     type: str  # checking, savings, credit_card
     balance: Decimal
     currency: str
+    credit_limit: Optional[Decimal] = None
+    statement_close_day: Optional[int] = None
+    payment_due_day: Optional[int] = None
+    minimum_payment: Optional[Decimal] = None
+    card_brand: Optional[str] = None
+    card_level: Optional[str] = None
 
 
 @dataclass
@@ -27,6 +33,11 @@ class TransactionData:
     status: str = "posted"  # posted, pending
     payee: Optional[str] = None
     raw_data: Optional[dict] = None
+    # Installment metadata (parcelamento) — populated by CC providers that expose it.
+    installment_number: Optional[int] = None
+    total_installments: Optional[int] = None
+    installment_total_amount: Optional[Decimal] = None
+    installment_purchase_date: Optional[date] = None
 
 
 @dataclass

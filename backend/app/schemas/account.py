@@ -19,6 +19,12 @@ class AccountCreate(BaseModel):
     balance: Decimal = Decimal("0.00")
     balance_date: Optional[date] = None
     currency: str = "USD"
+    credit_limit: Optional[Decimal] = None
+    statement_close_day: Optional[int] = None
+    payment_due_day: Optional[int] = None
+    minimum_payment: Optional[Decimal] = None
+    card_brand: Optional[str] = None
+    card_level: Optional[str] = None
 
 
 class AccountUpdate(BaseModel):
@@ -26,6 +32,12 @@ class AccountUpdate(BaseModel):
     type: Optional[str] = None
     balance: Optional[Decimal] = None
     balance_date: Optional[date] = None
+    credit_limit: Optional[Decimal] = None
+    statement_close_day: Optional[int] = None
+    payment_due_day: Optional[int] = None
+    minimum_payment: Optional[Decimal] = None
+    card_brand: Optional[str] = None
+    card_level: Optional[str] = None
 
 
 class AccountRead(AccountBase):
@@ -36,6 +48,15 @@ class AccountRead(AccountBase):
     current_balance: float = 0.0
     previous_balance: Optional[float] = None
     balance_primary: Optional[float] = None
+    credit_limit: Optional[float] = None
+    available_credit: Optional[float] = None
+    statement_close_day: Optional[int] = None
+    payment_due_day: Optional[int] = None
+    next_close_date: Optional[date] = None
+    next_due_date: Optional[date] = None
+    minimum_payment: Optional[float] = None
+    card_brand: Optional[str] = None
+    card_level: Optional[str] = None
     is_closed: bool = False
     closed_at: Optional[datetime] = None
 

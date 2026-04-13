@@ -12,6 +12,7 @@ from app.models.category_group import CategoryGroup
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetUpdate, BudgetVsActual
+from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import _get_recurring_projections
 from app.services.fx_rate_service import convert
 from app.core.config import get_settings
@@ -240,9 +241,13 @@ async def get_budget_vs_actual(
     # Get budgets for this month (with recurring resolution)
     budget_map = await _build_budget_map(session, user_id, month_start)
 
-    # Get user's primary currency for FX conversion
+    # Get user's primary currency for FX conversion + reporting mode
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    report_date = (
+        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
+    )
 
     # Get actual spending by category for this month (exclude transfer pairs)
     # Use amount_primary for multi-currency support
@@ -254,8 +259,8 @@ async def get_budget_vs_actual(
         .where(
             Transaction.user_id == user_id,
             Transaction.type == "debit",
-            Transaction.date >= month_start,
-            Transaction.date < month_end,
+            report_date >= month_start,
+            report_date < month_end,
             Transaction.category_id.isnot(None),
             Transaction.transfer_pair_id.is_(None),
         )
@@ -286,8 +291,8 @@ async def get_budget_vs_actual(
         .where(
             Transaction.user_id == user_id,
             Transaction.type == "debit",
-            Transaction.date >= prev_month_start,
-            Transaction.date < prev_month_end,
+            report_date >= prev_month_start,
+            report_date < prev_month_end,
             Transaction.category_id.isnot(None),
             Transaction.transfer_pair_id.is_(None),
         )

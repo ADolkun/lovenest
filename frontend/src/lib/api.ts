@@ -199,7 +199,16 @@ export const accounts = {
     const { data } = await api.get(`/accounts/${id}`)
     return data
   },
-  create: async (account: { name: string; type: string; balance?: number; currency?: string }): Promise<Account> => {
+  create: async (account: {
+    name: string
+    type: string
+    balance?: number
+    balance_date?: string
+    currency?: string
+    credit_limit?: number | null
+    statement_close_day?: number | null
+    payment_due_day?: number | null
+  }): Promise<Account> => {
     const { data } = await api.post('/accounts', account)
     return data
   },

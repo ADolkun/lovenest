@@ -1,9 +1,9 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date as _date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, JSON, Numeric, String
+from sqlalchemy import Date, DateTime, ForeignKey, JSON, Numeric, SmallInteger, String, event
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,7 +28,12 @@ class Transaction(Base):
     description: Mapped[str] = mapped_column(String(500))
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2))
     currency: Mapped[str] = mapped_column(String(3), default="USD")
-    date: Mapped[date] = mapped_column(Date)
+    date: Mapped[_date] = mapped_column(Date)
+    # Effective date for cash-flow reporting. For regular accounts this equals
+    # `date`. For credit card transactions it's the due date of the bill that
+    # the transaction belongs to — so accrual-mode aggregations count the
+    # purchase when it hits the user's cash, not when it was made.
+    effective_date: Mapped[_date] = mapped_column(Date, index=True)
     type: Mapped[str] = mapped_column(String(10))  # debit, credit
     source: Mapped[str] = mapped_column(String(20))  # sync, ofx, csv, manual
     status: Mapped[str] = mapped_column(String(10), default="posted")  # posted, pending
@@ -40,6 +45,16 @@ class Transaction(Base):
     transfer_pair_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     amount_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
     fx_rate_used: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=20, scale=10), nullable=True)
+    # Installment (parcelamento) metadata. Populated from provider data when available.
+    # `installment_number` is 1-indexed (e.g. 3 for "3/12"). Storing alongside the
+    # raw tx row so the door stays open to a plan view or manual entry later
+    # without another migration.
+    installment_number: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    total_installments: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    installment_total_amount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(precision=15, scale=2), nullable=True
+    )
+    installment_purchase_date: Mapped[Optional[_date]] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     account: Mapped["Account"] = relationship(back_populates="transactions")
@@ -49,3 +64,19 @@ class Transaction(Base):
     attachments: Mapped[list["TransactionAttachment"]] = relationship(
         back_populates="transaction", cascade="all, delete-orphan"
     )
+
+
+# Safety net: `effective_date` is NOT NULL. For non-CC transactions it always
+# equals `date`, so if a call site (or test) forgets to set it, fall back
+# silently. CC-aware service code still calls `apply_effective_date` explicitly
+# so that cycle-based due dates are stored when the account has the metadata.
+@event.listens_for(Transaction, "before_insert")
+def _default_effective_date(mapper, connection, target):  # type: ignore
+    if target.effective_date is None:
+        target.effective_date = target.date
+
+
+@event.listens_for(Transaction, "before_update")
+def _default_effective_date_on_update(mapper, connection, target):  # type: ignore
+    if target.effective_date is None:
+        target.effective_date = target.date

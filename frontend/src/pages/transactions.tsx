@@ -491,6 +491,16 @@ export default function TransactionsPage() {
                               {t('transactions.recurringBadge')}
                             </span>
                           )}
+                          {tx.installment_number != null && tx.total_installments != null && (
+                            <span
+                              className="inline-flex items-center text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded-full"
+                              title={tx.installment_total_amount != null
+                                ? t('transactions.installmentTooltip', { count: tx.total_installments, total: tx.installment_total_amount })
+                                : undefined}
+                            >
+                              {tx.installment_number}/{tx.total_installments}
+                            </span>
+                          )}
                           {(tx.attachment_count ?? 0) > 0 && (
                             <Paperclip size={12} className="text-muted-foreground shrink-0" />
                           )}

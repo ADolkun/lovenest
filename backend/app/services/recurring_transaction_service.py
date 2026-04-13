@@ -11,6 +11,7 @@ from app.models.bank_connection import BankConnection
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring_transaction import RecurringTransactionCreate, RecurringTransactionUpdate
+from app.services.credit_card_service import apply_effective_date
 from app.services.fx_rate_service import stamp_primary_amount
 
 
@@ -218,6 +219,8 @@ async def generate_pending(
                 type=recurring.type,
                 source="recurring",
             )
+            account = await session.get(Account, recurring.account_id)
+            apply_effective_date(transaction, account)
             session.add(transaction)
             await session.flush()
             await stamp_primary_amount(session, user_id, transaction)
