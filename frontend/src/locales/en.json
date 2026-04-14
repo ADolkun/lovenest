@@ -272,6 +272,8 @@
     "openingBalance": "opening balance",
     "notFound": "Account not found.",
     "balance": "Balance",
+    "balanceCreditCard": "Amount owed",
+    "balanceCreditCardHint": "Enter how much you currently owe on this card as a positive number. Leave at 0 if you have no debt.",
     "balanceDate": "Balance date",
     "lastSync": "Last sync",
     "sync": "Sync",

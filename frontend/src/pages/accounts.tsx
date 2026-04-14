@@ -689,10 +689,15 @@ function AccountDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>{t('accounts.balance')}</Label>
+              <Label>
+                {type === 'credit_card'
+                  ? t('accounts.balanceCreditCard')
+                  : t('accounts.balance')}
+              </Label>
               <Input
                 type="number"
                 step="0.01"
+                min={type === 'credit_card' ? '0' : undefined}
                 value={balance}
                 onChange={(e) => setBalance(e.target.value)}
               />
@@ -706,6 +711,11 @@ function AccountDialog({
               />
             </div>
           </div>
+          {type === 'credit_card' && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              {t('accounts.balanceCreditCardHint')}
+            </p>
+          )}
           {type === 'credit_card' && (
             <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
               <div className="space-y-2">
