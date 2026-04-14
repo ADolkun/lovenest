@@ -126,6 +126,7 @@
     "drillDownTotal": "{{count}} transactions · {{total}}",
     "drillDownEmpty": "No transactions found",
     "drillDownClose": "Close",
+    "accrualNote": "Credit-card transactions are grouped by bill due date (accrual mode).",
     "savingsRate": "Savings Rate",
     "spendingProjection": "At this pace, you'll spend {{amount}} by month end",
     "uncategorizedCta": "{{count}} transactions need categorizing",

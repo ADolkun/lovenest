@@ -1,8 +1,8 @@
 import { useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { transactions as transactionsApi, dashboard } from '@/lib/api'
-import { AlertTriangle, Paperclip, X } from 'lucide-react'
+import { transactions as transactionsApi, dashboard, admin } from '@/lib/api'
+import { AlertTriangle, Info, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
@@ -78,6 +78,13 @@ export function TransactionDrillDown({
     queryFn: () => dashboard.projectedTransactions(monthParam),
     enabled: !!filter && !!monthParam,
   })
+
+  const { data: accountingModeData } = useQuery({
+    queryKey: ['admin', 'accounting-mode'],
+    queryFn: () => admin.accountingMode(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const isAccrual = accountingModeData?.mode === 'accrual'
 
   // Merge real + projected transactions, filtering projected by drill-down criteria
   const displayItems = useMemo((): DisplayItem[] => {
@@ -158,12 +165,18 @@ export function TransactionDrillDown({
     }
   }, [filter, onClose])
 
+  // Sum in user's primary currency. For foreign-currency rows we need
+  // amount_primary; if it's missing we can't convert, so skip the row
+  // instead of adding a raw foreign amount as if it were primary. This
+  // matches how get_summary computes monthly_*_primary on the backend.
   const absTotal = displayItems.reduce((sum, item) => {
-    // Use amount_primary for foreign currency transactions, fall back to amount
-    const effectiveAmount = (item.currency !== userCurrency && item.amountPrimary != null)
-      ? item.amountPrimary
-      : item.amount
-    return sum + Math.abs(effectiveAmount)
+    if (item.currency === userCurrency) {
+      return sum + Math.abs(item.amount)
+    }
+    if (item.amountPrimary != null) {
+      return sum + Math.abs(item.amountPrimary)
+    }
+    return sum
   }, 0)
 
   return (
@@ -194,6 +207,13 @@ export function TransactionDrillDown({
             <X size={16} />
           </button>
         </div>
+
+        {isAccrual && filter?.from && (
+          <div className="flex items-start gap-2 px-5 py-2.5 bg-muted/40 border-b border-border text-[11px] text-muted-foreground shrink-0">
+            <Info size={12} className="mt-0.5 shrink-0" />
+            <span>{t('dashboard.accrualNote')}</span>
+          </div>
+        )}
 
         {/* Transaction list */}
         <div className="flex-1 overflow-auto">

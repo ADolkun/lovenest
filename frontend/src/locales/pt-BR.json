@@ -126,6 +126,7 @@
     "drillDownTotal": "{{count}} transações · {{total}}",
     "drillDownEmpty": "Nenhuma transação encontrada",
     "drillDownClose": "Fechar",
+    "accrualNote": "Transações de cartão de crédito são agrupadas pela data de vencimento da fatura (modo competência).",
     "savingsRate": "Taxa de Economia",
     "spendingProjection": "Nesse ritmo, você gastará {{amount}} até o fim do mês",
     "uncategorizedCta": "{{count}} transações precisam ser categorizadas",

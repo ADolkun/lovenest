@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import UserManager, current_superuser, get_user_manager
+from app.core.auth import UserManager, current_active_user, current_superuser, get_user_manager
 from app.core.database import get_async_session
 from app.models.user import User
 from app.schemas.admin import (
@@ -135,6 +135,15 @@ async def registration_status(
 ):
     enabled = await admin_service.is_registration_enabled(session)
     return {"enabled": enabled}
+
+
+@router.get("/accounting-mode")
+async def accounting_mode(
+    session: AsyncSession = Depends(get_async_session),
+    _user: User = Depends(current_active_user),
+):
+    mode = await admin_service.get_credit_card_accounting_mode(session)
+    return {"mode": mode}
 
 
 async def check_registration_enabled(

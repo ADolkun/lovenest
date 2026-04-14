@@ -61,7 +61,13 @@ async def get_transactions(
     exclude_transfers: bool = False,
     account_ids: Optional[list[uuid.UUID]] = None,
     category_ids: Optional[list[uuid.UUID]] = None,
+    accounting_mode: Optional[str] = None,
 ) -> tuple[list[Transaction], int]:
+    # In "accrual" mode, bucket/order by effective_date so list filters
+    # line up with the cash-flow view used by the dashboard and reports.
+    date_col = (
+        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
+    )
     # Base query: user's own transactions (manual or via account)
     base_query = (
         select(Transaction)
@@ -103,9 +109,9 @@ async def get_transactions(
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
     if from_date:
-        base_query = base_query.where(Transaction.date >= from_date)
+        base_query = base_query.where(date_col >= from_date)
     if to_date:
-        base_query = base_query.where(Transaction.date <= to_date)
+        base_query = base_query.where(date_col <= to_date)
     if search:
         term = f"%{search}%"
         base_query = base_query.where(
@@ -122,7 +128,7 @@ async def get_transactions(
     total = await session.scalar(count_query)
 
     # Apply ordering (and pagination unless skipped)
-    query = base_query.order_by(Transaction.date.desc(), Transaction.created_at.desc())
+    query = base_query.order_by(date_col.desc(), Transaction.created_at.desc())
     if not skip_pagination:
         query = query.offset((page - 1) * limit).limit(limit)
 

@@ -293,6 +293,61 @@ async def test_get_transactions_filter_by_date_range(session: AsyncSession, test
 
 
 @pytest.mark.asyncio
+async def test_get_transactions_date_filter_respects_accounting_mode(
+    session: AsyncSession, test_user, txn_account
+):
+    # CC purchase on Mar 25 that bills on Apr 15 (effective_date shifted).
+    cc_purchase = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=txn_account.id,
+        description="CC purchase",
+        amount=Decimal("50"),
+        date=date(2025, 3, 25),
+        effective_date=date(2025, 4, 15),
+        type="debit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    # Regular tx that sits on its own date in both modes.
+    regular = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        account_id=txn_account.id,
+        description="Regular",
+        amount=Decimal("20"),
+        date=date(2025, 4, 5),
+        effective_date=date(2025, 4, 5),
+        type="debit",
+        source="manual",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add_all([cc_purchase, regular])
+    await session.commit()
+
+    april_window = dict(from_date=date(2025, 4, 1), to_date=date(2025, 4, 30))
+    march_window = dict(from_date=date(2025, 3, 1), to_date=date(2025, 3, 31))
+
+    # Cash mode (default): the CC purchase lives in March, regular in April.
+    cash_april, _ = await get_transactions(session, test_user.id, **april_window)
+    assert {t.description for t in cash_april} == {"Regular"}
+
+    cash_march, _ = await get_transactions(session, test_user.id, **march_window)
+    assert {t.description for t in cash_march} == {"CC purchase"}
+
+    # Accrual mode: both buckets shift to the bill-due month.
+    accrual_april, _ = await get_transactions(
+        session, test_user.id, accounting_mode="accrual", **april_window
+    )
+    assert {t.description for t in accrual_april} == {"CC purchase", "Regular"}
+
+    accrual_march, _ = await get_transactions(
+        session, test_user.id, accounting_mode="accrual", **march_window
+    )
+    assert {t.description for t in accrual_march} == set()
+
+
+@pytest.mark.asyncio
 async def test_get_transactions_filter_by_search(session: AsyncSession, test_user, txn_account):
     txn = Transaction(
         id=uuid.uuid4(),

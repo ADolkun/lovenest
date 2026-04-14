@@ -14,6 +14,7 @@ from app.core.database import get_async_session
 from app.models.user import User
 from app.schemas.transaction import BulkCategorizeRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
+from app.services.admin_service import get_credit_card_accounting_mode
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -63,6 +64,7 @@ async def list_transactions(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
+    accounting_mode = await get_credit_card_accounting_mode(session)
     transactions, total = await transaction_service.get_transactions(
         session, user.id,
         account_ids=_merge_id_filters(account_id, account_ids),
@@ -70,6 +72,7 @@ async def list_transactions(
         payee_id=payee_id, from_date=from_date, to_date=to_date, page=page, limit=limit,
         include_opening_balance=include_opening_balance, search=q, uncategorized=uncategorized,
         txn_type=type, exclude_transfers=exclude_transfers,
+        accounting_mode=accounting_mode,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
@@ -91,12 +94,14 @@ async def export_transactions(
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
+    accounting_mode = await get_credit_card_accounting_mode(session)
     transactions, _ = await transaction_service.get_transactions(
         session, user.id,
         account_ids=_merge_id_filters(account_id, account_ids),
         category_ids=_merge_id_filters(category_id, category_ids),
         payee_id=payee_id, from_date=from_date, to_date=to_date,
         search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
+        accounting_mode=accounting_mode,
     )
 
     output = io.StringIO()

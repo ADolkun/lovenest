@@ -683,6 +683,10 @@ export const admin = {
     const { data } = await api.get('/admin/registration-status')
     return data
   },
+  accountingMode: async (): Promise<{ mode: 'cash' | 'accrual' }> => {
+    const { data } = await api.get('/admin/accounting-mode')
+    return data
+  },
 }
 
 // Global search (powers the command palette)

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { transactions, categories as categoriesApi, accounts as accountsApi, recurring, payees as payeesApi } from '@/lib/api'
+import { transactions, categories as categoriesApi, accounts as accountsApi, recurring, payees as payeesApi, admin } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Paperclip, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Info, Paperclip, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -152,6 +152,13 @@ export default function TransactionsPage() {
     queryKey: ['recurring'],
     queryFn: recurring.list,
   })
+
+  const { data: accountingModeData } = useQuery({
+    queryKey: ['admin', 'accounting-mode'],
+    queryFn: () => admin.accountingMode(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const isAccrual = accountingModeData?.mode === 'accrual'
 
   const createMutation = useMutation({
     mutationFn: async (payload: { tx: Partial<Transaction>; recurringData?: { frequency: string; end_date?: string }; pendingFiles?: File[] }) => {
@@ -426,6 +433,12 @@ export default function TransactionsPage() {
           >
             <X size={12} />
           </button>
+        </div>
+      )}
+      {isAccrual && (filterFrom || filterTo) && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+          <Info size={12} className="mt-0.5 shrink-0" />
+          <span>{t('dashboard.accrualNote')}</span>
         </div>
       )}
 
