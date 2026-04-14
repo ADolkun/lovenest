@@ -5,6 +5,7 @@ import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/rea
 import { format, addMonths, parseISO } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
 import { accounts, transactions, categories as categoriesApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import type { Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -339,9 +340,7 @@ export default function AccountDetailPage() {
     mutationFn: ({ id: txId, ...data }: Partial<Transaction> & { id: string }) =>
       transactions.update(txId, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('accounts.updated'))
@@ -354,9 +353,7 @@ export default function AccountDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: (txId: string) => transactions.delete(txId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('transactions.deleted'))
@@ -369,10 +366,7 @@ export default function AccountDetailPage() {
   const unlinkTransferMutation = useMutation({
     mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('transactions.unlinkTransferSuccess'))
@@ -385,8 +379,7 @@ export default function AccountDetailPage() {
   const reopenMutation = useMutation({
     mutationFn: () => accounts.reopen(id!),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id] })
+      invalidateFinancialQueries(queryClient)
       toast.success(t('accounts.accountReopened'))
     },
     onError: () => toast.error(t('common.error')),
@@ -397,8 +390,7 @@ export default function AccountDetailPage() {
     mutationFn: (data: { credit_limit?: number | null; statement_close_day?: number | null; payment_due_day?: number | null }) =>
       accounts.update(id!, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id] })
+      invalidateFinancialQueries(queryClient)
       setCcSettingsOpen(false)
       toast.success(t('accounts.updated'))
     },
@@ -416,11 +408,7 @@ export default function AccountDetailPage() {
       fx_rate?: number
     }) => transactions.createTransfer(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'summary'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts', id, 'balance-history'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setTransferDialogOpen(false)
       toast.success(t('transactions.transferCreated'))
     },

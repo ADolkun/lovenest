@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { PluggyConnect } from 'react-pluggy-connect'
 import { connections } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 
 interface BankConnectDialogProps {
@@ -56,9 +57,8 @@ export function BankConnectDialog({
       } else {
         await connections.handleCallback(data.item.id, provider)
       }
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
       toast.success(t('accounts.connected'))
     } catch {
       toast.error(t('accounts.connectError'))

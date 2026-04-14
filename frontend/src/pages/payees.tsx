@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { payees as payeesApi, transactions as transactionsApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -95,8 +96,8 @@ export default function PayeesPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => payeesApi.delete(id),
     onSuccess: () => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['payees'] })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
       setDialogOpen(false)
       setEditingPayee(null)
       toast.success(t('payees.deleted'))
@@ -116,8 +117,8 @@ export default function PayeesPage() {
     mutationFn: ({ targetId, sourceIds }: { targetId: string; sourceIds: string[] }) =>
       payeesApi.merge(targetId, sourceIds),
     onSuccess: (result) => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['payees'] })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
       setMergeDialogOpen(false)
       setSelectedIds(new Set())
       setMergeTargetId('')

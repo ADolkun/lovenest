@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
 import { dashboard, transactions, budgets, categories as categoriesApi, accounts as accountsApi, goals as goalsApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -153,10 +154,7 @@ export default function DashboardPage() {
     mutationFn: ({ id, ...data }: Partial<Transaction> & { id: string }) =>
       transactions.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['budgets'] })
-      queryClient.invalidateQueries({ queryKey: ['drill-down'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
     },
@@ -165,10 +163,7 @@ export default function DashboardPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => transactions.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['budgets'] })
-      queryClient.invalidateQueries({ queryKey: ['drill-down'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
     },
@@ -177,10 +172,7 @@ export default function DashboardPage() {
   const unlinkTransferMutation = useMutation({
     mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
-      queryClient.invalidateQueries({ queryKey: ['budgets'] })
-      queryClient.invalidateQueries({ queryKey: ['drill-down'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingTx(null)
     },

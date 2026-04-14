@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { transactions, categories as categoriesApi, accounts as accountsApi, recurring, payees as payeesApi, admin } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -160,6 +161,8 @@ export default function TransactionsPage() {
   })
   const isAccrual = accountingModeData?.mode === 'accrual'
 
+  const invalidateAfterTxMutation = () => invalidateFinancialQueries(queryClient)
+
   const createMutation = useMutation({
     mutationFn: async (payload: { tx: Partial<Transaction>; recurringData?: { frequency: string; end_date?: string }; pendingFiles?: File[] }) => {
       const created = await transactions.create(payload.tx)
@@ -185,7 +188,7 @@ export default function TransactionsPage() {
       return created
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      invalidateAfterTxMutation()
       queryClient.invalidateQueries({ queryKey: ['recurring'] })
       setDialogOpen(false)
       toast.success(t('transactions.created'))
@@ -199,7 +202,7 @@ export default function TransactionsPage() {
     mutationFn: ({ id, ...data }: Partial<Transaction> & { id: string }) =>
       transactions.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      invalidateAfterTxMutation()
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('transactions.updated'))
@@ -212,8 +215,7 @@ export default function TransactionsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => transactions.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateAfterTxMutation()
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('transactions.deleted'))
@@ -227,8 +229,7 @@ export default function TransactionsPage() {
     mutationFn: ({ ids, categoryId }: { ids: string[]; categoryId: string | null }) =>
       transactions.bulkCategorize(ids, categoryId),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateAfterTxMutation()
       setSelectedIds(new Set())
       setBulkCategory('')
       toast.success(t('transactions.bulkSuccess', { count: result.updated }))
@@ -241,8 +242,7 @@ export default function TransactionsPage() {
   const linkTransferMutation = useMutation({
     mutationFn: (ids: [string, string]) => transactions.linkTransfer(ids),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateAfterTxMutation()
       queryClient.invalidateQueries({ queryKey: ['transfer-candidates'] })
       setLinkTransferDialogOpen(false)
       setSelectedIds(new Set())
@@ -256,8 +256,7 @@ export default function TransactionsPage() {
   const unlinkTransferMutation = useMutation({
     mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateAfterTxMutation()
       setDialogOpen(false)
       setEditingTx(null)
       toast.success(t('transactions.unlinkTransferSuccess'))
@@ -278,9 +277,7 @@ export default function TransactionsPage() {
       fx_rate?: number
     }) => transactions.createTransfer(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateAfterTxMutation()
       setTransferDialogOpen(false)
       toast.success(t('transactions.transferCreated'))
     },

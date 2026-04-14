@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accounts, connections, currencies } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,9 +100,8 @@ export default function AccountsPage() {
   const syncMutation = useMutation({
     mutationFn: (id: string) => connections.sync(id),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
       toast.success(t('accounts.syncDone'))
       const merged = (result as BankConnection & { merged_count?: number })?.merged_count
       if (merged && merged > 0) {
@@ -114,7 +114,7 @@ export default function AccountsPage() {
   const disconnectMutation = useMutation({
     mutationFn: (id: string) => connections.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
       toast.success(t('accounts.disconnected'))
     },
@@ -124,8 +124,7 @@ export default function AccountsPage() {
     mutationFn: (data: { name: string; type: string; balance?: number; currency?: string }) =>
       accounts.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       toast.success(t('accounts.created'))
     },
@@ -136,8 +135,7 @@ export default function AccountsPage() {
     mutationFn: ({ id, ...data }: Partial<Account> & { id: string }) =>
       accounts.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setDialogOpen(false)
       setEditingAccount(null)
       toast.success(t('accounts.updated'))
@@ -148,8 +146,7 @@ export default function AccountsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => accounts.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setDeletingId(null)
       toast.success(t('accounts.deleted'))
     },
@@ -159,8 +156,7 @@ export default function AccountsPage() {
   const closeMutation = useMutation({
     mutationFn: (id: string) => accounts.close(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       setClosingAccountId(null)
       toast.success(t('accounts.accountClosed'))
     },
@@ -170,8 +166,7 @@ export default function AccountsPage() {
   const reopenMutation = useMutation({
     mutationFn: (id: string) => accounts.reopen(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
       toast.success(t('accounts.accountReopened'))
     },
     onError: () => toast.error(t('common.error')),

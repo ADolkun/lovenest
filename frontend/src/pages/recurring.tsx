@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, recurring as recurringApi, accounts as accountsApi, currencies as currenciesApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -83,6 +84,7 @@ function RecurringTab() {
   const createMutation = useMutation({
     mutationFn: (data: Partial<RecurringTransaction>) => recurringApi.create(data),
     onSuccess: () => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['recurring'] })
       setDialogOpen(false)
       toast.success(t('recurring.created'))
@@ -94,6 +96,7 @@ function RecurringTab() {
     mutationFn: ({ id, ...data }: Partial<RecurringTransaction> & { id: string }) =>
       recurringApi.update(id, data),
     onSuccess: () => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['recurring'] })
       setDialogOpen(false)
       setEditing(null)
@@ -105,6 +108,7 @@ function RecurringTab() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => recurringApi.delete(id),
     onSuccess: () => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['recurring'] })
       toast.success(t('recurring.deleted'))
     },
@@ -113,8 +117,8 @@ function RecurringTab() {
   const generateMutation = useMutation({
     mutationFn: () => recurringApi.generate(),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['recurring'] })
       toast.success(t('recurring.generated', { count: data.generated }))
     },
     onError: () => toast.error(t('common.error')),

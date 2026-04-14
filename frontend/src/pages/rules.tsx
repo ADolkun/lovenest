@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, rules as rulesApi, accounts as accountsApi, payees as payeesApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -172,7 +173,7 @@ export default function RulesPage() {
   const applyAllMutation = useMutation({
     mutationFn: () => rulesApi.applyAll(),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      invalidateFinancialQueries(queryClient)
       toast.success(t('rules.applied', { count: data.applied }))
     },
     onError: () => toast.error(t('common.error')),
