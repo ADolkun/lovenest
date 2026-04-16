@@ -13,6 +13,7 @@ from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
+from app.services.account_service import sync_opening_balance_for_connected_account
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
@@ -214,6 +215,12 @@ async def handle_oauth_callback(
                 transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
             else:
                 await stamp_primary_amount(session, user_id, transaction)
+
+        # After importing the initial batch, reconcile the opening balance so
+        # that SUM(all transactions) matches the provider-reported balance. Any
+        # history that falls outside the provider's lookback window gets
+        # absorbed into this synthetic transaction.
+        await sync_opening_balance_for_connected_account(session, account)
 
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, user_id, candidate_ids=new_tx_ids)
@@ -498,6 +505,10 @@ async def sync_connection(
                     transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
                 else:
                     await stamp_primary_amount(session, user_id, transaction)
+
+            # Reconcile the opening balance after any new transactions land so
+            # SUM(all txs) keeps matching account.balance from the provider.
+            await sync_opening_balance_for_connected_account(session, account)
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:

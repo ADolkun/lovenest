@@ -290,6 +290,101 @@ async def _recompute_effective_dates(session: AsyncSession, account: Account) ->
         apply_effective_date(tx, account)
 
 
+async def sync_opening_balance_for_connected_account(
+    session: AsyncSession, account: Account
+) -> None:
+    """Reconcile the opening_balance transaction so SUM(all txs) = account.balance.
+
+    Providers (Pluggy etc.) typically only return ~1 year of history, so the sum
+    of imported transactions rarely equals the account's true current balance.
+    This helper computes the missing opening balance and upserts a synthetic
+    `source='opening_balance'` transaction that closes the gap. After this runs,
+    balance_history and running-balance walks line up with the card balance.
+
+    Call after adding new transactions in a sync (initial or incremental).
+    Does not commit; the caller is responsible for the transaction boundary.
+    """
+    if account.connection_id is None:
+        return
+
+    # For connected CC accounts the stored balance is positive debt and the UI
+    # displays it negated (account_service.serialize_account). The sum of signed
+    # transaction amounts on a CC trends negative as debt accrues, so the target
+    # we want SUM(signed txs) to hit is -balance. For every other account type
+    # the target is simply the stored balance.
+    is_cc = account.type == "credit_card"
+    target = -account.balance if is_cc else account.balance
+
+    effective_amount = case(
+        (Transaction.currency == account.currency, Transaction.amount),
+        else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
+    )
+    signed_amount = case(
+        (Transaction.type == "credit", effective_amount),
+        else_=-effective_amount,
+    )
+
+    sum_result = await session.execute(
+        select(func.coalesce(func.sum(signed_amount), 0)).where(
+            Transaction.account_id == account.id,
+            Transaction.source != "opening_balance",
+        )
+    )
+    tx_sum = Decimal(str(sum_result.scalar() or 0))
+
+    offset = Decimal(str(target)) - tx_sum
+
+    existing = await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account.id,
+            Transaction.source == "opening_balance",
+        )
+    )
+    existing_tx = existing.scalar_one_or_none()
+
+    # Offsets below one cent are rounding noise; drop any stale opening tx.
+    if abs(offset) < Decimal("0.01"):
+        if existing_tx:
+            await session.delete(existing_tx)
+        return
+
+    oldest_result = await session.execute(
+        select(func.min(Transaction.date)).where(
+            Transaction.account_id == account.id,
+            Transaction.source != "opening_balance",
+        )
+    )
+    oldest_date = oldest_result.scalar()
+    opening_date = (oldest_date - timedelta(days=1)) if oldest_date else _Date.today()
+
+    # Sign convention matches the rest of the codebase: credit = +, debit = -
+    # regardless of account type. A positive offset needs a credit to raise the
+    # running sum to target; a negative offset needs a debit.
+    opening_type = "credit" if offset > 0 else "debit"
+    amount = abs(offset).quantize(Decimal("0.01"))
+
+    if existing_tx:
+        existing_tx.amount = amount
+        existing_tx.type = opening_type
+        existing_tx.date = opening_date
+        existing_tx.currency = account.currency
+        apply_effective_date(existing_tx, account)
+    else:
+        opening_tx = Transaction(
+            user_id=account.user_id,
+            account_id=account.id,
+            description="Saldo inicial",
+            amount=amount,
+            currency=account.currency,
+            date=opening_date,
+            type=opening_type,
+            source="opening_balance",
+        )
+        apply_effective_date(opening_tx, account)
+        session.add(opening_tx)
+    await session.flush()
+
+
 async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> bool:
     account = await get_account(session, account_id, user_id)
     if not account:

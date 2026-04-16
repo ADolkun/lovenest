@@ -512,7 +512,10 @@ async def test_oauth_callback_persists_installment_metadata(
         await handle_oauth_callback(session, test_user.id, "code", "pluggy")
 
     rows = (await session.execute(
-        select(Transaction).where(Transaction.user_id == test_user.id)
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
         .order_by(Transaction.external_id)
     )).scalars().all()
     assert len(rows) == 2
