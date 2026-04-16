@@ -569,6 +569,20 @@ export default function AccountDetailPage() {
                   </>
                 )
               })()}
+              {isCreditCard && (!account.statement_close_day || !account.payment_due_day) && (
+                <>
+                  <span className="text-muted-foreground text-xs">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setCcSettingsOpen(true)}
+                    title={t('accounts.cycleMissingHint')}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors cursor-pointer"
+                  >
+                    <HelpCircle className="h-3 w-3" />
+                    {t('accounts.cycleMissing')}
+                  </button>
+                </>
+              )}
             </div>
           </div>
           {!account.is_closed && (
@@ -1242,6 +1256,11 @@ function CreditCardSettingsDialog({
           }}
           className="space-y-4"
         >
+          {(!account.statement_close_day || !account.payment_due_day) && (
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t('accounts.ccSettingsHint')}
+            </p>
+          )}
           <div className="space-y-2">
             <Label>{t('accounts.creditLimit')}</Label>
             <Input

@@ -375,12 +375,15 @@ async def sync_connection(
                 account.balance = acc_data.balance
                 account.name = acc_data.name
                 if acc_data.type == "credit_card":
-                    account.credit_limit = acc_data.credit_limit
-                    # Preserve existing close/due days when the provider doesn't expose
-                    # them. Pluggy's balanceCloseDate is intermittently null even on
-                    # connectors that have it elsewhere, and users may have set these
-                    # manually via the edit dialog. Treat user input + previously-synced
-                    # values as the higher source of truth than a fresh None.
+                    # Preserve existing CC metadata when the provider doesn't
+                    # expose it. Pluggy's creditData fields (limit, close/due
+                    # dates, minimum payment, brand/level) are intermittently
+                    # null even on connectors that have them elsewhere, and
+                    # users may have filled them in manually via the edit
+                    # dialog. Treat user input + previously-synced values as
+                    # the higher source of truth than a fresh None.
+                    if acc_data.credit_limit is not None:
+                        account.credit_limit = acc_data.credit_limit
                     if acc_data.statement_close_day is not None:
                         account.statement_close_day = acc_data.statement_close_day
                     if acc_data.payment_due_day is not None:
