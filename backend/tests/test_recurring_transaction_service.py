@@ -227,6 +227,38 @@ def test_advance_date_yearly():
     assert _advance_date(date(2024, 2, 29), "yearly") == date(2025, 2, 28)
 
 
+def test_advance_date_monthly_intended_day_recovers_after_february():
+    # After Jan 31 clamps to Feb 28, advancing again must hit Mar 31 — not drift to Mar 28.
+    feb = _advance_date(date(2026, 1, 31), "monthly", intended_day=31)
+    assert feb == date(2026, 2, 28)
+    mar = _advance_date(feb, "monthly", intended_day=31)
+    assert mar == date(2026, 3, 31)
+    apr = _advance_date(mar, "monthly", intended_day=31)
+    assert apr == date(2026, 4, 30)  # April has 30 days
+    may = _advance_date(apr, "monthly", intended_day=31)
+    assert may == date(2026, 5, 31)
+
+
+def test_advance_date_monthly_intended_day_30():
+    # Day 30 pattern: Jan 30 -> Feb 28 -> Mar 30 (not Mar 28).
+    feb = _advance_date(date(2026, 1, 30), "monthly", intended_day=30)
+    assert feb == date(2026, 2, 28)
+    mar = _advance_date(feb, "monthly", intended_day=30)
+    assert mar == date(2026, 3, 30)
+
+
+def test_advance_date_yearly_intended_day_leap_recovery():
+    # Feb 29 on a leap year should recover to Feb 29 four years later, not stick at 28.
+    y1 = _advance_date(date(2024, 2, 29), "yearly", intended_day=29)
+    assert y1 == date(2025, 2, 28)
+    y2 = _advance_date(y1, "yearly", intended_day=29)
+    assert y2 == date(2026, 2, 28)
+    y3 = _advance_date(y2, "yearly", intended_day=29)
+    assert y3 == date(2027, 2, 28)
+    y4 = _advance_date(y3, "yearly", intended_day=29)
+    assert y4 == date(2028, 2, 29)
+
+
 # ---------------------------------------------------------------------------
 # get_occurrences_in_range
 # ---------------------------------------------------------------------------
@@ -274,6 +306,65 @@ def test_get_occurrences_in_range_empty():
         range_end=date(2025, 3, 1),
     )
     assert occurrences == []
+
+
+def test_get_occurrences_in_range_monthly_day_31_does_not_drift():
+    # Regression test for #67: after Feb clamps to 28, subsequent months must
+    # recover to their true month-end (31 / 30 / 31 / 30) instead of sticking at 28.
+    occurrences = get_occurrences_in_range(
+        start=date(2026, 1, 31),
+        frequency="monthly",
+        end_date=None,
+        range_start=date(2026, 1, 1),
+        range_end=date(2026, 7, 1),
+        intended_day=31,
+    )
+    assert occurrences == [
+        date(2026, 1, 31),
+        date(2026, 2, 28),
+        date(2026, 3, 31),
+        date(2026, 4, 30),
+        date(2026, 5, 31),
+        date(2026, 6, 30),
+    ]
+
+
+def test_get_occurrences_in_range_monthly_day_30_does_not_drift():
+    occurrences = get_occurrences_in_range(
+        start=date(2026, 1, 30),
+        frequency="monthly",
+        end_date=None,
+        range_start=date(2026, 1, 1),
+        range_end=date(2026, 7, 1),
+        intended_day=30,
+    )
+    assert occurrences == [
+        date(2026, 1, 30),
+        date(2026, 2, 28),
+        date(2026, 3, 30),
+        date(2026, 4, 30),
+        date(2026, 5, 30),
+        date(2026, 6, 30),
+    ]
+
+
+def test_get_occurrences_in_range_monthly_day_29_does_not_drift():
+    occurrences = get_occurrences_in_range(
+        start=date(2026, 1, 29),
+        frequency="monthly",
+        end_date=None,
+        range_start=date(2026, 1, 1),
+        range_end=date(2026, 7, 1),
+        intended_day=29,
+    )
+    assert occurrences == [
+        date(2026, 1, 29),
+        date(2026, 2, 28),
+        date(2026, 3, 29),
+        date(2026, 4, 29),
+        date(2026, 5, 29),
+        date(2026, 6, 29),
+    ]
 
 
 # ---------------------------------------------------------------------------
