@@ -49,9 +49,11 @@ class TestComputeEffectiveDate:
         # Gold card: close 11, due 16. Purchase Apr 3 → bill closes Apr 11 → due Apr 16.
         assert compute_effective_date(date(2026, 4, 3), 11, 16) == date(2026, 4, 16)
 
-    def test_purchase_on_close_day_is_still_that_cycle(self):
-        # Purchase ON the close day belongs to the cycle that closes that day.
-        assert compute_effective_date(date(2026, 4, 11), 11, 16) == date(2026, 4, 16)
+    def test_purchase_on_close_day_rolls_to_next_cycle(self):
+        # Brazilian convention (Nubank, Itaú, etc.): a purchase ON the close
+        # day belongs to the NEXT invoice. Apr 11 close → next cycle closes
+        # May 11 → due May 16.
+        assert compute_effective_date(date(2026, 4, 11), 11, 16) == date(2026, 5, 16)
 
     def test_purchase_day_after_close_rolls_to_next_cycle(self):
         # Apr 12 is after Apr 11 close → next cycle closes May 11 → due May 16.

@@ -99,7 +99,9 @@ def compute_effective_date(
     helper computes that "effective" date:
 
       1. Find the cycle the transaction belongs to: the next statement close
-         date on or after tx_date.
+         date *strictly after* tx_date. Per Brazilian banking convention
+         (Nubank, Itaú, etc.), a transaction ON the close day belongs to the
+         next invoice, not the one closing that day.
       2. The bill for that cycle is due on the next occurrence of payment_due_day
          strictly after the close.
       3. Return that bill's due date.
@@ -109,9 +111,9 @@ def compute_effective_date(
     if not statement_close_day or not payment_due_day:
         return tx_date
 
-    # Step 1: find the cycle end — the first close day on or after tx_date.
+    # Step 1: find the cycle end — the first close day strictly after tx_date.
     same_month_close = _clamp_day(tx_date.year, tx_date.month, statement_close_day)
-    if same_month_close >= tx_date:
+    if same_month_close > tx_date:
         cycle_end = same_month_close
     else:
         if tx_date.month == 12:

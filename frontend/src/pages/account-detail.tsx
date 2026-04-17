@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format, addMonths, parseISO } from 'date-fns'
+import { format, addDays, addMonths, parseISO } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
 import { accounts, transactions, categories as categoriesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -75,21 +75,24 @@ function defaultCycleForCreditCard(
     const nm = m === 11 ? 0 : m + 1
     billDate = new Date(ny, nm, clampDue(ny, nm))
   }
-  // Step 2: find the cycle whose bill is `billDate` — its end is the most
-  // recent close on or before billDate.
+  // Step 2: find the cycle whose bill is `billDate` — its close date is the
+  // most recent closeDay on or before billDate. The cycle's inclusive last
+  // day is one day before that close (per Brazilian convention).
   const by = billDate.getFullYear()
   const bm = billDate.getMonth()
   const clampClose = (yy: number, mm: number) => Math.min(closeDay, daysInMonth(yy, mm))
   const sameMonthClose = new Date(by, bm, clampClose(by, bm))
-  let cycleEnd: Date
+  let cycleClose: Date
   if (sameMonthClose.getTime() <= billDate.getTime()) {
-    cycleEnd = sameMonthClose
+    cycleClose = sameMonthClose
   } else {
     const py = bm === 0 ? by - 1 : by
     const pm = bm === 0 ? 11 : bm - 1
-    cycleEnd = new Date(py, pm, clampClose(py, pm))
+    cycleClose = new Date(py, pm, clampClose(py, pm))
   }
-  return creditCardCycleBoundaries(closeDay, cycleEnd)
+  const refInsideCycle = new Date(cycleClose)
+  refInsideCycle.setDate(refInsideCycle.getDate() - 1)
+  return creditCardCycleBoundaries(closeDay, refInsideCycle)
 }
 
 /** Compute the bill due date for a credit card cycle whose end is `cycleEnd`.
@@ -142,7 +145,8 @@ function creditCardCycleLabel(
 }
 
 /** Return the [start, end] dates of the billing cycle that CONTAINS `reference`.
- * start = day after the previous cycle's close; end = next close on or after reference.
+ * Brazilian convention: a transaction ON the close day belongs to the NEXT
+ * cycle, so the cycle boundaries are [previous close day, next close day − 1].
  * Falls back to "previous month → today" when no closeDay is configured. */
 function creditCardCycleBoundaries(
   closeDay: number | null | undefined,
@@ -161,22 +165,23 @@ function creditCardCycleBoundaries(
   const y = ref0.getFullYear()
   const m = ref0.getMonth()
   const clamp = (yy: number, mm: number) => Math.min(closeDay, daysInMonth(yy, mm))
-  // End of cycle = next close >= reference.
+  // The cycle containing `reference` ends the day before the next close date
+  // strictly after `reference`.
   const thisMonthClose = new Date(y, m, clamp(y, m))
-  let end: Date
-  if (thisMonthClose.getTime() >= ref0.getTime()) {
-    end = thisMonthClose
+  let nextClose: Date
+  if (thisMonthClose.getTime() > ref0.getTime()) {
+    nextClose = thisMonthClose
   } else {
     const nextY = m === 11 ? y + 1 : y
     const nextM = m === 11 ? 0 : m + 1
-    end = new Date(nextY, nextM, clamp(nextY, nextM))
+    nextClose = new Date(nextY, nextM, clamp(nextY, nextM))
   }
-  // Start = previous close + 1 day.
-  const prevY = end.getMonth() === 0 ? end.getFullYear() - 1 : end.getFullYear()
-  const prevM = end.getMonth() === 0 ? 11 : end.getMonth() - 1
-  const prevClose = new Date(prevY, prevM, clamp(prevY, prevM))
-  const start = new Date(prevClose)
-  start.setDate(start.getDate() + 1)
+  const end = new Date(nextClose)
+  end.setDate(end.getDate() - 1)
+  // Start = the previous close day (the close day itself opens a new cycle).
+  const prevY = nextClose.getMonth() === 0 ? nextClose.getFullYear() - 1 : nextClose.getFullYear()
+  const prevM = nextClose.getMonth() === 0 ? 11 : nextClose.getMonth() - 1
+  const start = new Date(prevY, prevM, clamp(prevY, prevM))
   return {
     start: format(start, 'yyyy-MM-dd'),
     end: format(end, 'yyyy-MM-dd'),
@@ -960,7 +965,9 @@ export default function AccountDetailPage() {
                   {t('accounts.statementCloseDay')}
                 </p>
                 <p className="text-sm sm:text-base font-semibold tabular-nums text-foreground">
-                  {account.statement_close_day && filterTo ? formatDateStr(filterTo, locale) : '—'}
+                  {account.statement_close_day && filterTo
+                    ? formatDateStr(format(addDays(parseISO(filterTo), 1), 'yyyy-MM-dd'), locale)
+                    : '—'}
                 </p>
               </div>
             </div>
