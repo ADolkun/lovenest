@@ -349,7 +349,7 @@ export default function DashboardPage() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
                 >
                   <CalendarIcon className="size-3.5 text-muted-foreground" />
                   {new Date(selectedMonth + '-02').toLocaleDateString(locale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
