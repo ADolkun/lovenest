@@ -733,7 +733,9 @@
     "success": "Success",
     "searchIcon": "Search icon...",
     "noIconsFound": "No icons found",
-    "primaryCurrency": "Primary Currency"
+    "primaryCurrency": "Primary Currency",
+    "showLess":"Show less",
+    "showMore": "+{{count}} more"
   },
   "privacy": {
     "hide": "Hide values",
