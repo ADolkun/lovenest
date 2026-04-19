@@ -407,7 +407,7 @@ function TransactionForm({
           ? {
               category_id: categoryId || null,
               payee_id: payeeId || null,
-              notes: notes.trim() || undefined,
+              notes: notes.trim() || null,
             } as Partial<Transaction>
           : {
               description,
@@ -418,7 +418,7 @@ function TransactionForm({
               category_id: categoryId || null,
               payee_id: payeeId || null,
               account_id: accountId || undefined,
-              notes: notes.trim() || undefined,
+              notes: notes.trim() || null,
               ...fxFields,
             } as Partial<Transaction>
         const recurringData = isCreating && isRecurring
