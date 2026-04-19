@@ -286,6 +286,8 @@
     "noBankConnections": "Nenhuma conexão bancária",
     "noAccountsFound": "Nenhuma conta encontrada",
     "accountName": "Nome da conta",
+    "displayName": "Nome de exibição",
+    "displayNameHint": "Substitui o nome padrão do provedor em todo o sistema.",
     "accountType": "Tipo",
     "currency": "Moeda",
     "typeChecking": "Conta Corrente",
