@@ -143,7 +143,7 @@ RULE_PACKS = {
             {"name": "Barbearia / Salão", "conditions_op": "or", "conditions": [
                 {"field": "description", "op": "contains", "value": "BARBEARIA"},
                 {"field": "description", "op": "contains", "value": "SALAO"},
-                {"field": "description", "op": "contains", "value": "CABELEREIRO"},
+                {"field": "description", "op": "contains", "value": "CABELEIREIRO"},
             ], "actions": [{"op": "set_category", "value": "personal_care"}], "priority": 10},
 
             {"name": "IPTU / IPVA / Imposto", "conditions_op": "or", "conditions": [
