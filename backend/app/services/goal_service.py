@@ -14,6 +14,7 @@ from app.models.user import User
 from app.schemas.goal import GoalCreate, GoalRead, GoalSummary, GoalUpdate
 from app.services.asset_service import _compute_current_value, _get_latest_value, get_total_asset_value
 from app.services.dashboard_service import _account_balance_at, _get_open_accounts
+from app.services.account_service import get_account_name
 from app.services.fx_rate_service import convert
 
 
@@ -166,7 +167,7 @@ async def _enrich_goal(
     if goal.account_id:
         account = await session.get(Account, goal.account_id)
         if account:
-            account_name = account.name
+            account_name = get_account_name(account)
     asset_name = None
     if goal.asset_id:
         asset = await session.get(Asset, goal.asset_id)

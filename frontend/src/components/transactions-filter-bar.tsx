@@ -220,7 +220,7 @@ export function TransactionsFilterBar({
     filterAccountIds.length > 1
       ? t('transactions.filtersBar.nSelected', { count: filterAccountIds.length })
       : filterAccountIds.length === 1
-        ? (accountById.get(filterAccountIds[0])?.name ?? '')
+        ? (getAccountName(accountById.get(filterAccountIds[0]) ?? { name: '', display_name: null }))
         : ''
 
   const categorySummary = (() => {
@@ -334,7 +334,7 @@ export function TransactionsFilterBar({
                                 toggleInArray(filterAccountIds, a.id),
                               )
                             }}
-                            label={a.name}
+                            label={getAccountName(a)}
                             sublabel={a.currency}
                           />
                         ))

@@ -164,7 +164,7 @@ export function LinkTransferDialog({
             <CounterpartCard
               label={t('transactions.linkTransferAnchor')}
               description={anchor!.description}
-              account={anchorAccount?.name ?? '—'}
+              account={anchorAccount ? getAccountName(anchorAccount) : '—'}
               date={anchor!.date}
               amount={anchorAmount}
               currency={anchor!.currency}
