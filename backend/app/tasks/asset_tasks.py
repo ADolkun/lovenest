@@ -10,6 +10,7 @@ from app.worker import celery_app
 from app.core.config import get_settings
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
+from app.services.asset_service import refresh_all_market_prices
 
 logger = logging.getLogger(__name__)
 
@@ -127,3 +128,37 @@ def apply_asset_growth_rules() -> dict:
     total = asyncio.run(_apply_growth_rules())
     logger.info("Asset growth rules complete: %d values created", total)
     return {"created": total}
+
+
+async def _refresh_market_prices() -> dict[str, int]:
+    """Refresh live prices for every market-priced asset across all users.
+
+    Uses a fresh async session per task run (same pattern as the growth-rule
+    task above) to avoid sharing engines with the FastAPI request lifecycle.
+    """
+    session_maker = _make_session_maker()
+    async with session_maker() as session:
+        return await refresh_all_market_prices(session)
+
+
+@celery_app.task(name="app.tasks.asset_tasks.refresh_market_prices")
+def refresh_market_prices() -> dict:
+    """Celery task: re-quote every market-priced asset via the configured provider.
+
+    Scheduled frequently enough that the cached price stays fresh for users,
+    but respectful of Yahoo's unofficial rate limits — the service halts
+    itself on ``MarketPriceRateLimitedError`` so we don't hammer the API.
+    """
+    try:
+        result = asyncio.run(_refresh_market_prices())
+    except Exception:
+        logger.exception("Market-price refresh failed")
+        return {"error": True, "refreshed": 0, "skipped": 0, "rate_limited": 0}
+
+    logger.info(
+        "Market-price refresh complete: %d refreshed, %d skipped, %d rate-limited",
+        result.get("refreshed", 0),
+        result.get("skipped", 0),
+        result.get("rate_limited", 0),
+    )
+    return result

@@ -21,6 +21,7 @@ dependencies = [
     "aiofiles>=24.0",
     "redis[hiredis]>=5.0.0",
     "pyotp>=2.9.0",
+    "yfinance>=1.3.0",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,7 @@ omit = [
     "app/worker.py",
     "app/tasks/*",
     "app/providers/pluggy.py",
+    "app/providers/market_price.py",
 ]
 
 [tool.ruff]

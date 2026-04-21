@@ -31,6 +31,14 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.asset_tasks.apply_asset_growth_rules",
         "schedule": 60 * 60,  # every hour; idempotent (checks last value date)
     },
+    "refresh-market-prices-daily": {
+        "task": "app.tasks.asset_tasks.refresh_market_prices",
+        # Once a day is enough for personal portfolio tracking — keeps us
+        # well under Yahoo's unofficial per-IP caps and avoids the bot
+        # heuristics that trip on a chatty schedule. Task upserts today's
+        # AssetValue so history stays at one row per day per asset.
+        "schedule": 60 * 60 * 24,
+    },
     "sync-fx-rates-daily": {
         "task": "app.tasks.fx_rate_tasks.sync_fx_rates",
         "schedule": 60 * 60 * 12,  # twice daily (~60 API calls/month)

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
@@ -16,7 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
-import type { Asset, AssetGroup, AssetValue } from '@/types'
+import type { Asset, AssetGroup, AssetValue, MarketSymbolMatch, MarketSymbolQuote } from '@/types'
 import {
   Home,
   Car,
@@ -32,6 +32,10 @@ import {
   RefreshCw,
   Wallet,
   FolderInput,
+  LineChart,
+  Layers,
+  Bitcoin,
+  PieChart,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -54,11 +58,73 @@ function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   }
 }
 
+// Renders a logo image when one is available, falling back to the asset's
+// type-based Lucide icon on missing URL or broken image. Uses the type's
+// bg color as a tinted placeholder; switches to a white card + border when
+// showing a real logo so brand colors don't clash with our palette.
+function AssetIcon({
+  logoUrl,
+  Icon,
+  colorClass,
+  bgClass,
+  size = 20,
+  tile = 'w-10 h-10',
+}: {
+  logoUrl: string | null | undefined
+  Icon: React.ElementType
+  colorClass: string
+  bgClass: string
+  size?: number
+  tile?: string
+}) {
+  const [errored, setErrored] = useState(false)
+  const showImage = !!logoUrl && !errored
+  return (
+    <div
+      className={`${tile} rounded-lg flex items-center justify-center overflow-hidden shrink-0 ${
+        showImage ? 'bg-white border border-border' : bgClass
+      }`}
+    >
+      {showImage ? (
+        <img
+          src={logoUrl!}
+          alt=""
+          className="w-full h-full object-contain"
+          onError={() => setErrored(true)}
+        />
+      ) : (
+        <Icon size={size} className={colorClass} />
+      )}
+    </div>
+  )
+}
+
+// Compact relative-time formatter ("2h ago" / "há 2h"). Used for the price
+// preview "last updated" hint. Intl.RelativeTimeFormat handles the locale
+// grammar so we don't hand-roll plurals. Falls back to absolute date only
+// when the input is missing — otherwise always returns a relative string.
+function formatRelativeTime(dateInput: string | null | undefined, locale: string): string | null {
+  if (!dateInput) return null
+  const then = new Date(dateInput).getTime()
+  if (Number.isNaN(then)) return null
+  const diffSec = (then - Date.now()) / 1000
+  const absSec = Math.abs(diffSec)
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+  if (absSec < 60) return rtf.format(Math.round(diffSec), 'second')
+  if (absSec < 3600) return rtf.format(Math.round(diffSec / 60), 'minute')
+  if (absSec < 86400) return rtf.format(Math.round(diffSec / 3600), 'hour')
+  return rtf.format(Math.round(diffSec / 86400), 'day')
+}
+
 const ASSET_TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
   real_estate: { icon: Home, color: 'text-blue-600', bg: 'bg-blue-100' },
   vehicle: { icon: Car, color: 'text-violet-600', bg: 'bg-violet-100' },
   valuable: { icon: Gem, color: 'text-amber-600', bg: 'bg-amber-100' },
   investment: { icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-100' },
+  stock: { icon: LineChart, color: 'text-sky-600', bg: 'bg-sky-100' },
+  etf: { icon: Layers, color: 'text-teal-600', bg: 'bg-teal-100' },
+  crypto: { icon: Bitcoin, color: 'text-orange-600', bg: 'bg-orange-100' },
+  fund: { icon: PieChart, color: 'text-indigo-600', bg: 'bg-indigo-100' },
   other: { icon: Package, color: 'text-slate-600', bg: 'bg-slate-100' },
 }
 
@@ -66,8 +132,37 @@ function getTypeConfig(type: string) {
   return ASSET_TYPE_CONFIG[type] ?? ASSET_TYPE_CONFIG['other']
 }
 
-const ASSET_TYPES = ['real_estate', 'vehicle', 'valuable', 'investment', 'other'] as const
-const VALUATION_METHODS = ['manual', 'growth_rule'] as const
+const ASSET_TYPES = [
+  'stock',
+  'etf',
+  'crypto',
+  'fund',
+  'real_estate',
+  'vehicle',
+  'valuable',
+  'investment',
+  'other',
+] as const
+
+// Map a yfinance `quoteType` to Securo's asset type. Lives here (not the
+// backend) so if we ever swap the market-price provider the service stays
+// clean — all provider-specific vocabulary is translated at the edge.
+function assetTypeFromQuoteType(quoteType: string | null | undefined): string {
+  switch ((quoteType || '').toUpperCase()) {
+    case 'EQUITY':
+      return 'stock'
+    case 'ETF':
+      return 'etf'
+    case 'CRYPTOCURRENCY':
+      return 'crypto'
+    case 'MUTUALFUND':
+    case 'INDEX':
+      return 'fund'
+    default:
+      return 'investment'
+  }
+}
+const VALUATION_METHODS = ['manual', 'growth_rule', 'market_price'] as const
 const GROWTH_TYPES = ['percentage', 'absolute'] as const
 const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -116,6 +211,13 @@ export default function AssetsPage() {
   const [formGrowthRate, setFormGrowthRate] = useState('')
   const [formGrowthFrequency, setFormGrowthFrequency] = useState<string>('monthly')
   const [formGrowthStartDate, setFormGrowthStartDate] = useState<string>('')
+  // Market-price form state
+  const [formTickerQuery, setFormTickerQuery] = useState('')
+  const [tickerMatches, setTickerMatches] = useState<MarketSymbolMatch[]>([])
+  const [tickerSearchLoading, setTickerSearchLoading] = useState(false)
+  const [selectedQuote, setSelectedQuote] = useState<MarketSymbolQuote | null>(null)
+  const [formUnits, setFormUnits] = useState('')
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   const { data: assetsList, isLoading } = useQuery({
     queryKey: ['assets'],
@@ -127,12 +229,20 @@ export default function AssetsPage() {
     queryFn: () => assets.portfolioTrend(),
   })
 
+  // `refetchQueries` (vs. `invalidateQueries`) forces an immediate refetch
+  // regardless of stale-state heuristics. Our global staleTime of 5 min
+  // combined with the dialog-close re-render was sometimes leaving the
+  // asset list showing pre-edit data until the user manually reloaded.
+  function refetchAssetViews() {
+    queryClient.refetchQueries({ queryKey: ['assets'] })
+    queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
+    queryClient.refetchQueries({ queryKey: ['dashboard'] })
+  }
+
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof assets.create>[0]) => assets.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['portfolio-trend'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      refetchAssetViews()
       setDialogOpen(false)
       toast.success(t('assets.created'))
     },
@@ -143,9 +253,7 @@ export default function AssetsPage() {
     mutationFn: ({ id, _regenerateGrowth, ...data }: Partial<Asset> & { id: string; _regenerateGrowth?: boolean }) =>
       assets.update(id, data, { regenerateGrowth: _regenerateGrowth }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['portfolio-trend'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      refetchAssetViews()
       setDialogOpen(false)
       setEditingAsset(null)
       toast.success(t('assets.updated'))
@@ -156,12 +264,31 @@ export default function AssetsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => assets.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['portfolio-trend'] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      refetchAssetViews()
       setDeletingId(null)
       if (expandedId === deletingId) setExpandedId(null)
       toast.success(t('assets.deleted'))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const refreshPriceMutation = useMutation({
+    mutationFn: (id: string) => assets.refreshPrice(id),
+    onSuccess: (updated) => {
+      // Sync the dialog's preview to the fresh quote so the user sees the
+      // new price without closing the dialog. The list + chart refetch
+      // via our standard helper.
+      setSelectedQuote({
+        symbol: updated.ticker || '',
+        name: updated.name,
+        exchange: updated.ticker_exchange,
+        currency: updated.currency,
+        price: updated.last_price ?? 0,
+        quote_type: null,
+      })
+      setEditingAsset(updated)
+      refetchAssetViews()
+      toast.success(t('assets.priceRefreshed'))
     },
     onError: () => toast.error(t('common.error')),
   })
@@ -175,7 +302,7 @@ export default function AssetsPage() {
     mutationFn: (data: { name: string; color: string }) =>
       assetGroups.create({ name: data.name, color: data.color, icon: 'wallet' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setWalletDialogOpen(false)
       setEditingWallet(null)
       toast.success(t('assets.walletCreated'))
@@ -187,7 +314,7 @@ export default function AssetsPage() {
     mutationFn: ({ id, ...data }: { id: string; name: string; color: string }) =>
       assetGroups.update(id, { name: data.name, color: data.color }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setWalletDialogOpen(false)
       setEditingWallet(null)
       toast.success(t('assets.walletUpdated'))
@@ -199,8 +326,8 @@ export default function AssetsPage() {
     mutationFn: (id: string) => assetGroups.delete(id),
     onSuccess: () => {
       // Deleting a wallet un-groups its assets (backend sets group_id=null).
-      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
+      queryClient.refetchQueries({ queryKey: ['assets'] })
       setDeletingWalletId(null)
       toast.success(t('assets.walletDeleted'))
     },
@@ -211,8 +338,8 @@ export default function AssetsPage() {
     mutationFn: ({ id, groupId }: { id: string; groupId: string | null }) =>
       assets.update(id, { group_id: groupId } as Partial<Asset>),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setMovingAsset(null)
       toast.success(t('assets.moved'))
     },
@@ -257,6 +384,71 @@ export default function AssetsPage() {
   const activeAssets = assetsList?.filter(a => !a.sell_date && !a.is_archived) ?? []
   const soldAssets = assetsList?.filter(a => a.sell_date) ?? []
 
+  // Debounced ticker search. Runs only when the market-price method is
+  // selected and the query is non-trivial — keeps the autocomplete snappy
+  // without flooding the yfinance-backed endpoint.
+  useEffect(() => {
+    if (formMethod !== 'market_price') return
+    const q = formTickerQuery.trim()
+    // Don't search if the field matches the already-selected quote — the
+    // user just picked it and we'd spam the endpoint for no reason.
+    if (selectedQuote && q === selectedQuote.symbol) return
+    if (q.length < 1) {
+      setTickerMatches([])
+      return
+    }
+    setTickerSearchLoading(true)
+    const handle = window.setTimeout(async () => {
+      try {
+        const results = await assets.marketSearch(q, 10)
+        setTickerMatches(results)
+      } catch {
+        setTickerMatches([])
+      } finally {
+        setTickerSearchLoading(false)
+      }
+    }, 300)
+    return () => window.clearTimeout(handle)
+  }, [formMethod, formTickerQuery, selectedQuote])
+
+  async function pickTickerMatch(match: MarketSymbolMatch) {
+    setTickerMatches([])
+    setFormTickerQuery(match.symbol)
+    setQuoteLoading(true)
+    try {
+      const quote = await assets.marketQuote(match.symbol)
+      setSelectedQuote(quote)
+      // Auto-fill name/currency from the authoritative quote so the user
+      // doesn't have to think about it — they can still edit name after.
+      if (!formName || formName === (selectedQuote?.name ?? selectedQuote?.symbol ?? '')) {
+        setFormName(quote.name || quote.symbol)
+      }
+      setFormCurrency(quote.currency)
+      // Classify the asset from the quote type (EQUITY → stock, etc.) so
+      // the Tipo dropdown lands on something meaningful by default. We
+      // skip this when the user already picked a non-default type, so
+      // manual overrides stick.
+      const suggestedType = assetTypeFromQuoteType(quote.quote_type)
+      if (formType === 'other' || formType === 'investment') {
+        setFormType(suggestedType)
+      }
+    } catch {
+      toast.error(t('common.error'))
+      setSelectedQuote(null)
+    } finally {
+      setQuoteLoading(false)
+    }
+  }
+
+  function resetMarketPriceForm() {
+    setFormTickerQuery('')
+    setTickerMatches([])
+    setSelectedQuote(null)
+    setFormUnits('')
+    setQuoteLoading(false)
+    setTickerSearchLoading(false)
+  }
+
   function openCreate() {
     setEditingAsset(null)
     setFormName('')
@@ -272,6 +464,7 @@ export default function AssetsPage() {
     setFormGrowthRate('')
     setFormGrowthFrequency('monthly')
     setFormGrowthStartDate('')
+    resetMarketPriceForm()
     setDialogOpen(true)
   }
 
@@ -290,6 +483,23 @@ export default function AssetsPage() {
     setFormGrowthRate(asset.growth_rate?.toString() ?? '')
     setFormGrowthFrequency(asset.growth_frequency ?? 'monthly')
     setFormGrowthStartDate(asset.growth_start_date ?? '')
+    resetMarketPriceForm()
+    if (asset.valuation_method === 'market_price' && asset.ticker) {
+      setFormTickerQuery(asset.ticker)
+      setFormUnits(asset.units?.toString() ?? '')
+      // Synthesize a quote from the cached fields so the preview shows
+      // immediately — we skip a round-trip to yfinance on edit open.
+      if (asset.last_price != null) {
+        setSelectedQuote({
+          symbol: asset.ticker,
+          name: asset.name,
+          exchange: asset.ticker_exchange,
+          currency: asset.currency,
+          price: asset.last_price,
+          quote_type: null,
+        })
+      }
+    }
     setDialogOpen(true)
   }
 
@@ -310,6 +520,12 @@ export default function AssetsPage() {
       payload.growth_rate = formGrowthRate ? parseFloat(formGrowthRate) : null
       payload.growth_frequency = formGrowthFrequency
       payload.growth_start_date = formGrowthStartDate || null
+    }
+
+    if (formMethod === 'market_price') {
+      payload.ticker = (selectedQuote?.symbol || formTickerQuery || '').toUpperCase()
+      payload.ticker_exchange = selectedQuote?.exchange ?? null
+      payload.units = formUnits ? parseFloat(formUnits) : null
     }
 
     if (!editingAsset && formCurrentValue) {
@@ -359,6 +575,13 @@ export default function AssetsPage() {
     const Icon = config.icon
     const isExpanded = expandedId === asset.id
     const isSynced = asset.source !== 'manual'
+    // Split "externally-owned" (bank/brokerage record — gets overwritten on
+    // re-sync, so read-only for users) from "market-priced" (user-created
+    // record where only the cached price syncs). We key on valuation_method
+    // rather than the concrete source string so swapping the price provider
+    // (yfinance → anything else) doesn't break this logic.
+    const isMarketPriced = asset.valuation_method === 'market_price'
+    const isProviderOwned = isSynced && !isMarketPriced
 
     return (
       <div key={asset.id} className="border border-border rounded-xl bg-card shadow-sm overflow-hidden">
@@ -366,16 +589,28 @@ export default function AssetsPage() {
           className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-muted/30 transition-colors"
           onClick={() => setExpandedId(isExpanded ? null : asset.id)}
         >
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${config.bg}`}>
-            <Icon size={20} className={config.color} />
-          </div>
+          <AssetIcon
+            logoUrl={asset.logo_url}
+            Icon={Icon}
+            colorClass={config.color}
+            bgClass={config.bg}
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-foreground truncate">{asset.name}</span>
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                 {t(`assets.type${asset.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`)}
               </Badge>
-              {isSynced && (
+              {isMarketPriced ? (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 text-primary border-primary/30 gap-1"
+                  title={t('assets.marketPriceSourceTooltip')}
+                >
+                  <TrendingUp size={9} />
+                  {t('assets.marketPriceSource')}
+                </Badge>
+              ) : isSynced ? (
                 <Badge
                   variant="outline"
                   className="text-[10px] px-1.5 py-0 text-sky-600 border-sky-200 gap-1"
@@ -384,7 +619,7 @@ export default function AssetsPage() {
                   <RefreshCw size={9} />
                   {t('assets.synced')}
                 </Badge>
-              )}
+              ) : null}
               {asset.maturity_date && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
                   {t('assets.maturesOn', { date: new Date(asset.maturity_date).toLocaleDateString(locale) })}
@@ -438,17 +673,17 @@ export default function AssetsPage() {
               <FolderInput size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); if (!isSynced) openEdit(asset) }}
-              disabled={isSynced}
-              title={isSynced ? t('assets.syncedReadOnly') : undefined}
+              onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }}
+              disabled={isProviderOwned}
+              title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               <Pencil size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); if (!isSynced) setDeletingId(asset.id) }}
-              disabled={isSynced}
-              title={isSynced ? t('assets.syncedReadOnly') : undefined}
+              onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }}
+              disabled={isProviderOwned}
+              title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               <Trash2 size={14} />
@@ -702,8 +937,9 @@ export default function AssetsPage() {
               <div className="space-y-2">
                 <Label>{t('assets.currency')}</Label>
                 <select
-                  className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
+                  className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full disabled:opacity-60 disabled:cursor-not-allowed"
                   value={formCurrency}
+                  disabled={formMethod === 'market_price'}
                   onChange={e => setFormCurrency(e.target.value)}
                 >
                   {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
@@ -716,7 +952,7 @@ export default function AssetsPage() {
             {/* Valuation Method — locked on edit */}
             <div className="space-y-2">
               <Label>{t('assets.valuationMethod')}</Label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {VALUATION_METHODS.map(m => (
                   <button
                     key={m}
@@ -729,11 +965,148 @@ export default function AssetsPage() {
                     } ${editingAsset ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={() => !editingAsset && setFormMethod(m)}
                   >
-                    {t(`assets.${m === 'growth_rule' ? 'growthRule' : 'manual'}`)}
+                    {m === 'market_price'
+                      ? t('assets.marketPrice')
+                      : m === 'growth_rule'
+                        ? t('assets.growthRule')
+                        : t('assets.manual')}
                   </button>
                 ))}
               </div>
             </div>
+
+            {/* Market Price (yfinance) — ticker search + quantity */}
+            {formMethod === 'market_price' && (
+              <div className="space-y-3 p-3.5 rounded-xl border border-primary/20 bg-primary/5">
+                <div className="space-y-2">
+                  <Label>{t('assets.ticker')}</Label>
+                  <div className="relative">
+                    <Input
+                      placeholder={t('assets.tickerPlaceholder')}
+                      value={formTickerQuery}
+                      disabled={!!editingAsset}
+                      onChange={e => {
+                        setFormTickerQuery(e.target.value)
+                        // Clear the quote so we don't keep the old preview
+                        // while the user is editing the symbol — prevents
+                        // a stale price from being saved accidentally.
+                        if (selectedQuote && e.target.value.toUpperCase() !== selectedQuote.symbol) {
+                          setSelectedQuote(null)
+                        }
+                      }}
+                    />
+                    {tickerMatches.length > 0 && !editingAsset && (
+                      <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+                        {tickerMatches.map(match => (
+                          <button
+                            key={`${match.symbol}-${match.exchange ?? ''}`}
+                            type="button"
+                            onClick={() => pickTickerMatch(match)}
+                            className="flex flex-col w-full text-left px-3 py-2 hover:bg-muted transition-colors"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-sm">{match.symbol}</span>
+                              {match.exchange && (
+                                <span className="text-xs text-muted-foreground">{match.exchange}</span>
+                              )}
+                            </div>
+                            {match.name && (
+                              <span className="text-xs text-muted-foreground truncate">{match.name}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {tickerSearchLoading && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">
+                        {t('common.loading')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {selectedQuote && (
+                  <div className="rounded-lg border border-border bg-card p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold">{selectedQuote.symbol}</span>
+                        {selectedQuote.name && (
+                          <span className="text-xs text-muted-foreground truncate">{selectedQuote.name}</span>
+                        )}
+                        {/* Staleness hint — only meaningful when editing an
+                            existing asset (last_price_at is set). Hidden
+                            during create because the quote is inline-live. */}
+                        {editingAsset?.last_price_at && (
+                          <span className="text-[10px] text-muted-foreground mt-0.5">
+                            {t('assets.lastUpdated', { when: formatRelativeTime(editingAsset.last_price_at, locale) })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right">
+                          <div className="text-base font-bold tabular-nums">
+                            {formatCurrency(selectedQuote.price, selectedQuote.currency, locale)}
+                          </div>
+                          {selectedQuote.exchange && (
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                              {selectedQuote.exchange}
+                            </div>
+                          )}
+                        </div>
+                        {/* Manual refresh — only on edit. Daily cron handles
+                            the rest; this button is the escape hatch when a
+                            user wants a fresh quote right now. */}
+                        {editingAsset && (
+                          <button
+                            type="button"
+                            onClick={() => refreshPriceMutation.mutate(editingAsset.id)}
+                            disabled={refreshPriceMutation.isPending}
+                            title={t('assets.refreshPrice')}
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <RefreshCw
+                              size={14}
+                              className={refreshPriceMutation.isPending ? 'animate-spin' : ''}
+                            />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label>{t('assets.quantity')}</Label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={formUnits}
+                    onChange={e => setFormUnits(e.target.value)}
+                    placeholder="10"
+                  />
+                </div>
+
+                {selectedQuote && formUnits && parseFloat(formUnits) > 0 && (
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-primary/30 bg-primary/10">
+                    <span className="text-xs font-medium text-primary/80">
+                      {t('assets.currentValue')}
+                    </span>
+                    <span className="text-lg font-bold tabular-nums text-primary">
+                      {formatCurrency(
+                        selectedQuote.price * parseFloat(formUnits),
+                        selectedQuote.currency,
+                        locale,
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {quoteLoading && (
+                  <div className="text-xs text-muted-foreground">{t('common.loading')}</div>
+                )}
+              </div>
+            )}
 
             {/* Growth Rule Settings */}
             {formMethod === 'growth_rule' && (
@@ -847,7 +1220,15 @@ export default function AssetsPage() {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={!formName || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                !formName
+                || createMutation.isPending
+                || updateMutation.isPending
+                // Market-price guard: must have a resolved ticker + quantity.
+                || (formMethod === 'market_price'
+                  && !editingAsset
+                  && (!selectedQuote || !formUnits || parseFloat(formUnits) <= 0))
+              }
             >
               {t('common.save')}
             </Button>
@@ -1287,10 +1668,10 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
     mutationFn: ({ assetId: id, ...data }: { assetId: string; amount: number; date: string }) =>
       assets.addValue(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['asset-values', assetId] })
-      queryClient.invalidateQueries({ queryKey: ['asset-trend', assetId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
+      queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
+      queryClient.refetchQueries({ queryKey: ['dashboard'] })
       setValueAmount('')
       toast.success(t('assets.valueAdded'))
     },
@@ -1300,10 +1681,10 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
   const deleteValueMutation = useMutation({
     mutationFn: (valueId: string) => assets.deleteValue(valueId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['assets'] })
-      queryClient.invalidateQueries({ queryKey: ['asset-values', assetId] })
-      queryClient.invalidateQueries({ queryKey: ['asset-trend', assetId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
+      queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
+      queryClient.refetchQueries({ queryKey: ['dashboard'] })
       toast.success(t('assets.valueDeleted'))
     },
     onError: () => toast.error(t('common.error')),

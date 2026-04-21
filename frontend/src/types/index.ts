@@ -320,6 +320,27 @@ export interface Asset {
   isin: string | null
   maturity_date: string | null
   group_id: string | null
+  ticker: string | null
+  ticker_exchange: string | null
+  last_price: number | null
+  last_price_at: string | null
+  logo_url: string | null
+}
+
+export interface MarketSymbolMatch {
+  symbol: string
+  name: string | null
+  exchange: string | null
+  quote_type: string | null
+}
+
+export interface MarketSymbolQuote {
+  symbol: string
+  name: string | null
+  exchange: string | null
+  currency: string
+  price: number
+  quote_type: string | null
 }
 
 export interface AssetGroup {

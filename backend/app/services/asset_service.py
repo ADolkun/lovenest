@@ -1,8 +1,10 @@
+import logging
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional
 
+from fastapi import HTTPException, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,8 +12,15 @@ from app.core.config import get_settings
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.user import User
+from app.providers.market_price import (
+    MarketPriceProvider,
+    MarketPriceRateLimitedError,
+    get_market_price_provider,
+)
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetRead, AssetValueRead
 from app.services.fx_rate_service import convert, stamp_primary_amount
+
+logger = logging.getLogger(__name__)
 
 
 def _next_due_date(last_date: date, frequency: str) -> date:
@@ -36,6 +45,15 @@ def _next_due_date(last_date: date, frequency: str) -> date:
 def _compute_current_value(asset: Asset, latest_value: Optional[AssetValue]) -> Optional[float]:
     """Compute the current value of an asset from its latest AssetValue.
     Falls back to purchase_price if no value entries exist yet."""
+    # Market-priced assets are authoritative on (units × last_price). The
+    # AssetValue history exists for the chart, but the "live" number users
+    # see should reflect the most recent quote even between scheduled syncs.
+    if asset.valuation_method == "market_price":
+        if asset.last_price is not None and asset.units is not None:
+            return float(Decimal(str(asset.last_price)) * Decimal(str(asset.units)))
+        if latest_value is not None:
+            return float(latest_value.amount)
+        return None
     if latest_value is None:
         if asset.purchase_price is not None:
             return float(asset.purchase_price)
@@ -117,6 +135,11 @@ def _asset_to_read(asset: Asset, latest_value: Optional[AssetValue], value_count
         isin=asset.isin,
         maturity_date=asset.maturity_date,
         group_id=asset.group_id,
+        ticker=asset.ticker,
+        ticker_exchange=asset.ticker_exchange,
+        last_price=float(asset.last_price) if asset.last_price is not None else None,
+        last_price_at=asset.last_price_at,
+        logo_url=asset.logo_url,
     )
 
 
@@ -175,14 +198,44 @@ async def get_asset(
 
 
 async def create_asset(
-    session: AsyncSession, user_id: uuid.UUID, data: AssetCreate
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    data: AssetCreate,
+    *,
+    market_provider: Optional[MarketPriceProvider] = None,
 ) -> AssetRead:
     """Create an asset, optionally with an initial value."""
+    # Market-priced path: fetch a live quote first so we can derive currency
+    # and the initial value from the ticker. Validate up-front rather than
+    # half-creating an asset and failing on a 5xx from Yahoo.
+    quote = None
+    if data.valuation_method == "market_price":
+        if not data.ticker:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="ticker is required for market_price assets",
+            )
+        if data.units is None or data.units <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="units (quantity) must be > 0 for market_price assets",
+            )
+        provider = market_provider or get_market_price_provider()
+        quote = await provider.get_quote(data.ticker)
+        if quote is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Could not fetch quote for {data.ticker}",
+            )
+
     asset = Asset(
         user_id=user_id,
         name=data.name,
         type=data.type,
-        currency=data.currency,
+        # For market_price, the quote's currency is authoritative — a user
+        # entering PETR4.SA from an English-language form shouldn't end up
+        # with USD just because the dropdown defaulted to USD.
+        currency=quote.currency if quote else data.currency,
         units=data.units,
         valuation_method=data.valuation_method,
         purchase_date=data.purchase_date,
@@ -196,9 +249,28 @@ async def create_asset(
         is_archived=data.is_archived,
         position=data.position,
         group_id=data.group_id,
+        ticker=data.ticker.upper() if data.ticker else None,
+        ticker_exchange=data.ticker_exchange or (quote.exchange if quote else None),
+        last_price=Decimal(str(quote.price)) if quote else None,
+        last_price_at=datetime.now(timezone.utc) if quote else None,
+        logo_url=quote.logo_url if quote else None,
+        source="yfinance" if data.valuation_method == "market_price" else "manual",
     )
     session.add(asset)
     await session.flush()
+
+    # Seed the first AssetValue from the live quote so the portfolio chart
+    # has a starting data point without waiting for the scheduled refresh.
+    if data.valuation_method == "market_price" and quote is not None:
+        initial_amount = Decimal(str(quote.price)) * Decimal(str(data.units))
+        session.add(
+            AssetValue(
+                asset_id=asset.id,
+                amount=initial_amount,
+                date=date.today(),
+                source="sync",
+            )
+        )
 
     # Create initial value if provided
     if data.current_value is not None:
@@ -308,6 +380,20 @@ async def update_asset(
                 rate_field="_no_rate",
                 date_field="purchase_date",
             )
+
+    # If units change on a market-priced asset, rewrite today's AssetValue with
+    # the new (units × last_price). Without this, the portfolio chart keeps
+    # plotting the old position size even though the header and wallet totals
+    # (computed live) already reflect the new units — the two disagree until
+    # the next scheduled refresh overwrites today's row.
+    if (
+        "units" in update_data
+        and asset.valuation_method == "market_price"
+        and asset.last_price is not None
+        and asset.units is not None
+        and asset.units > 0
+    ):
+        await _apply_price_to_asset(session, asset, Decimal(str(asset.last_price)))
 
     await session.commit()
     await session.refresh(asset)
@@ -437,9 +523,6 @@ async def get_portfolio_trend(
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
 
-    # Map asset_id -> currency for conversion
-    asset_currency: dict[str, str] = {}
-
     for asset in active_assets:
         aid = str(asset.id)
         asset_meta.append({
@@ -448,7 +531,6 @@ async def get_portfolio_trend(
             "type": asset.type,
             "group_id": str(asset.group_id) if asset.group_id else None,
         })
-        asset_currency[aid] = asset.currency
 
         rows = await session.execute(
             select(AssetValue.date, AssetValue.amount)
@@ -461,6 +543,21 @@ async def get_portfolio_trend(
         if asset.purchase_price is not None and asset.purchase_date is not None:
             if not vals or asset.purchase_date < vals[0][0]:
                 vals.insert(0, (asset.purchase_date, float(asset.purchase_price)))
+
+        # Convert every value to the primary currency at its own date so the
+        # stacked areas and the tooltip total are all in the same unit. Before
+        # this, a USD-quoted asset like AAPL contributed its raw $ value to
+        # `_total`, making the tooltip disagree with the header (which does
+        # FX-convert). `convert` falls back to the nearest available rate, so
+        # dates missing exact FX data still produce a sensible number.
+        if asset.currency != primary_currency:
+            converted_vals: list[tuple[date, float]] = []
+            for d, amt in vals:
+                converted, _ = await convert(
+                    session, Decimal(str(amt)), asset.currency, primary_currency, d,
+                )
+                converted_vals.append((d, float(converted)))
+            vals = converted_vals
 
         asset_values_map[aid] = vals
         for d, _ in vals:
@@ -501,18 +598,11 @@ async def get_portfolio_trend(
         row["_total"] = round(date_total, 2)
         trend.append(row)
 
-    # Total = sum of last known values, converted to primary currency
-    total = 0.0
-    for a in asset_meta:
-        aid = a["id"]
-        val = last_known[aid]
-        if val and asset_currency[aid] != primary_currency:
-            converted, _ = await convert(
-                session, Decimal(str(val)), asset_currency[aid], primary_currency,
-            )
-            total += float(converted)
-        else:
-            total += val
+    # `last_known` already holds primary-currency values (we converted per-date
+    # above when building asset_values_map). Summing directly keeps the header
+    # total in lockstep with the tooltip's `_total` on the final row — any
+    # second conversion here would double-count for non-primary assets.
+    total = sum(last_known.values())
 
     return {"assets": asset_meta, "trend": trend, "total": round(total, 2)}
 
@@ -538,3 +628,170 @@ async def get_total_asset_value(
         if current is not None:
             totals[asset.currency] = totals.get(asset.currency, 0.0) + current
     return totals
+
+
+# ============================================================================
+# Market-price refresh
+# ============================================================================
+
+
+async def _apply_price_to_asset(
+    session: AsyncSession, asset: Asset, new_price: Decimal
+) -> None:
+    """Update the cached price and upsert today's AssetValue.
+
+    Shared by the single-asset and batch refresh paths so both behave
+    identically: price + timestamp get stamped; today's value gets
+    inserted or overwritten so running the task multiple times per day
+    doesn't pile up duplicate rows.
+    """
+    asset.last_price = new_price
+    asset.last_price_at = datetime.now(timezone.utc)
+
+    if not asset.units or asset.units <= 0:
+        return
+
+    today = date.today()
+    new_amount = new_price * Decimal(str(asset.units))
+    existing = await session.execute(
+        select(AssetValue)
+        .where(AssetValue.asset_id == asset.id, AssetValue.date == today)
+        .order_by(desc(AssetValue.id))
+        .limit(1)
+    )
+    today_value = existing.scalar_one_or_none()
+    if today_value is not None:
+        today_value.amount = new_amount
+        today_value.source = "sync"
+    else:
+        session.add(
+            AssetValue(
+                asset_id=asset.id,
+                amount=new_amount,
+                date=today,
+                source="sync",
+            )
+        )
+
+
+async def refresh_market_price_asset(
+    session: AsyncSession,
+    asset: Asset,
+    *,
+    market_provider: Optional[MarketPriceProvider] = None,
+) -> bool:
+    """Re-quote a single market-priced asset and update its cached price.
+
+    Returns True when a new quote was persisted, False otherwise (no quote
+    available, stale price unchanged, or missing fields).
+    """
+    if asset.valuation_method != "market_price" or not asset.ticker:
+        return False
+
+    provider = market_provider or get_market_price_provider()
+    try:
+        quote = await provider.get_quote(asset.ticker)
+    except MarketPriceRateLimitedError:
+        # Let the scheduler see this explicitly so it can back off globally.
+        raise
+    except Exception as e:
+        logger.warning("Market price refresh failed for %s: %s", asset.ticker, e)
+        return False
+
+    if quote is None or quote.price is None:
+        return False
+
+    await _apply_price_to_asset(session, asset, Decimal(str(quote.price)))
+    # Opportunistic logo backfill: assets created before Brandfetch was
+    # configured have no logo_url. On the next single-asset refresh (which
+    # goes through the full get_quote → website lookup), stamp it in.
+    # The batch refresh path doesn't have website info so it leaves logos
+    # alone; manual refreshes and creates cover the fill-in.
+    if not asset.logo_url and quote.logo_url:
+        asset.logo_url = quote.logo_url
+    await session.flush()
+    return True
+
+
+async def refresh_all_market_prices(
+    session: AsyncSession,
+    *,
+    market_provider: Optional[MarketPriceProvider] = None,
+) -> dict[str, int]:
+    """Refresh every non-archived market-priced asset in the database.
+
+    Uses the provider's batch ``get_latest_prices`` endpoint when possible —
+    one HTTP request covers the whole portfolio via ``yfinance.download``
+    instead of one call per asset. Falls back silently to per-asset refresh
+    if the batch returns nothing (provider without bulk support, or a hard
+    failure on Yahoo's end).
+
+    Returns a summary counting successes, skips, and rate-limit halts —
+    surfaced as the Celery task's return payload for observability.
+    """
+    result = await session.execute(
+        select(Asset).where(
+            Asset.valuation_method == "market_price",
+            Asset.is_archived == False,
+            Asset.sell_date.is_(None),
+            Asset.ticker.isnot(None),
+        )
+    )
+    assets = list(result.scalars().all())
+
+    if not assets:
+        return {"refreshed": 0, "skipped": 0, "rate_limited": 0}
+
+    provider = market_provider or get_market_price_provider()
+    tickers = [a.ticker for a in assets if a.ticker]
+
+    # Batch path: one request → dict[SYMBOL, price]. On rate-limit we halt
+    # immediately — retrying within the same task would just pile on 429s
+    # and risk an IP-level cookie ban.
+    try:
+        prices = await provider.get_latest_prices(tickers)
+    except MarketPriceRateLimitedError:
+        logger.warning("Yahoo rate-limited the batch fetch; skipping this cycle")
+        return {"refreshed": 0, "skipped": len(assets), "rate_limited": 1}
+    except Exception as e:
+        logger.warning("Batch price fetch failed, falling back to per-asset: %s", e)
+        prices = {}
+
+    refreshed = 0
+    skipped = 0
+
+    for asset in assets:
+        if not asset.ticker:
+            skipped += 1
+            continue
+        price = prices.get(asset.ticker.upper()) if prices else None
+        if price is None:
+            # Per-asset fallback: the batch missed this symbol (delisted
+            # ticker, one-off provider error, etc.). Try the full quote
+            # path which also populates name/currency if needed.
+            try:
+                ok = await refresh_market_price_asset(
+                    session, asset, market_provider=provider
+                )
+            except MarketPriceRateLimitedError:
+                logger.warning(
+                    "Yahoo rate-limited mid-refresh after %d assets; halting",
+                    refreshed,
+                )
+                await session.commit()
+                return {
+                    "refreshed": refreshed,
+                    "skipped": skipped + (len(assets) - refreshed - skipped),
+                    "rate_limited": 1,
+                }
+            if ok:
+                refreshed += 1
+            else:
+                skipped += 1
+            continue
+
+        await _apply_price_to_asset(session, asset, price)
+        refreshed += 1
+
+    await session.commit()
+    return {"refreshed": refreshed, "skipped": skipped, "rate_limited": 0}

@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 
+    # Logo size for market-priced asset icons. The logo URL is built from
+    # the company website we get from the market-price provider; no API
+    # key or third-party account is required. Defaults to 128×128 which
+    # is what Google's favicon service caps at before upscaling.
+    logo_size: int = 128
+
     model_config = SettingsConfigDict(env_file=".env")
 
 
