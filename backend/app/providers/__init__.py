@@ -1,4 +1,11 @@
-from app.providers.base import BankProvider, AccountData, TransactionData, ConnectionData, ConnectTokenData
+from app.providers.base import (
+    AccountData,
+    BankProvider,
+    ConnectTokenData,
+    ConnectionData,
+    HoldingData,
+    TransactionData,
+)
 
 # Registry of available providers.
 _PROVIDERS: dict[str, type[BankProvider]] = {}
@@ -85,6 +92,7 @@ __all__ = [
     "TransactionData",
     "ConnectionData",
     "ConnectTokenData",
+    "HoldingData",
     "register_provider",
     "get_provider",
     "list_providers",

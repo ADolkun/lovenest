@@ -9,6 +9,7 @@ from app.models.recurring_transaction import RecurringTransaction
 from app.models.budget import Budget
 from app.models.import_log import ImportLog
 from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
 from app.models.fx_rate import FxRate
 from app.models.transaction_attachment import TransactionAttachment
@@ -28,6 +29,7 @@ __all__ = [
     "Budget",
     "ImportLog",
     "Asset",
+    "AssetGroup",
     "AssetValue",
     "FxRate",
     "TransactionAttachment",

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { assets, currencies as currenciesApi } from '@/lib/api'
+import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
-import type { Asset, AssetValue } from '@/types'
+import type { Asset, AssetGroup, AssetValue } from '@/types'
 import {
   Home,
   Car,
@@ -28,6 +28,10 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
+  RefreshCw,
+  Wallet,
+  FolderInput,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -86,6 +90,17 @@ export default function AssetsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pendingGrowthSave, setPendingGrowthSave] = useState<Record<string, unknown> | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Wallet (AssetGroup) dialog state
+  const [walletDialogOpen, setWalletDialogOpen] = useState(false)
+  const [editingWallet, setEditingWallet] = useState<AssetGroup | null>(null)
+  const [walletFormName, setWalletFormName] = useState('')
+  const [walletFormColor, setWalletFormColor] = useState('#0EA5E9')
+  const [deletingWalletId, setDeletingWalletId] = useState<string | null>(null)
+  // Collapsed wallet IDs — default is expanded (empty set), user can collapse manually
+  const [collapsedWallets, setCollapsedWallets] = useState<Set<string>>(new Set())
+  // Asset being moved to a wallet (null = no picker open)
+  const [movingAsset, setMovingAsset] = useState<Asset | null>(null)
 
   // Form state
   const [formName, setFormName] = useState('')
@@ -147,6 +162,59 @@ export default function AssetsPage() {
       setDeletingId(null)
       if (expandedId === deletingId) setExpandedId(null)
       toast.success(t('assets.deleted'))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const { data: walletsList } = useQuery({
+    queryKey: ['asset-groups'],
+    queryFn: () => assetGroups.list(),
+  })
+
+  const createWalletMutation = useMutation({
+    mutationFn: (data: { name: string; color: string }) =>
+      assetGroups.create({ name: data.name, color: data.color, icon: 'wallet' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      setWalletDialogOpen(false)
+      setEditingWallet(null)
+      toast.success(t('assets.walletCreated'))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const updateWalletMutation = useMutation({
+    mutationFn: ({ id, ...data }: { id: string; name: string; color: string }) =>
+      assetGroups.update(id, { name: data.name, color: data.color }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      setWalletDialogOpen(false)
+      setEditingWallet(null)
+      toast.success(t('assets.walletUpdated'))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const deleteWalletMutation = useMutation({
+    mutationFn: (id: string) => assetGroups.delete(id),
+    onSuccess: () => {
+      // Deleting a wallet un-groups its assets (backend sets group_id=null).
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+      setDeletingWalletId(null)
+      toast.success(t('assets.walletDeleted'))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const moveAssetMutation = useMutation({
+    mutationFn: ({ id, groupId }: { id: string; groupId: string | null }) =>
+      assets.update(id, { group_id: groupId } as Partial<Asset>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      setMovingAsset(null)
+      toast.success(t('assets.moved'))
     },
     onError: () => toast.error(t('common.error')),
   })
@@ -290,6 +358,7 @@ export default function AssetsPage() {
     const config = getTypeConfig(asset.type)
     const Icon = config.icon
     const isExpanded = expandedId === asset.id
+    const isSynced = asset.source !== 'manual'
 
     return (
       <div key={asset.id} className="border border-border rounded-xl bg-card shadow-sm overflow-hidden">
@@ -306,6 +375,21 @@ export default function AssetsPage() {
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                 {t(`assets.type${asset.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`)}
               </Badge>
+              {isSynced && (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 text-sky-600 border-sky-200 gap-1"
+                  title={t('assets.syncedFrom', { source: asset.source })}
+                >
+                  <RefreshCw size={9} />
+                  {t('assets.synced')}
+                </Badge>
+              )}
+              {asset.maturity_date && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+                  {t('assets.maturesOn', { date: new Date(asset.maturity_date).toLocaleDateString(locale) })}
+                </Badge>
+              )}
               {asset.valuation_method === 'growth_rule' && asset.growth_rate && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-600 border-emerald-200">
                   +{asset.growth_type === 'percentage' ? `${asset.growth_rate}%` : formatCurrency(asset.growth_rate, asset.currency, locale)}
@@ -347,14 +431,25 @@ export default function AssetsPage() {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <button
-              onClick={(e) => { e.stopPropagation(); openEdit(asset) }}
+              onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }}
+              title={t('assets.moveToWallet')}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <FolderInput size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); if (!isSynced) openEdit(asset) }}
+              disabled={isSynced}
+              title={isSynced ? t('assets.syncedReadOnly') : undefined}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               <Pencil size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); setDeletingId(asset.id) }}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
+              onClick={(e) => { e.stopPropagation(); if (!isSynced) setDeletingId(asset.id) }}
+              disabled={isSynced}
+              title={isSynced ? t('assets.syncedReadOnly') : undefined}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
               <Trash2 size={14} />
             </button>
@@ -367,16 +462,155 @@ export default function AssetsPage() {
     )
   }
 
+  // Bucket active assets by group_id so each wallet renders with its
+  // total and collapse toggle. Un-grouped actives go under a synthetic
+  // bucket rendered at the end.
+  const assetsByGroup = useMemo(() => {
+    const map = new Map<string | null, Asset[]>()
+    for (const a of activeAssets) {
+      const key = a.group_id ?? null
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(a)
+    }
+    return map
+  }, [activeAssets])
+
+  const sortedWallets = useMemo(() => {
+    return (walletsList ?? []).slice().sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+  }, [walletsList])
+
+  const ungroupedAssets = assetsByGroup.get(null) ?? []
+
+  function toggleWalletCollapse(id: string) {
+    setCollapsedWallets(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function openCreateWallet() {
+    setEditingWallet(null)
+    setWalletFormName('')
+    setWalletFormColor('#0EA5E9')
+    setWalletDialogOpen(true)
+  }
+
+  function openEditWallet(wallet: AssetGroup) {
+    setEditingWallet(wallet)
+    setWalletFormName(wallet.name)
+    setWalletFormColor(wallet.color)
+    setWalletDialogOpen(true)
+  }
+
+  function handleSaveWallet() {
+    const name = walletFormName.trim()
+    if (!name) return
+    if (editingWallet) {
+      updateWalletMutation.mutate({ id: editingWallet.id, name, color: walletFormColor })
+    } else {
+      createWalletMutation.mutate({ name, color: walletFormColor })
+    }
+  }
+
+  function renderWalletSection(wallet: AssetGroup, walletAssets: Asset[]) {
+    const isCollapsed = collapsedWallets.has(wallet.id)
+    const isSynced = wallet.source !== 'manual'
+    // Sum in wallet's reported current_value (already computed by backend).
+    // Fall back to per-asset sum if the rollup is stale after a move.
+    const total = walletAssets.reduce((s, a) => s + (a.current_value_primary ?? a.current_value ?? 0), 0) || wallet.current_value_primary || wallet.current_value
+
+    // Only show the institution as a subtitle when it's actually
+    // additional information — if the user hasn't renamed the wallet,
+    // name and institution are identical and the subtitle would be
+    // redundant noise.
+    const showInstitutionSubtitle =
+      !!wallet.institution_name && wallet.institution_name !== wallet.name
+
+    return (
+      <div key={wallet.id} className="space-y-2">
+        <div className="flex items-center gap-3 px-1">
+          <button
+            onClick={() => toggleWalletCollapse(wallet.id)}
+            className="flex items-center gap-2 flex-1 min-w-0 group"
+          >
+            {isCollapsed ? (
+              <ChevronRight size={14} className="text-muted-foreground" />
+            ) : (
+              <ChevronDown size={14} className="text-muted-foreground" />
+            )}
+            <div
+              className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+              style={{ backgroundColor: `${wallet.color}20` }}
+            >
+              <Wallet size={13} style={{ color: wallet.color }} />
+            </div>
+            <div className="flex flex-col items-start min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0 w-full">
+                <span className="text-sm font-semibold text-foreground truncate">{wallet.name}</span>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  · {walletAssets.length} {t('assets.itemsCount')}
+                </span>
+              </div>
+              {showInstitutionSubtitle && (
+                <span className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                  <RefreshCw size={9} />
+                  {t('assets.syncedFrom', { source: wallet.institution_name })}
+                </span>
+              )}
+            </div>
+          </button>
+          <span className="text-sm font-bold tabular-nums text-foreground shrink-0">
+            {mask(formatCurrency(total, userCurrency, locale))}
+          </span>
+          <button
+            onClick={() => openEditWallet(wallet)}
+            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title={t('assets.editWallet')}
+          >
+            <Pencil size={12} />
+          </button>
+          {!isSynced && (
+            <button
+              onClick={() => setDeletingWalletId(wallet.id)}
+              className="p-1 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
+              title={t('assets.deleteWallet')}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+        {!isCollapsed && walletAssets.length > 0 && (
+          <div className="space-y-2 pl-4">
+            {walletAssets.map(renderAssetCard)}
+          </div>
+        )}
+        {!isCollapsed && walletAssets.length === 0 && (
+          <div className="pl-4 py-3 text-xs text-muted-foreground italic">
+            {t('assets.emptyWallet')}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         section={t('assets.title')}
         title={t('assets.title')}
         action={
-          <Button onClick={openCreate} className="gap-1.5">
-            <Plus size={16} />
-            {t('assets.addAsset')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={openCreateWallet} variant="outline" className="gap-1.5">
+              <Wallet size={16} />
+              {t('assets.newWallet')}
+            </Button>
+            <Button onClick={openCreate} className="gap-1.5">
+              <Plus size={16} />
+              {t('assets.addAsset')}
+            </Button>
+          </div>
         }
       />
 
@@ -384,6 +618,7 @@ export default function AssetsPage() {
       {portfolioData && portfolioData.trend.length > 1 && (
         <PortfolioChart
           data={portfolioData}
+          wallets={sortedWallets}
           currency={userCurrency}
           locale={locale}
           mask={mask}
@@ -396,15 +631,21 @@ export default function AssetsPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Active Assets */}
-          {activeAssets.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                {t('assets.activeAssets')}
-              </h3>
-              <div className="space-y-2">
-                {activeAssets.map(renderAssetCard)}
-              </div>
+          {/* Wallets (active assets grouped) */}
+          {(sortedWallets.length > 0 || ungroupedAssets.length > 0) && (
+            <div className="space-y-4">
+              {sortedWallets.map(w => renderWalletSection(w, assetsByGroup.get(w.id) ?? []))}
+
+              {ungroupedAssets.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
+                    {sortedWallets.length > 0 ? t('assets.ungrouped') : t('assets.activeAssets')}
+                  </h3>
+                  <div className="space-y-2">
+                    {ungroupedAssets.map(renderAssetCard)}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -656,19 +897,136 @@ export default function AssetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Wallet Create/Edit Dialog */}
+      <Dialog open={walletDialogOpen} onOpenChange={setWalletDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingWallet ? t('assets.editWallet') : t('assets.newWallet')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t('assets.walletName')}</Label>
+              <Input
+                value={walletFormName}
+                onChange={e => setWalletFormName(e.target.value)}
+                placeholder={t('assets.walletNamePlaceholder')}
+                autoFocus
+              />
+              {editingWallet?.institution_name && editingWallet.source !== 'manual' && (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <RefreshCw size={10} />
+                  {t('assets.syncedFromHint', { source: editingWallet.institution_name })}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>{t('assets.walletColor')}</Label>
+              <Input
+                type="color"
+                value={walletFormColor}
+                onChange={e => setWalletFormColor(e.target.value)}
+                className="h-9 w-20 px-1 py-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWalletDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleSaveWallet}
+              disabled={!walletFormName.trim() || createWalletMutation.isPending || updateWalletMutation.isPending}
+            >
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Wallet Confirmation */}
+      <Dialog open={!!deletingWalletId} onOpenChange={() => setDeletingWalletId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('assets.confirmDeleteWalletTitle')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t('assets.confirmDeleteWallet')}</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingWalletId(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deletingWalletId && deleteWalletMutation.mutate(deletingWalletId)}
+              disabled={deleteWalletMutation.isPending}
+            >
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Asset to Wallet Picker */}
+      <Dialog open={!!movingAsset} onOpenChange={() => setMovingAsset(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('assets.moveToWallet')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 max-h-80 overflow-y-auto">
+            <button
+              onClick={() => movingAsset && moveAssetMutation.mutate({ id: movingAsset.id, groupId: null })}
+              disabled={!movingAsset?.group_id || moveAssetMutation.isPending}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+            >
+              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-muted">
+                <Package size={13} className="text-muted-foreground" />
+              </div>
+              <span className="text-sm text-foreground">{t('assets.noWallet')}</span>
+            </button>
+            {sortedWallets.map(w => (
+              <button
+                key={w.id}
+                onClick={() => movingAsset && moveAssetMutation.mutate({ id: movingAsset.id, groupId: w.id })}
+                disabled={movingAsset?.group_id === w.id || moveAssetMutation.isPending}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+              >
+                <div
+                  className="w-6 h-6 rounded-md flex items-center justify-center"
+                  style={{ backgroundColor: `${w.color}20` }}
+                >
+                  <Wallet size={13} style={{ color: w.color }} />
+                </div>
+                <span className="text-sm text-foreground flex-1 truncate">{w.name}</span>
+                <span className="text-xs text-muted-foreground">{w.asset_count}</span>
+              </button>
+            ))}
+            {sortedWallets.length === 0 && (
+              <p className="text-xs text-muted-foreground italic px-3 py-2">
+                {t('assets.noWalletsHint')}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 const PORTFOLIO_COLORS = ['#6366F1', '#F43F5E', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
 
-function PortfolioChart({ data, currency, locale: loc, mask }: {
-  data: { assets: { id: string; name: string; type: string }[]; trend: Record<string, unknown>[]; total: number }
+function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
+  data: { assets: { id: string; name: string; type: string; group_id: string | null }[]; trend: Record<string, unknown>[]; total: number }
+  wallets: AssetGroup[]
   currency: string
   locale: string
   mask: (v: string) => string
 }) {
   const { t } = useTranslation()
+  // Default to wallet mode: with many synced CDBs the asset view turns
+  // into a cluttered rainbow legend that's hard to parse.
+  const [mode, setMode] = useState<'wallet' | 'asset'>('wallet')
 
   const formatCompact = (v: number) => {
     const abs = Math.abs(v)
@@ -677,10 +1035,100 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
     return v.toLocaleString(loc, { maximumFractionDigits: 0 })
   }
 
+  // Compute the series list and rewrite trend rows based on the selected
+  // mode. Wallet mode rolls all assets sharing a group_id into a single
+  // series (using the wallet's own color); ungrouped assets keep their
+  // individual lines so nothing disappears from the chart.
+  const { series, displayTrend } = useMemo(() => {
+    if (mode === 'asset') {
+      const s = data.assets.map((a, i) => ({
+        key: a.id,
+        name: a.name,
+        color: PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length],
+        sourceAssetIds: [a.id],
+      }))
+      return { series: s, displayTrend: data.trend }
+    }
+
+    const walletById = new Map<string, AssetGroup>()
+    for (const w of wallets) walletById.set(w.id, w)
+
+    const groupBuckets = new Map<string, string[]>()
+    const ungroupedAssetIds: string[] = []
+    for (const a of data.assets) {
+      if (a.group_id) {
+        if (!groupBuckets.has(a.group_id)) groupBuckets.set(a.group_id, [])
+        groupBuckets.get(a.group_id)!.push(a.id)
+      } else {
+        ungroupedAssetIds.push(a.id)
+      }
+    }
+
+    // Preserve wallet display order. Falls back to insertion order for
+    // wallets that show up in the data but aren't in the wallets list
+    // (e.g. race conditions between queries).
+    const orderedGroupIds = [
+      ...wallets.map(w => w.id).filter(id => groupBuckets.has(id)),
+      ...Array.from(groupBuckets.keys()).filter(id => !walletById.has(id)),
+    ]
+
+    const s: { key: string; name: string; color: string; sourceAssetIds: string[] }[] = []
+    let fallbackColorIdx = 0
+    for (const gid of orderedGroupIds) {
+      const wallet = walletById.get(gid)
+      const assetIds = groupBuckets.get(gid)!
+      s.push({
+        key: `w_${gid}`,
+        name: wallet?.name ?? t('assets.ungrouped'),
+        color: wallet?.color ?? PORTFOLIO_COLORS[fallbackColorIdx++ % PORTFOLIO_COLORS.length],
+        sourceAssetIds: assetIds,
+      })
+    }
+    for (const aid of ungroupedAssetIds) {
+      const asset = data.assets.find(a => a.id === aid)
+      s.push({
+        key: aid,
+        name: asset?.name ?? aid,
+        color: PORTFOLIO_COLORS[fallbackColorIdx++ % PORTFOLIO_COLORS.length],
+        sourceAssetIds: [aid],
+      })
+    }
+
+    const newTrend = data.trend.map(row => {
+      const newRow: Record<string, unknown> = { date: row.date, _total: row._total }
+      for (const entry of s) {
+        let sum = 0
+        for (const aid of entry.sourceAssetIds) {
+          sum += (row[aid] as number) ?? 0
+        }
+        newRow[entry.key] = sum
+      }
+      return newRow
+    })
+
+    return { series: s, displayTrend: newTrend }
+  }, [mode, data, wallets, t])
+
   return (
     <div className="border border-border rounded-xl bg-card shadow-sm p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-foreground">{t('assets.portfolioValue')}</h3>
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-foreground">{t('assets.portfolioValue')}</h3>
+          <div className="inline-flex items-center rounded-lg border border-border p-0.5 bg-muted/40">
+            <button
+              onClick={() => setMode('wallet')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${mode === 'wallet' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {t('assets.chartByWallet')}
+            </button>
+            <button
+              onClick={() => setMode('asset')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${mode === 'asset' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {t('assets.chartByAsset')}
+            </button>
+          </div>
+        </div>
         <div className="text-right">
           <span className="text-xs text-muted-foreground">{t('assets.total')}</span>
           <p className="text-lg font-bold tabular-nums text-foreground">
@@ -690,12 +1138,12 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
       </div>
       <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data.trend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+          <AreaChart data={displayTrend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
             <defs>
-              {data.assets.map((asset, i) => (
-                <linearGradient key={asset.id} id={`portfolio-grad-${asset.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]} stopOpacity={0.5} />
-                  <stop offset="100%" stopColor={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]} stopOpacity={0.1} />
+              {series.map(s => (
+                <linearGradient key={s.key} id={`portfolio-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={s.color} stopOpacity={0.5} />
+                  <stop offset="100%" stopColor={s.color} stopOpacity={0.1} />
                 </linearGradient>
               ))}
             </defs>
@@ -719,12 +1167,11 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
                 if (!active || !payload?.length) return null
                 const totalEntry = payload.find(p => p.dataKey === '_total')
                 const dateTotal = totalEntry?.value as number ?? 0
-                // Show real asset values (from original keys, not _neg_ keys)
-                const items = data.assets
-                  .map((a, i) => {
-                    const row = data.trend.find(r => r.date === label)
-                    const val = row ? (row[a.id] as number ?? 0) : 0
-                    return { id: a.id, name: a.name, value: val, color: PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length] }
+                const items = series
+                  .map(s => {
+                    const row = displayTrend.find(r => r.date === label)
+                    const val = row ? ((row[s.key] as number) ?? 0) : 0
+                    return { key: s.key, name: s.name, value: val, color: s.color }
                   })
                   .filter(item => item.value !== 0)
                   .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
@@ -735,7 +1182,7 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
                       {new Date(label + 'T00:00:00').toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}
                     </p>
                     {items.map(item => (
-                      <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 2 }}>
+                      <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 2 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: item.color, display: 'inline-block' }} />
                           {item.name}
@@ -751,16 +1198,16 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
                 )
               }}
             />
-            {/* Stacked areas — each asset is a colored band */}
-            {data.assets.map((asset, i) => (
+            {/* Stacked areas — one colored band per series */}
+            {series.map(s => (
               <Area
-                key={asset.id}
+                key={s.key}
                 type="monotone"
-                dataKey={asset.id}
+                dataKey={s.key}
                 stackId="portfolio"
-                stroke={PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length]}
+                stroke={s.color}
                 strokeWidth={1}
-                fill={`url(#portfolio-grad-${asset.id})`}
+                fill={`url(#portfolio-grad-${s.key})`}
                 dot={false}
                 activeDot={{ r: 3, strokeWidth: 1.5, fill: 'var(--card)' }}
               />
@@ -772,10 +1219,10 @@ function PortfolioChart({ data, currency, locale: loc, mask }: {
       </div>
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 px-1">
-        {data.assets.map((asset, i) => (
-          <div key={asset.id} className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PORTFOLIO_COLORS[i % PORTFOLIO_COLORS.length] }} />
-            <span className="text-[11px] text-muted-foreground">{asset.name}</span>
+        {series.map(s => (
+          <div key={s.key} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
+            <span className="text-[11px] text-muted-foreground">{s.name}</span>
           </div>
         ))}
       </div>

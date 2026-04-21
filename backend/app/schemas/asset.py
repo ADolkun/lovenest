@@ -23,6 +23,7 @@ class AssetCreate(BaseModel):
     growth_start_date: Optional[date] = None
     is_archived: bool = False
     position: int = 0
+    group_id: Optional[uuid.UUID] = None
 
 
 class AssetUpdate(BaseModel):
@@ -41,6 +42,10 @@ class AssetUpdate(BaseModel):
     growth_start_date: Optional[date] = None
     is_archived: Optional[bool] = None
     position: Optional[int] = None
+    # Use a sentinel to differentiate "don't change group" (field omitted)
+    # from "remove from group" (explicit null). Pydantic's exclude_unset
+    # already handles this via model_dump.
+    group_id: Optional[uuid.UUID] = None
 
 
 class AssetRead(BaseModel):
@@ -66,6 +71,11 @@ class AssetRead(BaseModel):
     gain_loss: Optional[float] = None
     gain_loss_primary: Optional[float] = None
     value_count: int = 0
+    source: str = "manual"
+    connection_id: Optional[uuid.UUID] = None
+    isin: Optional[str] = None
+    maturity_date: Optional[date] = None
+    group_id: Optional[uuid.UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
 

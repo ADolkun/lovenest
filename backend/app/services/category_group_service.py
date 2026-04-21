@@ -37,6 +37,7 @@ CATEGORY_TO_GROUP = {
     "personal_care": "lifestyle",
     "taxes": "other",
     "transfers": "other",
+    "investments": "other",
     "other": "other",
 }
 

@@ -11,6 +11,7 @@ from app.providers.base import (
     BankProvider,
     ConnectionData,
     ConnectTokenData,
+    HoldingData,
     TransactionData,
 )
 
@@ -25,6 +26,74 @@ def _parse_day(value) -> Optional[int]:
         return int(str(value)[8:10])
     except (ValueError, IndexError):
         return None
+
+
+def _decimal_or_none(value) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _date_or_none(value) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+# Fields from Pluggy /investments we promote to HoldingData top-level.
+# Everything else is preserved verbatim in `metadata` so we don't lose
+# information we might want later (status, rates, issuer, institution,
+# nested `metadata` for pensions, etc.) without tying our schema to Pluggy.
+_HOLDING_PROMOTED_KEYS = {
+    "id", "balance", "currencyCode", "quantity", "value",
+    "amountOriginal", "dueDate", "isin", "issueDate",
+}
+
+# Pluggy `type` values where `issueDate` equals the user's purchase date.
+# For EQUITY/MUTUAL_FUND/ETF, issueDate is when the fund/stock was created
+# — potentially years before the user bought in. Using it as purchase_date
+# would produce badly-wrong evolution charts, so we skip it for those.
+_ISSUE_DATE_IS_PURCHASE_DATE = {"FIXED_INCOME", "COE"}
+
+
+def _build_holding_data(inv: dict) -> HoldingData:
+    """Map a Pluggy investment payload to HoldingData.
+
+    `balance` is chosen over `amount` for current value: Pluggy documents
+    balance as net of taxes/fees (what a user could actually withdraw),
+    while amount is gross. The gross figure is kept in metadata for users
+    who care about the distinction.
+    """
+    current_value = _decimal_or_none(inv.get("balance")) or Decimal("0")
+    pluggy_status = (inv.get("status") or "").upper()
+    pluggy_type = (inv.get("type") or "").upper()
+
+    purchase_date: Optional[date] = None
+    if pluggy_type in _ISSUE_DATE_IS_PURCHASE_DATE:
+        purchase_date = _date_or_none(inv.get("issueDate"))
+
+    metadata = {k: v for k, v in inv.items() if k not in _HOLDING_PROMOTED_KEYS}
+
+    return HoldingData(
+        external_id=str(inv["id"]),
+        name=inv.get("name") or "Investment",
+        currency=inv.get("currencyCode") or "BRL",
+        current_value=current_value,
+        quantity=_decimal_or_none(inv.get("quantity")),
+        unit_price=_decimal_or_none(inv.get("value")),
+        purchase_price=_decimal_or_none(inv.get("amountOriginal")),
+        purchase_date=purchase_date,
+        isin=inv.get("isin") or None,
+        maturity_date=_date_or_none(inv.get("dueDate")),
+        is_withdrawn=pluggy_status == "TOTAL_WITHDRAWAL",
+        metadata=metadata or None,
+    )
 
 
 def _build_account_data(acc: dict, type_mapper) -> AccountData:
@@ -308,6 +377,41 @@ class PluggyProvider(BankProvider):
     async def refresh_credentials(self, credentials: dict) -> dict:
         # Pluggy manages API keys at the provider level, not per-connection
         return credentials
+
+    async def get_holdings(self, credentials: dict) -> list[HoldingData]:
+        """Fetch investment holdings from Pluggy's /investments endpoint.
+
+        /accounts only returns BANK/CREDIT types — brokerage positions,
+        fixed income, funds, pensions, etc. live under /investments and
+        come back with richer fields (quantity, unit price, profit,
+        maturity). We normalize to HoldingData; the rest goes into
+        `metadata` so downstream code doesn't leak Pluggy specifics.
+        """
+        item_id = credentials["item_id"]
+        headers = await self._headers()
+        holdings: list[HoldingData] = []
+        page = 1
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            while True:
+                resp = await client.get(
+                    f"{PLUGGY_API_BASE}/investments",
+                    headers=headers,
+                    params={"itemId": item_id, "pageSize": 500, "page": page},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                results = data.get("results", [])
+                for inv in results:
+                    holdings.append(_build_holding_data(inv))
+
+                total_pages = data.get("totalPages", 1)
+                if page >= total_pages or not results:
+                    break
+                page += 1
+
+        return holdings
 
     @staticmethod
     def _extract_payee(txn: dict, txn_type: str, payee_source: str = "auto") -> Optional[str]:

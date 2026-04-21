@@ -44,6 +44,7 @@ export interface Category {
   icon: string
   color: string
   is_system: boolean
+  treat_as_transfer: boolean
 }
 
 export interface CategoryGroup {
@@ -314,6 +315,26 @@ export interface Asset {
   gain_loss: number | null
   gain_loss_primary: number | null
   value_count: number
+  source: string
+  connection_id: string | null
+  isin: string | null
+  maturity_date: string | null
+  group_id: string | null
+}
+
+export interface AssetGroup {
+  id: string
+  user_id: string
+  name: string
+  icon: string
+  color: string
+  position: number
+  source: string
+  connection_id: string | null
+  institution_name: string | null
+  asset_count: number
+  current_value: number
+  current_value_primary: number
 }
 
 export interface AssetValue {

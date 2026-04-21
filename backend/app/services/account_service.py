@@ -10,6 +10,7 @@ from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate
+from app.services._query_filters import counts_as_pnl
 from app.services.credit_card_service import apply_effective_date, compute_available_credit, get_cycle_dates
 
 
@@ -498,25 +499,26 @@ async def get_account_summary(
     if account.type == "credit_card" and account.connection_id:
         current_balance = -current_balance
 
-    # Income = SUM of credit transactions in [date_from, date_to] (excluding opening_balance and transfers)
+    # Income = SUM of credit transactions in [date_from, date_to] (excluding
+    # opening_balance, paired transfers, and transfer-like categories).
     income_result = await session.execute(
         select(func.coalesce(func.sum(effective_amount), 0)).where(
             Transaction.account_id == account_id,
             Transaction.type == "credit",
             Transaction.source != "opening_balance",
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
             Transaction.date >= date_from,
             Transaction.date <= date_to,
         )
     )
     monthly_income = float(income_result.scalar())
 
-    # Expenses = SUM of debit transactions in [date_from, date_to] (as positive value, excluding transfers)
+    # Expenses = SUM of debit transactions in [date_from, date_to] (same exclusions)
     expenses_result = await session.execute(
         select(func.coalesce(func.sum(func.abs(effective_amount)), 0)).where(
             Transaction.account_id == account_id,
             Transaction.type == "debit",
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
             Transaction.date >= date_from,
             Transaction.date <= date_to,
         )

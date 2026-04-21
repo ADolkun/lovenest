@@ -13,6 +13,7 @@ from app.models.transaction import Transaction
 from app.models.category import Category
 from app.models.recurring_transaction import RecurringTransaction
 from app.schemas.dashboard import DashboardSummary, SpendingByCategory, MonthlyTrend, ProjectedTransaction, DailyBalance, BalanceHistory
+from app.services._query_filters import counts_as_pnl
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.recurring_transaction_service import get_occurrences_in_range
 from app.services.asset_service import get_total_asset_value
@@ -111,7 +112,8 @@ async def get_summary(
             total_balance[proj["currency"]] = total_balance.get(proj["currency"], 0.0) + signed
 
     # Monthly income and expenses — exclude opening_balance so initial deposits
-    # don't inflate the month's income figure. Also exclude transfer pairs.
+    # don't inflate the month's income figure. counts_as_pnl() also skips
+    # paired transfers and transfer-like categories (e.g. Investimentos).
     monthly_result = await session.execute(
         select(
             func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
@@ -124,7 +126,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
         )
     )
     monthly_row = monthly_result.one()
@@ -204,7 +206,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
             Transaction.amount_primary.isnot(None),
         )
     )
@@ -261,8 +263,8 @@ async def get_spending_by_category(
         Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
     )
 
-    # Real transactions grouped by category (exclude transfer pairs and closed accounts)
-    # Use amount_primary for multi-currency support
+    # Real transactions grouped by category (exclude transfer-like movements
+    # and closed accounts). Use amount_primary for multi-currency support.
     result = await session.execute(
         select(
             Category.id,
@@ -280,7 +282,7 @@ async def get_spending_by_category(
             Transaction.type == "debit",
             report_date >= month_start,
             report_date < month_end,
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
         )
         .group_by(Category.id, Category.name, Category.icon, Category.color)
         .order_by(func.sum(_primary_amount_expr()).desc())
@@ -371,7 +373,7 @@ async def get_monthly_trend(
             Transaction.user_id == user_id,
             Account.is_closed == False,
             Transaction.source != "opening_balance",
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
         )
         .group_by(month_label)
         .order_by(month_label.desc())

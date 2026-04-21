@@ -45,6 +45,7 @@ export default function CategoriesPage() {
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [formIcon, setFormIcon] = useState('circle-help')
   const [formColor, setFormColor] = useState('#6366f1')
+  const [formTreatAsTransfer, setFormTreatAsTransfer] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<CategoryGroup | null>(null)
   const [groupFormIcon, setGroupFormIcon] = useState('folder')
@@ -108,6 +109,7 @@ export default function CategoriesPage() {
     setEditingCat(cat)
     setFormIcon(cat?.icon ?? 'circle-help')
     setFormColor(cat?.color ?? '#6366f1')
+    setFormTreatAsTransfer(cat?.treat_as_transfer ?? false)
     setCatDialogOpen(true)
   }
 
@@ -121,7 +123,17 @@ export default function CategoriesPage() {
   const renderCategoryItem = (cat: Category) => (
     <div key={cat.id} className="flex items-center gap-3 px-4 sm:px-5 pl-6 sm:pl-12 py-2.5 border-b border-border last:border-0 hover:bg-muted transition-colors">
       <CategoryIcon icon={cat.icon} color={cat.color} size="md" />
-      <span className="text-sm font-medium text-foreground flex-1 min-w-0 truncate">{cat.name}</span>
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="text-sm font-medium text-foreground truncate">{cat.name}</span>
+        {cat.treat_as_transfer && (
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0"
+            title={t('categories.treatAsTransferDesc')}
+          >
+            {t('categories.treatAsTransferBadge')}
+          </span>
+        )}
+      </div>
       <div className="hidden sm:flex items-center gap-2 shrink-0">
         <span className="inline-block w-3.5 h-3.5 rounded-full border border-black/10" style={{ backgroundColor: cat.color }} />
         <span className="text-xs text-muted-foreground font-mono">{cat.color}</span>
@@ -249,6 +261,7 @@ export default function CategoriesPage() {
                 icon: formData.get('icon') as string,
                 color: formData.get('color') as string,
                 group_id: (formData.get('group_id') as string) || null,
+                treat_as_transfer: formTreatAsTransfer,
               }
               if (editingCat) {
                 updateCatMutation.mutate({ id: editingCat.id, ...data })
@@ -283,6 +296,20 @@ export default function CategoriesPage() {
               <Label>{t('groups.icon')}</Label>
               <IconPicker value={formIcon} color={formColor} onChange={setFormIcon} />
               <input type="hidden" name="icon" value={formIcon} />
+            </div>
+            <div className="pt-2 border-t border-border">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formTreatAsTransfer}
+                  onChange={(e) => setFormTreatAsTransfer(e.target.checked)}
+                  className="h-4 w-4 mt-0.5 rounded border-border shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-foreground">{t('categories.treatAsTransfer')}</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t('categories.treatAsTransferDesc')}</p>
+                </div>
+              </label>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => { setCatDialogOpen(false); setEditingCat(null) }}>

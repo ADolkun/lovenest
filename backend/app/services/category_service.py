@@ -10,7 +10,10 @@ from app.services.category_group_service import CATEGORY_TO_GROUP, create_defaul
 
 
 # Language-keyed translations for default categories
-# Keys are internal identifiers used to map to groups and rules
+# Keys are internal identifiers used to map to groups and rules.
+# `treat_as_transfer` marks categories whose transactions are flows, not
+# income/expense — they're excluded from report aggregations like paired
+# transfers are.
 DEFAULT_CATEGORIES_I18N = {
     "housing":       {"en": "Housing",       "pt-BR": "Moradia",        "icon": "house",            "color": "#8B5CF6"},
     "food":          {"en": "Food & Dining", "pt-BR": "Alimentação",    "icon": "utensils-crossed", "color": "#F59E0B"},
@@ -20,7 +23,8 @@ DEFAULT_CATEGORIES_I18N = {
     "leisure":       {"en": "Leisure",       "pt-BR": "Lazer",          "icon": "gamepad-2",        "color": "#EC4899"},
     "subscriptions": {"en": "Subscriptions", "pt-BR": "Assinaturas",    "icon": "smartphone",       "color": "#6366F1"},
     "education":     {"en": "Education",     "pt-BR": "Educação",       "icon": "book-open",        "color": "#22C55E"},
-    "transfers":     {"en": "Transfers",     "pt-BR": "Transferências", "icon": "arrow-left-right", "color": "#64748B"},
+    "transfers":     {"en": "Transfers",     "pt-BR": "Transferências", "icon": "arrow-left-right", "color": "#64748B", "treat_as_transfer": True},
+    "investments":   {"en": "Investments",   "pt-BR": "Investimentos",  "icon": "trending-up",      "color": "#0EA5E9", "treat_as_transfer": True},
     "salary":        {"en": "Salary & Income",  "pt-BR": "Salário & Renda",     "icon": "banknote",         "color": "#16A34A"},
     "shopping":      {"en": "Shopping",         "pt-BR": "Compras",             "icon": "shopping-bag",     "color": "#F97316"},
     "donations":     {"en": "Donations",        "pt-BR": "Doações",             "icon": "heart-handshake",  "color": "#D946EF"},
@@ -53,6 +57,7 @@ async def create_default_categories(session: AsyncSession, user_id: uuid.UUID, l
             color=data["color"],
             is_system=True,
             group_id=group.id if group else None,
+            treat_as_transfer=data.get("treat_as_transfer", False),
         )
         session.add(category)
         categories.append(category)

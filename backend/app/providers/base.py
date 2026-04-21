@@ -53,6 +53,31 @@ class ConnectTokenData:
     access_token: str
 
 
+@dataclass
+class HoldingData:
+    """A normalized investment holding, provider-agnostic.
+
+    Providers that don't expose holdings-style data return an empty list
+    from `get_holdings`. Provider-specific fields that don't fit the common
+    shape (rate, profit, issuer, status, type/subtype labels, etc.) go in
+    `metadata` as-is — the sync layer stores it on Asset.external_metadata
+    without trying to normalize it.
+    """
+
+    external_id: str
+    name: str
+    currency: str
+    current_value: Decimal
+    quantity: Optional[Decimal] = None
+    unit_price: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
+    purchase_date: Optional[date] = None
+    isin: Optional[str] = None
+    maturity_date: Optional[date] = None
+    is_withdrawn: bool = False  # provider signaled the position was sold/transferred
+    metadata: Optional[dict] = None
+
+
 class FxRateProvider(ABC):
     """Abstract interface for FX rate providers."""
 
@@ -124,3 +149,12 @@ class BankProvider(ABC):
     async def refresh_credentials(self, credentials: dict) -> dict:
         """Refresh access token if needed."""
         ...
+
+    async def get_holdings(self, credentials: dict) -> list[HoldingData]:
+        """Fetch investment holdings for a connection.
+
+        Providers that don't expose holdings (cash-only accounts, custom
+        script providers without brokerage data, etc.) can rely on the
+        default empty list.
+        """
+        return []

@@ -1,24 +1,32 @@
+import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
+from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.account import Account
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
+from app.providers.base import HoldingData
 from app.services.account_service import sync_opening_balance_for_connected_account
+from app.services.asset_group_service import ensure_group_for_connection
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -46,6 +54,248 @@ PLUGGY_CATEGORY_MAP = {
     "Transfers": "Transferências",
     "Wire transfers": "Transferências",
 }
+
+
+async def _sync_holdings(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    connection: BankConnection,
+    credentials: dict,
+) -> None:
+    """Fetch investment holdings from the provider and upsert them as Assets.
+
+    Each holding becomes one Asset (type="investment") keyed by
+    (user_id, source, external_id). Every sync appends an AssetValue row
+    dated today; if a row for today already exists (same day re-sync) it
+    is updated in place rather than creating a duplicate.
+
+    Holdings that disappear from the provider response (e.g. fully
+    redeemed fixed income) get archived rather than deleted so the user
+    keeps their value history.
+
+    Failures here are swallowed: not all Pluggy connectors expose
+    investment data, and we don't want a brokerage hiccup to break the
+    bank-account sync that just succeeded.
+    """
+    # Tolerate provider-side failures (e.g. Pluggy returning 500 for a
+    # specific connector, a bank that doesn't expose /investments).
+    # Storage errors below are intentionally not caught — they indicate
+    # a schema/invariant bug we want to surface, not a hiccup to swallow.
+    try:
+        provider = get_provider(connection.provider)
+        holdings = await provider.get_holdings(credentials)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to fetch holdings for connection %s", connection.id
+        )
+        return
+
+    source = connection.provider
+    today = date.today()
+
+    # Find-or-create the wallet that will own this connection's holdings.
+    # Name defaults to the institution; users can rename freely without
+    # breaking future syncs (matching is by external_id).
+    group: Optional[AssetGroup] = None
+    if holdings:
+        group = await ensure_group_for_connection(
+            session,
+            user_id=user_id,
+            connection_id=connection.id,
+            source=source,
+            external_id=connection.external_id,
+            default_name=connection.institution_name,
+        )
+
+    # Also pull orphans (connection_id IS NULL) with the same source —
+    # those are assets archived by a prior disconnect. Re-matching on
+    # external_id lets users re-link their investment history when they
+    # re-add a connection without creating duplicate rows.
+    existing_rows = await session.execute(
+        select(Asset).where(
+            Asset.user_id == user_id,
+            Asset.source == source,
+            or_(Asset.connection_id == connection.id, Asset.connection_id.is_(None)),
+        )
+    )
+    existing_by_external: dict[str, Asset] = {
+        a.external_id: a for a in existing_rows.scalars().all() if a.external_id
+    }
+    seen: set[str] = set()
+
+    for holding in holdings:
+        seen.add(holding.external_id)
+        existing = existing_by_external.get(holding.external_id)
+
+        # Provider-reported closure (Pluggy TOTAL_WITHDRAWAL). Two cases:
+        #   - New + withdrawn: skip entirely. A dead zero-balance asset
+        #     with no history is noise; the user never saw this position
+        #     while it was active, no reason to surface it closed.
+        #   - Existing + withdrawn: mark sell_date (if not already set by
+        #     the user) so it drops out of current totals but historical
+        #     AssetValues remain visible in reports. No new AssetValue —
+        #     appending today's zero would bury the real closing value.
+        if holding.is_withdrawn:
+            if existing is None:
+                continue
+            if existing.sell_date is None:
+                existing.sell_date = today
+            # Keep descriptive fields fresh in case the provider still
+            # updates them post-closure, but don't touch valuation.
+            existing.name = holding.name
+            existing.external_metadata = holding.metadata
+            existing.connection_id = connection.id
+            continue
+
+        asset = await _upsert_asset_from_holding(
+            session, existing, holding, user_id, connection.id, source,
+        )
+        # Attach to the connection's wallet. We only set group_id when
+        # it's currently null so a user who moved this holding to a
+        # custom wallet ("US Stocks") doesn't get overridden back on
+        # every sync.
+        if group is not None and asset.group_id is None:
+            asset.group_id = group.id
+        # Seed a historical value at purchase_date so users get a real
+        # evolution curve from day one — not just today's snapshot.
+        # Idempotent: skips if any AssetValue already exists at that date.
+        if holding.purchase_date and holding.purchase_price is not None:
+            await _ensure_historical_seed(
+                session, asset, holding.purchase_date, holding.purchase_price
+            )
+        # Respect a user-set sell_date: if they've marked the asset as
+        # sold we stop recording new values even when the provider still
+        # reports the position. Historical values stay; current totals
+        # already exclude it via the sell_date filter in rollups.
+        if asset.sell_date is None:
+            await _upsert_asset_value_for_today(session, asset, holding.current_value, today)
+
+    for ext_id, asset in existing_by_external.items():
+        if ext_id not in seen and not asset.is_archived:
+            asset.is_archived = True
+
+
+async def _upsert_asset_from_holding(
+    session: AsyncSession,
+    asset: Optional[Asset],
+    holding: HoldingData,
+    user_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    source: str,
+) -> Asset:
+    """Create or update an Asset from a HoldingData payload.
+
+    Synced fields (name, currency, quantity, purchase_price, maturity,
+    metadata) are always overwritten — the UI disables editing these on
+    synced assets. Provider-reported withdrawal is handled by the caller
+    via `sell_date`, not here, so this function only ever sees ACTIVE
+    holdings and never flips `is_archived` on its own.
+    """
+    if asset is None:
+        asset = Asset(
+            user_id=user_id,
+            connection_id=connection_id,
+            source=source,
+            external_id=holding.external_id,
+            name=holding.name,
+            type="investment",
+            currency=holding.currency,
+            units=holding.quantity,
+            purchase_price=holding.purchase_price,
+            purchase_date=holding.purchase_date,
+            isin=holding.isin,
+            maturity_date=holding.maturity_date,
+            external_metadata=holding.metadata,
+            valuation_method="manual",
+        )
+        session.add(asset)
+        await session.flush()
+        return asset
+
+    # Fields Pluggy consistently returns — safe to overwrite each sync.
+    asset.name = holding.name
+    asset.currency = holding.currency
+    # external_metadata is a snapshot blob: we want the latest every time.
+    asset.external_metadata = holding.metadata
+    asset.connection_id = connection_id
+
+    # Sparse fields — merge, don't clobber. Pluggy sometimes returns
+    # these on first sync and null on later ones (e.g. amountOriginal
+    # present at creation, missing on daily rebalances). Keeping the
+    # first-seen value is better than wiping data we already have.
+    if holding.quantity is not None:
+        asset.units = holding.quantity
+    if holding.purchase_price is not None:
+        asset.purchase_price = holding.purchase_price
+    if holding.purchase_date:
+        asset.purchase_date = holding.purchase_date
+    if holding.isin:
+        asset.isin = holding.isin
+    if holding.maturity_date:
+        asset.maturity_date = holding.maturity_date
+    return asset
+
+
+async def _ensure_historical_seed(
+    session: AsyncSession,
+    asset: Asset,
+    purchase_date: date,
+    purchase_price,
+) -> None:
+    """Insert a one-time AssetValue at purchase_date with purchase_price.
+
+    Called on every sync but a no-op once the seed exists. Skips if ANY
+    AssetValue already exists on that date (even a manual one) — we don't
+    want to stomp a value the user may have entered themselves.
+    """
+    existing = await session.execute(
+        select(AssetValue).where(
+            AssetValue.asset_id == asset.id,
+            AssetValue.date == purchase_date,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return
+    session.add(
+        AssetValue(
+            asset_id=asset.id,
+            amount=purchase_price,
+            date=purchase_date,
+            source="sync",
+        )
+    )
+
+
+async def _upsert_asset_value_for_today(
+    session: AsyncSession,
+    asset: Asset,
+    amount,
+    today: date,
+) -> None:
+    """One sync-sourced AssetValue per asset per day.
+
+    Re-syncing the same day updates the amount in place; a later day
+    creates a new row so we build a daily valuation history over time.
+    """
+    existing = await session.execute(
+        select(AssetValue).where(
+            AssetValue.asset_id == asset.id,
+            AssetValue.date == today,
+            AssetValue.source == "sync",
+        )
+    )
+    row = existing.scalar_one_or_none()
+    if row is not None:
+        row.amount = amount
+    else:
+        session.add(
+            AssetValue(
+                asset_id=asset.id,
+                amount=amount,
+                date=today,
+                source="sync",
+            )
+        )
 
 
 async def _match_pluggy_category(
@@ -224,6 +474,11 @@ async def handle_oauth_callback(
 
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, user_id, candidate_ids=new_tx_ids)
+
+    # Investment holdings live on /investments — separate endpoint from
+    # /accounts. Pulled after account setup so holdings are available on
+    # the Assets page immediately after the widget closes.
+    await _sync_holdings(session, user_id, connection, connection_data.credentials)
 
     connection.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
@@ -521,6 +776,12 @@ async def sync_connection(
         # the real one, the orphan twin gets removed here.
         await _cleanup_phantom_duplicates(session, connection.id)
 
+        # Refresh investment holdings (brokerage, fixed income, funds,
+        # etc.). Errors here are logged but don't fail the sync; a bank
+        # connector that doesn't expose /investments shouldn't block the
+        # transaction sync that just succeeded.
+        await _sync_holdings(session, user_id, connection, credentials)
+
         connection.last_sync_at = datetime.now(timezone.utc)
         connection.status = "active"
         await session.commit()
@@ -543,6 +804,17 @@ async def delete_connection(
     connection = await get_connection(session, connection_id, user_id)
     if not connection:
         return False
+
+    # Archive synced investment assets rather than deleting them: the user
+    # may still want to see their historical AssetValue trend, and if they
+    # re-connect the same provider later we can un-archive by matching
+    # (user_id, source, external_id). The FK's ON DELETE SET NULL will
+    # then clear connection_id when the row is removed below.
+    await session.execute(
+        update(Asset)
+        .where(Asset.connection_id == connection.id)
+        .values(is_archived=True)
+    )
 
     await session.delete(connection)
     await session.commit()

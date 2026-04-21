@@ -1,15 +1,16 @@
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.asset_group import AssetGroup
     from app.models.asset_value import AssetValue
 
 
@@ -35,4 +36,24 @@ class Asset(Base):
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Provider-agnostic sync fields. `source` tags where the asset came from
+    # ("manual", "pluggy", ...). `external_id` is the source's stable ID for
+    # the same logical holding across syncs. `connection_id` links back to the
+    # provider connection when the source requires authentication.
+    connection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bank_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(50), default="manual")
+    isin: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    maturity_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    external_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
+    # Optional parent group ("wallet"). NULL means ungrouped. Deleting a
+    # group nullifies this field rather than removing the asset.
+    group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("asset_groups.id", ondelete="SET NULL"), nullable=True
+    )
+
     values: Mapped[list["AssetValue"]] = relationship(back_populates="asset", cascade="all, delete-orphan")
+    group: Mapped[Optional["AssetGroup"]] = relationship(back_populates="assets")

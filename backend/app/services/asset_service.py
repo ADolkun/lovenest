@@ -112,6 +112,11 @@ def _asset_to_read(asset: Asset, latest_value: Optional[AssetValue], value_count
         current_value=current_value,
         gain_loss=gain_loss,
         value_count=value_count,
+        source=asset.source,
+        connection_id=asset.connection_id,
+        isin=asset.isin,
+        maturity_date=asset.maturity_date,
+        group_id=asset.group_id,
     )
 
 
@@ -190,6 +195,7 @@ async def create_asset(
         growth_start_date=data.growth_start_date,
         is_archived=data.is_archived,
         position=data.position,
+        group_id=data.group_id,
     )
     session.add(asset)
     await session.flush()
@@ -436,7 +442,12 @@ async def get_portfolio_trend(
 
     for asset in active_assets:
         aid = str(asset.id)
-        asset_meta.append({"id": aid, "name": asset.name, "type": asset.type})
+        asset_meta.append({
+            "id": aid,
+            "name": asset.name,
+            "type": asset.type,
+            "group_id": str(asset.group_id) if asset.group_id else None,
+        })
         asset_currency[aid] = asset.currency
 
         rows = await session.execute(

@@ -23,5 +23,13 @@ class Category(Base):
     color: Mapped[str] = mapped_column(String(7), default="#6B7280")
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Flag for "money that moves rather than money earned or spent".
+    # Transactions in these categories are excluded from income/expense
+    # aggregations in dashboards and reports — same treatment as paired
+    # transfers (transfer_pair_id IS NOT NULL), but category-based so we
+    # can catch one-sided movements like an investment application where
+    # the counterpart lives in Assets, not Accounts.
+    treat_as_transfer: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     user: Mapped["User"] = relationship(back_populates="categories")
     group: Mapped[Optional["CategoryGroup"]] = relationship(back_populates="categories")

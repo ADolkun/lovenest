@@ -44,6 +44,17 @@ UNIVERSAL_RULES = [
     {"name": "Salary / Payroll", "conditions_op": "and", "conditions": [
         {"field": "description", "op": "regex", "value": "SALARY|PAYROLL|DIRECT DEPOSIT"},
     ], "actions": [{"op": "set_category", "value": "salary"}], "priority": 10},
+
+    # Investment movements (aplicação/resgate, CDBs, Tesouro, funds). The target
+    # category is flagged `treat_as_transfer=true` so reports exclude these
+    # from income/expense — the "other side" of the movement is the Asset
+    # (holding) that grew or shrank, not a real gain or cost.
+    # Patterns are PT-first since Pluggy (our primary connector) is Brazilian;
+    # they're harmless no-ops against English descriptions.
+    {"name": "Investimentos (Aplicação / Resgate)", "conditions_op": "or", "conditions": [
+        {"field": "description", "op": "regex",
+         "value": r"APLICACAO|APLICAÇÃO|RESGATE|DEB FUNDO|CREDITO FUNDO|CRÉDITO FUNDO|COMPRA CDB|VENDA CDB|TESOURO DIRETO|RENDA FIXA|\bCDB\b|\bLCA\b|\bLCI\b|DEBENTURE|FUNDO DE INVESTIMENTO"},
+    ], "actions": [{"op": "set_category", "value": "investments"}], "priority": 20},
 ]
 
 # ─── Country-specific rule packs (optional, not auto-applied) ───

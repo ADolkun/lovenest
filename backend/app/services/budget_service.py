@@ -12,6 +12,7 @@ from app.models.category_group import CategoryGroup
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.budget import BudgetCreate, BudgetUpdate, BudgetVsActual
+from app.services._query_filters import counts_as_pnl
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import _get_recurring_projections
 from app.services.fx_rate_service import convert
@@ -262,7 +263,7 @@ async def get_budget_vs_actual(
             report_date >= month_start,
             report_date < month_end,
             Transaction.category_id.isnot(None),
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
         )
         .group_by(Transaction.category_id)
     )
@@ -294,7 +295,7 @@ async def get_budget_vs_actual(
             report_date >= prev_month_start,
             report_date < prev_month_end,
             Transaction.category_id.isnot(None),
-            Transaction.transfer_pair_id.is_(None),
+            counts_as_pnl(),
         )
         .group_by(Transaction.category_id)
     )
