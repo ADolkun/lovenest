@@ -145,6 +145,40 @@ class TestParseCsv:
         assert len(transactions) == 1
         assert transactions[0].date == date(2025, 12, 25)
 
+    def test_parse_csv_semicolon_delimiter(self):
+        """CSV using semicolons as delimiter should be parsed correctly."""
+        csv_content = (
+            "date;description;amount\n"
+            "15/01/2026;Grocery Store;-120.50\n"
+            "20/01/2026;Salary Payment;5000.00\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 2
+        assert transactions[0].description == "Grocery Store"
+        assert transactions[0].amount == Decimal("120.50")
+        assert transactions[0].type == "debit"
+        assert transactions[1].description == "Salary Payment"
+        assert transactions[1].amount == Decimal("5000.00")
+        assert transactions[1].type == "credit"
+
+    def test_parse_csv_tab_delimiter(self):
+        """CSV using tabs as delimiter should be parsed correctly."""
+        csv_content = (
+            "date\tdescription\tamount\n"
+            "2026-01-15\tGrocery Store\t-120.50\n"
+            "2026-01-20\tSalary Payment\t5000.00\n"
+        )
+        transactions = parse_csv(csv_content.encode("utf-8"))
+
+        assert len(transactions) == 2
+        assert transactions[0].description == "Grocery Store"
+        assert transactions[0].amount == Decimal("120.50")
+        assert transactions[0].type == "debit"
+        assert transactions[1].description == "Salary Payment"
+        assert transactions[1].amount == Decimal("5000.00")
+        assert transactions[1].type == "credit"
+
     def test_parse_csv_empty_file(self):
         """A CSV with only headers and no data rows should return empty list."""
         csv_content = "date,description,amount\n"

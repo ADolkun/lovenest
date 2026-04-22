@@ -207,7 +207,12 @@ def parse_csv(
     - inflow_column/outflow_column: use split columns instead of single amount
     """
     text = content.decode('utf-8-sig')  # Handle BOM
-    reader = csv.DictReader(io.StringIO(text))
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+    except csv.Error:
+        dialect = csv.excel  # fallback to comma
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
 
     # Normalize field names
     fieldnames = [f.lower().strip() for f in (reader.fieldnames or [])]
