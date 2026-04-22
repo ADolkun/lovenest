@@ -428,9 +428,12 @@ async def close_account(
     account.is_closed = True
     account.closed_at = datetime.now(timezone.utc)
 
-    # Unlink from bank connection so sync skips it
-    if account.connection_id is not None:
-        account.connection_id = None
+    # Keep `connection_id` intact for connected accounts so the sync loop in
+    # connection_service can find the account by (connection_id, external_id)
+    # and honor the `is_closed` skip. Unlinking caused the next sync to treat
+    # the provider account as new and create a duplicate active row, while
+    # leaving the original entry stranded in "Closed Accounts" with no link
+    # back to its connection (issue #90).
 
     await session.commit()
     await session.refresh(account)

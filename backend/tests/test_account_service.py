@@ -335,14 +335,19 @@ async def test_close_account(session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
-async def test_close_bank_connected_unlinks(session: AsyncSession, test_user, test_connection):
-    """Closing bank-connected account sets connection_id to None."""
+async def test_close_bank_connected_keeps_link(session: AsyncSession, test_user, test_connection):
+    """Closing a bank-connected account keeps its connection link.
+
+    Sync uses (connection_id, external_id) to find the row; unlinking on close
+    caused sync to create a duplicate active account (issue #90). The is_closed
+    flag alone is enough to keep sync from touching it.
+    """
     account = await _make_account(
         session, test_user.id, "Connected Close",
         connection_id=test_connection.id, external_id="ext-close",
     )
     closed = await close_account(session, account.id, test_user.id)
-    assert closed.connection_id is None
+    assert closed.connection_id == test_connection.id
     assert closed.is_closed is True
 
 

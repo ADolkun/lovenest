@@ -626,6 +626,14 @@ async def sync_connection(
             )
             account = result.scalar_one_or_none()
 
+            # Honor user intent: a closed connected account stays closed and is
+            # not touched by sync. The row is left alone (no balance/name
+            # rewrite, no new transactions) but the connection link is kept so
+            # the next sync still finds it here instead of creating a duplicate
+            # active account (issue #90).
+            if account and account.is_closed:
+                continue
+
             if account:
                 account.balance = acc_data.balance
                 account.name = acc_data.name
@@ -668,9 +676,6 @@ async def sync_connection(
                 )
                 session.add(account)
                 await session.flush()
-
-            if account and account.is_closed:
-                continue
 
             # Fetch and sync transactions. The 14-day rewind is on Pluggy's
             # `createdAt` (when their row was inserted), so it covers two

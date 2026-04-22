@@ -620,3 +620,63 @@ async def test_sync_connection_preserves_display_name(session: AsyncSession, tes
     await session.refresh(account)
     assert account.name == "BANCO ATUALIZADO"
     assert account.display_name == "Meu Apelido"
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_does_not_recreate_closed_accounts(
+    session: AsyncSession, test_user,
+):
+    """Closing a connected account then resyncing must NOT create a duplicate
+    active row for the same provider account, and the original closed row must
+    keep its connection link so we can find it on subsequent syncs (issue #90).
+    """
+    from app.models.account import Account
+    from app.services.account_service import close_account
+
+    conn = await _make_connection(session, test_user.id, "Closed Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="closed-acc-1", name="Checking",
+            type="checking", balance=Decimal("500"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_user.id)
+
+    account = (await session.execute(
+        select(Account).where(Account.external_id == "closed-acc-1")
+    )).scalar_one()
+    assert account.connection_id == conn.id
+
+    await close_account(session, account.id, test_user.id)
+    await session.refresh(account)
+    assert account.is_closed is True
+    assert account.connection_id == conn.id  # link preserved
+
+    # Provider still returns the same account on the next sync
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="closed-acc-1", name="Checking",
+            type="checking", balance=Decimal("999"), currency="BRL",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Account).where(Account.external_id == "closed-acc-1")
+    )).scalars().all()
+    assert len(rows) == 1, "sync must not create a duplicate active row"
+    assert rows[0].is_closed is True
+    assert rows[0].balance == Decimal("500"), "closed accounts must not be touched by sync"

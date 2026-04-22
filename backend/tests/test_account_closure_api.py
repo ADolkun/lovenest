@@ -26,11 +26,18 @@ async def test_close_manual_account(client: AsyncClient, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_close_bank_connected_account_unlinks(
+async def test_close_bank_connected_account_keeps_connection_link(
     client: AsyncClient, auth_headers, test_account: Account
 ):
-    """Closing a bank-connected account unlinks it from the connection."""
+    """Closing a bank-connected account preserves its connection link.
+
+    The next sync looks up accounts by (connection_id, external_id); unlinking
+    on close caused sync to treat the provider account as new and create a
+    duplicate active row (issue #90). The closed flag alone is enough to keep
+    sync from touching the account.
+    """
     assert test_account.connection_id is not None
+    original_connection_id = str(test_account.connection_id)
 
     close_resp = await client.post(
         f"/api/accounts/{test_account.id}/close", headers=auth_headers
@@ -38,7 +45,7 @@ async def test_close_bank_connected_account_unlinks(
     assert close_resp.status_code == 200
     data = close_resp.json()
     assert data["is_closed"] is True
-    assert data["connection_id"] is None
+    assert data["connection_id"] == original_connection_id
 
 
 @pytest.mark.asyncio
