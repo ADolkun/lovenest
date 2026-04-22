@@ -356,7 +356,12 @@
     "selectConnector": "Selecionar Conector",
     "selectConnectorDesc": "Escolha um provedor de conexão bancária",
     "connectorNotConfigured": "Este conector requer configuração. Configure as credenciais necessárias para habilitá-lo.",
-    "noConnectorsAvailable": "Nenhum conector bancário disponível"
+    "noConnectorsAvailable": "Nenhum conector bancário disponível",
+    "providers": {
+      "pluggy": {
+        "description": "Provedor Open Finance para bancos brasileiros"
+      }
+    }
   },
   "connections": {
     "settings": "Configurações da conexão",

@@ -356,7 +356,12 @@
     "selectConnector": "Select Connector",
     "selectConnectorDesc": "Choose a bank connection provider",
     "connectorNotConfigured": "This connector requires configuration. Set up the required credentials to enable it.",
-    "noConnectorsAvailable": "No bank connectors available"
+    "noConnectorsAvailable": "No bank connectors available",
+    "providers": {
+      "pluggy": {
+        "description": "Open finance provider for Brazilian banks"
+      }
+    }
   },
   "connections": {
     "settings": "Connection settings",

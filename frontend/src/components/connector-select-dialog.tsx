@@ -76,7 +76,7 @@ export function ConnectorSelectDialog({ open, onClose, onSelect }: ConnectorSele
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">{p.display_name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{p.description}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t(`accounts.providers.${p.name}.description`, p.description)}</p>
                   {!p.configured && (
                     <p className="text-xs text-amber-600 mt-1.5">
                       {t('accounts.connectorNotConfigured')}
