@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.transaction import BulkCategorizeRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.schemas.transaction import BulkCategorizeRequest, BulkTagsRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
 from app.services.admin_service import get_credit_card_accounting_mode
 
@@ -61,6 +61,7 @@ async def list_transactions(
     limit: int = Query(50, ge=1, le=500),
     include_opening_balance: bool = Query(False),
     exclude_transfers: bool = Query(False),
+    tags: Optional[List[str]] = Query(None),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
@@ -73,6 +74,7 @@ async def list_transactions(
         include_opening_balance=include_opening_balance, search=q, uncategorized=uncategorized,
         txn_type=type, exclude_transfers=exclude_transfers,
         accounting_mode=accounting_mode,
+        tags=tags,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
@@ -91,6 +93,7 @@ async def export_transactions(
     q: Optional[str] = Query(None),
     uncategorized: bool = Query(False),
     type: Optional[str] = Query(None),
+    tags: Optional[List[str]] = Query(None),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
@@ -102,6 +105,7 @@ async def export_transactions(
         payee_id=payee_id, from_date=from_date, to_date=to_date,
         search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
         accounting_mode=accounting_mode,
+        tags=tags,
     )
 
     output = io.StringIO()
@@ -143,6 +147,30 @@ async def bulk_categorize(
 ):
     count = await transaction_service.bulk_update_category(
         session, user.id, data.transaction_ids, data.category_id
+    )
+    return {"updated": count}
+
+
+@router.patch("/bulk-add-tags")
+async def bulk_add_tags(
+    data: BulkTagsRequest,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    count = await transaction_service.bulk_add_tags(
+        session, user.id, data.transaction_ids, data.tags
+    )
+    return {"updated": count}
+
+
+@router.patch("/bulk-remove-tags")
+async def bulk_remove_tags(
+    data: BulkTagsRequest,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    count = await transaction_service.bulk_remove_tags(
+        session, user.id, data.transaction_ids, data.tags
     )
     return {"updated": count}
 

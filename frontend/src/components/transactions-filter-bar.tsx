@@ -34,7 +34,6 @@ import {
   PopoverContent,
 } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { Account, Category, Payee } from '@/types'
@@ -42,6 +41,7 @@ import type { Account, Category, Payee } from '@/types'
 interface TransactionsFilterBarProps {
   searchInput: string
   onSearchChange: (value: string) => void
+  onSearchSubmit?: (value: string) => void
   filterAccountIds: string[]
   onAccountIdsChange: (value: string[]) => void
   filterCategoryIds: string[]
@@ -70,6 +70,7 @@ function toggleInArray(arr: string[], id: string): string[] {
 export function TransactionsFilterBar({
   searchInput,
   onSearchChange,
+  onSearchSubmit,
   filterAccountIds,
   onAccountIdsChange,
   filterCategoryIds,
@@ -245,21 +246,15 @@ export function TransactionsFilterBar({
       >
         {/* Top row: search input + controls */}
         <div className="flex items-center gap-1.5 px-2 py-1.5">
-        {/* Search input */}
-        <div className="relative flex min-w-0 flex-1 items-center">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-2.5 text-muted-foreground/70"
-          />
-          <Input
-            ref={searchRef}
-            type="text"
-            placeholder={t('transactions.searchPlaceholder')}
-            value={searchInput}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="h-9 w-full border-0 bg-transparent pl-8 pr-2 text-[13.5px] shadow-none focus-visible:ring-0 focus-visible:border-transparent"
-          />
-        </div>
+        {/* Search input — splits committed `#tag` tokens into inline chips,
+            keeping free text as plain typing. Comma or space commits a token. */}
+        <SearchWithTagChips
+          inputRef={searchRef}
+          value={searchInput}
+          placeholder={t('transactions.searchPlaceholder')}
+          onChange={onSearchChange}
+          onSubmit={onSearchSubmit}
+        />
 
         {/* Right-side controls */}
         <div className="ml-auto flex shrink-0 items-center gap-1 pl-1">
@@ -847,5 +842,135 @@ function CheckRow({
         </span>
       )}
     </DropdownMenuItem>
+  )
+}
+
+
+// Search input with inline `#tag` chips. Free text is a normal input;
+// `#`-prefixed words become purple chips when committed via comma, space
+// (when token starts with `#`), or Enter, and immediately apply as filters.
+function SearchWithTagChips({
+  inputRef,
+  value,
+  placeholder,
+  onChange,
+  onSubmit,
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>
+  value: string
+  placeholder?: string
+  onChange: (value: string) => void
+  onSubmit?: (value: string) => void
+}) {
+  // Split into leading `#tag` chips (terminated by whitespace) + free text.
+  // We only treat a `#tag` as a chip when it has a trailing whitespace —
+  // otherwise the user is still typing it.
+  const [chips, freeText] = (() => {
+    const parts: string[] = []
+    let rest = value
+    while (true) {
+      const m = rest.match(/^(#\S+)\s+/)
+      if (!m) break
+      parts.push(m[1])
+      rest = rest.slice(m[0].length)
+    }
+    return [parts, rest] as const
+  })()
+
+  const rebuild = (nextChips: string[], nextFreeText: string): string => {
+    const head = nextChips.length ? nextChips.join(' ') + ' ' : ''
+    return head + nextFreeText
+  }
+
+  const removeChipAt = (index: number) => {
+    const next = [...chips]
+    next.splice(index, 1)
+    onChange(rebuild(next, freeText))
+    inputRef.current?.focus()
+  }
+
+  const commitTrailingTagInFreeText = (text: string): { newChips: string[]; rest: string } | null => {
+    // Match a `#tag` that ends the string (just typed before comma/space/Enter).
+    const m = text.match(/^(.*?)(\s|^)(#\S+)$/)
+    if (!m) return null
+    const before = (m[1] + m[2]).trimEnd()
+    const tag = m[3]
+    const newChips = [...chips, tag]
+    return { newChips, rest: before }
+  }
+
+  return (
+    <div
+      className="relative flex min-w-0 flex-1 flex-wrap items-center gap-1 px-2.5 py-1 min-h-9 cursor-text"
+      onClick={() => inputRef.current?.focus()}
+    >
+      <Search size={15} className="pointer-events-none shrink-0 text-muted-foreground/70" />
+      {chips.map((tag, i) => (
+        <span
+          key={`${tag}-${i}`}
+          className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-primary/5 px-2 py-0.5 text-[11.5px] font-medium text-primary"
+        >
+          {tag}
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation()
+              removeChipAt(i)
+            }}
+            className="text-primary/60 hover:text-primary"
+          >
+            <X size={10} />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        type="text"
+        placeholder={chips.length === 0 ? placeholder : undefined}
+        value={freeText}
+        onChange={(e) => {
+          const next = e.target.value
+          // Comma right after a `#tag` token commits it. Other commas stay
+          // as literal characters in the free-text search.
+          if (next.endsWith(',')) {
+            const beforeComma = next.slice(0, -1)
+            const result = commitTrailingTagInFreeText(beforeComma)
+            if (result) {
+              const submitValue = rebuild(result.newChips, result.rest)
+              if (onSubmit) onSubmit(submitValue)
+              else onChange(submitValue)
+              return
+            }
+          }
+          onChange(rebuild(chips, next))
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && onSubmit) {
+            e.preventDefault()
+            // Promote a still-being-typed `#tag` at the end to a chip too.
+            const result = commitTrailingTagInFreeText(freeText)
+            const submitValue = result
+              ? rebuild(result.newChips, result.rest)
+              : rebuild(chips, freeText)
+            onSubmit(submitValue)
+          } else if (e.key === 'Backspace' && freeText === '' && chips.length > 0) {
+            e.preventDefault()
+            removeChipAt(chips.length - 1)
+          } else if (e.key === ' ') {
+            // Space after a `#tag` commits it; space inside free text is
+            // a normal whitespace.
+            const result = commitTrailingTagInFreeText(freeText)
+            if (result) {
+              e.preventDefault()
+              const submitValue = rebuild(result.newChips, result.rest)
+              if (onSubmit) onSubmit(submitValue)
+              else onChange(submitValue)
+            }
+          }
+        }}
+        className="min-w-[80px] flex-1 border-0 bg-transparent text-[13.5px] outline-none placeholder:text-muted-foreground"
+      />
+    </div>
   )
 }

@@ -179,7 +179,7 @@
     "exportError": "Erro ao exportar transações",
     "syncedInfo": "Transação sincronizada — apenas categoria e notas podem ser editadas",
     "uncategorized": "Sem categoria",
-    "selected": "{{count}} selecionadas",
+    "selected": "selecionadas",
     "bulkCategorize": "Aplicar",
     "bulkSuccess": "{{count}} transações categorizadas",
     "selectCategory": "Selecionar categoria...",

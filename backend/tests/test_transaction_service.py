@@ -12,6 +12,8 @@ from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
 from app.services.transaction_service import (
     _apply_fx_override,
+    bulk_add_tags,
+    bulk_remove_tags,
     bulk_update_category,
     create_transaction,
     create_transfer,
@@ -945,3 +947,138 @@ async def test_update_transfer_rejects_collapsing_accounts(
             session, debit_tx.id, test_user.id,
             TransactionUpdate(account_id=acct2.id),
         )
+
+
+# ---------------------------------------------------------------------------
+# Tag filtering and bulk tag operations (issue #88)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_filters_tags_with_exact_match(
+    session: AsyncSession, test_user, txn_account
+):
+    """Filtering by `#test` must NOT match `#test2` — exact tag boundaries."""
+    txns = [
+        Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+            description=desc, amount=Decimal("10"), date=date(2026, 1, day),
+            type="debit", source="manual", notes=notes,
+            created_at=datetime.now(timezone.utc),
+        )
+        for day, desc, notes in [
+            (1, "A", "spent on lunch #test"),
+            (2, "B", "#test2 work meal"),
+            (3, "C", "#TEST uppercase variant"),
+            (4, "D", "no tag here"),
+            (5, "E", "#test #hey both"),
+        ]
+    ]
+    session.add_all(txns)
+    await session.commit()
+
+    matches, total = await get_transactions(
+        session, test_user.id, tags=["#test"]
+    )
+    descriptions = {tx.description for tx in matches}
+    assert descriptions == {"A", "C", "E"}
+    assert total == 3
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_filters_multiple_tags_with_or(
+    session: AsyncSession, test_user, txn_account
+):
+    """Multiple `tags` are OR-combined: a row matches if it carries ANY
+    of the requested tags — issue #88."""
+    txns = [
+        Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+            description=desc, amount=Decimal("10"), date=date(2026, 1, day),
+            type="debit", source="manual", notes=notes,
+            created_at=datetime.now(timezone.utc),
+        )
+        for day, desc, notes in [
+            (1, "A", "#test only"),
+            (2, "B", "#hey only"),
+            (3, "C", "#test and #hey together"),
+            (4, "D", "#unrelated"),
+        ]
+    ]
+    session.add_all(txns)
+    await session.commit()
+
+    matches, _ = await get_transactions(
+        session, test_user.id, tags=["#test", "#hey"]
+    )
+    assert {tx.description for tx in matches} == {"A", "B", "C"}
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_tags_appends_to_each_transaction(
+    session: AsyncSession, test_user, txn_account
+):
+    """bulk_add_tags must add the given tags to each tx, skipping duplicates."""
+    t1 = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+        description="A", amount=Decimal("10"), date=date.today(),
+        type="debit", source="manual", notes=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    t2 = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+        description="B", amount=Decimal("10"), date=date.today(),
+        type="debit", source="manual", notes="existing #work note",
+        created_at=datetime.now(timezone.utc),
+    )
+    t3 = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+        description="C", amount=Decimal("10"), date=date.today(),
+        type="debit", source="manual", notes="#groceries already here",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add_all([t1, t2, t3])
+    await session.commit()
+
+    touched = await bulk_add_tags(
+        session, test_user.id, [t1.id, t2.id, t3.id], ["#groceries"]
+    )
+    assert touched == 2  # t3 already has it
+
+    await session.refresh(t1)
+    await session.refresh(t2)
+    await session.refresh(t3)
+    assert t1.notes == "#groceries"
+    assert t2.notes == "existing #work note #groceries"
+    assert t3.notes == "#groceries already here"
+
+
+@pytest.mark.asyncio
+async def test_bulk_remove_tags_clears_only_exact_matches(
+    session: AsyncSession, test_user, txn_account
+):
+    """Removing `#test` must NOT touch `#test2` — exact match boundary."""
+    t1 = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+        description="A", amount=Decimal("10"), date=date.today(),
+        type="debit", source="manual", notes="#test #keep",
+        created_at=datetime.now(timezone.utc),
+    )
+    t2 = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=txn_account.id,
+        description="B", amount=Decimal("10"), date=date.today(),
+        type="debit", source="manual", notes="#test2 untouched",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add_all([t1, t2])
+    await session.commit()
+
+    touched = await bulk_remove_tags(
+        session, test_user.id, [t1.id, t2.id], ["#test"]
+    )
+    assert touched == 1
+
+    await session.refresh(t1)
+    await session.refresh(t2)
+    assert t1.notes == "#keep"
+    assert t2.notes == "#test2 untouched"

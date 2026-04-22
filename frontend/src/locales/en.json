@@ -179,7 +179,7 @@
     "exportError": "Failed to export transactions",
     "syncedInfo": "Bank-synced transaction — only category and notes can be edited",
     "uncategorized": "Uncategorized",
-    "selected": "{{count}} selected",
+    "selected": "selected",
     "bulkCategorize": "Apply",
     "bulkSuccess": "{{count}} transactions categorized",
     "selectCategory": "Select category...",

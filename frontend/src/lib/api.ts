@@ -257,6 +257,7 @@ export const transactions = {
     limit?: number
     include_opening_balance?: boolean
     exclude_transfers?: boolean
+    tags?: string[]
   }): Promise<PaginatedResponse<Transaction>> => {
     const { data } = await api.get('/transactions', {
       params,
@@ -295,6 +296,20 @@ export const transactions = {
     const { data } = await api.patch('/transactions/bulk-categorize', {
       transaction_ids: transactionIds,
       category_id: categoryId,
+    })
+    return data
+  },
+  bulkAddTags: async (transactionIds: string[], tags: string[]): Promise<{ updated: number }> => {
+    const { data } = await api.patch('/transactions/bulk-add-tags', {
+      transaction_ids: transactionIds,
+      tags,
+    })
+    return data
+  },
+  bulkRemoveTags: async (transactionIds: string[], tags: string[]): Promise<{ updated: number }> => {
+    const { data } = await api.patch('/transactions/bulk-remove-tags', {
+      transaction_ids: transactionIds,
+      tags,
     })
     return data
   },

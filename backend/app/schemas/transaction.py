@@ -88,6 +88,11 @@ class LinkTransferRequest(BaseModel):
     transaction_ids: list[uuid.UUID]
 
 
+class BulkTagsRequest(BaseModel):
+    transaction_ids: list[uuid.UUID]
+    tags: list[str]
+
+
 class TransferRead(BaseModel):
     debit: TransactionRead
     credit: TransactionRead

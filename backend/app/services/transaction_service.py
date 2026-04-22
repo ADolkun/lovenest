@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import date
 from typing import Optional
@@ -62,6 +63,7 @@ async def get_transactions(
     account_ids: Optional[list[uuid.UUID]] = None,
     category_ids: Optional[list[uuid.UUID]] = None,
     accounting_mode: Optional[str] = None,
+    tags: Optional[list[str]] = None,
 ) -> tuple[list[Transaction], int]:
     # In "accrual" mode, bucket/order by effective_date so list filters
     # line up with the cash-flow view used by the dashboard and reports.
@@ -122,6 +124,22 @@ async def get_transactions(
                 Payee.name.ilike(term),
             )
         )
+    if tags:
+        # Exact tag match using portable ILIKE patterns so `#test` never
+        # matches `#test2`. Multiple tags are OR-combined (union) — a row
+        # matches if it carries ANY of the requested tags. The four boundary
+        # variants cover position at start / middle / end / standalone
+        # (issue #88).
+        clauses = []
+        for raw_tag in tags:
+            tag = raw_tag if raw_tag.startswith("#") else f"#{raw_tag}"
+            clauses.extend([
+                Transaction.notes == tag,
+                Transaction.notes.ilike(f"{tag} %"),
+                Transaction.notes.ilike(f"% {tag}"),
+                Transaction.notes.ilike(f"% {tag} %"),
+            ])
+        base_query = base_query.where(or_(*clauses))
 
     # Get total count
     count_query = select(func.count()).select_from(base_query.subquery())
@@ -594,6 +612,97 @@ async def bulk_update_category(
     )
     await session.commit()
     return result.rowcount
+
+
+_TAG_CHAR_CLASS = r"[\wÀ-ž-]"
+
+
+def _normalize_tag(tag: str) -> str:
+    """Return the tag in canonical `#foo` form."""
+    return tag if tag.startswith("#") else f"#{tag}"
+
+
+def _parse_hashtags(notes: Optional[str]) -> list[str]:
+    if not notes:
+        return []
+    return re.findall(rf"#{_TAG_CHAR_CLASS}+", notes)
+
+
+async def bulk_add_tags(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction_ids: list[uuid.UUID],
+    tags: list[str],
+) -> int:
+    """Append the given tags to each transaction's `notes`, skipping tags
+    that are already present. Returns the number of rows modified (issue #88)."""
+    if not transaction_ids or not tags:
+        return 0
+
+    normalized_tags = [_normalize_tag(t.strip()) for t in tags if t and t.strip()]
+    if not normalized_tags:
+        return 0
+
+    result = await session.execute(
+        select(Transaction).where(
+            Transaction.id.in_(transaction_ids),
+            Transaction.user_id == user_id,
+        )
+    )
+    touched = 0
+    for tx in result.scalars().all():
+        existing = set(_parse_hashtags(tx.notes))
+        to_add = [t for t in normalized_tags if t not in existing]
+        if not to_add:
+            continue
+        new_notes = (tx.notes.rstrip() + " " if tx.notes else "") + " ".join(to_add)
+        tx.notes = new_notes.strip()
+        touched += 1
+
+    await session.commit()
+    return touched
+
+
+async def bulk_remove_tags(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction_ids: list[uuid.UUID],
+    tags: list[str],
+) -> int:
+    if not transaction_ids or not tags:
+        return 0
+
+    normalized_tags = [_normalize_tag(t.strip()) for t in tags if t and t.strip()]
+    if not normalized_tags:
+        return 0
+
+    result = await session.execute(
+        select(Transaction).where(
+            Transaction.id.in_(transaction_ids),
+            Transaction.user_id == user_id,
+        )
+    )
+    touched = 0
+    for tx in result.scalars().all():
+        if not tx.notes:
+            continue
+        original = tx.notes
+        updated = original
+        for tag in normalized_tags:
+            pattern = (
+                r"(?:(?<=^)|(?<=[^\wÀ-ž-]))"
+                + re.escape(tag)
+                + r"(?=$|[^\wÀ-ž-])"
+            )
+            updated = re.sub(pattern, "", updated)
+        # Collapse consecutive whitespace left behind by removed tags.
+        updated = re.sub(r"\s{2,}", " ", updated).strip()
+        if updated != original:
+            tx.notes = updated or None
+            touched += 1
+
+    await session.commit()
+    return touched
 
 
 async def delete_transaction(
