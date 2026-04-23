@@ -5,15 +5,15 @@ Makes account deletion safe against the FK class of bugs (issue #110):
 - recurring_transactions.account_id -> ON DELETE CASCADE
 - goals.account_id                  -> ON DELETE SET NULL
 
-Revision ID: 032
-Revises: 031
+Revision ID: 039
+Revises: 038
 Create Date: 2026-04-23
 """
 
 from alembic import op
 
-revision = "032"
-down_revision = "031"
+revision = "039"
+down_revision = "038"
 branch_labels = None
 depends_on = None
 
