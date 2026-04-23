@@ -279,7 +279,7 @@
     "title": "Accounts",
     "connectBank": "Connect Bank",
     "confirmDeleteTitle": "Delete account?",
-    "confirmDeleteDesc": "This action is irreversible and will remove all transactions associated with this account.",
+    "confirmDeleteDesc": "This action is irreversible. It will also delete every transaction, import record and recurring transaction attached to this account, and unlink any goals that were tracking it.",
     "openingBalance": "opening balance",
     "notFound": "Account not found.",
     "balance": "Balance",

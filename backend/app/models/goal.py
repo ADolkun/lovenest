@@ -31,7 +31,7 @@ class Goal(Base):
     current_amount_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
     target_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     tracking_type: Mapped[str] = mapped_column(String(20), default="manual")  # manual, account, asset, net_worth
-    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("accounts.id"), nullable=True)
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True)
     asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active")  # active, completed, paused, archived
     icon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

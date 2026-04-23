@@ -405,11 +405,32 @@ async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: 
 
     # Clean up attachment files for all transactions in this account
     from app.services.attachment_service import cleanup_attachment_files
+    from app.models.import_log import ImportLog
+    from app.models.recurring_transaction import RecurringTransaction
+    from app.models.goal import Goal
     tx_result = await session.execute(
         select(Transaction.id).where(Transaction.account_id == account_id)
     )
     tx_ids = [row[0] for row in tx_result.all()]
     await cleanup_attachment_files(session, tx_ids)
+
+    # Break FK references before deleting the account. In production these are
+    # also enforced at the DB level (see migration 032) — this code path makes
+    # the behavior explicit and keeps the FK bug from #110 from regressing for
+    # any of the three dependent tables.
+    await session.execute(
+        ImportLog.__table__.delete().where(ImportLog.account_id == account_id)
+    )
+    await session.execute(
+        RecurringTransaction.__table__.delete().where(
+            RecurringTransaction.account_id == account_id
+        )
+    )
+    await session.execute(
+        Goal.__table__.update()
+        .where(Goal.account_id == account_id)
+        .values(account_id=None)
+    )
 
     await session.delete(account)
     await session.commit()

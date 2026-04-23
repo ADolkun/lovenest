@@ -148,6 +148,7 @@ export default function AccountsPage() {
     mutationFn: (id: string) => accounts.delete(id),
     onSuccess: () => {
       invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['import-logs'] })
       setDeletingId(null)
       toast.success(t('accounts.deleted'))
     },

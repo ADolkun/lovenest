@@ -279,7 +279,7 @@
     "title": "Contas",
     "connectBank": "Conectar Banco",
     "confirmDeleteTitle": "Excluir conta?",
-    "confirmDeleteDesc": "Esta ação é irreversível e removerá todas as transações associadas a esta conta.",
+    "confirmDeleteDesc": "Esta ação é irreversível. Também excluirá todas as transações, registros de importação e transações recorrentes vinculadas a esta conta, e desvinculará qualquer meta que estivesse acompanhando-a.",
     "openingBalance": "saldo inicial",
     "notFound": "Conta não encontrada.",
     "balance": "Saldo",
