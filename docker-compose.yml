@@ -28,7 +28,7 @@ services:
   redis:
     image: redis:7-alpine
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
@@ -42,30 +42,34 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 3s
       retries: 5
 
   backend:
     <<: *backend-base
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command:
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port
+      8000 --reload"
     ports:
-      - "8000:8000"
+      - '8000:8000'
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "3000:5173"
+      - '3000:5173'
     environment:
       BACKEND_URL: http://backend:8000
       FRONTEND_URL: http://localhost:3000
+      APP_VERSION_ROOT: /workspace
     depends_on:
       - backend
     volumes:
       - ./frontend:/app
+      - ./:/workspace:ro
       - /app/node_modules
     restart: unless-stopped
 

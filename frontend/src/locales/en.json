@@ -1,6 +1,10 @@
 {
   "app": {
-    "name": "Securo"
+    "name": "Securo",
+    "versionAriaLabel": "Running version {{version}}",
+    "versionLabel": "Version {{version}}",
+    "updateAvailable": "Update Available",
+    "updateAvailableHint": "A newer release ({{version}}) is available on GitHub"
   },
   "cmdk": {
     "title": "Command palette",
@@ -781,6 +785,7 @@
   "common": {
     "save": "Save",
     "cancel": "Cancel",
+    "close": "Close",
     "delete": "Delete",
     "edit": "Edit",
     "loading": "Loading...",
@@ -815,6 +820,26 @@
     "downloading": "Downloading...",
     "success": "Backup downloaded successfully",
     "error": "Failed to download backup"
+  },
+  "update": {
+    "title": "Server update",
+    "runningLabel": "running",
+    "newVersionAvailable": "New version available:",
+    "description": "A new version of Securo is available. Consider updating if you:",
+    "reasonFeatures": "Want to access the latest features and improvements",
+    "reasonBugs": "Are experiencing issues that may be resolved in the new version",
+    "releaseNotesHintBefore": "We recommend reviewing the",
+    "releaseNotesLink": "release notes",
+    "releaseNotesHintAfter": "for any breaking changes before updating.",
+    "commandLabel": "Upgrade command",
+    "copyCommand": "Copy command",
+    "copied": "Copied",
+    "copyFailed": "Failed to copy to clipboard",
+    "autoCheckToggle": "Automatically check for new updates",
+    "autoCheckDisabled": "Automatic update checks are turned off. Turn them on to know when a new version is available.",
+    "checking": "Checking for updates…",
+    "upToDate": "You're on the latest version —",
+    "menuItem": "Check for updates"
   },
   "admin": {
     "users": {

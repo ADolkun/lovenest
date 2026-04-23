@@ -1,6 +1,10 @@
 {
   "app": {
-    "name": "Securo"
+    "name": "Securo",
+    "versionAriaLabel": "Versão em execução {{version}}",
+    "versionLabel": "Versão {{version}}",
+    "updateAvailable": "Atualização disponível",
+    "updateAvailableHint": "Uma nova versão ({{version}}) está disponível no GitHub"
   },
   "cmdk": {
     "title": "Paleta de comandos",
@@ -781,6 +785,7 @@
   "common": {
     "save": "Salvar",
     "cancel": "Cancelar",
+    "close": "Fechar",
     "delete": "Excluir",
     "edit": "Editar",
     "loading": "Carregando...",
@@ -815,6 +820,26 @@
     "downloading": "Baixando...",
     "success": "Backup baixado com sucesso",
     "error": "Erro ao baixar backup"
+  },
+  "update": {
+    "title": "Atualização do servidor",
+    "runningLabel": "em execução",
+    "newVersionAvailable": "Nova versão disponível:",
+    "description": "Uma nova versão do Securo está disponível. Considere atualizar se você:",
+    "reasonFeatures": "Quer acessar os recursos e melhorias mais recentes",
+    "reasonBugs": "Está enfrentando problemas que podem ter sido resolvidos na nova versão",
+    "releaseNotesHintBefore": "Recomendamos ler as",
+    "releaseNotesLink": "notas da versão",
+    "releaseNotesHintAfter": "para verificar mudanças incompatíveis antes de atualizar.",
+    "commandLabel": "Comando de atualização",
+    "copyCommand": "Copiar comando",
+    "copied": "Copiado",
+    "copyFailed": "Erro ao copiar para a área de transferência",
+    "autoCheckToggle": "Verificar novas atualizações automaticamente",
+    "autoCheckDisabled": "A verificação automática de atualizações está desligada. Ative-a para saber quando uma nova versão estiver disponível.",
+    "checking": "Verificando atualizações…",
+    "upToDate": "Você está na versão mais recente —",
+    "menuItem": "Verificar atualizações"
   },
   "admin": {
     "users": {
