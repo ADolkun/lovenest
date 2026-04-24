@@ -599,6 +599,57 @@ class TestParseOfx:
         assert transactions[0].amount == transactions[1].amount
         assert transactions[0].description == transactions[1].description
 
+    def test_parse_ofx_skips_balance_summary_rows_with_empty_fitid(self):
+        """Banco do Brasil emits Saldo Anterior/Saldo do dia as STMTTRN with empty
+        FITID. These should be silently skipped instead of aborting the import."""
+        ofx = self._make_ofx(
+            "<STMTTRN>\n"
+            "<TRNTYPE>OTHER\n"
+            "<DTPOSTED>20260101\n"
+            "<TRNAMT>0.00\n"
+            "<FITID>\n"
+            "<MEMO>Saldo Anterior\n"
+            "</STMTTRN>\n"
+            "<STMTTRN>\n"
+            "<TRNTYPE>DEBIT\n"
+            "<DTPOSTED>20260115\n"
+            "<TRNAMT>-985.50\n"
+            "<FITID>TXN001ABC\n"
+            "<MEMO>PIX ENVIADO - FULANO\n"
+            "</STMTTRN>\n"
+            "<STMTTRN>\n"
+            "<TRNTYPE>OTHER\n"
+            "<DTPOSTED>20260131\n"
+            "<TRNAMT>0.00\n"
+            "<FITID>\n"
+            "<MEMO>Saldo do dia\n"
+            "</STMTTRN>\n"
+        )
+        transactions = parse_ofx(ofx)
+
+        assert len(transactions) == 1
+        assert transactions[0].external_id == "TXN001ABC"
+        assert transactions[0].description == "PIX ENVIADO - FULANO"
+
+    def test_parse_ofx_keeps_real_transactions_with_empty_fitid(self):
+        """A real transaction missing a FITID should still be imported (without
+        an external_id), not abort the whole file."""
+        ofx = self._make_ofx(
+            "<STMTTRN>\n"
+            "<TRNTYPE>DEBIT\n"
+            "<DTPOSTED>20260115\n"
+            "<TRNAMT>-100.00\n"
+            "<FITID>\n"
+            "<MEMO>UBER TRIP\n"
+            "</STMTTRN>\n"
+        )
+        transactions = parse_ofx(ofx)
+
+        assert len(transactions) == 1
+        assert transactions[0].external_id is None
+        assert transactions[0].description == "UBER TRIP"
+        assert transactions[0].amount == Decimal("100.00")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MULTI-CURRENCY PARSING TESTS
