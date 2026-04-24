@@ -387,12 +387,17 @@ async def import_transactions(
         txn_currency = txn_data.currency or account_currency
 
         # Duplicate detection: use external_id when available (OFX FITID),
-        # fall back to field-based matching for formats without unique IDs
+        # fall back to field-based matching for formats without unique IDs.
+        # When matching by external_id, also require the same `date` so that
+        # Brazilian credit-card installments — where some banks reuse one
+        # purchase FITID across every monthly statement — don't get skipped
+        # as duplicates from later monthly imports (issue #98).
         if txn_data.external_id:
             existing = await session.execute(
                 select(Transaction).where(
                     Transaction.account_id == account_id,
                     Transaction.external_id == txn_data.external_id,
+                    Transaction.date == txn_data.date,
                 )
             )
         else:

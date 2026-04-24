@@ -956,3 +956,75 @@ class TestImportTransactionsFx:
         # Currency from CSV should override account currency
         assert tx.currency == "GBP"
         assert tx.amount_primary is not None
+
+
+class TestOfxInstallmentDedup:
+    """Brazilian credit-card installments share one FITID across all monthly
+    statements (issue #98). Deduplication must consider the date so that
+    later monthly imports still register the next installment."""
+
+    @pytest.mark.asyncio
+    async def test_same_external_id_different_dates_both_imported(
+        self, session: AsyncSession, test_user: User, test_account: Account,
+    ):
+        from app.schemas.transaction import TransactionBase
+        from app.models.transaction import Transaction
+        from sqlalchemy import select
+
+        first = [
+            TransactionBase(
+                description="Nimbus Stay - Parcela 1/6",
+                amount=Decimal("100.00"),
+                date=date(2025, 12, 15),
+                type="debit",
+                external_id="PURCHASE_ABC123",
+            ),
+        ]
+        imported, skipped, _ = await import_transactions(
+            session, test_user.id, test_account.id, first, "ofx",
+        )
+        assert imported == 1
+        assert skipped == 0
+
+        second = [
+            TransactionBase(
+                description="Nimbus Stay - Parcela 2/6",
+                amount=Decimal("100.00"),
+                date=date(2026, 1, 15),
+                type="debit",
+                external_id="PURCHASE_ABC123",  # bank reuses purchase FITID
+            ),
+        ]
+        imported2, skipped2, _ = await import_transactions(
+            session, test_user.id, test_account.id, second, "ofx",
+        )
+        assert imported2 == 1
+        assert skipped2 == 0
+
+        rows = (await session.execute(
+            select(Transaction).where(Transaction.external_id == "PURCHASE_ABC123")
+        )).scalars().all()
+        assert len(rows) == 2
+        assert {tx.date for tx in rows} == {date(2025, 12, 15), date(2026, 1, 15)}
+
+    @pytest.mark.asyncio
+    async def test_same_external_id_same_date_dedups(
+        self, session: AsyncSession, test_user: User, test_account: Account,
+    ):
+        """Re-importing the same OFX file must still dedup — same FITID + same
+        date is the strict duplicate case."""
+        from app.schemas.transaction import TransactionBase
+
+        txn = TransactionBase(
+            description="Padaria",
+            amount=Decimal("12.50"),
+            date=date(2026, 2, 10),
+            type="debit",
+            external_id="DEDUP_ME",
+        )
+        await import_transactions(session, test_user.id, test_account.id, [txn], "ofx")
+        imported, skipped, _ = await import_transactions(
+            session, test_user.id, test_account.id, [txn], "ofx",
+        )
+        assert imported == 0
+        assert skipped == 1
