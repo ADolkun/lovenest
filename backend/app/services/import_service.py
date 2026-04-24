@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.account import Account
+from app.models.category import Category
 from app.models.transaction import Transaction
-from app.schemas.transaction import TransactionBase
+from app.schemas.transaction import TransactionBase, TransactionImport
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount
@@ -84,7 +85,7 @@ def _is_balance_summary_row(description: str | None) -> bool:
     return any(normalized.startswith(prefix) for prefix in _OFX_BALANCE_ROW_DESCRIPTIONS)
 
 
-def parse_ofx(content: bytes) -> list[TransactionBase]:
+def parse_ofx(content: bytes) -> list[TransactionImport]:
     """Parse OFX file content and return transactions."""
     content = _preprocess_ofx_for_empty_fitid(content)
     ofx = OfxParser.parse(io.BytesIO(content))
@@ -102,7 +103,7 @@ def parse_ofx(content: bytes) -> list[TransactionBase]:
             # identifiers.
             if external_id and external_id.startswith("SYNTH-"):
                 external_id = None
-            transactions.append(TransactionBase(
+            transactions.append(TransactionImport(
                 description=description,
                 amount=abs(Decimal(str(txn.amount))),
                 date=txn.date.date() if hasattr(txn.date, 'date') else txn.date,
@@ -114,7 +115,7 @@ def parse_ofx(content: bytes) -> list[TransactionBase]:
     return transactions
 
 
-def parse_qif(content: bytes) -> list[TransactionBase]:
+def parse_qif(content: bytes) -> list[TransactionImport]:
     """Parse QIF file content and return transactions."""
     # Try UTF-8 first, fall back to Latin-1 for legacy software (e.g. Microsoft Money)
     try:
@@ -166,7 +167,7 @@ def parse_qif(content: bytes) -> list[TransactionBase]:
             continue
 
         description = payee or memo or "Unknown"
-        transactions.append(TransactionBase(
+        transactions.append(TransactionImport(
             description=description,
             amount=abs(amount),
             date=txn_date,
@@ -177,7 +178,7 @@ def parse_qif(content: bytes) -> list[TransactionBase]:
     return transactions
 
 
-def parse_camt(content: bytes) -> list[TransactionBase]:
+def parse_camt(content: bytes) -> list[TransactionImport]:
     """Parse CAMT.053 (ISO 20022) XML file content and return transactions."""
     root = ET.fromstring(content)
 
@@ -244,7 +245,7 @@ def parse_camt(content: bytes) -> list[TransactionBase]:
             # Extract currency from Ccy attribute on Amt element
             txn_currency = amt_el.get('Ccy') or None
 
-            transactions.append(TransactionBase(
+            transactions.append(TransactionImport(
                 description=description,
                 amount=abs(amount),
                 date=txn_date,
@@ -268,7 +269,7 @@ def parse_csv(
     flip_amount: bool = False,
     inflow_column: str | None = None,
     outflow_column: str | None = None,
-) -> list[TransactionBase]:
+) -> list[TransactionImport]:
     """Parse CSV file content and return transactions.
 
     Attempts to detect common column formats:
@@ -295,6 +296,8 @@ def parse_csv(
     date_cols = ['date', 'data', 'dt', 'transaction_date', 'data_transacao']
     desc_cols = ['description', 'descricao', 'desc', 'memo', 'historico', 'lancamento']
     amount_cols = ['amount', 'valor', 'value', 'quantia']
+    type_cols = ['type', 'tipo']
+    category_cols = ['category', 'categoria']
     currency_cols = ['currency', 'moeda', 'currency_code']
     fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
 
@@ -319,6 +322,8 @@ def parse_csv(
     else:
         amount_col = find_col(amount_cols)
 
+    type_col = find_col(type_cols)
+    category_col = find_col(category_cols)
     currency_col = find_col(currency_cols)
     fx_rate_col = find_col(fx_rate_cols)
 
@@ -390,10 +395,14 @@ def parse_csv(
             if flip_amount:
                 amount = -amount
 
-            txn_type = "credit" if amount > 0 else "debit"
+            if type_col and row.get(type_col, '').strip() in ('credit', 'debit'):
+                txn_type = row[type_col].strip()
+            else:
+                txn_type = "credit" if amount > 0 else "debit"
             amount = abs(amount)
 
-        # Extract optional currency and fx_rate from CSV columns
+        # Extract optional category, currency and fx_rate from CSV columns
+        category_name = row[category_col].strip() if category_col and row.get(category_col) else None
         txn_currency = None
         txn_fx_rate = None
         if currency_col and row.get(currency_col):
@@ -406,13 +415,14 @@ def parse_csv(
                 except Exception:
                     pass
 
-        transactions.append(TransactionBase(
+        transactions.append(TransactionImport(
             description=row[desc_col].strip(),
             amount=abs(amount),
             date=txn_date,
             type=txn_type,
             currency=txn_currency,
             fx_rate=txn_fx_rate,
+            category_name=category_name,
         ))
 
     return transactions
@@ -453,6 +463,12 @@ async def import_transactions(
     )
     account = account_result.scalar_one_or_none()
     account_currency = account.currency if account else get_settings().default_currency
+
+    # Build category name → id map for this user (used when CSV provides category names)
+    category_result = await session.execute(
+        select(Category).where(Category.user_id == user_id)
+    )
+    category_map = {c.name: c.id for c in category_result.scalars()}
 
     imported = 0
     skipped = 0
@@ -495,6 +511,8 @@ async def import_transactions(
             import_payee_entity = await get_or_create_payee(session, user_id, import_payee_raw)
             import_payee_id = import_payee_entity.id
 
+        category_id = category_map.get(getattr(txn_data, "category_name", None)) if getattr(txn_data, "category_name", None) else None
+
         transaction = Transaction(
             user_id=user_id,
             account_id=account_id,
@@ -508,6 +526,7 @@ async def import_transactions(
             currency=txn_currency,
             payee=import_payee_raw,
             payee_id=import_payee_id,
+            category_id=category_id,
         )
         apply_effective_date(transaction, account)
 

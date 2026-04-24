@@ -99,13 +99,18 @@ class TransferRead(BaseModel):
     transfer_pair_id: uuid.UUID
 
 
+class TransactionImport(TransactionBase):
+    """TransactionBase extended with import-only fields not exposed in read responses."""
+    category_name: Optional[str] = None
+
+
 class TransactionImportPreview(BaseModel):
-    transactions: list[TransactionBase]
+    transactions: list[TransactionImport]
     detected_format: str
 
 
 class TransactionImportRequest(BaseModel):
     account_id: uuid.UUID
-    transactions: list[TransactionBase]
+    transactions: list[TransactionImport]
     filename: str = ""
     detected_format: str = ""
