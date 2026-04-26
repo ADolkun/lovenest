@@ -27,6 +27,7 @@ from app.services.admin_service import (
     list_users,
     set_app_setting,
     update_user,
+    use_provider_categories,
 )
 from app.schemas.admin import AdminUserUpdate
 
@@ -359,3 +360,41 @@ async def test_is_registration_enabled_fallback_to_env(session: AsyncSession, cl
     result = await is_registration_enabled(session)
     # Should not raise; returns the env default
     assert isinstance(result, bool)
+
+
+# ---------------------------------------------------------------------------
+# use_provider_categories
+# ---------------------------------------------------------------------------
+
+
+async def test_use_provider_categories_default_true(session: AsyncSession, clean_db):
+    """Unset = on, so existing installs keep the historical sync behavior."""
+    assert await use_provider_categories(session) is True
+
+
+async def test_use_provider_categories_explicit_false(session: AsyncSession, clean_db):
+    await set_app_setting(session, "use_provider_categories", "false")
+    assert await use_provider_categories(session) is False
+
+
+async def test_use_provider_categories_explicit_true(session: AsyncSession, clean_db):
+    await set_app_setting(session, "use_provider_categories", "true")
+    assert await use_provider_categories(session) is True
+
+
+async def test_use_provider_categories_case_insensitive(session: AsyncSession, clean_db):
+    """Tolerate 'TRUE'/'False' in case the value is set via DB tooling."""
+    await set_app_setting(session, "use_provider_categories", "TRUE")
+    assert await use_provider_categories(session) is True
+    await set_app_setting(session, "use_provider_categories", "False")
+    assert await use_provider_categories(session) is False
+
+
+async def test_use_provider_categories_unknown_value_falls_back_to_false(
+    session: AsyncSession, clean_db,
+):
+    """Defensive: anything not 'true' (case-insensitive) is treated as off.
+    Prevents a stray 'maybe' / '1' from quietly turning provider mapping back
+    on when the admin meant to disable it."""
+    await set_app_setting(session, "use_provider_categories", "maybe")
+    assert await use_provider_categories(session) is False

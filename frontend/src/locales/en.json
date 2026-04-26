@@ -879,6 +879,9 @@
       "accountingCashDesc": "Credit card purchases count on the day they happen (default).",
       "accountingAccrual": "Accrual basis",
       "accountingAccrualDesc": "Credit card purchases count on the bill's due date — reflects actual cash flow.",
+      "providerCategoriesTitle": "Categories",
+      "providerCategories": "Use integration categories",
+      "providerCategoriesDesc": "When off, synced transactions arrive uncategorized so only your Rules apply.",
       "updated": "Setting updated"
     }
   },

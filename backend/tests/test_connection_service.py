@@ -130,6 +130,26 @@ async def test_match_pluggy_none(session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
+async def test_match_pluggy_disabled_short_circuits(session: AsyncSession, test_user):
+    """When the global use_provider_categories flag is off, the matcher returns
+    None even on inputs that would otherwise resolve. This is the contract
+    sync_connection / handle_oauth_callback rely on to leave transactions
+    uncategorized so user Rules are the only source of truth."""
+    await _make_category(session, test_user.id, "Alimentação")
+    # Sanity: enabled=True still matches.
+    enabled_match = await _match_pluggy_category(
+        session, test_user.id, "Eating out", enabled=True
+    )
+    assert enabled_match is not None
+
+    # enabled=False short-circuits before any DB lookup.
+    disabled_match = await _match_pluggy_category(
+        session, test_user.id, "Eating out", enabled=False
+    )
+    assert disabled_match is None
+
+
+@pytest.mark.asyncio
 async def test_match_pluggy_user_has_no_category(session: AsyncSession, test_user):
     """Pluggy category maps but user doesn't have the target category."""
     # "Eating out" maps to "Alimentação" but we don't create it

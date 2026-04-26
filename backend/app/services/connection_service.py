@@ -18,6 +18,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
 from app.providers.base import HoldingData
+from app.services import admin_service
 from app.services.account_service import sync_opening_balance_for_connected_account
 from app.services.asset_group_service import ensure_group_for_connection
 from app.services.credit_card_service import apply_effective_date
@@ -299,9 +300,16 @@ async def _upsert_asset_value_for_today(
 
 
 async def _match_pluggy_category(
-    session: AsyncSession, user_id: uuid.UUID, pluggy_category: Optional[str]
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    pluggy_category: Optional[str],
+    enabled: bool = True,
 ) -> Optional[uuid.UUID]:
-    if not pluggy_category:
+    # `enabled` is the resolved value of the global `use_provider_categories`
+    # admin setting. Off = sync skips the provider->user category mapping
+    # entirely so transactions arrive uncategorized and Rules are the only
+    # source of truth. Default keeps the historical behavior.
+    if not enabled or not pluggy_category:
         return None
     # Try exact match first, then prefix before " - " (e.g. "Transfer - PIX" → "Transfer")
     app_name = PLUGGY_CATEGORY_MAP.get(pluggy_category)
@@ -392,6 +400,8 @@ async def handle_oauth_callback(
     user_currency = user.primary_currency if user else get_settings().default_currency
     new_tx_ids: list[uuid.UUID] = []
 
+    use_provider_cats = await admin_service.use_provider_categories(session)
+
     for acc_data in connection_data.accounts:
         is_cc = acc_data.type == "credit_card"
         account = Account(
@@ -418,7 +428,7 @@ async def handle_oauth_callback(
         )
         for txn_data in transactions_data:
             category_id = await _match_pluggy_category(
-                session, user_id, txn_data.pluggy_category
+                session, user_id, txn_data.pluggy_category, enabled=use_provider_cats
             )
             # Resolve payee entity from raw payee text
             payee_id = None
@@ -603,6 +613,7 @@ async def sync_connection(
     conn_settings = connection.settings or {}
     payee_source = conn_settings.get("payee_source", "auto")
     import_pending = conn_settings.get("import_pending", True)
+    use_provider_cats = await admin_service.use_provider_categories(session)
 
     try:
         provider = get_provider(connection.provider)
@@ -719,7 +730,7 @@ async def sync_connection(
                     continue
 
                 category_id = await _match_pluggy_category(
-                    session, user_id, txn_data.pluggy_category
+                    session, user_id, txn_data.pluggy_category, enabled=use_provider_cats
                 )
 
                 # Resolve payee entity from raw payee text

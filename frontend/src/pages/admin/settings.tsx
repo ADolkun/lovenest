@@ -19,7 +19,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/page-header'
-import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale } from 'lucide-react'
+import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale, Tag } from 'lucide-react'
 import type { AdminUser } from '@/types'
 
 export default function AdminSettingsPage() {
@@ -123,6 +123,27 @@ export default function AdminSettingsPage() {
   })
 
   const accountingMode = (ccModeSetting?.value === 'accrual' ? 'accrual' : 'cash') as 'cash' | 'accrual'
+
+  // Provider categories: returns 404 when unset → defaults to "true" so
+  // existing installs keep the historical sync behavior.
+  const { data: providerCatsSetting } = useQuery({
+    queryKey: ['admin', 'settings', 'use_provider_categories'],
+    queryFn: () => adminApi.getSetting('use_provider_categories').catch(() => null),
+    retry: false,
+  })
+
+  const updateProviderCatsMutation = useMutation({
+    mutationFn: (value: string) => adminApi.updateSetting('use_provider_categories', value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings', 'use_provider_categories'] })
+      toast.success(t('admin.settings.updated'))
+    },
+    onError: () => {
+      toast.error(t('common.error'))
+    },
+  })
+
+  const useProviderCats = providerCatsSetting?.value !== 'false'
 
   function resetCreateForm() {
     setFormEmail('')
@@ -272,6 +293,31 @@ export default function AdminSettingsPage() {
               <p className="text-sm font-medium text-foreground">{t('admin.settings.accountingAccrual')}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{t('admin.settings.accountingAccrualDesc')}</p>
             </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Provider categories toggle */}
+      <div className="rounded-xl border border-border/60 bg-card overflow-hidden mb-8">
+        <div className="px-5 py-4 border-b border-border/40">
+          <div className="flex items-center gap-2 mb-0.5">
+            <Tag size={15} className="text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t('admin.settings.providerCategoriesTitle')}</h3>
+          </div>
+        </div>
+        <div className="px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-foreground">{t('admin.settings.providerCategories')}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('admin.settings.providerCategoriesDesc')}</p>
+          </div>
+          <button
+            onClick={() => updateProviderCatsMutation.mutate(useProviderCats ? 'false' : 'true')}
+            disabled={updateProviderCatsMutation.isPending}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${useProviderCats ? 'bg-primary' : 'bg-muted-foreground/20'}`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${useProviderCats ? 'translate-x-6' : 'translate-x-1'}`}
+            />
           </button>
         </div>
       </div>

@@ -348,3 +348,92 @@ class TestRegistrationToggle:
         )
         assert response.status_code == 400
         assert "invalid value" in response.json()["detail"].lower()
+
+
+class TestUseProviderCategoriesToggle:
+    """Admin-scope toggle that controls whether sync auto-maps provider
+    (e.g. Pluggy) categories onto the user's seeded categories. Default is
+    on; flipping off makes synced transactions arrive uncategorized so user
+    Rules are the only source of truth."""
+
+    async def test_get_unset_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict, test_superuser: User
+    ):
+        # Defaults are not seeded as DB rows — they're returned by the helper.
+        # The raw GET /settings/{key} endpoint reflects DB state so an unset
+        # key is a 404. The frontend handles this and falls back to "true".
+        response = await client.get(
+            "/api/admin/settings/use_provider_categories", headers=admin_auth_headers
+        )
+        assert response.status_code == 404
+
+    async def test_patch_to_false_persists(
+        self, client: AsyncClient, admin_auth_headers: dict, test_superuser: User
+    ):
+        response = await client.patch(
+            "/api/admin/settings/use_provider_categories",
+            json={"value": "false"},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["key"] == "use_provider_categories"
+        assert response.json()["value"] == "false"
+
+        # Round-trip
+        get_resp = await client.get(
+            "/api/admin/settings/use_provider_categories", headers=admin_auth_headers
+        )
+        assert get_resp.status_code == 200
+        assert get_resp.json()["value"] == "false"
+
+    async def test_patch_invalid_value_rejected(
+        self, client: AsyncClient, admin_auth_headers: dict, test_superuser: User
+    ):
+        response = await client.patch(
+            "/api/admin/settings/use_provider_categories",
+            json={"value": "maybe"},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 400
+        # Allowed values appear in the error message so callers can self-correct
+        body = response.json()["detail"].lower()
+        assert "true" in body and "false" in body
+
+    async def test_patch_back_to_true(
+        self, client: AsyncClient, admin_auth_headers: dict, test_superuser: User
+    ):
+        # Disable first, then re-enable
+        await client.patch(
+            "/api/admin/settings/use_provider_categories",
+            json={"value": "false"},
+            headers=admin_auth_headers,
+        )
+        response = await client.patch(
+            "/api/admin/settings/use_provider_categories",
+            json={"value": "true"},
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["value"] == "true"
+
+    async def test_non_admin_cannot_read(
+        self, client: AsyncClient, auth_headers: dict, test_user: User, session: AsyncSession
+    ):
+        # Seed so a 200 would be possible if RBAC were broken
+        setting = AppSetting(key="use_provider_categories", value="true")
+        await session.merge(setting)
+        await session.commit()
+        response = await client.get(
+            "/api/admin/settings/use_provider_categories", headers=auth_headers
+        )
+        assert response.status_code == 403
+
+    async def test_non_admin_cannot_write(
+        self, client: AsyncClient, auth_headers: dict, test_user: User
+    ):
+        response = await client.patch(
+            "/api/admin/settings/use_provider_categories",
+            json={"value": "false"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 403
