@@ -850,7 +850,7 @@ export default function AssetsPage() {
       />
 
       {/* Portfolio Stacked Area Chart */}
-      {portfolioData && portfolioData.trend.length > 1 && (
+      {portfolioData && portfolioData.trend.length > 0 && (
         <PortfolioChart
           data={portfolioData}
           wallets={sortedWallets}
