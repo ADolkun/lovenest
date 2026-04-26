@@ -70,14 +70,22 @@ def _generate_growth_values(
     growth_frequency: str,
     growth_start_date: Optional[date],
 ) -> list[AssetValue]:
-    """Generate all AssetValue rows from base_date to today using the growth rule."""
+    """Generate all AssetValue rows from base_date to today using the growth rule.
+    When growth_start_date is set, growth iteration begins from that date — not
+    from base_date — so the asset accrues no growth for the gap between
+    purchase and the configured growth start."""
     today = date.today()
     if growth_start_date and today < growth_start_date:
         return []
 
     values: list[AssetValue] = []
     current_amount = base_amount
-    current_date = base_date
+    # Match the frontend preview: `growth_start_date or base_date`. Otherwise
+    # backfill applied growth periods between purchase_date and
+    # growth_start_date that the form said wouldn't accrue, leaving the
+    # list-page total exactly N growth periods higher than the edit
+    # dialog's calculated value.
+    current_date = growth_start_date if growth_start_date else base_date
 
     while True:
         next_due = _next_due_date(current_date, growth_frequency)
