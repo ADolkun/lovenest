@@ -1671,6 +1671,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
       queryClient.refetchQueries({ queryKey: ['assets'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
+      queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
       queryClient.refetchQueries({ queryKey: ['dashboard'] })
       setValueAmount('')
       toast.success(t('assets.valueAdded'))
@@ -1684,6 +1685,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
       queryClient.refetchQueries({ queryKey: ['assets'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
+      queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
       queryClient.refetchQueries({ queryKey: ['dashboard'] })
       toast.success(t('assets.valueDeleted'))
     },
