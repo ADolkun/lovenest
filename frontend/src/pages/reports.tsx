@@ -40,17 +40,31 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
 
 const COMPOSITION_TOP_N = 6
 
-const RANGE_OPTIONS = [
+type RangeOption = { key: string; months: number }
+
+const HISTORICAL_RANGE_OPTIONS: readonly RangeOption[] = [
   { key: '6m', months: 6 },
   { key: '1y', months: 12 },
   { key: '2y', months: 24 },
-] as const
+]
 
-const INTERVAL_OPTIONS = [
+const FORWARD_RANGE_OPTIONS: readonly RangeOption[] = [
+  { key: '3m', months: 3 },
+  { key: '6m', months: 6 },
+  { key: '12m', months: 12 },
+]
+
+const HISTORICAL_INTERVAL_OPTIONS = [
   { key: 'daily', value: 'daily' },
   { key: 'weekly', value: 'weekly' },
   { key: 'monthly', value: 'monthly' },
   { key: 'yearly', value: 'yearly' },
+] as const
+
+const CASH_FLOW_INTERVAL_OPTIONS = [
+  { key: 'daily', value: 'daily' },
+  { key: 'weekly', value: 'weekly' },
+  { key: 'monthly', value: 'monthly' },
 ] as const
 
 const INTERVAL_LABELS: Record<string, string> = {
@@ -61,8 +75,10 @@ const INTERVAL_LABELS: Record<string, string> = {
 }
 
 const RANGE_LABELS: Record<string, string> = {
+  '3m': 'range3m',
   '6m': 'range6m',
   '1y': 'range1y',
+  '12m': 'range12m',
   '2y': 'range2y',
 }
 
@@ -76,7 +92,7 @@ interface ReportTab {
 const REPORT_TABS: ReportTab[] = [
   { key: 'net_worth', labelKey: 'reports.netWorth', fetch: (m, i) => reports.netWorth(m, i), enabled: true },
   { key: 'income_expenses', labelKey: 'reports.incomeExpenses', fetch: (m, i) => reports.incomeExpenses(m, i), enabled: true },
-  { key: 'cash_flow', labelKey: 'reports.cashFlow', fetch: () => Promise.reject(), enabled: false },
+  { key: 'cash_flow', labelKey: 'reports.cashFlow', fetch: (m, i) => reports.cashFlow(m, i), enabled: true },
 ]
 
 export default function ReportsPage() {
@@ -94,6 +110,25 @@ export default function ReportsPage() {
   const [sparklinePage, setSparklinePage] = useState(0)
 
   const currentTab = REPORT_TABS.find((tab) => tab.key === activeTab) ?? REPORT_TABS[0]
+
+  const isCashFlow = activeTab === 'cash_flow'
+  const rangeOptions = isCashFlow ? FORWARD_RANGE_OPTIONS : HISTORICAL_RANGE_OPTIONS
+  const intervalOptions = isCashFlow ? CASH_FLOW_INTERVAL_OPTIONS : HISTORICAL_INTERVAL_OPTIONS
+
+  const handleSelectTab = (key: string) => {
+    setActiveTab(key)
+    setCompositionView('summary')
+    setSparklinePage(0)
+    // Clamp months/interval to options supported by the new tab
+    const nextRanges = key === 'cash_flow' ? FORWARD_RANGE_OPTIONS : HISTORICAL_RANGE_OPTIONS
+    if (!nextRanges.some((r) => r.months === months)) {
+      setMonths(key === 'cash_flow' ? 6 : 12)
+    }
+    const nextIntervals = key === 'cash_flow' ? CASH_FLOW_INTERVAL_OPTIONS : HISTORICAL_INTERVAL_OPTIONS
+    if (!nextIntervals.some((i) => i.value === interval)) {
+      setInterval(key === 'cash_flow' ? 'daily' : 'monthly')
+    }
+  }
 
   const { data, isLoading } = useQuery<ReportResponse>({
     queryKey: ['reports', activeTab, months, interval],
@@ -134,7 +169,7 @@ export default function ReportsPage() {
   const tooltipItemStyle = { color: 'var(--foreground)' }
 
   // Composition view options per report type
-  const compositionOptions = meta?.type === 'income_expenses'
+  const compositionOptions = meta?.type === 'income_expenses' || meta?.type === 'cash_flow'
     ? ['summary', 'byIncome', 'byExpenses'] as const
     : ['summary', 'detailed'] as const
 
@@ -143,8 +178,9 @@ export default function ReportsPage() {
 
   const donutData = (() => {
     if (compositionView === 'summary' || composition.length === 0) {
+      const excludedKeys = new Set(['netIncome', 'startingBalance', 'endingBalance'])
       return breakdownData
-        .filter((b) => b.value > 0 && b.key !== 'netIncome')
+        .filter((b) => b.value > 0 && !excludedKeys.has(b.key))
         .map((b) => ({
           name: t(`reports.${b.key}`, { defaultValue: b.label }),
           value: b.value,
@@ -184,7 +220,7 @@ export default function ReportsPage() {
         action={
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-lg border border-border bg-card overflow-hidden">
-              {RANGE_OPTIONS.map((opt) => (
+              {rangeOptions.map((opt) => (
                 <button
                   key={opt.key}
                   onClick={() => setMonths(opt.months)}
@@ -199,7 +235,7 @@ export default function ReportsPage() {
               ))}
             </div>
             <div className="flex items-center rounded-lg border border-border bg-card overflow-hidden">
-              {INTERVAL_OPTIONS.map((opt) => (
+              {intervalOptions.map((opt) => (
                 <button
                   key={opt.key}
                   onClick={() => setInterval(opt.value)}
@@ -222,7 +258,7 @@ export default function ReportsPage() {
         {REPORT_TABS.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => { if (tab.enabled) { setActiveTab(tab.key); setCompositionView('summary') } }}
+            onClick={() => { if (tab.enabled) handleSelectTab(tab.key) }}
             disabled={!tab.enabled}
             className={`relative px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
@@ -275,7 +311,7 @@ export default function ReportsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {mask(`${changePrefix}${formatCurrency(summary?.change_amount ?? 0, userCurrency, locale)}`)}
-                  {' '}{t('reports.vsStart')}
+                  {' '}{t(meta?.type === 'cash_flow' ? 'reports.vsToday' : 'reports.vsStart')}
                 </p>
               </div>
               <div className="flex flex-wrap gap-6">
@@ -337,7 +373,85 @@ export default function ReportsPage() {
               <Skeleton className="h-full w-full" />
             </div>
           ) : chartData.length > 0 ? (
-            meta?.type === 'income_expenses' ? (
+            meta?.type === 'cash_flow' ? (() => {
+              const startingBalance = summary?.breakdowns.find((b) => b.key === 'startingBalance')?.value ?? 0
+              return (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="cashFlowGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366F1" stopOpacity={0.2} />
+                        <stop offset="95%" stopColor="#6366F1" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tickFormatter={(v) => {
+                        if (privacyMode) return ''
+                        if (v === 0) return '0'
+                        return formatCompact(v, userCurrency, locale)
+                      }}
+                      tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={64}
+                      tickCount={5}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload || payload.length === 0) return null
+                        const point = payload[0].payload as Record<string, number>
+                        const balance = point.value ?? 0
+                        const inflow = point.inflow ?? 0
+                        const outflow = point.outflow ?? 0
+                        return (
+                          <div style={tooltipStyle} className="px-3 py-2">
+                            <p className="text-xs font-medium mb-1">{label}</p>
+                            <p className="text-xs" style={{ color: '#6366F1' }}>
+                              {t('reports.balance', { defaultValue: 'Balance' })}:{' '}
+                              {privacyMode ? MASK : formatCurrency(balance, userCurrency, locale)}
+                            </p>
+                            {inflow > 0 && (
+                              <p className="text-xs" style={{ color: '#10B981' }}>
+                                {t('reports.inflow')}:{' '}
+                                {privacyMode ? MASK : `+${formatCurrency(inflow, userCurrency, locale)}`}
+                              </p>
+                            )}
+                            {outflow > 0 && (
+                              <p className="text-xs" style={{ color: '#F43F5E' }}>
+                                {t('reports.outflow')}:{' '}
+                                {privacyMode ? MASK : `-${formatCurrency(outflow, userCurrency, locale)}`}
+                              </p>
+                            )}
+                          </div>
+                        )
+                      }}
+                    />
+                    <ReferenceLine
+                      y={startingBalance}
+                      stroke="var(--muted-foreground)"
+                      strokeDasharray="4 4"
+                      strokeOpacity={0.5}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#6366F1"
+                      strokeWidth={2.5}
+                      fill="url(#cashFlowGrad)"
+                      dot={false}
+                      activeDot={{ r: 4, fill: '#6366F1' }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )
+            })() : meta?.type === 'income_expenses' ? (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <XAxis
@@ -477,12 +591,16 @@ export default function ReportsPage() {
                     ? t('reports.expenses')
                     : meta?.type === 'income_expenses'
                       ? t('reports.netIncome')
-                      : t(currentTab.labelKey)
+                      : meta?.type === 'cash_flow'
+                        ? t('reports.vsToday')
+                        : t(currentTab.labelKey)
                 const centerValue = compositionView === 'byIncome'
-                  ? (summary?.breakdowns.find((b) => b.key === 'income')?.value ?? 0)
+                  ? (summary?.breakdowns.find((b) => b.key === 'income' || b.key === 'projectedIncome')?.value ?? 0)
                   : compositionView === 'byExpenses'
-                    ? (summary?.breakdowns.find((b) => b.key === 'expenses')?.value ?? 0)
-                    : (summary?.primary_value ?? 0)
+                    ? (summary?.breakdowns.find((b) => b.key === 'expenses' || b.key === 'projectedExpenses')?.value ?? 0)
+                    : meta?.type === 'cash_flow'
+                      ? (summary?.change_amount ?? 0)
+                      : (summary?.primary_value ?? 0)
                 return (
                   <div className="flex flex-col items-center">
                     <div className="relative" style={{ width: 200, height: 200 }}>
@@ -552,7 +670,11 @@ export default function ReportsPage() {
         <div className="lg:col-span-2 bg-card rounded-xl border border-border shadow-sm">
           <div className="px-5 pt-5 pb-2 flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground">
-              {meta?.type === 'income_expenses' ? t('reports.categoryTrends') : t('reports.evolution')}
+              {meta?.type === 'income_expenses'
+                ? t('reports.categoryTrends')
+                : meta?.type === 'cash_flow'
+                  ? t('reports.inflowOutflow')
+                  : t('reports.evolution')}
             </p>
             {meta?.type === 'income_expenses' && (() => {
               const groupKey = sparklineView === 'byIncome' ? 'income' : 'expenses'
@@ -746,18 +868,26 @@ export default function ReportsPage() {
                     wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
                     formatter={(value: string) => t(`reports.${value}`, { defaultValue: value })}
                   />
-                  {meta.series_keys
-                    .filter((key) => chartData.some((d) => (d[key] as number) > 0))
-                    .map((key, idx, arr) => (
-                    <Bar
-                      key={key}
-                      dataKey={key}
-                      stackId="stack"
-                      fill={colorMap[key] || '#6366F1'}
-                      radius={idx === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                      maxBarSize={32}
-                    />
-                  ))}
+                  {(() => {
+                    const barSeries = meta.type === 'cash_flow'
+                      ? [
+                          { key: 'inflow', color: '#10B981' },
+                          { key: 'outflow', color: '#F43F5E' },
+                        ]
+                      : meta.series_keys.map((k) => ({ key: k, color: colorMap[k] || '#6366F1' }))
+                    return barSeries
+                      .filter(({ key }) => chartData.some((d) => (d[key] as number) > 0))
+                      .map(({ key, color }, idx, arr) => (
+                        <Bar
+                          key={key}
+                          dataKey={key}
+                          stackId="stack"
+                          fill={color}
+                          radius={idx === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          maxBarSize={32}
+                        />
+                      ))
+                  })()}
                 </BarChart>
               </ResponsiveContainer>
             ) : (

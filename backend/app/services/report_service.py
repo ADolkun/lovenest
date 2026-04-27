@@ -1,3 +1,4 @@
+import calendar
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -704,4 +705,311 @@ async def get_income_expenses_report(
     return ReportResponse(
         summary=summary, trend=trend, meta=meta,
         composition=composition, category_trend=category_trend,
+    )
+
+
+def _add_months(d: date, months: int) -> date:
+    """Advance a date by N months, clamping the day to the target month's length."""
+    new_month = d.month + months
+    new_year = d.year + (new_month - 1) // 12
+    new_month = ((new_month - 1) % 12) + 1
+    last_day = calendar.monthrange(new_year, new_month)[1]
+    new_day = min(d.day, last_day)
+    return date(new_year, new_month, new_day)
+
+
+async def get_cash_flow_report(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    months: int = 6,
+    interval: str = "daily",
+    currency: str = "USD",
+) -> ReportResponse:
+    """Forward-looking cash flow projection.
+
+    Starts from today's total balance (across all open accounts, converted to
+    the user's primary currency) and walks forward, applying:
+      - already-booked transactions whose cash impact is in the future,
+      - virtual recurring-transaction occurrences (the bulk of the projection).
+
+    Respects the global ``credit_card_accounting_mode`` setting:
+      - **cash**: future flows queried by ``Transaction.date``. CC purchases
+        impact balance on purchase date.
+      - **accrual**: future flows queried by ``Transaction.effective_date`` so
+        a CC purchase shows up as cash leaving on its bill due date. The
+        starting balance is also adjusted to add back any pending CC
+        purchases (purchase date <= today, due date > today) so they're not
+        double-counted (the CC liability already reduced ``_balance_at``).
+
+    Aggregates the resulting day-by-day running balance into the requested
+    interval and returns a ReportResponse compatible with the existing report
+    chart on the frontend.
+    """
+    from app.services.dashboard_service import _balance_at, _get_recurring_projections
+    from app.services.fx_rate_service import get_rate
+
+    today = date.today()
+    end = _add_months(today, months)
+
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    accounting_mode = await get_credit_card_accounting_mode(session)
+    accrual = accounting_mode == "accrual"
+
+    starting_balance = await _balance_at(session, user_id, today)
+
+    # FX rate cache: currency -> rate to primary_currency (using today's rate;
+    # future rates are unknown so we project at today's rate).
+    rate_cache: dict[str, Decimal] = {primary_currency: Decimal("1")}
+
+    async def _to_primary(amount: Decimal, ccy: str) -> float:
+        if ccy == primary_currency:
+            return float(amount)
+        rate = rate_cache.get(ccy)
+        if rate is None:
+            rate = await get_rate(session, ccy, primary_currency)
+            rate_cache[ccy] = rate
+        return float((amount * rate).quantize(Decimal("0.01")))
+
+    # Per-day flow accumulator: date -> {"inflow": float, "outflow": float}
+    flows: dict[date, dict[str, float]] = {}
+
+    def _add_flow(d: date, amount: float, is_credit: bool) -> None:
+        bucket = flows.setdefault(d, {"inflow": 0.0, "outflow": 0.0})
+        if is_credit:
+            bucket["inflow"] += amount
+        else:
+            bucket["outflow"] += amount
+
+    # 1. Already-booked transactions whose CASH impact is in the future.
+    #    - cash mode: filter on Transaction.date.
+    #    - accrual mode: filter on Transaction.effective_date so CC purchases
+    #      hit their bill due date instead of purchase date.
+    flow_date_col = Transaction.effective_date if accrual else Transaction.date
+    booked_result = await session.execute(
+        select(
+            flow_date_col,
+            Transaction.type,
+            Transaction.amount,
+            Transaction.amount_primary,
+            Transaction.currency,
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Transaction.user_id == user_id,
+            Account.is_closed == False,
+            flow_date_col > today,
+            flow_date_col <= end,
+            Transaction.source != "opening_balance",
+            counts_as_pnl(),
+        )
+    )
+    for row in booked_result.all():
+        flow_date, tx_type, amt, amt_primary, ccy = row
+        if amt_primary is not None:
+            amount_primary = float(amt_primary)
+        else:
+            amount_primary = await _to_primary(Decimal(str(amt or 0)), ccy)
+        if amount_primary == 0:
+            continue
+        _add_flow(flow_date, abs(amount_primary), tx_type == "credit")
+
+    # 2. Accrual mode only: undo the impact of pending CC purchases on the
+    #    starting balance. _balance_at already deducted them via the CC
+    #    account's debt (Transaction.date <= today), but in accrual mode we
+    #    project them as outflows on their effective_date — so add them back
+    #    here to avoid double-counting.
+    if accrual:
+        pending_cc = await session.execute(
+            select(
+                Transaction.type,
+                Transaction.amount,
+                Transaction.amount_primary,
+                Transaction.currency,
+            )
+            .join(Account, Transaction.account_id == Account.id)
+            .where(
+                Transaction.user_id == user_id,
+                Account.is_closed == False,
+                Account.type == "credit_card",
+                Transaction.date <= today,
+                Transaction.effective_date > today,
+                Transaction.effective_date <= end,
+                Transaction.source != "opening_balance",
+                counts_as_pnl(),
+            )
+        )
+        for tx_type, amt, amt_primary, ccy in pending_cc.all():
+            if amt_primary is not None:
+                amount_primary = float(amt_primary)
+            else:
+                amount_primary = await _to_primary(Decimal(str(amt or 0)), ccy)
+            if amount_primary == 0:
+                continue
+            # On a CC account: a debit (purchase) reduced total balance via
+            # extra debt; add it back. A credit (refund/payment) raised total;
+            # subtract it back.
+            if tx_type == "debit":
+                starting_balance += abs(amount_primary)
+            else:
+                starting_balance -= abs(amount_primary)
+
+    # 2. Recurring projections — single call for the whole forward window
+    #    (range_end is exclusive in get_occurrences_in_range, so use end+1).
+    cat_totals: dict[tuple[str, str], dict] = {}
+    cat_cache: dict[str, dict] = {}
+
+    projections = await _get_recurring_projections(
+        session, user_id, today + timedelta(days=1), end + timedelta(days=1),
+    )
+    for proj in projections:
+        d = proj["date"]
+        if d <= today or d > end:
+            continue
+        amount_primary = await _to_primary(
+            Decimal(str(proj["amount"])), proj["currency"]
+        )
+        if amount_primary == 0:
+            continue
+        _add_flow(d, amount_primary, proj["type"] == "credit")
+
+        # Track category contributions for the composition donut
+        cat_id = proj["category_id"]
+        cat_id_str = str(cat_id) if cat_id else "uncategorized"
+        group = "income" if proj["type"] == "credit" else "expenses"
+        if cat_id and cat_id_str not in cat_cache:
+            cat_row = await session.execute(
+                select(Category.name, Category.color).where(Category.id == cat_id)
+            )
+            row = cat_row.one_or_none()
+            cat_cache[cat_id_str] = {
+                "label": row[0] if row else "Uncategorized",
+                "color": row[1] if row else "#6B7280",
+            }
+        info = cat_cache.get(cat_id_str, {"label": "Uncategorized", "color": "#6B7280"})
+        key = (cat_id_str, group)
+        if key not in cat_totals:
+            cat_totals[key] = {"label": info["label"], "color": info["color"], "value": 0.0}
+        cat_totals[key]["value"] += amount_primary
+
+    # Walk day-by-day from today to end, building per-day running balance.
+    daily_balance: dict[date, float] = {today: starting_balance}
+    daily_inflow: dict[date, float] = {today: 0.0}
+    daily_outflow: dict[date, float] = {today: 0.0}
+    running = starting_balance
+    cursor_d = today
+    while cursor_d < end:
+        cursor_d = cursor_d + timedelta(days=1)
+        bucket = flows.get(cursor_d, {"inflow": 0.0, "outflow": 0.0})
+        running += bucket["inflow"] - bucket["outflow"]
+        daily_balance[cursor_d] = running
+        daily_inflow[cursor_d] = bucket["inflow"]
+        daily_outflow[cursor_d] = bucket["outflow"]
+
+    # Aggregate to interval. For each interval label, take the running balance
+    # at the last day in the bucket; sum inflow/outflow over the bucket.
+    points = _date_points(today, end, interval)
+    trend: list[ReportDataPoint] = []
+
+    if interval == "daily":
+        for p in points:
+            bal = daily_balance.get(p, running)
+            inf = daily_inflow.get(p, 0.0)
+            outf = daily_outflow.get(p, 0.0)
+            trend.append(ReportDataPoint(
+                date=_format_date_label(p, "daily"),
+                value=round(bal, 2),
+                breakdowns={"inflow": round(inf, 2), "outflow": round(outf, 2)},
+            ))
+    else:
+        # Build per-bucket aggregates by walking all daily points in order
+        groups: dict[str, dict] = {}
+        cur = today
+        while cur <= end:
+            label = _format_date_label(cur, interval)
+            g = groups.setdefault(
+                label, {"balance": daily_balance[cur], "last_d": cur, "inflow": 0.0, "outflow": 0.0}
+            )
+            if cur >= g["last_d"]:
+                g["balance"] = daily_balance[cur]
+                g["last_d"] = cur
+            g["inflow"] += daily_inflow.get(cur, 0.0)
+            g["outflow"] += daily_outflow.get(cur, 0.0)
+            cur = cur + timedelta(days=1)
+
+        # Emit trend points in the order produced by _date_points
+        seen: set[str] = set()
+        for p in points:
+            label = _format_date_label(p, interval)
+            if label in seen:
+                continue
+            seen.add(label)
+            g = groups.get(label)
+            if g is None:
+                continue
+            trend.append(ReportDataPoint(
+                date=label,
+                value=round(g["balance"], 2),
+                breakdowns={
+                    "inflow": round(g["inflow"], 2),
+                    "outflow": round(g["outflow"], 2),
+                },
+            ))
+
+    # Summary
+    ending_balance = trend[-1].value if trend else round(starting_balance, 2)
+    total_inflow = round(sum(p.breakdowns.get("inflow", 0.0) for p in trend), 2)
+    total_outflow = round(sum(p.breakdowns.get("outflow", 0.0) for p in trend), 2)
+    change_amount = round(ending_balance - starting_balance, 2)
+    change_percent = (
+        (change_amount / abs(starting_balance) * 100) if starting_balance != 0 else None
+    )
+
+    summary = ReportSummary(
+        primary_value=ending_balance,
+        change_amount=change_amount,
+        change_percent=round(change_percent, 2) if change_percent is not None else None,
+        breakdowns=[
+            ReportBreakdown(
+                key="startingBalance", label="Starting Balance",
+                value=round(starting_balance, 2), color="#6366F1",
+            ),
+            ReportBreakdown(
+                key="projectedIncome", label="Projected Income",
+                value=total_inflow, color="#10B981",
+            ),
+            ReportBreakdown(
+                key="projectedExpenses", label="Projected Expenses",
+                value=total_outflow, color="#F43F5E",
+            ),
+            ReportBreakdown(
+                key="endingBalance", label="Ending Balance",
+                value=ending_balance, color="#8B5CF6",
+            ),
+        ],
+    )
+
+    meta = ReportMeta(
+        type="cash_flow",
+        series_keys=["balance"],
+        currency=primary_currency,
+        interval=interval,
+    )
+
+    composition: list[ReportCompositionItem] = []
+    for (cat_key, group), info in cat_totals.items():
+        if info["value"] <= 0:
+            continue
+        composition.append(ReportCompositionItem(
+            key=cat_key,
+            label=info["label"],
+            value=round(info["value"], 2),
+            color=info["color"],
+            group=group,
+        ))
+
+    return ReportResponse(
+        summary=summary, trend=trend, meta=meta,
+        composition=composition, category_trend=[],
     )

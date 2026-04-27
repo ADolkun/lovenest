@@ -32,3 +32,15 @@ async def get_income_expenses(
     return await report_service.get_income_expenses_report(
         session, user.id, months, interval, user.primary_currency
     )
+
+
+@router.get("/cash-flow", response_model=ReportResponse)
+async def get_cash_flow(
+    months: int = Query(6, ge=1, le=12),
+    interval: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    return await report_service.get_cash_flow_report(
+        session, user.id, months, interval, user.primary_currency
+    )
