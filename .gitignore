@@ -5,3 +5,6 @@
 .claude
 docs/plans/
 tmp/
+
+# Ignore local configuration files
+.vscode/
