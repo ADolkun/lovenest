@@ -38,6 +38,9 @@ class TransactionData:
     total_installments: Optional[int] = None
     installment_total_amount: Optional[Decimal] = None
     installment_purchase_date: Optional[date] = None
+    # Provider-side identifier of the bill this transaction belongs to.
+    # Resolved to a credit_card_bills.id FK at sync time (issue #92).
+    bill_external_id: Optional[str] = None
 
 
 @dataclass
@@ -51,6 +54,24 @@ class ConnectionData:
 @dataclass
 class ConnectTokenData:
     access_token: str
+
+
+@dataclass
+class BillData:
+    """A normalized credit-card bill (fatura), provider-agnostic.
+
+    Only the fields universal to a credit-card statement are promoted. Anything
+    a specific integration provides on top (finance charges, recorded payments,
+    installment options, etc.) is preserved verbatim in `raw_data` so we can
+    pull more out later without forcing a schema-shaped opinion now.
+    """
+
+    external_id: str
+    due_date: date
+    total_amount: Decimal
+    currency: str = "BRL"
+    minimum_payment: Optional[Decimal] = None
+    raw_data: Optional[dict] = None
 
 
 @dataclass
@@ -156,5 +177,15 @@ class BankProvider(ABC):
         Providers that don't expose holdings (cash-only accounts, custom
         script providers without brokerage data, etc.) can rely on the
         default empty list.
+        """
+        return []
+
+    async def get_bills(self, credentials: dict, account_external_id: str) -> list[BillData]:
+        """Fetch credit-card bills (faturas) for an account.
+
+        Providers without a bills endpoint, or non-regulated Pluggy
+        connections that don't expose /bills, return the default empty list.
+        The sync layer falls back to locally-computed cycle math in that case
+        (see app.services.credit_card_service).
         """
         return []

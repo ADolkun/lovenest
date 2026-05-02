@@ -78,7 +78,7 @@ export function TransactionDialog({
   onClose: () => void
   transaction: Transaction | null
   categories: { id: string; name: string; icon: string }[]
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -278,7 +278,7 @@ function TransactionForm({
   transaction: Transaction | null
   duplicateDraft: Partial<Transaction> | null
   categories: { id: string; name: string; icon: string }[]
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -314,6 +314,9 @@ function TransactionForm({
   const [payeeId, setPayeeId] = useState(seed?.payee_id ?? '')
   const [accountId, setAccountId] = useState(seed?.account_id ?? accounts[0]?.id ?? '')
   const [notes, setNotes] = useState(seed?.notes ?? '')
+  // Manual CC bucketing override (issue #92). Empty = auto. Visible only
+  // when the selected account is a credit card.
+  const [effectiveBillDate, setEffectiveBillDate] = useState(seed?.effective_bill_date ?? '')
   const [convertedAmount, setConvertedAmount] = useState(
     seed?.amount_primary != null ? seed.amount_primary.toString() : ''
   )
@@ -430,11 +433,21 @@ function TransactionForm({
         if (showConversion && fxRate) {
           fxFields.fx_rate_used = parseFloat(fxRate)
         }
+        // Active CC account ⇒ surface effective_bill_date in the payload
+        // (sent both for synced and manual edits since the user can hand-
+        // correct the bucketing on either; null clears the override back to
+        // auto bucketing).
+        const selectedAcc = accounts.find(a => a.id === accountId)
+        const isCcSelected = selectedAcc?.type === 'credit_card'
+        const overridePayload: Partial<Transaction> = isCcSelected
+          ? { effective_bill_date: effectiveBillDate || null }
+          : {}
         const txData = isSynced
           ? {
               category_id: categoryId || null,
               payee_id: payeeId || null,
               notes: notes.trim() || null,
+              ...overridePayload,
             } as Partial<Transaction>
           : {
               description,
@@ -447,6 +460,7 @@ function TransactionForm({
               account_id: accountId || undefined,
               notes: notes.trim() || null,
               ...fxFields,
+              ...overridePayload,
             } as Partial<Transaction>
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
@@ -659,6 +673,42 @@ function TransactionForm({
           placeholder={t('transactions.notesPlaceholder')}
         />
       </div>
+
+      {/* Manual bill-cycle override (issue #92). CC accounts only. Empty
+          input = use auto bucketing (Pluggy bill_id when available, cycle
+          math otherwise). Setting the date forces this tx into the bill
+          whose due_date matches. */}
+      {(() => {
+        const selectedAcc = accounts.find(a => a.id === accountId)
+        if (selectedAcc?.type !== 'credit_card') return null
+        return (
+          <div className="space-y-2">
+            <Label>
+              {t('transactions.effectiveBillDate', 'Data efetiva da fatura')}{' '}
+              <span className="text-muted-foreground font-normal text-xs">
+                ({t('transactions.effectiveBillDateHint', 'manual, sobrescreve o ciclo automático')})
+              </span>
+            </Label>
+            <div className="inline-flex items-center gap-1">
+              <DatePickerInput
+                value={effectiveBillDate}
+                onChange={setEffectiveBillDate}
+                placeholder={t('transactions.effectiveBillDatePlaceholder', 'Vencimento da fatura (opcional)')}
+              />
+              {effectiveBillDate && (
+                <button
+                  type="button"
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+                  onClick={() => setEffectiveBillDate('')}
+                  title={t('transactions.clearOverride', 'Remover sobrescrição')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {!isCreating && transaction ? (
         <TransactionAttachments

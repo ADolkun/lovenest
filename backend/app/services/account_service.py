@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
+from app.models.credit_card_bill import CreditCardBill
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate
 from app.services._query_filters import counts_as_pnl
@@ -130,6 +131,34 @@ def serialize_account(
         payload["next_due_date"] = cycle["next_due_date"]
 
     return payload
+
+
+async def get_credit_card_bills(
+    session: AsyncSession,
+    account_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    limit: int = 24,
+) -> Optional[list[CreditCardBill]]:
+    """Return bills for a CC account, newest due_date first.
+
+    Returns None when the account doesn't exist or isn't owned by the user
+    (the caller maps that to a 404). Returns [] for non-CC accounts and CC
+    accounts with no synced bills — the read path then keeps using the
+    cycle-math fallback.
+    """
+    account = await get_account(session, account_id, user_id)
+    if account is None:
+        return None
+    if account.type != "credit_card":
+        return []
+    result = await session.execute(
+        select(CreditCardBill)
+        .where(CreditCardBill.account_id == account_id)
+        .order_by(CreditCardBill.due_date.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
 
 
 async def get_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Account]:
@@ -492,6 +521,8 @@ async def reopen_account(
 async def get_account_summary(
     session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID,
     date_from: Optional[_Date] = None, date_to: Optional[_Date] = None,
+    bill_id: Optional[uuid.UUID] = None,
+    unbilled_only: bool = False,
 ) -> Optional[dict]:
     account = await get_account(session, account_id, user_id)
     if not account:
@@ -534,30 +565,92 @@ async def get_account_summary(
     if account.type == "credit_card" and account.connection_id:
         current_balance = -current_balance
 
-    # Income = SUM of credit transactions in [date_from, date_to] (excluding
-    # opening_balance, paired transfers, and transfer-like categories).
+    # Bucketing date: for credit-card txs the user can override which cycle
+    # a tx belongs to via `effective_bill_date`. We honor that first so the
+    # totals card and bar chart agree with the transactions list (issue #92).
+    bucket_date = func.coalesce(Transaction.effective_bill_date, Transaction.date)
+
+    # Bill-driven filter (issue #92): when the caller passes bill_id, include
+    #   (a) txs linked to this bill via Pluggy's billId mapping, AND
+    #   (b) txs with NO bill_id (manual entries, OFX/CSV imports, recurring
+    #       fills) whose bucketing date is in the cycle window — without (b)
+    #       we'd drop user-added compensations for missing provider txs.
+    # Without bill_id (cycle-math or non-CC), apply the date window straight.
+    from sqlalchemy import and_ as _and, not_ as _not  # local: only for scope
+    # Resolve the active bill's due_date once so the pending-exclusion can
+    # trust our cycle-math pre-classification (see get_transactions).
+    active_due_subq = (
+        select(CreditCardBill.due_date)
+        .where(CreditCardBill.id == bill_id)
+        .scalar_subquery()
+    ) if bill_id is not None else None
+
+    def _scope(query):
+        if bill_id is not None:
+            unlinked_in_window = _and(
+                Transaction.bill_id.is_(None),
+                # Defer sync-pending txs only when their effective_date does
+                # NOT match this bill — i.e., cycle math placed them in a
+                # different bill. If effective_date matches, the tx is
+                # pre-classified to this bill and we include it (the
+                # in-progress case abdalanervoso reported empty).
+                _not(_and(
+                    Transaction.source == "sync",
+                    Transaction.status == "pending",
+                    Transaction.effective_date != active_due_subq,
+                )),
+                bucket_date >= date_from,
+                bucket_date <= date_to,
+            )
+            return query.where(or_(Transaction.bill_id == bill_id, unlinked_in_window))
+        # Cycle-math fallback. Opt-in `unbilled_only` excludes already-billed
+        # txs so an in-progress cycle's bar/total doesn't double-count past-
+        # bill txs whose date falls in the window (see get_transactions).
+        if unbilled_only:
+            return query.where(
+                Transaction.bill_id.is_(None),
+                bucket_date >= date_from,
+                bucket_date <= date_to,
+            )
+        return query.where(bucket_date >= date_from, bucket_date <= date_to)
+
+    # Income = SUM of credit transactions in window (excluding opening_balance,
+    # paired transfers, and transfer-like categories).
     income_result = await session.execute(
-        select(func.coalesce(func.sum(effective_amount), 0)).where(
+        _scope(select(func.coalesce(func.sum(effective_amount), 0)).where(
             Transaction.account_id == account_id,
             Transaction.type == "credit",
             Transaction.source != "opening_balance",
             counts_as_pnl(),
-            Transaction.date >= date_from,
-            Transaction.date <= date_to,
-        )
+        ))
     )
     monthly_income = float(income_result.scalar())
 
-    # Expenses = SUM of debit transactions in [date_from, date_to] (same exclusions)
-    expenses_result = await session.execute(
-        select(func.coalesce(func.sum(func.abs(effective_amount)), 0)).where(
-            Transaction.account_id == account_id,
-            Transaction.type == "debit",
-            counts_as_pnl(),
-            Transaction.date >= date_from,
-            Transaction.date <= date_to,
+    # Expenses = SUM of debit transactions in window (same exclusions).
+    # For credit-card accounts, NET refund credits against debits so the
+    # cycle's "Total da fatura" matches the bank's bill (refunds reduce the
+    # invoice amount). counts_as_pnl already excludes paired transfers and
+    # transfer-like categories, so bill payments are not double-counted.
+    if account.type == "credit_card":
+        signed_for_bill = case(
+            (Transaction.type == "credit", -func.abs(effective_amount)),
+            else_=func.abs(effective_amount),
         )
-    )
+        expenses_result = await session.execute(
+            _scope(select(func.coalesce(func.sum(signed_for_bill), 0)).where(
+                Transaction.account_id == account_id,
+                Transaction.source != "opening_balance",
+                counts_as_pnl(),
+            ))
+        )
+    else:
+        expenses_result = await session.execute(
+            _scope(select(func.coalesce(func.sum(func.abs(effective_amount)), 0)).where(
+                Transaction.account_id == account_id,
+                Transaction.type == "debit",
+                counts_as_pnl(),
+            ))
+        )
     monthly_expenses = float(expenses_result.scalar())
 
     return {

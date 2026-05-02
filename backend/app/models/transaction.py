@@ -12,6 +12,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.account import Account
     from app.models.category import Category
+    from app.models.credit_card_bill import CreditCardBill
     from app.models.import_log import ImportLog
     from app.models.payee import Payee
     from app.models.transaction_attachment import TransactionAttachment
@@ -55,10 +56,27 @@ class Transaction(Base):
         Numeric(precision=15, scale=2), nullable=True
     )
     installment_purchase_date: Mapped[Optional[_date]] = mapped_column(Date, nullable=True)
+    # User-set manual override for which bill cycle this tx belongs to. Null
+    # by default; only meaningful for credit-card accounts. When set, beats
+    # both Pluggy's billId and the cycle-math fallback (issue #92, the
+    # LucasFidelis cycle_override request).
+    effective_bill_date: Mapped[Optional[_date]] = mapped_column(Date, nullable=True)
+    # FK to the bill this transaction belongs to (issue #92). Set during sync
+    # for providers that expose a bills feed; null otherwise — in which case
+    # the read path falls back to locally-computed cycle math via
+    # apply_effective_date. ON DELETE SET NULL: if a bill row is removed
+    # (re-sync, deletion), the transaction stays put and just unlinks.
+    bill_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("credit_card_bills.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     account: Mapped["Account"] = relationship(back_populates="transactions")
     category: Mapped[Optional["Category"]] = relationship()
+    bill: Mapped[Optional["CreditCardBill"]] = relationship()
     payee_entity: Mapped[Optional["Payee"]] = relationship(back_populates="transactions")
     import_log: Mapped[Optional["ImportLog"]] = relationship(back_populates="transactions")
     attachments: Mapped[list["TransactionAttachment"]] = relationship(

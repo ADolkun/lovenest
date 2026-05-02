@@ -1,6 +1,6 @@
 import time
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import httpx
@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.providers.base import (
     AccountData,
     BankProvider,
+    BillData,
     ConnectionData,
     ConnectTokenData,
     HoldingData,
@@ -33,7 +34,7 @@ def _decimal_or_none(value) -> Optional[Decimal]:
         return None
     try:
         return Decimal(str(value))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, InvalidOperation):
         return None
 
 
@@ -93,6 +94,35 @@ def _build_holding_data(inv: dict) -> HoldingData:
         maturity_date=_date_or_none(inv.get("dueDate")),
         is_withdrawn=pluggy_status == "TOTAL_WITHDRAWAL",
         metadata=metadata or None,
+    )
+
+
+def _build_bill_data(raw: dict) -> Optional[BillData]:
+    """Map a Pluggy bill payload to BillData.
+
+    Returns None when required anchors (id, dueDate, totalAmount) are missing
+    or unparseable — the caller drops those rows rather than failing the whole
+    sync. Negative `totalAmount` is preserved (not abs'd): a negative bill
+    means the bank owes the user money, and silently flipping the sign would
+    hide that fact in reports.
+
+    Provider-specific extras (financeCharges, payments, allowsInstallments,
+    etc.) survive in `raw_data` and can be promoted to first-class columns
+    later if/when the read path actually needs them.
+    """
+    bill_id = raw.get("id")
+    due_date = _date_or_none(raw.get("dueDate"))
+    total_amount = _decimal_or_none(raw.get("totalAmount"))
+    if not bill_id or due_date is None or total_amount is None:
+        return None
+
+    return BillData(
+        external_id=str(bill_id),
+        due_date=due_date,
+        total_amount=total_amount,
+        currency=raw.get("totalAmountCurrencyCode") or "BRL",
+        minimum_payment=_decimal_or_none(raw.get("minimumPaymentAmount")),
+        raw_data=raw,
     )
 
 
@@ -346,6 +376,13 @@ class PluggyProvider(BankProvider):
                         if inst_total_amount is not None
                         else None
                     )
+                    # Bill linkage: Pluggy stamps each charge with the id of
+                    # the bill it lands in. The sync layer resolves this to a
+                    # credit_card_bills FK; we just capture the string here.
+                    bill_external_id_raw = cc_meta.get("billId")
+                    bill_external_id = (
+                        str(bill_external_id_raw) if bill_external_id_raw else None
+                    )
 
                     all_transactions.append(
                         TransactionData(
@@ -364,6 +401,7 @@ class PluggyProvider(BankProvider):
                             total_installments=inst_total if isinstance(inst_total, int) else None,
                             installment_total_amount=inst_total_amount_dec,
                             installment_purchase_date=inst_purchase_date,
+                            bill_external_id=bill_external_id,
                         )
                     )
 
@@ -412,6 +450,45 @@ class PluggyProvider(BankProvider):
                 page += 1
 
         return holdings
+
+    async def get_bills(self, credentials: dict, account_external_id: str) -> list[BillData]:
+        """Fetch credit-card bills from Pluggy /bills.
+
+        Pluggy only exposes /bills on Regulado (Open Finance) connections.
+        For non-regulated connectors the request returns 4xx — we let the
+        error propagate so the sync layer can decide whether to fall back
+        to locally-computed cycle math (compute_effective_date).
+        """
+        headers = await self._headers()
+        bills: list[BillData] = []
+        page = 1
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            while True:
+                resp = await client.get(
+                    f"{PLUGGY_API_BASE}/bills",
+                    headers=headers,
+                    params={
+                        "accountId": account_external_id,
+                        "pageSize": 500,
+                        "page": page,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                results = data.get("results", [])
+                for raw in results:
+                    bill = _build_bill_data(raw)
+                    if bill is not None:
+                        bills.append(bill)
+
+                total_pages = data.get("totalPages", 1)
+                if page >= total_pages or not results:
+                    break
+                page += 1
+
+        return bills
 
     @staticmethod
     def _extract_payee(txn: dict, txn_type: str, payee_source: str = "auto") -> Optional[str]:

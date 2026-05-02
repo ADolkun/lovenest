@@ -65,6 +65,24 @@ class AccountRead(AccountBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CreditCardBillRead(BaseModel):
+    """Provider-agnostic credit-card bill (fatura) — issue #92.
+
+    Provider-specific extras live in `raw_data` on the model but are not
+    exposed here so that consumers don't form provider-shaped dependencies.
+    """
+
+    id: uuid.UUID
+    account_id: uuid.UUID
+    external_id: str
+    due_date: date
+    total_amount: float
+    currency: str
+    minimum_payment: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AccountSummary(BaseModel):
     account_id: uuid.UUID
     current_balance: float

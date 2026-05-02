@@ -64,12 +64,32 @@ async def get_transactions(
     category_ids: Optional[list[uuid.UUID]] = None,
     accounting_mode: Optional[str] = None,
     tags: Optional[list[str]] = None,
+    bill_id: Optional[uuid.UUID] = None,
+    unbilled_only: bool = False,
 ) -> tuple[list[Transaction], int]:
     # In "accrual" mode, bucket/order by effective_date so list filters
     # line up with the cash-flow view used by the dashboard and reports.
-    date_col = (
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
+    # When the user has set a manual cycle override (effective_bill_date)
+    # we honor it FIRST regardless of accounting mode — that's the whole
+    # point of the override (issue #92, LucasFidelis suggestion).
+    date_col = func.coalesce(
+        Transaction.effective_bill_date,
+        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date,
     )
+    # CC bill-view date column: when the caller asks "what's in this bill?"
+    # (bill_id passed, or in-progress cycle via unbilled_only), the answer
+    # is bank-truth — the charges that fell in the cycle by purchase date —
+    # independent of the user's cash/accrual reporting preference. Without
+    # this carve-out, accrual mode would hide a 4/30 charge whose
+    # effective_date points at the next bill's due date because the cycle
+    # window [prev_close, this_close-1] doesn't contain the future
+    # effective_date (issue #92, abdalanervoso's accrual case).
+    bill_view_date_col = func.coalesce(
+        Transaction.effective_bill_date,
+        Transaction.date,
+    )
+    in_bill_view = bill_id is not None or unbilled_only
+    filter_date_col = bill_view_date_col if in_bill_view else date_col
     # Base query: user's own transactions (manual or via account)
     base_query = (
         select(Transaction)
@@ -110,10 +130,66 @@ async def get_transactions(
         base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
-    if from_date:
-        base_query = base_query.where(date_col >= from_date)
-    if to_date:
-        base_query = base_query.where(date_col <= to_date)
+    # Bill-driven filter: when the caller passes bill_id, include
+    #   (a) txs linked to this bill via Pluggy's billId mapping (handles
+    #       charges the bank rolled into a bill whose nominal range doesn't
+    #       contain them — e.g. a 30/03 charge in the May statement), AND
+    #   (b) txs with NO bill_id (manual / OFX / CSV / recurring fills) whose
+    #       bucketing date falls in the cycle window. Without (b) we'd drop
+    #       user-added entries that exist precisely to compensate for txs
+    #       the provider failed to fetch (issue #92, abdalanervoso's Wellhub
+    #       case on Bradesco).
+    # Without bill_id (cycle-math cycles or non-CC), apply the date window
+    # straight to all txs.
+    if bill_id is not None:
+        from app.models.credit_card_bill import CreditCardBill  # local — avoid cycle
+        bill_predicates = [Transaction.bill_id == bill_id]
+        if from_date or to_date:
+            from sqlalchemy import and_ as _and, not_ as _not
+            # Resolve the active bill's due_date once so we can trust
+            # cycle-math classification when Pluggy hasn't tagged a tx yet.
+            active_due_subq = (
+                select(CreditCardBill.due_date)
+                .where(CreditCardBill.id == bill_id)
+                .scalar_subquery()
+            )
+            unlinked_clauses = [
+                Transaction.bill_id.is_(None),
+                # Sync-pending txs without a billId are normally deferred
+                # (provider hasn't classified them) — but if our cycle-math
+                # `apply_effective_date` already pre-classified them to THIS
+                # bill's due_date, trust it and include them. That's the
+                # in-progress case: pending charges the user can already see
+                # in their bank app, classified by close-date math we
+                # computed at sync time. Past closed bills aren't affected
+                # because pending txs there have effective_date pointing
+                # forward to a later bill (ingrid's case stays clean).
+                # Issue #92, abdalanervoso's empty-May.
+                _not(_and(
+                    Transaction.source == "sync",
+                    Transaction.status == "pending",
+                    Transaction.effective_date != active_due_subq,
+                )),
+            ]
+            if from_date:
+                unlinked_clauses.append(filter_date_col >= from_date)
+            if to_date:
+                unlinked_clauses.append(filter_date_col <= to_date)
+            bill_predicates.append(_and(*unlinked_clauses))
+        base_query = base_query.where(or_(*bill_predicates))
+    else:
+        # Cycle-math fallback (no bill_id was passed). The opt-in
+        # `unbilled_only` flag is for callers that need the in-progress
+        # cycle on a CC account whose date window may overlap a closed
+        # bill's range — they ask us to exclude already-billed txs so the
+        # in-progress bar / list doesn't double-count them. The global
+        # /transactions list and other generic callers leave it False.
+        if unbilled_only:
+            base_query = base_query.where(Transaction.bill_id.is_(None))
+        if from_date:
+            base_query = base_query.where(filter_date_col >= from_date)
+        if to_date:
+            base_query = base_query.where(filter_date_col <= to_date)
     if search:
         term = f"%{search}%"
         base_query = base_query.where(
@@ -145,8 +221,11 @@ async def get_transactions(
     count_query = select(func.count()).select_from(base_query.subquery())
     total = await session.scalar(count_query)
 
-    # Apply ordering (and pagination unless skipped)
-    query = base_query.order_by(date_col.desc(), Transaction.created_at.desc())
+    # Apply ordering (and pagination unless skipped). Bill-view callers
+    # order by purchase date so the in-cycle list matches the bank's own
+    # statement ordering regardless of accounting mode.
+    order_col = bill_view_date_col if in_bill_view else date_col
+    query = base_query.order_by(order_col.desc(), Transaction.created_at.desc())
     if not skip_pagination:
         query = query.offset((page - 1) * limit).limit(limit)
 
@@ -497,6 +576,51 @@ async def link_existing_as_transfer(
     return debit_tx, credit_tx
 
 
+async def _resync_bill_link_from_override(
+    session: AsyncSession, transaction: Transaction, account: Optional[Account]
+) -> None:
+    """Re-link transaction.bill_id when the manual effective_bill_date changes.
+
+    - Override SET to a date matching an existing bill's due_date → link to it.
+    - Override SET to a date with no matching bill → keep bill_id null (the
+      override still sets effective_date directly).
+    - Override CLEARED → fall back to whatever Pluggy originally tagged via
+      `creditCardMetadata.billId` in raw_data, if recoverable; else null.
+    """
+    from app.models.credit_card_bill import CreditCardBill  # local: avoid circular
+    if account is None or account.type != "credit_card":
+        return
+    override = transaction.effective_bill_date
+    if override is not None:
+        bill = (
+            await session.execute(
+                select(CreditCardBill).where(
+                    CreditCardBill.account_id == account.id,
+                    CreditCardBill.due_date == override,
+                )
+            )
+        ).scalar_one_or_none()
+        transaction.bill_id = bill.id if bill is not None else None
+        return
+    # Override cleared: try to recover the original Pluggy linkage.
+    raw_bill_id = None
+    if isinstance(transaction.raw_data, dict):
+        meta = transaction.raw_data.get("creditCardMetadata") or {}
+        raw_bill_id = meta.get("billId")
+    if raw_bill_id:
+        bill = (
+            await session.execute(
+                select(CreditCardBill).where(
+                    CreditCardBill.account_id == account.id,
+                    CreditCardBill.external_id == str(raw_bill_id),
+                )
+            )
+        ).scalar_one_or_none()
+        transaction.bill_id = bill.id if bill is not None else None
+    else:
+        transaction.bill_id = None
+
+
 async def update_transaction(
     session: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID, data: TransactionUpdate
 ) -> Optional[Transaction]:
@@ -558,9 +682,13 @@ async def update_transaction(
     elif needs_restamp:
         await stamp_primary_amount(session, user_id, transaction)
 
-    # Refresh effective_date when the purchase date or the account changed.
-    if "date" in update_data or "account_id" in update_data:
+    # Refresh effective_date when the purchase date, account, or the manual
+    # bill-cycle override changed. Also re-link bill_id when the override
+    # changed so the tx moves into the right cycle (issue #92 manual override).
+    if "date" in update_data or "account_id" in update_data or "effective_bill_date" in update_data:
         account_for_tx = await session.get(Account, transaction.account_id)
+        if "effective_bill_date" in update_data:
+            await _resync_bill_link_from_override(session, transaction, account_for_tx)
         apply_effective_date(transaction, account_for_tx)
 
     # Cascade changes to paired transfer transaction

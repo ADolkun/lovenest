@@ -54,6 +54,8 @@ async def list_transactions(
     payee_id: Optional[uuid.UUID] = Query(None),
     from_date: Optional[date] = Query(None, alias="from"),
     to_date: Optional[date] = Query(None, alias="to"),
+    bill_id: Optional[uuid.UUID] = Query(None, description="Filter by credit-card bill (issue #92); takes precedence over from/to"),
+    unbilled_only: bool = Query(False, description="Cycle-math fallback only: exclude txs already linked to any bill (used for in-progress CC cycles)"),
     q: Optional[str] = Query(None),
     uncategorized: bool = Query(False),
     type: Optional[str] = Query(None),
@@ -75,6 +77,8 @@ async def list_transactions(
         txn_type=type, exclude_transfers=exclude_transfers,
         accounting_mode=accounting_mode,
         tags=tags,
+        bill_id=bill_id,
+        unbilled_only=unbilled_only,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]

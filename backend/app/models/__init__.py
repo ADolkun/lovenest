@@ -16,6 +16,7 @@ from app.models.transaction_attachment import TransactionAttachment
 from app.models.payee import Payee, PayeeMapping
 from app.models.app_settings import AppSetting
 from app.models.goal import Goal
+from app.models.credit_card_bill import CreditCardBill
 
 __all__ = [
     "User",
@@ -37,4 +38,5 @@ __all__ = [
     "PayeeMapping",
     "AppSetting",
     "Goal",
+    "CreditCardBill",
 ]

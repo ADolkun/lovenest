@@ -585,3 +585,138 @@ async def test_connected_account_name_still_rejected(
     )
     assert response.status_code == 400
     assert "bank-connected" in response.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# GET /accounts/{id}/bills (issue #92)
+# ---------------------------------------------------------------------------
+
+
+import uuid as _uuid  # noqa: E402
+from datetime import date as _date  # noqa: E402
+from decimal import Decimal as _Decimal  # noqa: E402
+
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+
+from app.models.account import Account as _Account  # noqa: E402
+from app.models.credit_card_bill import CreditCardBill as _CreditCardBill  # noqa: E402
+
+
+async def _make_cc_account(session: AsyncSession, user_id: _uuid.UUID, name: str = "CC") -> _Account:
+    acc = _Account(
+        id=_uuid.uuid4(),
+        user_id=user_id,
+        name=name,
+        type="credit_card",
+        balance=_Decimal("0"),
+        currency="BRL",
+    )
+    session.add(acc)
+    await session.commit()
+    await session.refresh(acc)
+    return acc
+
+
+async def _make_bill(
+    session: AsyncSession, user_id: _uuid.UUID, account_id: _uuid.UUID,
+    *, external_id: str, due_date: _date, total: str = "100.00",
+    minimum: str | None = "10.00",
+) -> _CreditCardBill:
+    bill = _CreditCardBill(
+        user_id=user_id,
+        account_id=account_id,
+        external_id=external_id,
+        due_date=due_date,
+        total_amount=_Decimal(total),
+        currency="BRL",
+        minimum_payment=_Decimal(minimum) if minimum else None,
+    )
+    session.add(bill)
+    await session.commit()
+    await session.refresh(bill)
+    return bill
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_returns_newest_first(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user,
+):
+    cc = await _make_cc_account(session, test_user.id, "Itaú")
+    await _make_bill(session, test_user.id, cc.id, external_id="b-old", due_date=_date(2026, 1, 5))
+    await _make_bill(session, test_user.id, cc.id, external_id="b-mid", due_date=_date(2026, 3, 5))
+    await _make_bill(session, test_user.id, cc.id, external_id="b-new", due_date=_date(2026, 5, 5))
+
+    resp = await client.get(f"/api/accounts/{cc.id}/bills", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [b["external_id"] for b in data] == ["b-new", "b-mid", "b-old"]
+    assert data[0]["account_id"] == str(cc.id)
+    assert data[0]["due_date"] == "2026-05-05"
+    assert data[0]["total_amount"] == 100.0
+    assert data[0]["currency"] == "BRL"
+    assert data[0]["minimum_payment"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_empty_for_non_cc_account(
+    client: AsyncClient, auth_headers, test_account: Account,
+):
+    """Checking accounts return [] — caller treats this same as "no bills"."""
+    resp = await client.get(f"/api/accounts/{test_account.id}/bills", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_empty_for_cc_with_no_bills(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user,
+):
+    """A CC account that hasn't synced bills yet returns [] — the UI must
+    fall back to cycle math, not 404 / error."""
+    cc = await _make_cc_account(session, test_user.id, "Empty CC")
+    resp = await client.get(f"/api/accounts/{cc.id}/bills", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_404_for_nonexistent_account(
+    client: AsyncClient, auth_headers,
+):
+    resp = await client.get(
+        "/api/accounts/00000000-0000-0000-0000-000000000000/bills", headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_respects_limit_param(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user,
+):
+    cc = await _make_cc_account(session, test_user.id, "Many Bills")
+    for i in range(5):
+        await _make_bill(
+            session, test_user.id, cc.id,
+            external_id=f"b-{i}", due_date=_date(2026, i + 1, 5),
+        )
+
+    resp = await client.get(
+        f"/api/accounts/{cc.id}/bills", headers=auth_headers, params={"limit": 2},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    # Newest first — May (i=4) and April (i=3)
+    assert data[0]["external_id"] == "b-4"
+    assert data[1]["external_id"] == "b-3"
+
+
+@pytest.mark.asyncio
+async def test_get_account_bills_rejects_invalid_limit(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user,
+):
+    cc = await _make_cc_account(session, test_user.id, "X")
+    resp = await client.get(
+        f"/api/accounts/{cc.id}/bills", headers=auth_headers, params={"limit": 0},
+    )
+    assert resp.status_code == 422  # Query(ge=1) bound

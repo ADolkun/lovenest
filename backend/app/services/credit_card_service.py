@@ -66,23 +66,36 @@ def compute_available_credit(
     return credit_limit - utilized
 
 
-def apply_effective_date(transaction, account) -> None:
+def apply_effective_date(transaction, account, *, bill_due_date: Optional[date] = None) -> None:
     """Populate `transaction.effective_date` based on the account type.
 
-    Non-CC accounts: effective_date == transaction.date (passthrough).
-    CC accounts: effective_date is the due date of the bill the transaction
-    belongs to — see `compute_effective_date` for the cycle math.
+    Resolution order (highest priority first):
+    1. `transaction.effective_bill_date` — manual user override; whatever
+       the user set wins, since they're hand-correcting a bucketing they
+       disagree with (issue #92's LucasFidelis suggestion).
+    2. `bill_due_date` — bank-truth from Pluggy /bills (passed in by the
+       sync layer when a bill is linked).
+    3. Cycle math from `account.statement_close_day` / `payment_due_day`.
+
+    For non-CC accounts, effective_date is always equal to `date`.
 
     Call this from every tx create/update path (manual, sync, import,
     transfers, opening balances). `effective_date` is stored on every row
     regardless of the user's reporting mode; the mode only affects which
     date the aggregation queries read from."""
+    override = getattr(transaction, "effective_bill_date", None)
+    if override is not None:
+        transaction.effective_date = override
+        return
     if account is not None and getattr(account, "type", None) == "credit_card":
-        transaction.effective_date = compute_effective_date(
-            transaction.date,
-            getattr(account, "statement_close_day", None),
-            getattr(account, "payment_due_day", None),
-        )
+        if bill_due_date is not None:
+            transaction.effective_date = bill_due_date
+        else:
+            transaction.effective_date = compute_effective_date(
+                transaction.date,
+                getattr(account, "statement_close_day", None),
+                getattr(account, "payment_due_day", None),
+            )
     else:
         transaction.effective_date = transaction.date
 

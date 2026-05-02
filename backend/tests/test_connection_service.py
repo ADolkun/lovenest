@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.transaction import Transaction
-from app.providers.base import AccountData, ConnectionData, ConnectTokenData, TransactionData
+from app.providers.base import AccountData, BillData, ConnectionData, ConnectTokenData, TransactionData
 from app.services.connection_service import (
     _description_similarity,
     _match_pluggy_category,
@@ -700,3 +700,709 @@ async def test_sync_connection_does_not_recreate_closed_accounts(
     assert len(rows) == 1, "sync must not create a duplicate active row"
     assert rows[0].is_closed is True
     assert rows[0].balance == Decimal("500"), "closed accounts must not be touched by sync"
+
+
+# ---------------------------------------------------------------------------
+# Credit-card bills wiring (issue #92)
+# ---------------------------------------------------------------------------
+
+
+def _cc_account(external_id: str = "cc-acc-1", name: str = "Credit Card") -> AccountData:
+    return AccountData(
+        external_id=external_id,
+        name=name,
+        type="credit_card",
+        balance=Decimal("0"),
+        currency="BRL",
+    )
+
+
+def _cc_provider_mock(
+    *,
+    bills: list[BillData],
+    transactions: list[TransactionData],
+    bills_side_effect=None,
+) -> AsyncMock:
+    """Build a provider mock for a single CC account that returns the given
+    bills and transactions. `bills_side_effect` overrides the return value
+    (e.g. to raise) when set."""
+    mock = AsyncMock()
+    mock.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock.get_accounts = AsyncMock(return_value=[_cc_account()])
+    mock.get_transactions = AsyncMock(return_value=transactions)
+    if bills_side_effect is not None:
+        mock.get_bills = AsyncMock(side_effect=bills_side_effect)
+    else:
+        mock.get_bills = AsyncMock(return_value=bills)
+    return mock
+
+
+def _patch_sync_helpers():
+    """Common context managers for sync tests — silences out-of-scope helpers."""
+    return (
+        patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock),
+        patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock),
+        patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock),
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_persists_bills_for_credit_card_account(
+    session: AsyncSession, test_user,
+):
+    """First sync of a CC account upserts bills returned by /bills."""
+    from app.models.credit_card_bill import CreditCardBill
+
+    conn = await _make_connection(session, test_user.id, "Bills Bank")
+    bills = [
+        BillData(
+            external_id="bill-1",
+            due_date=date(2026, 4, 15),
+            total_amount=Decimal("1500.00"),
+            currency="BRL",
+            minimum_payment=Decimal("150.00"),
+            raw_data={"id": "bill-1"},
+        ),
+    ]
+    mock_provider = _cc_provider_mock(bills=bills, transactions=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(CreditCardBill).where(CreditCardBill.user_id == test_user.id)
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].external_id == "bill-1"
+    assert rows[0].due_date == date(2026, 4, 15)
+    assert rows[0].total_amount == Decimal("1500.00")
+    assert rows[0].minimum_payment == Decimal("150.00")
+    assert rows[0].raw_data == {"id": "bill-1"}
+
+
+@pytest.mark.asyncio
+async def test_sync_links_transaction_to_matching_bill(
+    session: AsyncSession, test_user,
+):
+    """Transactions whose bill_external_id matches a synced bill get bill_id
+    set and effective_date = bill.due_date (the bank-truth path, issue #92)."""
+    from app.models.credit_card_bill import CreditCardBill
+
+    conn = await _make_connection(session, test_user.id, "Linked Bank")
+    bill = BillData(
+        external_id="bill-99",
+        due_date=date(2026, 5, 10),
+        total_amount=Decimal("500.00"),
+        currency="BRL",
+    )
+    txn = TransactionData(
+        external_id="tx-linked",
+        description="AMAZON",
+        amount=Decimal("100"),
+        date=date(2026, 4, 20),
+        type="debit",
+        currency="BRL",
+        bill_external_id="bill-99",
+    )
+    mock_provider = _cc_provider_mock(bills=[bill], transactions=[txn])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    bill_row = (await session.execute(
+        select(CreditCardBill).where(CreditCardBill.external_id == "bill-99")
+    )).scalar_one()
+    tx_row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-linked")
+    )).scalar_one()
+    assert tx_row.bill_id == bill_row.id
+    # Bank-truth date wins over local cycle math.
+    assert tx_row.effective_date == date(2026, 5, 10)
+
+
+@pytest.mark.asyncio
+async def test_sync_falls_back_to_cycle_math_when_bill_missing(
+    session: AsyncSession, test_user,
+):
+    """A tx with bill_external_id that isn't in the bills feed (older bill,
+    bills 4xx, etc.) leaves bill_id null and uses local cycle math —
+    nothing about the legacy path may regress."""
+    conn = await _make_connection(session, test_user.id, "Cycle Bank")
+
+    # CC account with explicit close/due so cycle math has something to compute
+    cc_acc = AccountData(
+        external_id="cc-acc-cyc", name="CC", type="credit_card",
+        balance=Decimal("0"), currency="BRL",
+        statement_close_day=20, payment_due_day=28,
+    )
+    txn = TransactionData(
+        external_id="tx-orphan",
+        description="ORPHAN",
+        amount=Decimal("30"),
+        date=date(2026, 4, 5),
+        type="debit",
+        currency="BRL",
+        bill_external_id="bill-not-in-feed",
+    )
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[cc_acc])
+    mock_provider.get_transactions = AsyncMock(return_value=[txn])
+    mock_provider.get_bills = AsyncMock(return_value=[])  # empty feed
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    tx_row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-orphan")
+    )).scalar_one()
+    assert tx_row.bill_id is None
+    # close=20 (>tx_date=5) → cycle ends 2026-04-20, due=28 → effective=2026-04-28
+    assert tx_row.effective_date == date(2026, 4, 28)
+
+
+@pytest.mark.asyncio
+async def test_sync_swallows_get_bills_error(
+    session: AsyncSession, test_user,
+):
+    """Non-regulado Pluggy connections 4xx on /bills. Sync must keep going
+    and persist transactions via the cycle-math fallback."""
+    conn = await _make_connection(session, test_user.id, "Err Bank")
+    txn = TransactionData(
+        external_id="tx-after-bills-fail",
+        description="X",
+        amount=Decimal("10"),
+        date=date(2026, 4, 5),
+        type="debit",
+        currency="BRL",
+    )
+    mock_provider = _cc_provider_mock(
+        bills=[], transactions=[txn],
+        bills_side_effect=RuntimeError("403 Forbidden"),
+    )
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        result, _ = await sync_connection(session, conn.id, test_user.id)
+
+    assert result.status == "active"
+    tx_row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-after-bills-fail")
+    )).scalar_one()
+    assert tx_row.bill_id is None
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_get_bills_for_non_credit_card_account(
+    session: AsyncSession, test_user,
+):
+    """Checking accounts must not hit /bills — saves an HTTP roundtrip and
+    avoids 4xx noise on providers that scope bills to credit accounts."""
+    conn = await _make_connection(session, test_user.id, "Checking Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="chk-1", name="Checking",
+            type="checking", balance=Decimal("100"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    mock_provider.get_bills.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_backfills_bill_link_on_existing_transaction(
+    session: AsyncSession, test_user,
+):
+    """A transaction synced before the /bills feature must self-heal: on the
+    next sync, when the matching bill is in the feed, bill_id and
+    effective_date pick up the bank-truth values without re-inserting."""
+    from app.models.credit_card_bill import CreditCardBill
+
+    conn = await _make_connection(session, test_user.id, "Backfill Bank")
+    txn_v0 = TransactionData(
+        external_id="tx-preexisting",
+        description="OLD CHARGE",
+        amount=Decimal("75"),
+        date=date(2026, 4, 6),
+        type="debit",
+        currency="BRL",
+        bill_external_id="bill-future-1",
+    )
+
+    # First sync — no bills returned yet (simulates pre-feature state)
+    mock_provider = _cc_provider_mock(bills=[], transactions=[txn_v0])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    pre = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-preexisting")
+    )).scalar_one()
+    assert pre.bill_id is None  # not linked yet
+
+    # Second sync — same tx, but now /bills returns a matching bill
+    bill = BillData(
+        external_id="bill-future-1",
+        due_date=date(2026, 5, 10),
+        total_amount=Decimal("75"),
+        currency="BRL",
+    )
+    mock_provider.get_bills = AsyncMock(return_value=[bill])
+    mock_provider.get_transactions = AsyncMock(return_value=[txn_v0])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    bill_row = (await session.execute(
+        select(CreditCardBill).where(CreditCardBill.external_id == "bill-future-1")
+    )).scalar_one()
+    post = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-preexisting")
+    )).scalar_one()
+    # Same tx row, now linked + effective_date follows the bill due date.
+    assert post.id == pre.id
+    assert post.bill_id == bill_row.id
+    assert post.effective_date == date(2026, 5, 10)
+
+
+@pytest.mark.asyncio
+async def test_sync_relinks_transaction_when_bank_moves_it_to_another_bill(
+    session: AsyncSession, test_user,
+):
+    """If the bank later re-buckets a tx (chargeback, billing dispute), the
+    next sync must update bill_id and effective_date — same row, new link."""
+    from app.models.credit_card_bill import CreditCardBill
+
+    conn = await _make_connection(session, test_user.id, "Relink Bank")
+
+    bill_a = BillData(
+        external_id="bill-a", due_date=date(2026, 4, 10),
+        total_amount=Decimal("40"), currency="BRL",
+    )
+    bill_b = BillData(
+        external_id="bill-b", due_date=date(2026, 5, 10),
+        total_amount=Decimal("40"), currency="BRL",
+    )
+
+    txn_to_a = TransactionData(
+        external_id="tx-relink", description="X",
+        amount=Decimal("40"), date=date(2026, 3, 15), type="debit",
+        currency="BRL", bill_external_id="bill-a",
+    )
+    mock_provider = _cc_provider_mock(bills=[bill_a, bill_b], transactions=[txn_to_a])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    # Bank moves the tx to bill_b on the next sync
+    txn_to_b = TransactionData(
+        external_id="tx-relink", description="X",
+        amount=Decimal("40"), date=date(2026, 3, 15), type="debit",
+        currency="BRL", bill_external_id="bill-b",
+    )
+    mock_provider.get_transactions = AsyncMock(return_value=[txn_to_b])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    bill_b_row = (await session.execute(
+        select(CreditCardBill).where(CreditCardBill.external_id == "bill-b")
+    )).scalar_one()
+    tx = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-relink")
+    )).scalar_one()
+    assert tx.bill_id == bill_b_row.id
+    assert tx.effective_date == date(2026, 5, 10)
+
+
+@pytest.mark.asyncio
+async def test_sync_creates_synthetic_transactions_for_finance_charges(
+    session: AsyncSession, test_user,
+):
+    """A bill carrying IOF / multa / juros lines that don't exist as standalone
+    transactions must yield synthetic txs so the cycle sum reconciles to
+    bill.total_amount (issue #92)."""
+    conn = await _make_connection(session, test_user.id, "Charges Bank")
+    bill = BillData(
+        external_id="bill-fc-1",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("232.76"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-fc-1",
+            "financeCharges": [
+                {"id": "fc-iof", "type": "IOF", "amount": 0.91, "additionalInfo": "IOF de atraso"},
+                {"id": "fc-fee", "type": "LATE_PAYMENT_FEE", "amount": 4.5, "additionalInfo": "Multa de atraso"},
+                {"id": "fc-int", "type": "LATE_PAYMENT_REMUNERATIVE_INTEREST", "amount": 3.46, "additionalInfo": "Juros de atraso"},
+            ],
+        },
+    )
+    mock_provider = _cc_provider_mock(bills=[bill], transactions=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction)
+        .where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+        .order_by(Transaction.amount)
+    )).scalars().all()
+    assert len(rows) == 3
+    amounts = sorted(float(r.amount) for r in rows)
+    assert amounts == [0.91, 3.46, 4.5]
+    descriptions = {r.description for r in rows}
+    assert descriptions == {"IOF de atraso", "Multa de atraso", "Juros de atraso"}
+    # All linked to the bill, dated to its due_date, marked as debits.
+    for r in rows:
+        assert r.bill_id is not None
+        assert r.date == date(2026, 4, 15)
+        assert r.effective_date == date(2026, 4, 15)
+        assert r.type == "debit"
+        assert r.external_id.startswith("bill_charge:bill-fc-1:")
+
+
+@pytest.mark.asyncio
+async def test_sync_dates_charges_at_cycle_close_when_close_day_known(
+    session: AsyncSession, test_user,
+):
+    """Synthetic finance charges should be dated at the cycle close (the
+    bank's snapshot moment) rather than the bill's due date — otherwise
+    they'd appear chronologically AFTER the user's payment in the tx list,
+    which doesn't match real bank semantics. effective_date stays at
+    due_date for accrual aggregation."""
+    conn = await _make_connection(session, test_user.id, "CloseDateBank")
+    # CC account with explicit close=12, due=18 (Goldinho-style)
+    cc = AccountData(
+        external_id="cd-acc", name="CC", type="credit_card",
+        balance=Decimal("0"), currency="BRL",
+        statement_close_day=12, payment_due_day=18,
+    )
+    bill = BillData(
+        external_id="bill-cd",
+        due_date=date(2026, 2, 18),
+        total_amount=Decimal("100"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-cd",
+            "financeCharges": [
+                {"id": "fc-1", "type": "IOF", "amount": 0.91, "additionalInfo": "IOF"},
+            ],
+        },
+    )
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[cc])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[bill])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    tx = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalar_one()
+    # Close = the most recent close_day on or before due — same month here.
+    assert tx.date == date(2026, 2, 12)
+    # Accrual bucketing still anchors on bill.due_date.
+    assert tx.effective_date == date(2026, 2, 18)
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_carry_over_balance_finance_charge(
+    session: AsyncSession, test_user,
+):
+    """`Saldo em atraso` is the prior bill's unpaid balance carried into this
+    bill — informational only, NOT part of bill.total_amount, so we must not
+    materialize it as a tx (would double-count the user's debt)."""
+    conn = await _make_connection(session, test_user.id, "SaldoBank")
+    bill = BillData(
+        external_id="bill-saldo",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("229.26"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-saldo",
+            "financeCharges": [
+                {"id": "x1", "type": "OTHER", "amount": 223.9, "additionalInfo": "Saldo em atraso"},
+                {"id": "x2", "type": "IOF", "amount": 0.87, "additionalInfo": "IOF de atraso"},
+            ],
+        },
+    )
+    mock_provider = _cc_provider_mock(bills=[bill], transactions=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].description == "IOF de atraso"
+    assert float(rows[0].amount) == 0.87
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_juros_aggregate_finance_charge(
+    session: AsyncSession, test_user,
+):
+    """`Juros de dívida encerrada` is an aggregate that equals the sum of the
+    detailed late-charge lines Pluggy ALSO emits — including it would
+    double-count by ~one charge worth."""
+    conn = await _make_connection(session, test_user.id, "AggBank")
+    bill = BillData(
+        external_id="bill-agg",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("100.00"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-agg",
+            "financeCharges": [
+                {"id": "a1", "type": "OTHER", "amount": 5.37, "additionalInfo": "Juros de dívida encerrada"},
+                {"id": "a2", "type": "IOF", "amount": 0.87, "additionalInfo": "IOF de atraso"},
+                {"id": "a3", "type": "LATE_PAYMENT_FEE", "amount": 4.5, "additionalInfo": "Multa de atraso"},
+            ],
+        },
+    )
+    mock_provider = _cc_provider_mock(bills=[bill], transactions=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    descriptions = {r.description for r in rows}
+    # Aggregate is dropped; the two detailed lines remain.
+    assert descriptions == {"IOF de atraso", "Multa de atraso"}
+
+
+@pytest.mark.asyncio
+async def test_sync_finance_charges_are_idempotent(
+    session: AsyncSession, test_user,
+):
+    """Re-syncing the same bill must not duplicate synthetic charges."""
+    conn = await _make_connection(session, test_user.id, "IdemFC")
+    bill = BillData(
+        external_id="bill-idem-fc",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("100"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-idem-fc",
+            "financeCharges": [
+                {"id": "fc-1", "type": "IOF", "amount": 1.23, "additionalInfo": "IOF de atraso"},
+            ],
+        },
+    )
+    mock_provider = _cc_provider_mock(bills=[bill], transactions=[])
+    p1, p2, p3 = _patch_sync_helpers()
+
+    for _ in range(2):
+        with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+             p1, p2, p3:
+            await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_removes_orphaned_finance_charges_on_resync(
+    session: AsyncSession, test_user,
+):
+    """If a charge disappears from the bill on the next sync (e.g. bank
+    reversed it), the synthetic tx must be removed."""
+    conn = await _make_connection(session, test_user.id, "OrphFC")
+    bill_v1 = BillData(
+        external_id="bill-orph",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("100"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-orph",
+            "financeCharges": [
+                {"id": "fc-keep", "type": "IOF", "amount": 1.0, "additionalInfo": "IOF"},
+                {"id": "fc-drop", "type": "LATE_PAYMENT_FEE", "amount": 4.5, "additionalInfo": "Multa"},
+            ],
+        },
+    )
+    mock_provider = _cc_provider_mock(bills=[bill_v1], transactions=[])
+    p1, p2, p3 = _patch_sync_helpers()
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    # Second sync — the LATE_PAYMENT_FEE charge is gone (bank reversed it)
+    bill_v2 = BillData(
+        external_id="bill-orph",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("100"),
+        currency="BRL",
+        raw_data={
+            "id": "bill-orph",
+            "financeCharges": [
+                {"id": "fc-keep", "type": "IOF", "amount": 1.0, "additionalInfo": "IOF"},
+            ],
+        },
+    )
+    mock_provider.get_bills = AsyncMock(return_value=[bill_v2])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert "fc-keep" in rows[0].external_id
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_overwrite_manual_effective_bill_date(
+    session: AsyncSession, test_user,
+):
+    """When the user has manually set effective_bill_date on a tx, the next
+    sync must NOT relink bill_id or recompute effective_date — the user is
+    explicitly overriding the auto bucketing (issue #92, LucasFidelis idea)."""
+    from datetime import date as _date_
+
+    conn = await _make_connection(session, test_user.id, "OverrideBank")
+
+    bill_a = BillData(
+        external_id="bill-A", due_date=_date_(2026, 4, 5),
+        total_amount=Decimal("100"), currency="BRL",
+    )
+    txn = TransactionData(
+        external_id="tx-overridden",
+        description="X",
+        amount=Decimal("50"),
+        date=_date_(2026, 3, 20),
+        type="debit",
+        currency="BRL",
+        bill_external_id="bill-A",  # Pluggy says: belongs to bill A
+    )
+    mock_provider = _cc_provider_mock(bills=[bill_a], transactions=[txn])
+    p1, p2, p3 = _patch_sync_helpers()
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    # User overrides: this tx belongs to a different bill (May 5, manually).
+    tx_row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-overridden")
+    )).scalar_one()
+    bill_a_row_id = tx_row.bill_id  # link from sync
+    tx_row.effective_bill_date = _date_(2026, 5, 5)
+    tx_row.bill_id = None  # user manually unlinked
+    tx_row.effective_date = _date_(2026, 5, 5)
+    await session.commit()
+
+    # Re-sync — provider still says bill A. Override must be preserved.
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    tx_row = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "tx-overridden")
+    )).scalar_one()
+    assert tx_row.effective_bill_date == _date_(2026, 5, 5)
+    assert tx_row.bill_id is None  # not re-linked to A
+    assert tx_row.effective_date == _date_(2026, 5, 5)
+    assert bill_a_row_id is not None  # sanity: A had been linked initially
+
+
+@pytest.mark.asyncio
+async def test_sync_updates_existing_bill_idempotently(
+    session: AsyncSession, test_user,
+):
+    """A second sync that returns the same bill id with updated totals must
+    update in place, not insert a duplicate (the unique(account_id,
+    external_id) constraint would fail otherwise)."""
+    from app.models.credit_card_bill import CreditCardBill
+
+    conn = await _make_connection(session, test_user.id, "Idem Bank")
+    bill_v1 = BillData(
+        external_id="bill-idem",
+        due_date=date(2026, 4, 15),
+        total_amount=Decimal("100.00"),
+        currency="BRL",
+    )
+    mock_provider = _cc_provider_mock(bills=[bill_v1], transactions=[])
+
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    # Second sync: same id, new totals (e.g. mid-cycle adjustment)
+    bill_v2 = BillData(
+        external_id="bill-idem",
+        due_date=date(2026, 4, 16),
+        total_amount=Decimal("125.50"),
+        currency="BRL",
+    )
+    mock_provider.get_bills = AsyncMock(return_value=[bill_v2])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(CreditCardBill).where(CreditCardBill.user_id == test_user.id)
+    )).scalars().all()
+    assert len(rows) == 1, "second sync must not duplicate the row"
+    assert rows[0].due_date == date(2026, 4, 16)
+    assert rows[0].total_amount == Decimal("125.50")

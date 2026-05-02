@@ -1,6 +1,7 @@
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from sqlalchemy import or_, select, update
@@ -14,6 +15,7 @@ from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.account import Account
 from app.models.category import Category
+from app.models.credit_card_bill import CreditCardBill
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
@@ -422,6 +424,10 @@ async def handle_oauth_callback(
         session.add(account)
         await session.flush()
 
+        bills_by_external_id = await _sync_credit_card_bills(
+            session, user_id, account, provider, connection_data.credentials
+        )
+
         # Fetch initial transactions (since=None fetches all available history)
         transactions_data = await provider.get_transactions(
             connection_data.credentials, acc_data.external_id, None
@@ -436,6 +442,11 @@ async def handle_oauth_callback(
                 payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
                 payee_id = payee_entity.id
 
+            bill = (
+                bills_by_external_id.get(txn_data.bill_external_id)
+                if txn_data.bill_external_id
+                else None
+            )
             transaction = Transaction(
                 user_id=user_id,
                 account_id=account.id,
@@ -455,8 +466,11 @@ async def handle_oauth_callback(
                 total_installments=txn_data.total_installments,
                 installment_total_amount=txn_data.installment_total_amount,
                 installment_purchase_date=txn_data.installment_purchase_date,
+                bill_id=bill.id if bill else None,
             )
-            apply_effective_date(transaction, account)
+            apply_effective_date(
+                transaction, account, bill_due_date=bill.due_date if bill else None
+            )
             session.add(transaction)
             await session.flush()
             new_tx_ids.append(transaction.id)
@@ -603,6 +617,238 @@ async def _cleanup_phantom_duplicates(
     return deleted
 
 
+# Finance-charge `additionalInfo` strings that Pluggy emits but which would
+# double-count if materialized as transactions:
+#   - "Saldo em atraso" — the prior bill's unpaid balance carried into this
+#     bill. It's an informational line, not part of bill.totalAmount.
+#   - "Juros de dívida encerrada" — an aggregate that equals the sum of the
+#     detailed late-charge items (IOF + LATE_PAYMENT_*) Pluggy ALSO lists
+#     separately on the same bill.
+# Matched case-insensitively after stripping whitespace. Issue #92.
+_FINANCE_CHARGE_SKIP_INFO = {
+    "saldo em atraso",
+    "juros de dívida encerrada",
+}
+
+
+def _compute_bill_close_date(due_date: date, close_day: Optional[int]) -> date:
+    """The cycle's close date — when the bank snapshots the bill and applies
+    finance charges. We don't get this from the provider directly; we derive
+    it as "the most recent statement_close_day on or before the bill's
+    due_date" (a few days before due, the typical close-to-due gap). When
+    the account has no close_day configured we fall back to due_date.
+
+    Why this date, not due_date: charges accrue at close, before the user
+    pays the bill. Stamping them at due_date makes them appear chronologically
+    after the payment in the tx list, which doesn't match real bank semantics.
+    """
+    import calendar  # local — not used elsewhere in this file
+    if not close_day:
+        return due_date
+    last = calendar.monthrange(due_date.year, due_date.month)[1]
+    same_month = date(due_date.year, due_date.month, min(close_day, last))
+    if same_month <= due_date:
+        return same_month
+    if due_date.month == 1:
+        py, pm = due_date.year - 1, 12
+    else:
+        py, pm = due_date.year, due_date.month - 1
+    plast = calendar.monthrange(py, pm)[1]
+    return date(py, pm, min(close_day, plast))
+
+
+def _describe_finance_charge(type_str: str, additional_info: Optional[str]) -> str:
+    """User-facing description for a synthetic finance-charge transaction.
+
+    Pluggy connectors emit human-readable Portuguese strings in
+    `additionalInfo`; we prefer those because the bank's own wording is what
+    the user expects to see. Fall back to a localized label keyed off the
+    enumerated `type` when the info field is absent.
+    """
+    if additional_info:
+        return additional_info.strip()
+    return {
+        "IOF": "IOF",
+        "LATE_PAYMENT_FEE": "Multa por atraso",
+        "LATE_PAYMENT_INTEREST": "Juros por atraso",
+        "LATE_PAYMENT_REMUNERATIVE_INTEREST": "Juros remuneratórios",
+    }.get(type_str, "Encargo")
+
+
+async def _sync_bill_finance_charges(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    account: Account,
+    bill: CreditCardBill,
+    raw_charges: list,
+) -> None:
+    """Materialize a bill's finance charges (IOF, juros, multa, etc.) as
+    synthetic transactions linked to the bill.
+
+    Without this, the cycle's tx sum can't reconcile to bill.total_amount —
+    the bank charges these but the provider doesn't always emit them as
+    standalone transactions.
+
+    Each synthetic tx has a stable external_id of the form
+    `bill_charge:{bill.external_id}:{charge.id}` so re-sync is idempotent and
+    self-healing: removed charges are detected and deleted; updated charges
+    overwrite in place. Charges matching the double-count patterns above
+    (carry-over balance, aggregate of detailed lines) are skipped.
+    """
+    # date = close (when the bank applied the charge); effective_date stays
+    # at bill.due_date so accrual-mode aggregations bucket the same as
+    # regular CC purchases for this bill.
+    charge_date = _compute_bill_close_date(bill.due_date, account.statement_close_day)
+
+    desired_external_ids: set[str] = set()
+    for raw in raw_charges:
+        if not isinstance(raw, dict):
+            continue
+        info = (raw.get("additionalInfo") or "").strip().lower()
+        if info in _FINANCE_CHARGE_SKIP_INFO:
+            continue
+        amount_raw = raw.get("amount")
+        try:
+            amount = Decimal(str(amount_raw))
+        except (ValueError, TypeError, InvalidOperation):
+            continue
+        if amount == 0:
+            continue
+        charge_id = raw.get("id")
+        if not charge_id:
+            continue
+        external_id = f"bill_charge:{bill.external_id}:{charge_id}"
+        desired_external_ids.add(external_id)
+
+        existing = (await session.execute(
+            select(Transaction).where(
+                Transaction.account_id == account.id,
+                Transaction.external_id == external_id,
+            )
+        )).scalar_one_or_none()
+
+        description = _describe_finance_charge(
+            str(raw.get("type") or ""), raw.get("additionalInfo")
+        )
+
+        if existing:
+            existing.amount = abs(amount)
+            existing.description = description
+            existing.date = charge_date
+            existing.effective_date = bill.due_date
+            existing.bill_id = bill.id
+            existing.raw_data = raw
+        else:
+            tx = Transaction(
+                user_id=user_id,
+                account_id=account.id,
+                external_id=external_id,
+                description=description,
+                amount=abs(amount),
+                currency=bill.currency,
+                date=charge_date,
+                effective_date=bill.due_date,
+                type="debit",
+                source="sync",
+                status="posted",
+                raw_data=raw,
+                bill_id=bill.id,
+            )
+            session.add(tx)
+
+    # Drop synthetic charges Pluggy no longer reports for this bill (e.g.
+    # the bank reversed an erroneous fee on a re-sync). Real transactions
+    # don't share the bill_charge: prefix so they're untouched.
+    orphans = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account.id,
+            Transaction.bill_id == bill.id,
+            Transaction.external_id.like(f"bill_charge:{bill.external_id}:%"),
+        )
+    )).scalars().all()
+    for tx in orphans:
+        if tx.external_id not in desired_external_ids:
+            await session.delete(tx)
+
+
+async def _sync_credit_card_bills(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    account: Account,
+    provider,
+    credentials: dict,
+) -> dict[str, CreditCardBill]:
+    """Fetch and upsert bills for a credit-card account.
+
+    Returns a {external_id: bill} dict so the caller can resolve transaction
+    bill_id without N+1 queries. For non-CC accounts or providers that don't
+    expose bills, returns an empty dict — the read path then falls back to
+    locally-computed cycle math via apply_effective_date.
+
+    Failures are intentionally swallowed (logged at info): a non-regulado
+    Pluggy connection 4xx'es here, a temporary API hiccup shouldn't fail
+    the whole sync, and the cycle-math fallback already covers the gap.
+    """
+    if account.type != "credit_card":
+        return {}
+
+    try:
+        bills_data = await provider.get_bills(credentials, account.external_id)
+    except Exception as e:  # noqa: BLE001 — provider failures must not fail sync
+        logger.info(
+            "Skipping credit-card bills sync for account %s: %s", account.id, e
+        )
+        return {}
+
+    if not bills_data:
+        return {}
+
+    existing = (
+        await session.execute(
+            select(CreditCardBill).where(CreditCardBill.account_id == account.id)
+        )
+    ).scalars().all()
+    by_external_id: dict[str, CreditCardBill] = {b.external_id: b for b in existing}
+
+    for bd in bills_data:
+        bill = by_external_id.get(bd.external_id)
+        if bill is None:
+            bill = CreditCardBill(
+                user_id=user_id,
+                account_id=account.id,
+                external_id=bd.external_id,
+                due_date=bd.due_date,
+                total_amount=bd.total_amount,
+                currency=bd.currency,
+                minimum_payment=bd.minimum_payment,
+                raw_data=bd.raw_data,
+            )
+            session.add(bill)
+            by_external_id[bd.external_id] = bill
+        else:
+            bill.due_date = bd.due_date
+            bill.total_amount = bd.total_amount
+            bill.currency = bd.currency
+            bill.minimum_payment = bd.minimum_payment
+            bill.raw_data = bd.raw_data
+
+    await session.flush()
+
+    # Materialize finance charges (IOF, juros, multa, etc.) as transactions
+    # linked to each bill so the cycle sum reconciles to bill.total_amount.
+    for bd in bills_data:
+        bill = by_external_id.get(bd.external_id)
+        if bill is None:
+            continue
+        raw_charges = (bd.raw_data or {}).get("financeCharges")
+        if isinstance(raw_charges, list) and raw_charges:
+            await _sync_bill_finance_charges(
+                session, user_id, account, bill, raw_charges,
+            )
+
+    return by_external_id
+
+
 async def sync_connection(
     session: AsyncSession, connection_id: uuid.UUID, user_id: uuid.UUID
 ) -> tuple[BankConnection, int]:
@@ -688,6 +934,13 @@ async def sync_connection(
                 session.add(account)
                 await session.flush()
 
+            # Fetch the bills feed before transactions so transaction → bill
+            # FK resolution happens in-memory (no N+1). Empty dict for non-CC
+            # accounts or providers without /bills.
+            bills_by_external_id = await _sync_credit_card_bills(
+                session, user_id, account, provider, credentials
+            )
+
             # Fetch and sync transactions. The 14-day rewind is on Pluggy's
             # `createdAt` (when their row was inserted), so it covers two
             # cases: (1) PENDING transactions that POSTED since last sync,
@@ -716,6 +969,26 @@ async def sync_connection(
                 if existing_tx:
                     if existing_tx.status == "pending" and txn_data.status == "posted":
                         existing_tx.status = "posted"
+                    # Self-heal bill linkage: a tx that pre-dates the bills
+                    # feature (or whose bill we hadn't ingested last time)
+                    # picks up bill_id + bank-truth effective_date on the
+                    # first sync after the bill becomes available. Same
+                    # branch covers re-bucketing if the bank moved a tx to
+                    # a different bill (e.g. a chargeback).
+                    #
+                    # User's manual override wins: if effective_bill_date is
+                    # set, we don't touch bill_id or effective_date — the
+                    # user has explicitly overridden the auto bucketing.
+                    if (
+                        txn_data.bill_external_id
+                        and existing_tx.effective_bill_date is None
+                    ):
+                        bill = bills_by_external_id.get(txn_data.bill_external_id)
+                        if bill is not None and existing_tx.bill_id != bill.id:
+                            existing_tx.bill_id = bill.id
+                            apply_effective_date(
+                                existing_tx, account, bill_due_date=bill.due_date
+                            )
                     continue
 
                 # Pass 2: Fuzzy match against manual transactions
@@ -739,6 +1012,11 @@ async def sync_connection(
                     sync_payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
                     sync_payee_id = sync_payee_entity.id
 
+                bill = (
+                    bills_by_external_id.get(txn_data.bill_external_id)
+                    if txn_data.bill_external_id
+                    else None
+                )
                 transaction = Transaction(
                     user_id=user_id,
                     account_id=account.id,
@@ -758,8 +1036,11 @@ async def sync_connection(
                     total_installments=txn_data.total_installments,
                     installment_total_amount=txn_data.installment_total_amount,
                     installment_purchase_date=txn_data.installment_purchase_date,
+                    bill_id=bill.id if bill else None,
                 )
-                apply_effective_date(transaction, account)
+                apply_effective_date(
+                    transaction, account, bill_due_date=bill.due_date if bill else None
+                )
                 session.add(transaction)
                 await session.flush()
                 new_tx_ids.append(transaction.id)

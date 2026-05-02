@@ -101,6 +101,16 @@ export interface Account {
   closed_at: string | null
 }
 
+export interface CreditCardBill {
+  id: string
+  account_id: string
+  external_id: string
+  due_date: string // YYYY-MM-DD
+  total_amount: number
+  currency: string
+  minimum_payment: number | null
+}
+
 export interface AccountSummary {
   account_id: string
   current_balance: number
@@ -138,6 +148,12 @@ export interface Transaction {
   total_installments: number | null
   installment_total_amount: number | null
   installment_purchase_date: string | null
+  bill_id: string | null
+  // Manual override for which credit-card bill cycle this tx belongs to
+  // (issue #92). Empty / null = use auto bucketing (Pluggy bill_id when
+  // available, cycle math otherwise). Setting it forces the tx into the
+  // bill whose due_date matches.
+  effective_bill_date: string | null
 }
 
 export interface Payee {

@@ -215,6 +215,54 @@ async def test_parser_negative_total_amount_is_stored_as_absolute():
 
 
 @pytest.mark.asyncio
+async def test_parser_captures_bill_external_id():
+    """`creditCardMetadata.billId` flows into TransactionData.bill_external_id —
+    the sync layer resolves it to a credit_card_bills FK (issue #92)."""
+    result = await _fetch([
+        {
+            "id": "tx-bill-1",
+            "description": "RESTAURANT",
+            "amount": -50.00,
+            "date": "2026-04-10",
+            "type": "DEBIT",
+            "creditCardMetadata": {"billId": "bill-abc-123"},
+        }
+    ])
+    assert result[0].bill_external_id == "bill-abc-123"
+
+
+@pytest.mark.asyncio
+async def test_parser_no_bill_id_leaves_field_none():
+    result = await _fetch([
+        {
+            "id": "tx-no-bill",
+            "description": "X",
+            "amount": -10,
+            "date": "2026-04-10",
+            "type": "DEBIT",
+            "creditCardMetadata": {"installmentNumber": 1, "totalInstallments": 1},
+        }
+    ])
+    assert result[0].bill_external_id is None
+
+
+@pytest.mark.asyncio
+async def test_parser_bill_id_coerced_to_string():
+    """Defensive: providers may emit numeric bill ids; column is String(255)."""
+    result = await _fetch([
+        {
+            "id": "tx-num-bill",
+            "description": "X",
+            "amount": -10,
+            "date": "2026-04-10",
+            "type": "DEBIT",
+            "creditCardMetadata": {"billId": 999},
+        }
+    ])
+    assert result[0].bill_external_id == "999"
+
+
+@pytest.mark.asyncio
 async def test_parser_missing_purchase_date_only():
     """Some connectors omit purchaseDate even when counts are present."""
     result = await _fetch([
