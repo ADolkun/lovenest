@@ -530,6 +530,7 @@
     "fieldAmount": "Valor",
     "fieldType": "Tipo",
     "fieldAccount": "Conta",
+    "fieldPayee": "Beneficiário",
     "fieldDate": "Data",
     "opContains": "contém",
     "opNotContains": "não contém",
@@ -539,6 +540,7 @@
     "opEndsWith": "termina com",
     "opRegex": "regex",
     "opIs": "é",
+    "opIsNot": "não é",
     "typeExpense": "Despesa (debit)",
     "typeIncome": "Receita (credit)",
     "valuePlaceholder": "Valor...",
@@ -808,7 +810,7 @@
     "searchIcon": "Buscar ícone...",
     "noIconsFound": "Nenhum ícone encontrado",
     "primaryCurrency": "Moeda Principal",
-    "showLess":"Mostrar menos",
+    "showLess": "Mostrar menos",
     "showMore": "Mostrar +{{count}}"
   },
   "privacy": {

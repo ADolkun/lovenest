@@ -13,6 +13,7 @@ def make_tx(**kwargs) -> types.SimpleNamespace:
         id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         account_id=uuid.uuid4(),
+        payee_id=uuid.uuid4(),
         category_id=None,
         description="UBER TRIP",
         amount=Decimal("25.50"),
@@ -316,6 +317,39 @@ def test_set_payee_action():
     tx.payee_id = None
     apply_rule_actions(actions, tx, category_already_set=False)
     assert tx.payee_id == payee_id
+
+
+# --- payee_id condition tests ---
+
+
+def test_payee_id_equals_match():
+    payee_id = uuid.uuid4()
+    conditions = [{"field": "payee_id", "op": "equals", "value": str(payee_id)}]
+    tx = make_tx(payee_id=payee_id)
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_payee_id_equals_no_match():
+    payee_id = uuid.uuid4()
+    other_payee_id = uuid.uuid4()
+    conditions = [{"field": "payee_id", "op": "equals", "value": str(other_payee_id)}]
+    tx = make_tx(payee_id=payee_id)
+    assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_payee_id_not_equals():
+    payee_id = uuid.uuid4()
+    other_payee_id = uuid.uuid4()
+    conditions = [{"field": "payee_id", "op": "not_equals", "value": str(other_payee_id)}]
+    tx = make_tx(payee_id=payee_id)
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_payee_id_none_not_equals_real_payee():
+    payee_id = uuid.uuid4()
+    conditions = [{"field": "payee_id", "op": "not_equals", "value": str(payee_id)}]
+    tx = make_tx(payee_id=None)
+    assert evaluate_conditions("and", conditions, tx) is True
 
 
 def test_set_payee_invalid_uuid_ignored():

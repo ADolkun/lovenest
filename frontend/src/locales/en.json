@@ -530,6 +530,7 @@
     "fieldAmount": "Amount",
     "fieldType": "Type",
     "fieldAccount": "Account",
+    "fieldPayee": "Payee",
     "fieldDate": "Date",
     "opContains": "contains",
     "opNotContains": "does not contain",
@@ -539,6 +540,7 @@
     "opEndsWith": "ends with",
     "opRegex": "regex",
     "opIs": "is",
+    "opIsNot": "is not",
     "typeExpense": "Expense (debit)",
     "typeIncome": "Income (credit)",
     "valuePlaceholder": "Value...",
@@ -808,7 +810,7 @@
     "searchIcon": "Search icon...",
     "noIconsFound": "No icons found",
     "primaryCurrency": "Primary Currency",
-    "showLess":"Show less",
+    "showLess": "Show less",
     "showMore": "+{{count}} more"
   },
   "privacy": {
