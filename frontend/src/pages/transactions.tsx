@@ -8,6 +8,13 @@ import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -26,6 +33,15 @@ import { LinkTransferDialog } from '@/components/link-transfer-dialog'
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+
+type TransactionUpdatePayload = Partial<Transaction> & {
+  apply_to_transfer_pair?: boolean
+}
+
+type PendingTransferCategoryUpdate = {
+  id: string
+  data: TransactionUpdatePayload
+}
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -58,6 +74,8 @@ export default function TransactionsPage() {
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
+  const [pendingTransferCategoryUpdate, setPendingTransferCategoryUpdate] =
+    useState<PendingTransferCategoryUpdate | null>(null)
   const [formResetKey, setFormResetKey] = useState(0)
   const [duplicateDraft, setDuplicateDraft] = useState<Partial<Transaction> | null>(null)
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
@@ -264,7 +282,7 @@ export default function TransactionsPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...data }: Partial<Transaction> & { id: string }) =>
+    mutationFn: ({ id, ...data }: TransactionUpdatePayload & { id: string }) =>
       transactions.update(id, data),
     onSuccess: () => {
       invalidateAfterTxMutation()
@@ -423,6 +441,43 @@ export default function TransactionsPage() {
       : undefined
 
   const totalPages = data ? Math.ceil(data.total / 20) : 0
+
+  const isTransferCategoryPromptOpen = !!pendingTransferCategoryUpdate
+
+  const submitPendingTransferCategoryUpdate = (applyToTransferPair: boolean) => {
+    if (!pendingTransferCategoryUpdate) return
+    const { id, data } = pendingTransferCategoryUpdate
+    updateMutation.mutate({
+      id,
+      ...data,
+      apply_to_transfer_pair: applyToTransferPair,
+    })
+    setPendingTransferCategoryUpdate(null)
+  }
+
+  const handleTransactionSave = (
+    data: Partial<Transaction>,
+    recurringData?: { frequency: string; end_date?: string },
+    pendingFiles?: File[],
+    action?: SaveAction,
+  ) => {
+    if (!editingTx) {
+      createMutation.mutate({ tx: data, recurringData, pendingFiles, action })
+      return
+    }
+
+    const isTransferCategoryChange =
+      !!editingTx.transfer_pair_id &&
+      Object.prototype.hasOwnProperty.call(data, 'category_id') &&
+      data.category_id !== editingTx.category_id
+
+    if (isTransferCategoryChange) {
+      setPendingTransferCategoryUpdate({ id: editingTx.id, data })
+      return
+    }
+
+    updateMutation.mutate({ id: editingTx.id, ...data })
+  }
 
   return (
     <div>
@@ -829,26 +884,67 @@ export default function TransactionsPage() {
       {/* Add/Edit Dialog */}
       <TransactionDialog
         open={dialogOpen}
-        onClose={() => { setDialogOpen(false); setEditingTx(null); setDuplicateDraft(null) }}
+        onClose={() => {
+          setDialogOpen(false)
+          setEditingTx(null)
+          setDuplicateDraft(null)
+          setPendingTransferCategoryUpdate(null)
+        }}
         transaction={editingTx}
         duplicateDraft={duplicateDraft}
         formResetKey={formResetKey}
         categories={categoriesList ?? []}
         accounts={accountsList ?? []}
         recurringMatch={editingTx ? recurringList?.find(r => r.description === editingTx.description && r.type === editingTx.type) : undefined}
-        onSave={(data, recurringData, pendingFiles, action) => {
-          if (editingTx) {
-            updateMutation.mutate({ id: editingTx.id, ...data })
-          } else {
-            createMutation.mutate({ tx: data, recurringData, pendingFiles, action })
-          }
-        }}
+        onSave={handleTransactionSave}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
         onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
         loading={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={createMutation.error || updateMutation.error ? extractApiError(createMutation.error || updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
       />
+
+      <Dialog
+        open={isTransferCategoryPromptOpen}
+        onOpenChange={(open) => {
+          if (!open) setPendingTransferCategoryUpdate(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('transactions.confirmTransferCategoryTitle')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {t('transactions.confirmTransferCategoryDesc')}
+          </p>
+          <DialogFooter className="flex-row flex-nowrap items-center justify-end gap-2 sm:space-x-0">
+            <Button
+              className="shrink-0"
+              variant="outline"
+              onClick={() => setPendingTransferCategoryUpdate(null)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              className="min-w-0 flex-1 truncate"
+              variant="outline"
+              onClick={() => submitPendingTransferCategoryUpdate(false)}
+              disabled={updateMutation.isPending}
+            >
+              {t('transactions.confirmTransferCategorySingle')}
+            </Button>
+            <Button
+              className="min-w-0 flex-1 truncate"
+              onClick={() => submitPendingTransferCategoryUpdate(true)}
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending
+                ? t('common.loading')
+                : t('transactions.confirmTransferCategoryBoth')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

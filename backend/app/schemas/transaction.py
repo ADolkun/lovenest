@@ -42,6 +42,7 @@ class TransactionUpdate(BaseModel):
     notes: Optional[str] = None
     amount_primary: Optional[Decimal] = None
     fx_rate_used: Optional[Decimal] = None
+    apply_to_transfer_pair: bool = False
     # CC bucketing override (issue #92). Empty string / explicit null clears
     # it back to auto. Only meaningful for credit-card accounts.
     effective_bill_date: Optional[_Date] = None

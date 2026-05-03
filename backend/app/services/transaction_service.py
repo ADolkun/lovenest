@@ -629,6 +629,7 @@ async def update_transaction(
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    apply_to_transfer_pair = update_data.pop("apply_to_transfer_pair", False)
 
     # Verify the new account belongs to the user before touching the row.
     # When changing the account on one side of a transfer pair, refuse to
@@ -693,7 +694,8 @@ async def update_transaction(
 
     # Cascade changes to paired transfer transaction
     cascade_fields = {"amount", "date", "description", "notes"}
-    if transaction.transfer_pair_id and (cascade_fields & update_data.keys()):
+    should_cascade_category = apply_to_transfer_pair and "category_id" in update_data
+    if transaction.transfer_pair_id and ((cascade_fields & update_data.keys()) or should_cascade_category):
         paired = await session.execute(
             select(Transaction).where(
                 Transaction.transfer_pair_id == transaction.transfer_pair_id,
@@ -702,6 +704,8 @@ async def update_transaction(
         )
         paired_tx = paired.scalar_one_or_none()
         if paired_tx:
+            if should_cascade_category:
+                paired_tx.category_id = transaction.category_id
             for key in cascade_fields & update_data.keys():
                 if key == "amount" and paired_tx.currency != transaction.currency:
                     from decimal import Decimal

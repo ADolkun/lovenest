@@ -280,7 +280,10 @@ export const transactions = {
     const { data } = await api.post('/transactions', transaction)
     return data
   },
-  update: async (id: string, transaction: Partial<Transaction>): Promise<Transaction> => {
+  update: async (
+    id: string,
+    transaction: Partial<Transaction> & { apply_to_transfer_pair?: boolean },
+  ): Promise<Transaction> => {
     const { data } = await api.patch(`/transactions/${id}`, transaction)
     return data
   },

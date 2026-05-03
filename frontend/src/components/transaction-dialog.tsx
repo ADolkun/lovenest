@@ -620,7 +620,6 @@ function TransactionForm({
             className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            disabled={!!transaction?.transfer_pair_id}
           >
             <option value="">{t('transactions.noCategory')}</option>
             {categories.map((cat) => (

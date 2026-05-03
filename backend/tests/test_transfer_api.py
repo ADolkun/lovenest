@@ -255,6 +255,136 @@ async def test_update_cascades_to_paired_transaction(
     assert credit_data["date"] == new_date
 
 
+@pytest.mark.asyncio
+async def test_update_transfer_category_only_updates_edited_side_without_flag(
+    client: AsyncClient,
+    auth_headers,
+    test_account: Account,
+    second_account: Account,
+    test_categories,
+):
+    response = await client.post(
+        "/api/transactions/transfer",
+        json={
+            "from_account_id": str(test_account.id),
+            "to_account_id": str(second_account.id),
+            "amount": 180.00,
+            "date": date.today().isoformat(),
+            "description": "Transfer recategorize",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    debit_id = data["debit"]["id"]
+    credit_id = data["credit"]["id"]
+
+    update_response = await client.patch(
+        f"/api/transactions/{debit_id}",
+        json={"category_id": str(test_categories[0].id)},
+        headers=auth_headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["category_id"] == str(test_categories[0].id)
+
+    credit_response = await client.get(
+        f"/api/transactions/{credit_id}", headers=auth_headers
+    )
+    assert credit_response.status_code == 200
+    assert credit_response.json()["category_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_transfer_category_can_apply_to_paired_transaction(
+    client: AsyncClient,
+    auth_headers,
+    test_account: Account,
+    second_account: Account,
+    test_categories,
+):
+    response = await client.post(
+        "/api/transactions/transfer",
+        json={
+            "from_account_id": str(test_account.id),
+            "to_account_id": str(second_account.id),
+            "amount": 220.00,
+            "date": date.today().isoformat(),
+            "description": "Transfer paired category",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    debit_id = data["debit"]["id"]
+    credit_id = data["credit"]["id"]
+
+    update_response = await client.patch(
+        f"/api/transactions/{debit_id}",
+        json={
+            "category_id": str(test_categories[1].id),
+            "apply_to_transfer_pair": True,
+        },
+        headers=auth_headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["category_id"] == str(test_categories[1].id)
+
+    credit_response = await client.get(
+        f"/api/transactions/{credit_id}", headers=auth_headers
+    )
+    assert credit_response.status_code == 200
+    assert credit_response.json()["category_id"] == str(test_categories[1].id)
+
+
+@pytest.mark.asyncio
+async def test_clear_transfer_category_can_apply_to_paired_transaction(
+    client: AsyncClient,
+    auth_headers,
+    test_account: Account,
+    second_account: Account,
+    test_categories,
+):
+    response = await client.post(
+        "/api/transactions/transfer",
+        json={
+            "from_account_id": str(test_account.id),
+            "to_account_id": str(second_account.id),
+            "amount": 260.00,
+            "date": date.today().isoformat(),
+            "description": "Transfer clear category",
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    debit_id = data["debit"]["id"]
+    credit_id = data["credit"]["id"]
+
+    seed_response = await client.patch(
+        f"/api/transactions/{debit_id}",
+        json={
+            "category_id": str(test_categories[0].id),
+            "apply_to_transfer_pair": True,
+        },
+        headers=auth_headers,
+    )
+    assert seed_response.status_code == 200
+
+    clear_response = await client.patch(
+        f"/api/transactions/{debit_id}",
+        json={"category_id": None, "apply_to_transfer_pair": True},
+        headers=auth_headers,
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["category_id"] is None
+
+    credit_response = await client.get(
+        f"/api/transactions/{credit_id}", headers=auth_headers
+    )
+    assert credit_response.status_code == 200
+    assert credit_response.json()["category_id"] is None
+
+
 async def _create_manual_tx(
     client: AsyncClient,
     auth_headers: dict,

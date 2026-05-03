@@ -251,6 +251,10 @@
     "unlinkTransfer": "Desvincular transferência",
     "unlinkTransferConfirm": "Desvincular esta transferência? Ambas as transações voltarão a ser tratadas como transações normais.",
     "unlinkTransferSuccess": "Transferência desvinculada",
+    "confirmTransferCategoryTitle": "Aplicar esta categoria também à transferência pareada?",
+    "confirmTransferCategoryDesc": "Transferências vêm em pares. Você pode atualizar só esta transação ou aplicar a mesma mudança de categoria aos dois lados.",
+    "confirmTransferCategorySingle": "Só esta transação",
+    "confirmTransferCategoryBoth": "Atualizar ambas",
     "filtersBar": {
       "filters": "Filtros",
       "filterBy": "Filtrar por",
