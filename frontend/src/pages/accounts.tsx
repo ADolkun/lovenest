@@ -78,6 +78,7 @@ export default function AccountsPage() {
   const [connectorSelectOpen, setConnectorSelectOpen] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
   const [settingsConnection, setSettingsConnection] = useState<BankConnection | null>(null)
+  const [disconnectingConnection, setDisconnectingConnection] = useState<BankConnection | null>(null)
   const [closingAccountId, setClosingAccountId] = useState<string | null>(null)
   const [reconnectConnId, setReconnectConnId] = useState<string | null>(null)
   const [reconnectItemId, setReconnectItemId] = useState<string | null>(null)
@@ -117,6 +118,10 @@ export default function AccountsPage() {
     onSuccess: () => {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
+      queryClient.invalidateQueries({ queryKey: ['assets'] })
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['portfolio-trend'] })
+      setDisconnectingConnection(null)
       toast.success(t('accounts.disconnected'))
     },
   })
@@ -337,7 +342,7 @@ export default function AccountsPage() {
                           variant="ghost"
                           size="sm"
                           className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-500"
-                          onClick={() => disconnectMutation.mutate(conn.id)}
+                          onClick={() => setDisconnectingConnection(conn)}
                           disabled={disconnectMutation.isPending}
                         >
                           <Unlink size={14} />
@@ -500,6 +505,30 @@ export default function AccountsPage() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? t('common.loading') : t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm disconnect dialog */}
+      <Dialog open={!!disconnectingConnection} onOpenChange={() => setDisconnectingConnection(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('accounts.confirmDisconnectTitle')}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {t('accounts.confirmDisconnectDesc', { institution: disconnectingConnection?.institution_name ?? '' })}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisconnectingConnection(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => disconnectingConnection && disconnectMutation.mutate(disconnectingConnection.id)}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? t('common.loading') : t('accounts.disconnect')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,6 +16,7 @@ from app.models.bank_connection import BankConnection
 from app.models.account import Account
 from app.models.category import Category
 from app.models.credit_card_bill import CreditCardBill
+from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
@@ -220,7 +221,12 @@ async def _upsert_asset_from_holding(
     asset.currency = holding.currency
     # external_metadata is a snapshot blob: we want the latest every time.
     asset.external_metadata = holding.metadata
+    previous_connection_id = asset.connection_id
     asset.connection_id = connection_id
+    # Only auto-unarchive when the holding moved to a different connection
+    # (e.g. unlink + reconnect). This avoids overriding user-archived assets.
+    if asset.is_archived and previous_connection_id != connection_id:
+        asset.is_archived = False
 
     # Sparse fields — merge, don't clobber. Pluggy sometimes returns
     # these on first sync and null on later ones (e.g. amountOriginal
@@ -1113,6 +1119,41 @@ async def delete_connection(
         .values(is_archived=True)
     )
 
+    # Track payees referenced by this connection's transactions so we can
+    # remove only newly-orphaned records after deleting the connection.
+    affected_payee_ids = (
+        await session.execute(
+            select(Transaction.payee_id)
+            .join(Account, Account.id == Transaction.account_id)
+            .where(
+                Account.connection_id == connection.id,
+                Transaction.payee_id.isnot(None),
+            )
+            .distinct()
+        )
+    ).scalars().all()
+
     await session.delete(connection)
+    await session.flush()
+
+    if affected_payee_ids:
+        has_transactions = exists(
+            select(Transaction.id).where(Transaction.payee_id == Payee.id)
+        )
+        has_external_mappings = exists(
+            select(PayeeMapping.id).where(
+                PayeeMapping.target_id == Payee.id,
+                PayeeMapping.id != Payee.id,
+            )
+        )
+        await session.execute(
+            delete(Payee).where(
+                Payee.user_id == user_id,
+                Payee.id.in_(affected_payee_ids),
+                ~has_transactions,
+                ~has_external_mappings,
+            )
+        )
+
     await session.commit()
     return True

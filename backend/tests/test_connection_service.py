@@ -285,6 +285,121 @@ async def test_delete_connection_not_found(session: AsyncSession, test_user):
     assert result is False
 
 
+@pytest.mark.asyncio
+async def test_delete_connection_archives_linked_assets(session: AsyncSession, test_user):
+    """Deleting a connection archives linked assets before removing the connection."""
+    from app.models.asset import Asset
+
+    conn = await _make_connection(session, test_user.id, "Asset Bank")
+    asset = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        name="Synced ETF",
+        type="etf",
+        currency="BRL",
+        source="pluggy",
+        external_id="asset-ext-1",
+        connection_id=conn.id,
+        is_archived=False,
+    )
+    session.add(asset)
+    await session.commit()
+
+    result = await delete_connection(session, conn.id, test_user.id)
+    assert result is True
+
+    refreshed = (await session.execute(select(Asset).where(Asset.id == asset.id))).scalar_one()
+    assert refreshed.is_archived is True
+
+
+@pytest.mark.asyncio
+async def test_delete_connection_deletes_orphan_payees(session: AsyncSession, test_user):
+    """Unlink should remove payees that become orphaned after tx deletion."""
+    from app.models.account import Account
+    from app.models.payee import Payee
+
+    conn = await _make_connection(session, test_user.id, "Cleanup Bank")
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        connection_id=conn.id,
+        name="Connected Account",
+        type="checking",
+        balance=Decimal("0"),
+        currency="BRL",
+    )
+    payee = Payee(id=uuid.uuid4(), user_id=test_user.id, name="Ghost Payee")
+    session.add_all([account, payee])
+    await session.flush()
+
+    session.add(
+        Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            account_id=account.id,
+            description="Synced tx",
+            amount=Decimal("10"),
+            date=date.today(),
+            type="debit",
+            source="sync",
+            payee_id=payee.id,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await session.commit()
+
+    assert await delete_connection(session, conn.id, test_user.id) is True
+
+    refreshed = (await session.execute(select(Payee).where(Payee.id == payee.id))).scalar_one_or_none()
+    assert refreshed is None
+
+
+@pytest.mark.asyncio
+async def test_delete_connection_keeps_payees_with_external_mappings(session: AsyncSession, test_user):
+    """Unlink should not remove payees that still have external mappings."""
+    from app.models.account import Account
+    from app.models.payee import Payee, PayeeMapping
+
+    conn = await _make_connection(session, test_user.id, "Mapped Bank")
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        connection_id=conn.id,
+        name="Connected Account",
+        type="checking",
+        balance=Decimal("0"),
+        currency="BRL",
+    )
+    payee = Payee(id=uuid.uuid4(), user_id=test_user.id, name="Mapped Payee")
+    session.add_all([account, payee])
+    await session.flush()
+
+    session.add_all(
+        [
+            PayeeMapping(id=payee.id, user_id=test_user.id, target_id=payee.id),
+            PayeeMapping(id=uuid.uuid4(), user_id=test_user.id, target_id=payee.id),
+            Transaction(
+                id=uuid.uuid4(),
+                user_id=test_user.id,
+                account_id=account.id,
+                description="Synced tx",
+                amount=Decimal("15"),
+                date=date.today(),
+                type="debit",
+                source="sync",
+                payee_id=payee.id,
+                created_at=datetime.now(timezone.utc),
+            ),
+        ]
+    )
+    await session.commit()
+
+    assert await delete_connection(session, conn.id, test_user.id) is True
+
+    refreshed = (await session.execute(select(Payee).where(Payee.id == payee.id))).scalar_one_or_none()
+    assert refreshed is not None
+
+
 # ---------------------------------------------------------------------------
 # create_connect_token
 # ---------------------------------------------------------------------------

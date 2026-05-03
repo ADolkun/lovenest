@@ -23,8 +23,9 @@ async def get_payees(session: AsyncSession, user_id: uuid.UUID) -> list[Payee]:
         .group_by(Transaction.payee_id)
         .subquery()
     )
+    tx_count = func.coalesce(count_subq.c.tx_count, 0)
     result = await session.execute(
-        select(Payee, func.coalesce(count_subq.c.tx_count, 0).label("transaction_count"))
+        select(Payee, tx_count.label("transaction_count"))
         .outerjoin(count_subq, Payee.id == count_subq.c.payee_id)
         .where(Payee.user_id == user_id)
         .order_by(Payee.name)

@@ -337,6 +337,8 @@
     "connected": "Bank connected successfully",
     "connectError": "Failed to connect bank",
     "disconnected": "Connection removed",
+    "confirmDisconnectTitle": "Disconnect bank connection?",
+    "confirmDisconnectDesc": "This will unlink {{institution}} and remove synced accounts and transactions from the app. This action is irreversible.",
     "viewTransactions": "View transactions",
     "currentBalance": "Current balance",
     "income": "Income",

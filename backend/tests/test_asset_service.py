@@ -810,3 +810,18 @@ async def test_get_assets_include_archived(session: AsyncSession, test_user: Use
     names = [a.name for a in assets]
     assert "A1" in names
     assert "A2" in names
+
+
+@pytest.mark.asyncio
+async def test_get_assets_excludes_archived_by_default(session: AsyncSession, test_user: User):
+    await asset_service.create_asset(
+        session, test_user.id, AssetCreate(name="Visible", type="other", currency="BRL"),
+    )
+    await asset_service.create_asset(
+        session, test_user.id, AssetCreate(name="Archived", type="other", currency="BRL", is_archived=True),
+    )
+
+    assets = await asset_service.get_assets(session, test_user.id)
+    names = [a.name for a in assets]
+    assert "Visible" in names
+    assert "Archived" not in names

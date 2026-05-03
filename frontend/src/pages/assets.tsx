@@ -221,7 +221,7 @@ export default function AssetsPage() {
 
   const { data: assetsList, isLoading } = useQuery({
     queryKey: ['assets'],
-    queryFn: () => assets.list(true),
+    queryFn: () => assets.list(false),
   })
 
   const { data: portfolioData } = useQuery({

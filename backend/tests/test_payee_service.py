@@ -153,6 +153,31 @@ async def test_get_payees_ordered_by_name(session: AsyncSession, test_user):
     assert names == sorted(names)
 
 
+@pytest.mark.asyncio
+async def test_get_payees_includes_zero_transaction_payees(session: AsyncSession, test_user):
+    orphan = await create_payee(session, test_user.id, PayeeCreate(name="No Tx"))
+    active = await create_payee(session, test_user.id, PayeeCreate(name="Has Tx"))
+    account = await _make_account(session, test_user)
+
+    session.add(Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=account.id,
+        description="Paid", amount=Decimal("12"), date=date.today(),
+        type="debit", source="manual", payee_id=active.id,
+        created_at=datetime.now(timezone.utc),
+    ))
+    await session.commit()
+
+    payees = await get_payees(session, test_user.id)
+    ids = {p.id for p in payees}
+
+    assert active.id in ids
+    assert orphan.id in ids
+
+    payees_by_id = {p.id: p for p in payees}
+    assert payees_by_id[active.id].transaction_count == 1
+    assert payees_by_id[orphan.id].transaction_count == 0
+
+
 # ---------------------------------------------------------------------------
 # get_or_create_payee
 # ---------------------------------------------------------------------------
