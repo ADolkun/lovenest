@@ -5,6 +5,7 @@
 .claude
 docs/plans/
 tmp/
+docker-compose.override.yml
 
 # Ignore local configuration files
 .vscode/

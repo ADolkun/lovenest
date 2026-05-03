@@ -154,6 +154,100 @@ export interface Transaction {
   // available, cycle math otherwise). Setting it forces the tx into the
   // bill whose due_date matches.
   effective_bill_date: string | null
+  splits: TransactionSplit[]
+  // Shared-transaction view fields. Set per-request when the viewer
+  // is a linked split member but not the owner. Render `viewer_share`
+  // as the amount and treat the row as read-only — editing belongs
+  // to the parent's owner.
+  is_shared?: boolean
+  viewer_share?: number | null
+  group_id?: string | null
+  // Display name of the parent's owner (the person who actually paid).
+  // Derived per-request from the group's `is_self` member.
+  parent_owner_name?: string | null
+}
+
+export type ShareType = 'equal' | 'exact' | 'percent'
+
+export interface TransactionSplit {
+  id: string
+  transaction_id: string
+  group_member_id: string
+  share_amount: number
+  share_type: string
+  share_pct: number | null
+  notes: string | null
+  created_at: string
+}
+
+export interface TransactionSplitInput {
+  group_member_id: string
+  share_amount?: number | null
+  share_pct?: number | null
+  notes?: string | null
+}
+
+export interface TransactionSplitsInput {
+  share_type: ShareType
+  splits: TransactionSplitInput[]
+}
+
+export type GroupKind = 'social' | 'cost_center' | 'project' | 'client' | 'other'
+
+export interface Group {
+  id: string
+  user_id: string
+  name: string
+  kind: GroupKind
+  default_currency: string
+  icon: string
+  color: string
+  is_archived: boolean
+  // Derived server-side per request. False = the current user is a
+  // linked member, not the owner — UI should hide edit affordances.
+  is_owner: boolean
+  notes: string | null
+  created_at: string
+  members: GroupMember[]
+}
+
+export interface GroupMember {
+  id: string
+  group_id: string
+  name: string
+  linked_user_id: string | null
+  email: string | null
+  is_self: boolean
+  created_at: string
+}
+
+export interface GroupSettlement {
+  id: string
+  group_id: string
+  from_member_id: string
+  to_member_id: string
+  amount: number
+  currency: string
+  date: string
+  transaction_id: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface GroupBalanceLine {
+  member_id: string
+  currency: string
+  // Positive = member owes the owner. Negative = owner owes member.
+  amount: number
+  // FX-converted to the group's default currency for cross-currency rollups.
+  amount_in_default_currency: number
+}
+
+export interface GroupBalances {
+  group_id: string
+  self_member_id: string | null
+  default_currency: string
+  lines: GroupBalanceLine[]
 }
 
 export interface Payee {
@@ -258,6 +352,10 @@ export interface DashboardSummary {
   assets_value: Record<string, number>
   assets_value_primary: number
   primary_currency: string
+  // Net pending balance from group splits in primary currency.
+  // Negative = net liability, positive = net receivable. Already
+  // accounts for partial settlements.
+  pending_shares_net: number
 }
 
 export interface SpendingByCategory {

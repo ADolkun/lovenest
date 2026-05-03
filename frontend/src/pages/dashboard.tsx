@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
-import { dashboard, transactions, budgets, categories as categoriesApi, accounts as accountsApi, goals as goalsApi } from '@/lib/api'
+import { dashboard, transactions, budgets, categories as categoriesApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -27,8 +27,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { CheckCircle2, CalendarIcon, Paperclip, Target, ArrowUpDown } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { CheckCircle2, CalendarIcon, Paperclip, Target, ArrowUpDown, HelpCircle } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { ICON_MAP } from '@/lib/category-icons'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -70,6 +70,7 @@ function formatDate(dateStr: string, locale = 'pt-BR') {
 
 export default function DashboardPage() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
@@ -125,6 +126,18 @@ export default function DashboardPage() {
       exclude_transfers: true,
     }),
   })
+
+  // Resolve group_id → name for the badge on split transactions.
+  const { data: allGroups } = useQuery({
+    queryKey: ['groups', 'all'],
+    queryFn: () => groupsApi.list(true),
+    staleTime: 60_000,
+  })
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const g of allGroups ?? []) map.set(g.id, g.name)
+    return map
+  }, [allGroups])
 
   const { data: projectedTxs, isLoading: projectedTxLoading } = useQuery({
     queryKey: ['dashboard', 'projected-transactions', selectedMonth],
@@ -279,18 +292,40 @@ export default function DashboardPage() {
     categoryColor: string | null
     isProjected: boolean
     attachmentCount: number
+    isShared: boolean
+    parentTotal: number | null
+    // Owner-side: this user's share of a split they own. Null when
+    // they're not in the split, or when share == amount (would be a
+    // redundant secondary line).
+    ownerShare: number | null
+    groupId: string | null
+    parentOwnerName: string | null
+    groupName: string | null
   }
 
   const TX_PER_PAGE = 10
   const allDisplayRows = useMemo(() => {
     const rows: DisplayRow[] = []
     for (const tx of currentMonthTxs?.items ?? []) {
+      const isShared = !!tx.is_shared
+      const displayAmount =
+        isShared && tx.viewer_share != null ? Number(tx.viewer_share) : Number(tx.amount)
+      const groupId = tx.group_id ?? null
+      // Owner-side share: backend populates viewer_share for owners
+      // who participate in their own split. Suppress when it equals
+      // the parent amount (sole-member case = no useful info).
+      const ownerShareRaw =
+        !isShared && tx.viewer_share != null ? Number(tx.viewer_share) : null
+      const ownerShare =
+        ownerShareRaw != null && Math.abs(ownerShareRaw) !== Math.abs(Number(tx.amount))
+          ? ownerShareRaw
+          : null
       rows.push({
         key: tx.id,
         description: tx.description,
         date: tx.date,
         type: tx.type,
-        amount: Number(tx.amount),
+        amount: displayAmount,
         amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
         currency: tx.currency,
         categoryIcon: tx.category?.icon ?? null,
@@ -298,6 +333,12 @@ export default function DashboardPage() {
         categoryColor: tx.category?.color ?? null,
         isProjected: false,
         attachmentCount: tx.attachment_count ?? 0,
+        isShared,
+        parentTotal: isShared ? Number(tx.amount) : null,
+        ownerShare,
+        groupId,
+        parentOwnerName: isShared ? tx.parent_owner_name ?? null : null,
+        groupName: groupId ? groupNameById.get(groupId) ?? null : null,
       })
     }
     for (const pt of projectedTxs ?? []) {
@@ -314,11 +355,17 @@ export default function DashboardPage() {
         categoryColor: pt.category_color ?? null,
         isProjected: true,
         attachmentCount: 0,
+        isShared: false,
+        parentTotal: null,
+        ownerShare: null,
+        groupId: null,
+        parentOwnerName: null,
+        groupName: null,
       })
     }
     rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
     return rows
-  }, [currentMonthTxs, projectedTxs, txSortDesc])
+  }, [currentMonthTxs, projectedTxs, txSortDesc, groupNameById])
 
   const txTotalPages = Math.ceil(allDisplayRows.length / TX_PER_PAGE)
   const pagedRows = allDisplayRows.slice((txPage - 1) * TX_PER_PAGE, txPage * TX_PER_PAGE)
@@ -403,7 +450,12 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-6">
               {/* Balance */}
               <div className="min-w-0">
-                <p className="text-xs font-medium text-muted-foreground mb-0.5">{t('dashboard.totalBalance')}</p>
+                <p className="text-xs font-medium text-muted-foreground mb-0.5 flex items-center gap-1">
+                  {t('dashboard.totalBalance')}
+                  <span title={t('dashboard.totalBalanceTooltip')} className="inline-flex cursor-help">
+                    <HelpCircle className="h-3 w-3 text-muted-foreground/60" />
+                  </span>
+                </p>
                 {summaryLoading ? (
                   <Skeleton className="h-7 w-24" />
                 ) : (
@@ -413,13 +465,35 @@ export default function DashboardPage() {
                     </p>
                     {/* Per-currency breakdown when multiple currencies */}
                     {summary?.total_balance && Object.keys(summary.total_balance).length > 1 && (
-                      <div className="flex flex-wrap gap-x-2 mt-0.5">
+                      <div className="flex flex-wrap items-baseline gap-x-1.5 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground/70">{t('dashboard.byCurrency')}</span>
                         {Object.entries(summary.total_balance).map(([cur, val]) => (
                           <span key={cur} className="text-[10px] text-muted-foreground tabular-nums">
                             {mask(formatCurrency(val, cur, locale))}
                           </span>
                         ))}
                       </div>
+                    )}
+                    {/* Net of pending group shares — show only when
+                        meaningfully nonzero so users without groups
+                        see the same UI as before. */}
+                    {summary && Math.abs(summary.pending_shares_net) >= 0.01 && (
+                      <p
+                        className={`text-[10px] tabular-nums mt-0.5 ${
+                          summary.pending_shares_net < 0 ? 'text-rose-500' : 'text-emerald-600'
+                        }`}
+                        title={t('dashboard.pendingSharesTooltip')}
+                      >
+                        {summary.pending_shares_net < 0
+                          ? t('dashboard.pendingSharesOwe', {
+                              net: mask(formatCurrency(totalBalance + summary.pending_shares_net, primaryCurrency, locale)),
+                              owed: mask(formatCurrency(Math.abs(summary.pending_shares_net), primaryCurrency, locale)),
+                            })
+                          : t('dashboard.pendingSharesOwed', {
+                              net: mask(formatCurrency(totalBalance + summary.pending_shares_net, primaryCurrency, locale)),
+                              owed: mask(formatCurrency(summary.pending_shares_net, primaryCurrency, locale)),
+                            })}
+                      </p>
                     )}
                   </div>
                 )}
@@ -856,9 +930,21 @@ export default function DashboardPage() {
                   {pagedRows.map((row) => (
                     <TableRow
                       key={row.key}
-                      className={`border-b border-border last:border-0 ${!row.isProjected ? 'cursor-pointer hover:bg-muted' : ''}`}
+                      className={`border-b border-border last:border-0 ${
+                        row.isProjected
+                          ? ''
+                          : row.isShared
+                            ? 'cursor-pointer hover:bg-muted'
+                            : 'cursor-pointer hover:bg-muted'
+                      }`}
                       onClick={() => {
                         if (row.isProjected) return
+                        if (row.isShared) {
+                          // Shared rows belong to another user — open the
+                          // group instead of the (locked) edit dialog.
+                          if (row.groupId) navigate(`/groups/${row.groupId}`)
+                          return
+                        }
                         const tx = currentMonthTxs?.items.find((t) => t.id === row.key)
                         if (tx) { setEditingTx(tx); setDialogOpen(true) }
                       }}
@@ -869,6 +955,13 @@ export default function DashboardPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-semibold text-foreground truncate">{row.description}</p>
+                              {row.groupId && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 shrink-0 uppercase tracking-wide">
+                                  {row.isShared && row.parentOwnerName
+                                    ? t('splitGroups.sharedShortBadgeAuthor', { author: row.parentOwnerName })
+                                    : row.groupName ?? t('splitGroups.sharedShortBadge')}
+                                </span>
+                              )}
                               {row.isProjected && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                                   {t('transactions.recurringBadge')}
@@ -886,7 +979,21 @@ export default function DashboardPage() {
                         <span className={`text-sm font-semibold tabular-nums ${row.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                           {mask(`${row.type === 'credit' ? '+' : '-'}${formatCurrency(Math.abs(row.amount), row.currency, locale)}`)}
                         </span>
-                        {row.currency !== userCurrency && row.amountPrimary != null && (
+                        {row.isShared && row.parentTotal != null && (
+                          <span className="block text-[10px] text-muted-foreground tabular-nums">
+                            {t('splitGroups.sharedRowParent', {
+                              total: formatCurrency(Math.abs(row.parentTotal), row.currency, locale),
+                            })}
+                          </span>
+                        )}
+                        {!row.isShared && row.ownerShare != null && (
+                          <span className="block text-[10px] text-muted-foreground tabular-nums">
+                            {t('splitGroups.ownerRowYourShare', {
+                              share: formatCurrency(Math.abs(row.ownerShare), row.currency, locale),
+                            })}
+                          </span>
+                        )}
+                        {!row.isShared && row.currency !== userCurrency && row.amountPrimary != null && (
                           <span className="block text-[10px] text-muted-foreground tabular-nums">
                             {mask(formatCurrency(Math.abs(row.amountPrimary), userCurrency, locale))}
                           </span>

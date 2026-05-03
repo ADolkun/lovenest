@@ -17,6 +17,12 @@ class DashboardSummary(BaseModel):
     assets_value: dict[str, float] = {}  # currency -> total asset value
     assets_value_primary: float = 0.0
     primary_currency: str = "USD"
+    # Net pending balance from group splits (in primary currency).
+    # Negative = the user is a net debtor (others paid for them, debt
+    # owed). Positive = the user is a net creditor (paid for others,
+    # waiting to be paid back). Computed from group balance lines so
+    # it already accounts for any partial settlements.
+    pending_shares_net: float = 0.0
 
 
 class SpendingByCategory(BaseModel):

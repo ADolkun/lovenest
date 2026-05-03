@@ -45,6 +45,7 @@ import {
   Repeat,
   Landmark,
   Users,
+  Split,
   BarChart3,
   Sun,
   Moon,
@@ -87,6 +88,7 @@ const navItems: NavItem[] = [
   { type: 'link', key: 'recurring', path: '/recurring', icon: Repeat },
   { type: 'link', key: 'categories', path: '/categories', icon: Tag },
   { type: 'link', key: 'payees', path: '/payees', icon: Users },
+  { type: 'link', key: 'splitGroups', path: '/groups', icon: Split },
   { type: 'link', key: 'rules', path: '/rules', icon: SlidersHorizontal },
 ]
 

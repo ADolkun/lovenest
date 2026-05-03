@@ -89,10 +89,27 @@ async def search_all(
     hits: list[SearchHit] = []
 
     # -- Transactions -------------------------------------------------------
+    # Search returns the user's own transactions PLUS transactions
+    # they participate in via group splits — so "concert" finds the
+    # parent that someone else paid for but is on the user's ledger.
+    from app.models.group import GroupMember
+    from app.models.transaction_split import TransactionSplit
+
+    viewer_member_ids = select(GroupMember.id).where(
+        GroupMember.linked_user_id == user_id
+    )
+    shared_tx_ids = (
+        select(TransactionSplit.transaction_id)
+        .where(TransactionSplit.group_member_id.in_(viewer_member_ids))
+        .distinct()
+    )
     tx_result = await session.execute(
         select(Transaction)
         .where(
-            Transaction.user_id == user_id,
+            or_(
+                Transaction.user_id == user_id,
+                Transaction.id.in_(shared_tx_ids),
+            ),
             or_(
                 Transaction.description.ilike(pattern, escape="\\"),
                 Transaction.payee.ilike(pattern, escape="\\"),

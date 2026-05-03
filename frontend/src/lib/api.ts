@@ -34,6 +34,12 @@ import type {
   BalanceHistory,
   PaginatedResponse,
   ReportResponse,
+  Group,
+  GroupKind,
+  GroupMember,
+  GroupSettlement,
+  GroupBalances,
+  TransactionSplitsInput,
 } from '@/types'
 
 const api = axios.create({
@@ -258,6 +264,7 @@ export const transactions = {
     from?: string
     to?: string
     bill_id?: string
+    group_id?: string
     unbilled_only?: boolean
     q?: string
     page?: number
@@ -456,6 +463,132 @@ export const payees = {
     return data
   },
 }
+
+// Groups (split transactions)
+export interface GroupCreatePayload {
+  name: string
+  kind?: GroupKind
+  default_currency?: string
+  icon?: string
+  color?: string
+  notes?: string | null
+}
+
+export interface GroupMemberPayload {
+  name: string
+  linked_user_id?: string | null
+  email?: string | null
+  is_self?: boolean
+}
+
+export interface GroupSettlementPayload {
+  from_member_id: string
+  to_member_id: string
+  amount: number
+  currency: string
+  date: string
+  transaction_id?: string | null
+  notes?: string | null
+  // When provided, the backend creates a debit transaction on this
+  // account and links it via transaction_id. Mutually exclusive with
+  // passing transaction_id directly.
+  account_id?: string | null
+  description?: string | null
+}
+
+export const groups = {
+  list: async (includeArchived = false): Promise<Group[]> => {
+    const { data } = await api.get('/groups', { params: { include_archived: includeArchived } })
+    return data
+  },
+  get: async (id: string): Promise<Group> => {
+    const { data } = await api.get(`/groups/${id}`)
+    return data
+  },
+  create: async (payload: GroupCreatePayload): Promise<Group> => {
+    const { data } = await api.post('/groups', payload)
+    return data
+  },
+  update: async (id: string, payload: Partial<GroupCreatePayload> & { is_archived?: boolean }): Promise<Group> => {
+    const { data } = await api.patch(`/groups/${id}`, payload)
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/groups/${id}`)
+  },
+  members: {
+    list: async (groupId: string): Promise<GroupMember[]> => {
+      const { data } = await api.get(`/groups/${groupId}/members`)
+      return data
+    },
+    create: async (groupId: string, payload: GroupMemberPayload): Promise<GroupMember> => {
+      const { data } = await api.post(`/groups/${groupId}/members`, payload)
+      return data
+    },
+    update: async (groupId: string, memberId: string, payload: Partial<GroupMemberPayload>): Promise<GroupMember> => {
+      const { data } = await api.patch(`/groups/${groupId}/members/${memberId}`, payload)
+      return data
+    },
+    delete: async (groupId: string, memberId: string): Promise<void> => {
+      await api.delete(`/groups/${groupId}/members/${memberId}`)
+    },
+  },
+  settlements: {
+    list: async (groupId: string): Promise<GroupSettlement[]> => {
+      const { data } = await api.get(`/groups/${groupId}/settlements`)
+      return data
+    },
+    create: async (groupId: string, payload: GroupSettlementPayload): Promise<GroupSettlement> => {
+      const { data } = await api.post(`/groups/${groupId}/settlements`, payload)
+      return data
+    },
+    update: async (groupId: string, settlementId: string, payload: Partial<GroupSettlementPayload>): Promise<GroupSettlement> => {
+      const { data } = await api.patch(`/groups/${groupId}/settlements/${settlementId}`, payload)
+      return data
+    },
+    delete: async (groupId: string, settlementId: string): Promise<void> => {
+      await api.delete(`/groups/${groupId}/settlements/${settlementId}`)
+    },
+  },
+  balances: async (groupId: string): Promise<GroupBalances> => {
+    const { data } = await api.get(`/groups/${groupId}/balances`)
+    return data
+  },
+  transactions: async (groupId: string, limit = 20): Promise<Transaction[]> => {
+    const { data } = await api.get(`/groups/${groupId}/transactions`, {
+      params: { limit },
+    })
+    return data
+  },
+}
+
+// Helper re-export so transaction-creation forms have a typed entry point.
+export type { TransactionSplitsInput }
+
+// User lookup: exact-match resolution for linking group members to
+// existing Securo users. Returns null on miss (404).
+export interface UserLookupResult {
+  id: string
+  email: string
+}
+
+export const users = {
+  lookupByEmail: async (email: string): Promise<UserLookupResult | null> => {
+    try {
+      const { data } = await api.get('/users/lookup', { params: { email } })
+      return data
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 404) return null
+      throw err
+    }
+  },
+  directory: async (): Promise<UserLookupResult[]> => {
+    const { data } = await api.get('/users/directory')
+    return data
+  },
+}
+
 
 // Categorization Rules
 export const rules = {

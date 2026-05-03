@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.accounts import router as accounts_router
 from app.api.budgets import router as budgets_router
 from app.api.goals import router as goals_router
+from app.api.groups import router as groups_router
 from app.api.categories import router as categories_router
 from app.api.category_groups import router as category_groups_router
 from app.api.connections import router as connections_router
@@ -29,6 +30,7 @@ from app.api.payees import router as payees_router
 from app.api.settings import router as settings_router
 from app.api.transactions import router as transactions_router
 from app.api.two_factor import router as two_factor_router
+from app.api.user_lookup import router as user_lookup_router
 from app.api.admin import router as admin_router, check_registration_enabled
 from app.core.auth import fastapi_users
 from app.core.config import get_settings
@@ -94,6 +96,10 @@ app.include_router(
     tags=["auth"],
     dependencies=[Depends(password_reset_rate_limit)],
 )
+# user_lookup must precede the fastapi-users router below so the
+# `/api/users/lookup` path isn't captured by the catch-all `/{id}`
+# route fastapi-users mounts.
+app.include_router(user_lookup_router)
 app.include_router(
     fastapi_users.get_users_router(UserRead, UserUpdate),
     prefix="/api/users",
@@ -112,6 +118,7 @@ app.include_router(connections_router)
 app.include_router(recurring_router)
 app.include_router(budgets_router)
 app.include_router(goals_router)
+app.include_router(groups_router)
 app.include_router(assets_router)
 app.include_router(asset_groups_router)
 app.include_router(dashboard_router)
