@@ -705,6 +705,7 @@
     "syncedFrom": "Synced from {{source}}",
     "syncedReadOnly": "Synced assets are managed by the connection",
     "maturesOn": "Matures {{date}}",
+    "wallet": "Wallet",
     "newWallet": "New Wallet",
     "editWallet": "Edit wallet",
     "deleteWallet": "Delete wallet",

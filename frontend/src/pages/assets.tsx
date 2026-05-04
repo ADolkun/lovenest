@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
@@ -201,7 +201,11 @@ export default function AssetsPage() {
   const [formName, setFormName] = useState('')
   const [formType, setFormType] = useState<string>('other')
   const [formCurrency, setFormCurrency] = useState(userCurrency)
+  const [formGroupId, setFormGroupId] = useState<string>('')
   const [formMethod, setFormMethod] = useState<string>('manual')
+  // Tracks "+ New wallet" clicked from inside the asset dialog so the
+  // newly-created wallet auto-fills the picker on success.
+  const pendingAssignWalletToFormRef = useRef(false)
   const [formPurchaseDate, setFormPurchaseDate] = useState<string>('')
   const [formPurchasePrice, setFormPurchasePrice] = useState('')
   const [formSellDate, setFormSellDate] = useState<string>('')
@@ -301,10 +305,14 @@ export default function AssetsPage() {
   const createWalletMutation = useMutation({
     mutationFn: (data: { name: string; color: string }) =>
       assetGroups.create({ name: data.name, color: data.color, icon: 'wallet' }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setWalletDialogOpen(false)
       setEditingWallet(null)
+      if (pendingAssignWalletToFormRef.current) {
+        setFormGroupId(created.id)
+        pendingAssignWalletToFormRef.current = false
+      }
       toast.success(t('assets.walletCreated'))
     },
     onError: () => toast.error(t('common.error')),
@@ -454,6 +462,7 @@ export default function AssetsPage() {
     setFormName('')
     setFormType('other')
     setFormCurrency(userCurrency)
+    setFormGroupId('')
     setFormMethod('manual')
     setFormPurchaseDate('')
     setFormPurchasePrice('')
@@ -473,6 +482,7 @@ export default function AssetsPage() {
     setFormName(asset.name)
     setFormType(asset.type)
     setFormCurrency(asset.currency)
+    setFormGroupId(asset.group_id ?? '')
     setFormMethod(asset.valuation_method)
     setFormPurchaseDate(asset.purchase_date ?? '')
     setFormPurchasePrice(asset.purchase_price?.toString() ?? '')
@@ -508,6 +518,7 @@ export default function AssetsPage() {
       name: formName,
       type: formType,
       currency: formCurrency,
+      group_id: formGroupId || null,
       valuation_method: formMethod,
       purchase_date: formPurchaseDate || null,
       purchase_price: formPurchasePrice ? parseFloat(formPurchasePrice) : null,
@@ -916,6 +927,36 @@ export default function AssetsPage() {
             <div className="space-y-2">
               <Label>{t('assets.name')}</Label>
               <Input value={formName} onChange={e => setFormName(e.target.value)} />
+            </div>
+
+            {/* Wallet picker — lets users place the asset in a specific
+                wallet at creation time instead of dropping it in
+                "Ungrouped" and moving it after (issue #138). */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>{t('assets.wallet')}</Label>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                  disabled={createWalletMutation.isPending}
+                  onClick={() => {
+                    pendingAssignWalletToFormRef.current = true
+                    openCreateWallet()
+                  }}
+                >
+                  + {t('assets.newWallet')}
+                </button>
+              </div>
+              <select
+                className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
+                value={formGroupId}
+                onChange={e => setFormGroupId(e.target.value)}
+              >
+                <option value="">{t('assets.noWallet')}</option>
+                {sortedWallets.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
             </div>
 
             {/* Type + Currency */}

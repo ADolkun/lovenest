@@ -705,6 +705,7 @@
     "syncedFrom": "Sincronizado via {{source}}",
     "syncedReadOnly": "Ativos sincronizados são gerenciados pela conexão",
     "maturesOn": "Vence em {{date}}",
+    "wallet": "Carteira",
     "newWallet": "Nova Carteira",
     "editWallet": "Editar carteira",
     "deleteWallet": "Excluir carteira",
