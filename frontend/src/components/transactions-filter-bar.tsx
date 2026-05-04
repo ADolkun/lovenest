@@ -3,6 +3,7 @@ import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
 import { format, startOfMonth, startOfYear, subDays } from 'date-fns'
 import {
+  ArrowUpDown,
   Calendar as CalendarIcon,
   Check,
   ChevronRight,
@@ -53,6 +54,8 @@ interface TransactionsFilterBarProps {
   onPayeeChange: (value: string) => void
   filterGroupId: string
   onGroupIdChange: (value: string) => void
+  filterType: string
+  onTypeChange: (value: string) => void
   filterFrom: string
   filterTo: string
   onDateRangeChange: (from: string, to: string) => void
@@ -85,6 +88,8 @@ export function TransactionsFilterBar({
   onPayeeChange,
   filterGroupId,
   onGroupIdChange,
+  filterType,
+  onTypeChange,
   filterFrom,
   filterTo,
   onDateRangeChange,
@@ -163,9 +168,17 @@ export function TransactionsFilterBar({
     filterUncategorized ||
     !!filterPayee ||
     !!filterGroupId ||
+    !!filterType ||
     !!filterFrom ||
     !!filterTo ||
     searchInput.trim().length > 0
+
+  const typeLabel =
+    filterType === 'credit'
+      ? t('transactions.income')
+      : filterType === 'debit'
+        ? t('transactions.expense')
+        : ''
 
   const dateLabel = useMemo(() => {
     if (!filterFrom && !filterTo) return null
@@ -553,6 +566,48 @@ export function TransactionsFilterBar({
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
 
+                {/* Type submenu (single — income vs expense) */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="gap-2 text-[13px]">
+                    <ArrowUpDown size={14} className="text-muted-foreground" />
+                    <span className="flex-1">{t('transactions.type')}</span>
+                    {typeLabel && (
+                      <span className="max-w-[90px] truncate text-[11px] text-muted-foreground">
+                        {typeLabel}
+                      </span>
+                    )}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent
+                      sideOffset={8}
+                      className="w-[200px] p-1"
+                    >
+                      {[
+                        { value: '', label: t('transactions.all') },
+                        { value: 'credit', label: t('transactions.income') },
+                        { value: 'debit', label: t('transactions.expense') },
+                      ].map((opt) => (
+                        <DropdownMenuItem
+                          key={opt.value || 'all'}
+                          onSelect={() => onTypeChange(opt.value)}
+                          className={cn(
+                            'gap-2 rounded-sm px-2 py-1.5 text-[13px]',
+                            filterType === opt.value && 'bg-primary/5',
+                          )}
+                        >
+                          <span className="size-2.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {opt.label}
+                          </span>
+                          {filterType === opt.value && (
+                            <Check size={13} className="text-primary" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
+
                 {/* Date range submenu with presets */}
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger className="gap-2 text-[13px]">
@@ -650,6 +705,7 @@ export function TransactionsFilterBar({
           filterCategoryIds.length > 0 ||
           filterUncategorized ||
           !!selectedPayee ||
+          !!typeLabel ||
           !!dateLabel) && (
           <div className="flex flex-wrap items-center gap-1 border-t border-border/60 px-2 py-1.5">
             {filterAccountIds.map((id) => {
@@ -699,6 +755,14 @@ export function TransactionsFilterBar({
                 label={t('payees.payee')}
                 value={selectedPayee.name}
                 onRemove={() => onPayeeChange('')}
+              />
+            )}
+            {typeLabel && (
+              <FilterChip
+                icon={<ArrowUpDown size={12} />}
+                label={t('transactions.type')}
+                value={typeLabel}
+                onRemove={() => onTypeChange('')}
               />
             )}
             {dateLabel && (

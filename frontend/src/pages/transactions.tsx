@@ -81,6 +81,7 @@ export default function TransactionsPage() {
   const [duplicateDraft, setDuplicateDraft] = useState<Partial<Transaction> | null>(null)
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [filterGroupId, setFilterGroupId] = useState<string>(searchParams.get('group_id') ?? '')
+  const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
   const [tagFilters, setTagFilters] = useState<string[]>([])
 
   // When the page is opened with a `group_id`, fetch its name so the
@@ -137,6 +138,7 @@ export default function TransactionsPage() {
     setTagFilters(tags ? tags.split(',') : []);
     setFilterPayee(searchParams.get('payee_id') ?? '')
     setFilterGroupId(searchParams.get('group_id') ?? '')
+    setFilterType(searchParams.get('type') ?? '')
     const categories = searchParams.get('category_id');
     setFilterCategoryIds(categories ? categories.split(',') : []);
     setFilterUncategorized(searchParams.get('uncategorized') === '1');
@@ -156,6 +158,7 @@ export default function TransactionsPage() {
         ['tags', tagFilters.join(',')],
         ['payee_id', filterPayee],
         ['group_id', filterGroupId],
+        ['type', filterType],
         ['category_id', filterCategoryIds.join(',')],
         ['uncategorized', filterUncategorized ? '1' : ''],
         ['account_id', filterAccountIds.join(',')],
@@ -174,6 +177,7 @@ export default function TransactionsPage() {
     tagFilters,
     filterPayee,
     filterGroupId,
+    filterType,
     filterCategoryIds,
     filterUncategorized,
     filterAccountIds,
@@ -194,7 +198,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkCategory('')
-  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterFrom, filterTo, searchQuery])
+  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, searchQuery])
 
   // Scroll to and flash a highlighted row after navigation (e.g. opened via
   // the command palette). Re-runs whenever highlightId or the current data
@@ -218,7 +222,7 @@ export default function TransactionsPage() {
   }, [highlightId, searchQuery, filterPayee, filterCategoryIds, page])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterFrom, filterTo, searchQuery, tagFilters],
+    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, searchQuery, tagFilters],
     queryFn: () =>
       transactions.list({
         page,
@@ -227,6 +231,7 @@ export default function TransactionsPage() {
         category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
         payee_id: filterPayee || undefined,
         group_id: filterGroupId || undefined,
+        type: filterType || undefined,
         uncategorized: filterUncategorized ? true : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
@@ -575,6 +580,8 @@ export default function TransactionsPage() {
         onPayeeChange={(v) => { setFilterPayee(v); setPage(1) }}
         filterGroupId={filterGroupId}
         onGroupIdChange={(v) => { setFilterGroupId(v); setPage(1) }}
+        filterType={filterType}
+        onTypeChange={(v) => { setFilterType(v); setPage(1) }}
         filterFrom={filterFrom}
         filterTo={filterTo}
         onDateRangeChange={(from, to) => { setFilterFrom(from); setFilterTo(to); setPage(1) }}
@@ -586,6 +593,7 @@ export default function TransactionsPage() {
           setFilterUncategorized(false)
           setFilterPayee('')
           setFilterGroupId('')
+          setFilterType('')
           setSearchInput('')
           setSearchQuery('')
           clearTagFilters()
