@@ -345,6 +345,12 @@ function TransactionForm({
       })),
     }
   })
+  // Captured once at mount so we know whether to send an explicit clear
+  // payload when the user toggles split off on a previously-split tx.
+  const [hadInitialSplits] = useState<boolean>(() => {
+    const existing = (seed as Transaction | null | undefined)?.splits
+    return !!(existing && existing.length > 0)
+  })
   const isCreating = !transaction
   const showConversion = currency !== userCurrency && !isSynced
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -461,10 +467,15 @@ function TransactionForm({
         const overridePayload: Partial<Transaction> = isCcSelected
           ? { effective_bill_date: effectiveBillDate || null }
           : {}
-        // Splits ride along on the same payload — the backend treats
-        // `splits = null` as untouched and a present payload as full
-        // replacement.
-        const splitsPayload = splits ? { splits } : {}
+        // Splits ride along on the same payload — the backend treats a
+        // missing `splits` field as untouched and a present payload as
+        // full replacement. To clear existing splits when the user
+        // toggles off, send an explicit empty payload.
+        const splitsPayload: { splits?: TransactionSplitsInput } = splits
+          ? { splits }
+          : hadInitialSplits
+            ? { splits: { share_type: 'equal', splits: [] } }
+            : {}
         const txData = isSynced
           ? {
               category_id: categoryId || null,
