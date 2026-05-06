@@ -23,13 +23,14 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Info, Paperclip, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, Check, Download, HelpCircle, Info, Paperclip, Users, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError, type SaveAction } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
 import { LinkTransferDialog } from '@/components/link-transfer-dialog'
+import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/components/bulk-add-to-group-dialog'
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -122,6 +123,7 @@ export default function TransactionsPage() {
   const [linkTransferDialogOpen, setLinkTransferDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkCategory, setBulkCategory] = useState<string>('')
+  const [bulkAddToGroupOpen, setBulkAddToGroupOpen] = useState(false)
   const [bulkTagInput, setBulkTagInput] = useState<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const highlightId = searchParams.get('highlight')
@@ -361,6 +363,27 @@ export default function TransactionsPage() {
       setSelectedIds(new Set())
       setBulkTagInput('')
       toast.success(t('transactions.bulkSuccess', { count: result.updated }))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
+  const bulkAddToGroupMutation = useMutation({
+    mutationFn: ({ ids, payload }: { ids: string[]; payload: BulkAddToGroupSubmission }) =>
+      transactions.bulkAddToGroup(ids, payload.groupId, {
+        share_type: payload.share_type,
+        member_splits: payload.member_splits,
+      }),
+    onSuccess: (result) => {
+      invalidateAfterTxMutation()
+      setSelectedIds(new Set())
+      setBulkAddToGroupOpen(false)
+      if (result.skipped > 0) {
+        toast.success(t('transactions.bulkAddToGroupPartial', { added: result.updated, skipped: result.skipped }))
+      } else {
+        toast.success(t('transactions.bulkAddToGroupSuccess', { count: result.updated }))
+      }
     },
     onError: (error) => {
       toast.error(extractApiError(error))
@@ -886,7 +909,7 @@ export default function TransactionsPage() {
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
       >
-        <div className="mx-auto max-w-5xl px-3 md:px-4 pb-4 md:pb-6">
+        <div className="mx-auto max-w-6xl px-3 md:px-4 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
             {/* Selection count */}
             <div className="flex items-center gap-2 pl-3 pr-4 text-sm font-medium text-foreground whitespace-nowrap">
@@ -916,6 +939,22 @@ export default function TransactionsPage() {
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
+
+            <div className="w-px bg-border/60 self-stretch" />
+
+            {/* Add to group — opens a dialog to configure share type and
+                members. Mirrors the per-tx splits options (issue #156). */}
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={bulkAddToGroupMutation.isPending}
+              onClick={() => setBulkAddToGroupOpen(true)}
+              title={t('transactions.addToGroup')}
+              className="h-8 px-3 shrink-0 text-sm"
+            >
+              <Users size={15} className="lg:mr-1.5" />
+              <span className="hidden lg:inline">{t('transactions.addToGroup')}</span>
+            </Button>
 
             <div className="w-px bg-border/60 self-stretch" />
 
@@ -979,6 +1018,17 @@ export default function TransactionsPage() {
           </div>
         </div>
       </div>
+
+      {/* Bulk Add-to-Group Dialog */}
+      <BulkAddToGroupDialog
+        open={bulkAddToGroupOpen}
+        onClose={() => setBulkAddToGroupOpen(false)}
+        selectedCount={selectedIds.size}
+        onSubmit={(payload) =>
+          bulkAddToGroupMutation.mutate({ ids: Array.from(selectedIds), payload })
+        }
+        isPending={bulkAddToGroupMutation.isPending}
+      />
 
       {/* Link Transfer Dialog */}
       <LinkTransferDialog

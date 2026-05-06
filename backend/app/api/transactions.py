@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.transaction import BulkCategorizeRequest, BulkTagsRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, BulkTagsRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
 from app.services.admin_service import get_credit_card_accounting_mode
 
@@ -179,6 +179,25 @@ async def bulk_remove_tags(
         session, user.id, data.transaction_ids, data.tags
     )
     return {"updated": count}
+
+
+@router.patch("/bulk-add-to-group")
+async def bulk_add_to_group(
+    data: BulkAddToGroupRequest,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    try:
+        return await transaction_service.bulk_add_to_group(
+            session,
+            user.id,
+            data.transaction_ids,
+            data.group_id,
+            share_type=data.share_type,
+            member_splits=data.member_splits,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post("/transfer", response_model=TransferRead, status_code=status.HTTP_201_CREATED)

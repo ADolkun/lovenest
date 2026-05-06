@@ -11,8 +11,10 @@ from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
+from app.models.group import Group, GroupMember
 from app.models.payee import Payee
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
+from app.schemas.transaction_split import TransactionSplitInput, TransactionSplitsInput
 from app.services import split_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
@@ -1035,6 +1037,90 @@ async def bulk_remove_tags(
 
     await session.commit()
     return touched
+
+
+async def bulk_add_to_group(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction_ids: list[uuid.UUID],
+    group_id: uuid.UUID,
+    share_type: str = "equal",
+    member_splits: Optional[list[TransactionSplitInput]] = None,
+) -> dict[str, int]:
+    """Apply the same group-split configuration to every selected transaction.
+
+    Supports `share_type` of "equal" or "percent" only — exact amounts
+    can't generalize across transactions of different totals.
+
+    Conservative semantics (issue #156): transactions that are transfers
+    or already have splits are skipped — never overwritten — so the
+    operation can't destroy prior splitting work.
+    """
+    if share_type not in ("equal", "percent"):
+        raise ValueError(
+            "Bulk add-to-group only supports share_type 'equal' or 'percent' — "
+            "use the per-transaction dialog for exact amounts"
+        )
+
+    if not transaction_ids:
+        return {"updated": 0, "skipped": 0}
+
+    group_result = await session.execute(
+        select(Group).where(Group.id == group_id, Group.user_id == user_id)
+    )
+    group = group_result.scalar_one_or_none()
+    if group is None:
+        raise ValueError("Group not found")
+
+    members_result = await session.execute(
+        select(GroupMember).where(GroupMember.group_id == group_id)
+    )
+    members = members_result.scalars().all()
+    if not members:
+        raise ValueError("Group has no members")
+
+    valid_member_ids = {m.id for m in members}
+
+    # If the caller didn't specify, default to all members (the previous
+    # behavior). Otherwise honor the subset they chose.
+    if not member_splits:
+        chosen = [TransactionSplitInput(group_member_id=m.id) for m in members]
+    else:
+        chosen = list(member_splits)
+
+    if not chosen:
+        raise ValueError("At least one member must be selected")
+
+    for entry in chosen:
+        if entry.group_member_id not in valid_member_ids:
+            raise ValueError("One or more split members not found")
+
+    payload = TransactionSplitsInput(share_type=share_type, splits=chosen)
+
+    txs_result = await session.execute(
+        select(Transaction)
+        .where(
+            Transaction.id.in_(transaction_ids),
+            Transaction.user_id == user_id,
+        )
+        .options(selectinload(Transaction.splits))
+    )
+    txs = txs_result.scalars().all()
+
+    updated = 0
+    skipped = 0
+    for tx in txs:
+        if tx.transfer_pair_id is not None or tx.splits:
+            skipped += 1
+            continue
+        await split_service.replace_splits(session, tx, payload, user_id)
+        updated += 1
+
+    # Account for ids that didn't match (wrong user, deleted, etc.)
+    skipped += len(set(transaction_ids)) - len(txs)
+
+    await session.commit()
+    return {"updated": updated, "skipped": skipped}
 
 
 async def delete_transaction(

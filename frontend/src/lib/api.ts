@@ -330,6 +330,22 @@ export const transactions = {
     })
     return data
   },
+  bulkAddToGroup: async (
+    transactionIds: string[],
+    groupId: string,
+    options?: {
+      share_type?: 'equal' | 'percent'
+      member_splits?: { group_member_id: string; share_pct?: number }[]
+    },
+  ): Promise<{ updated: number; skipped: number }> => {
+    const { data } = await api.patch('/transactions/bulk-add-to-group', {
+      transaction_ids: transactionIds,
+      group_id: groupId,
+      ...(options?.share_type ? { share_type: options.share_type } : {}),
+      ...(options?.member_splits ? { member_splits: options.member_splits } : {}),
+    })
+    return data
+  },
   linkTransfer: async (transactionIds: string[]): Promise<{ debit: Transaction; credit: Transaction; transfer_pair_id: string }> => {
     const { data } = await api.post('/transactions/link-transfer', {
       transaction_ids: transactionIds,
