@@ -240,6 +240,7 @@
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
     "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard",
     "installmentTooltip": "Compra parcelada — {{count}} parcelas totalizando {{total}}",
+    "billOverrideTooltip": "Movida para a fatura com vencimento em {{date}}",
     "linkAsTransfer": "Vincular como transferência",
     "linkTransferTitle": "Vincular como transferência",
     "linkTransferDescription": "Marcar estas duas transações como uma única transferência entre contas. Elas serão excluídas dos relatórios de gastos e receitas.",

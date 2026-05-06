@@ -240,6 +240,7 @@
     "transferInfo": "This is a transfer — changes to description, date, and notes will apply to both sides",
     "transferTooltip": "Transfers are excluded from report and dashboard totals",
     "installmentTooltip": "Installment plan — {{count}} charges totaling {{total}}",
+    "billOverrideTooltip": "Moved to the bill due {{date}}",
     "linkAsTransfer": "Link as transfer",
     "linkTransferTitle": "Link as transfer",
     "linkTransferDescription": "Mark these two transactions as a single inter-account transfer. They will be excluded from spending and income reports.",
