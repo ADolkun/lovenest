@@ -631,8 +631,13 @@ export const rules = {
     const { data } = await api.get('/rules/packs')
     return data
   },
-  installPack: async (packCode: string): Promise<{ installed: number }> => {
-    const { data } = await api.post(`/rules/packs/${packCode}/install`)
+  installPack: async (
+    packCode: string,
+    createMissingCategories = false,
+  ): Promise<{ installed: number; unresolved: number; categories_created: number }> => {
+    const { data } = await api.post(`/rules/packs/${packCode}/install`, null, {
+      params: { create_missing_categories: createMissingCategories },
+    })
     return data
   },
 }
