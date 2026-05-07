@@ -1061,6 +1061,10 @@ export default function TransactionsPage() {
           setEditingTx(null)
           setDuplicateDraft(null)
           setPendingTransferCategoryUpdate(null)
+          // Drop any prior mutation error so reopening the dialog
+          // doesn't surface a stale message (issue #155).
+          createMutation.reset()
+          updateMutation.reset()
         }}
         transaction={editingTx}
         duplicateDraft={duplicateDraft}

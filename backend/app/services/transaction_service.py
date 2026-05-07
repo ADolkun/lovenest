@@ -1096,8 +1096,17 @@ async def bulk_add_to_group(
     if not transaction_ids:
         return {"updated": 0, "skipped": 0}
 
+    # The caller may own the group OR be a linked member of it.
+    linked_group_ids = (
+        select(GroupMember.group_id)
+        .where(GroupMember.linked_user_id == user_id)
+        .distinct()
+    )
     group_result = await session.execute(
-        select(Group).where(Group.id == group_id, Group.user_id == user_id)
+        select(Group).where(
+            Group.id == group_id,
+            or_(Group.user_id == user_id, Group.id.in_(linked_group_ids)),
+        )
     )
     group = group_result.scalar_one_or_none()
     if group is None:
