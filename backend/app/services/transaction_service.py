@@ -11,6 +11,7 @@ from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
+from app.models.category import Category
 from app.models.group import Group, GroupMember
 from app.models.payee import Payee
 from app.schemas.transaction import TransactionCreate, TransactionUpdate, TransferCreate
@@ -70,6 +71,9 @@ async def get_transactions(
     bill_id: Optional[uuid.UUID] = None,
     group_id: Optional[uuid.UUID] = None,
     unbilled_only: bool = False,
+    sort_by: Optional[str] = None,
+    sort_dir: str = "desc",
+    transaction_ids: Optional[list[uuid.UUID]] = None,
 ) -> tuple[list[Transaction], int]:
     # In "accrual" mode, bucket/order by effective_date so list filters
     # line up with the cash-flow view used by the dashboard and reports.
@@ -115,6 +119,7 @@ async def get_transactions(
         .outerjoin(Account)
         .outerjoin(BankConnection)
         .outerjoin(Payee, Transaction.payee_id == Payee.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
         .options(
             selectinload(Transaction.category),
             selectinload(Transaction.account),
@@ -122,6 +127,8 @@ async def get_transactions(
             selectinload(Transaction.splits),
         )
     )
+    if transaction_ids:
+        base_query = base_query.where(Transaction.id.in_(transaction_ids))
     if use_group_scope:
         from app.models.group import GroupMember
         from app.models.transaction_split import TransactionSplit
@@ -309,8 +316,26 @@ async def get_transactions(
     # Apply ordering (and pagination unless skipped). Bill-view callers
     # order by purchase date so the in-cycle list matches the bank's own
     # statement ordering regardless of accounting mode.
-    order_col = bill_view_date_col if in_bill_view else date_col
-    query = base_query.order_by(order_col.desc(), Transaction.created_at.desc())
+    default_order_col = bill_view_date_col if in_bill_view else date_col
+    sort_columns: dict[str, object] = {
+        "date": default_order_col,
+        "amount": Transaction.amount,
+        "description": Transaction.description,
+        "payee": Payee.name,
+        "category": Category.name,
+        "account": Account.name,
+        "type": Transaction.type,
+        "status": Transaction.status,
+    }
+    chosen_col = sort_columns.get(sort_by) if sort_by else None
+    if chosen_col is None:
+        # Default: by date desc, with created_at as tiebreaker.
+        query = base_query.order_by(default_order_col.desc(), Transaction.created_at.desc())
+    else:
+        direction = (chosen_col.asc() if sort_dir == "asc" else chosen_col.desc())
+        # Always tie-break on date desc + created_at desc so equal values
+        # stay in a sensible order (e.g. multiple txs with the same amount).
+        query = base_query.order_by(direction, default_order_col.desc(), Transaction.created_at.desc())
     if not skip_pagination:
         query = query.offset((page - 1) * limit).limit(limit)
 

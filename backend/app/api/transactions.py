@@ -65,6 +65,8 @@ async def list_transactions(
     include_opening_balance: bool = Query(False),
     exclude_transfers: bool = Query(False),
     tags: Optional[List[str]] = Query(None),
+    sort_by: Optional[str] = Query(None, description="Column to sort by (date|amount|description|payee|category|account|type|status). Default: date desc."),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
@@ -81,6 +83,8 @@ async def list_transactions(
         bill_id=bill_id,
         group_id=group_id,
         unbilled_only=unbilled_only,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     primary_currency = user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
@@ -100,19 +104,30 @@ async def export_transactions(
     uncategorized: bool = Query(False),
     type: Optional[str] = Query(None),
     tags: Optional[List[str]] = Query(None),
+    transaction_ids: Optional[List[uuid.UUID]] = Query(None, description="If set, exports exactly these rows (scoped to the user); other filters are ignored."),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
     accounting_mode = await get_credit_card_accounting_mode(session)
-    transactions, _ = await transaction_service.get_transactions(
-        session, user.id,
-        account_ids=_merge_id_filters(account_id, account_ids),
-        category_ids=_merge_id_filters(category_id, category_ids),
-        payee_id=payee_id, from_date=from_date, to_date=to_date,
-        search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
-        accounting_mode=accounting_mode,
-        tags=tags,
-    )
+    if transaction_ids:
+        # Selection-only export: bypass user-facing filters but keep the
+        # service-level user/visibility scoping intact.
+        transactions, _ = await transaction_service.get_transactions(
+            session, user.id,
+            skip_pagination=True,
+            accounting_mode=accounting_mode,
+            transaction_ids=transaction_ids,
+        )
+    else:
+        transactions, _ = await transaction_service.get_transactions(
+            session, user.id,
+            account_ids=_merge_id_filters(account_id, account_ids),
+            category_ids=_merge_id_filters(category_id, category_ids),
+            payee_id=payee_id, from_date=from_date, to_date=to_date,
+            search=q, uncategorized=uncategorized, txn_type=type, skip_pagination=True,
+            accounting_mode=accounting_mode,
+            tags=tags,
+        )
 
     output = io.StringIO()
     output.write("\ufeff")  # UTF-8 BOM for Excel

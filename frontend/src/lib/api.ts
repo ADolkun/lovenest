@@ -272,6 +272,8 @@ export const transactions = {
     include_opening_balance?: boolean
     exclude_transfers?: boolean
     tags?: string[]
+    sort_by?: string
+    sort_dir?: 'asc' | 'desc'
   }): Promise<PaginatedResponse<Transaction>> => {
     const { data } = await api.get('/transactions', {
       params,
@@ -406,6 +408,7 @@ export const transactions = {
     from?: string
     to?: string
     q?: string
+    transaction_ids?: string[]
   }): Promise<void> => {
     const { data } = await api.get('/transactions/export', {
       params,
