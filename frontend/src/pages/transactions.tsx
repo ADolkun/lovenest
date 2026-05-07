@@ -23,7 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Download, HelpCircle, Info, Paperclip, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Download, HelpCircle, Info, Paperclip, Users, X } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -538,6 +538,31 @@ export default function TransactionsPage() {
     updateMutation.mutate({ id: editingTx.id, ...data })
   }
 
+  // Open the Add Transaction dialog seeded from an existing row's
+  // fields (issue #158). Identity-bearing fields (id, transfer_pair,
+  // installment series, splits) are dropped so the dialog treats the
+  // result as a brand-new transaction; the user can tweak the date or
+  // any other field before saving.
+  const handleDuplicateTransaction = (tx: Transaction) => {
+    const draft: Partial<Transaction> = {
+      description: tx.description,
+      amount: tx.amount,
+      currency: tx.currency,
+      type: tx.type,
+      date: tx.date,
+      account_id: tx.account_id,
+      category_id: tx.category_id,
+      payee_id: tx.payee_id,
+      payee: tx.payee,
+      payee_name: tx.payee_name,
+      notes: tx.notes,
+    }
+    setEditingTx(null)
+    setDuplicateDraft(draft)
+    setFormResetKey(k => k + 1)
+    setDialogOpen(true)
+  }
+
   // Resize: track which column is being dragged so we can clear listeners
   // when the gesture ends. The width is committed to grid state on every
   // pointermove for live feedback (cheap — single React state update).
@@ -872,6 +897,24 @@ export default function TransactionsPage() {
                   ? t('transactions.exportSelected', { count: selectedIds.size })
                   : t('transactions.exportCsv')}
             </Button>
+            {/* Duplicate (issue #158): only when a single row is
+                selected. Pre-fills the Add Transaction dialog from
+                that row's fields; identity-bearing fields (id,
+                transfer_pair_id, splits) are not copied. Hidden for
+                shared rows and transfers — they can't be duplicated. */}
+            {selectedIds.size === 1 && (() => {
+              const selectedTx = filteredItems.find(tx => selectedIds.has(tx.id))
+              if (!selectedTx || selectedTx.is_shared || selectedTx.transfer_pair_id) return null
+              return (
+                <Button
+                  variant="outline"
+                  onClick={() => handleDuplicateTransaction(selectedTx)}
+                >
+                  <Copy size={16} className="mr-1.5" />
+                  {t('transactions.duplicate')}
+                </Button>
+              )
+            })()}
             <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
               <ArrowLeftRight size={16} className="mr-1.5" />
               {t('transactions.transfer')}
