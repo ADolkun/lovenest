@@ -3,7 +3,7 @@ import { getAccountName } from '@/lib/account-utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { transactions, categories as categoriesApi, accounts as accountsApi, recurring, payees as payeesApi, admin, groups as groupsApi } from '@/lib/api'
+import { transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, recurring, payees as payeesApi, admin, groups as groupsApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Downloa
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
+import { CategorySelect } from '@/components/category-select'
 import { TransactionDialog, extractApiError, type SaveAction } from '@/components/transaction-dialog'
 import { TransactionsColumnPicker } from '@/components/transactions-column-picker'
 import { type ColumnDef, type ColumnId, useTransactionsGridState } from '@/components/transactions-grid-columns'
@@ -249,6 +250,11 @@ export default function TransactionsPage() {
   const { data: categoriesList } = useQuery({
     queryKey: ['categories'],
     queryFn: categoriesApi.list,
+  })
+
+  const { data: categoryGroupsList } = useQuery({
+    queryKey: ['categoryGroups'],
+    queryFn: categoryGroupsApi.list,
   })
 
   const { data: accountsList } = useQuery({
@@ -974,6 +980,7 @@ export default function TransactionsPage() {
         }}
         accounts={accountsList ?? []}
         categories={categoriesList ?? []}
+        categoryGroups={categoryGroupsList ?? []}
         payees={payeesList ?? []}
         groups={allGroups ?? []}
       />
@@ -1135,23 +1142,21 @@ export default function TransactionsPage() {
             <div className="w-px bg-border/60 self-stretch" />
 
             {/* Categorize — fires on selection, no separate Apply button */}
-            <select
-              className="rounded-lg px-3 py-2 text-sm bg-transparent text-foreground hover:bg-muted/60 focus:outline-none focus-visible:bg-muted/60 cursor-pointer w-44 md:w-56"
+            <CategorySelect
               value={bulkCategory}
-              onChange={(e) => {
-                const next = e.target.value
+              onChange={(next) => {
                 setBulkCategory(next)
                 if (next) {
                   bulkCategorizeMutation.mutate({ ids: Array.from(selectedIds), categoryId: next })
                 }
               }}
+              categories={categoriesList ?? []}
+              groups={categoryGroupsList ?? []}
+              placeholder={t('transactions.selectCategory')}
               disabled={bulkCategorizeMutation.isPending}
-            >
-              <option value="">{t('transactions.selectCategory')}</option>
-              {categoriesList?.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
+              className="w-44 md:w-56 h-auto py-2 border-transparent bg-transparent hover:bg-muted/60 focus:bg-muted/60 focus-visible:ring-0"
+              contentProps={{ side: 'top', sideOffset: 8 }}
+            />
 
             <div className="w-px bg-border/60 self-stretch" />
 
@@ -1283,6 +1288,7 @@ export default function TransactionsPage() {
         duplicateDraft={duplicateDraft}
         formResetKey={formResetKey}
         categories={categoriesList ?? []}
+        categoryGroups={categoryGroupsList ?? []}
         accounts={accountsList ?? []}
         recurringMatch={editingTx ? recurringList?.find(r => r.description === editingTx.description && r.type === editingTx.type) : undefined}
         onSave={handleTransactionSave}

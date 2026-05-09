@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { categories as categoriesApi, recurring as recurringApi, accounts as accountsApi, currencies as currenciesApi } from '@/lib/api'
+import { categories as categoriesApi, categoryGroups as categoryGroupsApi, recurring as recurringApi, accounts as accountsApi, currencies as currenciesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,10 +15,11 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import type { Category, RecurringTransaction } from '@/types'
+import type { Category, CategoryGroup, RecurringTransaction } from '@/types'
 import { Pencil, Trash2, Plus, RefreshCw, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
+import { CategorySelect } from '@/components/category-select'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -75,6 +76,11 @@ function RecurringTab() {
   const { data: categoriesList } = useQuery({
     queryKey: ['categories'],
     queryFn: categoriesApi.list,
+  })
+
+  const { data: categoryGroupsList } = useQuery({
+    queryKey: ['categoryGroups'],
+    queryFn: categoryGroupsApi.list,
   })
 
   const { data: accountsList } = useQuery({
@@ -233,6 +239,7 @@ function RecurringTab() {
             key={editing?.id ?? 'new'}
             recurring={editing}
             categories={categoriesList ?? []}
+            categoryGroups={categoryGroupsList ?? []}
             accounts={accountsList ?? []}
             onSave={(data) => {
               if (editing) {
@@ -253,6 +260,7 @@ function RecurringTab() {
 function RecurringForm({
   recurring,
   categories,
+  categoryGroups,
   accounts,
   onSave,
   onCancel,
@@ -260,6 +268,7 @@ function RecurringForm({
 }: {
   recurring: RecurringTransaction | null
   categories: Category[]
+  categoryGroups: CategoryGroup[]
   accounts: { id: string; name: string }[]
   onSave: (data: Partial<RecurringTransaction>) => void
   onCancel: () => void
@@ -361,12 +370,14 @@ function RecurringForm({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{t('recurring.category')}</Label>
-          <select className={selectClass} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-            <option value="">{t('transactions.noCategory')}</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
+          <CategorySelect
+            value={categoryId}
+            onChange={setCategoryId}
+            categories={categories}
+            groups={categoryGroups}
+            allowNone={true}
+            className={selectClass}
+          />
         </div>
         <div className="space-y-2">
           <Label>{t('recurring.account')}</Label>
