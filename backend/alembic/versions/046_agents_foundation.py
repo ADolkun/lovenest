@@ -10,6 +10,7 @@ the AGENTS_ENABLED env var. Empty tables cost nothing.
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 from sqlalchemy.dialects import postgresql
 from pgvector.sqlalchemy import Vector
 
@@ -21,7 +22,30 @@ branch_labels = None
 depends_on = None
 
 
+_PGVECTOR_MISSING_MSG = (
+    "\n\n"
+    "  pgvector is not installed in your Postgres server.\n"
+    "  Securo v0.11.0+ requires pgvector for the agents knowledge base.\n\n"
+    "  Fix: switch your `db` service image to a Postgres build that bundles\n"
+    "  pgvector, then re-run the upgrade:\n\n"
+    "      image: pgvector/pgvector:pg16   # was: postgres:16-alpine\n\n"
+    "  Your data volume is preserved (same on-disk format).\n"
+    "  See https://github.com/securo-finance/securo/releases/tag/v0.11.0\n"
+)
+
+
 def upgrade() -> None:
+    # Pre-flight: refuse to start the migration unless pgvector is
+    # physically available on the server. Without this guard the user
+    # would see a 50-line asyncpg traceback for a one-line fix
+    # (image swap), with the backend stuck in a crash loop in between.
+    bind = op.get_bind()
+    available = bind.execute(
+        text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+    ).first()
+    if available is None:
+        raise RuntimeError(_PGVECTOR_MISSING_MSG)
+
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
     embed_dim = get_agent_settings().embedding_dim
