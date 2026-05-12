@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { getAccountName } from '@/lib/account-utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -246,6 +247,38 @@ export default function TransactionsPage() {
         ...grid.apiSort,
       }),
   })
+
+  // Publish the active filters + result count to the global chat panel.
+  // The agent uses this so "what about THIS list?" / "soma essas" /
+  // "categorize these" resolve against the filtered view, not the user's
+  // entire history. Free-form blob — backend turns it into a primer.
+  const ctxFilters = {
+    search: searchQuery || undefined,
+    account_ids: filterAccountIds.length ? filterAccountIds : undefined,
+    category_ids: filterCategoryIds.length ? filterCategoryIds : undefined,
+    payee_id: filterPayee || undefined,
+    group_id: filterGroupId || undefined,
+    type: filterType || undefined,
+    uncategorized: filterUncategorized || undefined,
+    from: filterFrom || undefined,
+    to: filterTo || undefined,
+    tags: tagFilters.length ? tagFilters : undefined,
+    sort_by: grid.sortBy,
+    sort_dir: grid.sortDir,
+    page,
+  }
+  const ctxKey = JSON.stringify(ctxFilters) + ':' + (data?.total ?? '')
+  useRegisterPageChatContext(
+    {
+      path: '/transactions',
+      label: 'Transactions',
+      summary: data?.total != null
+        ? `${data.total} transaction(s) match the active filters (showing page ${page}, 20 per page).`
+        : 'Transactions list with active filters.',
+      filters: ctxFilters,
+    },
+    ctxKey,
+  )
 
   const { data: categoriesList } = useQuery({
     queryKey: ['categories'],

@@ -74,6 +74,10 @@ async def get_transactions(
     sort_by: Optional[str] = None,
     sort_dir: str = "desc",
     transaction_ids: Optional[list[uuid.UUID]] = None,
+    currency: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    account_types: Optional[list[str]] = None,
 ) -> tuple[list[Transaction], int]:
     # In "accrual" mode, bucket/order by effective_date so list filters
     # line up with the cash-flow view used by the dashboard and reports.
@@ -191,6 +195,22 @@ async def get_transactions(
         base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
+    if currency:
+        # Native-currency filter — match the column verbatim. Lets agents
+        # answer "do I have any EUR transactions?" without text-searching
+        # the description column.
+        base_query = base_query.where(Transaction.currency == currency.upper())
+    if min_amount is not None or max_amount is not None:
+        # Amount filters operate on the primary-currency value when
+        # available so cross-currency totals make sense; fall back to the
+        # native amount on rows that haven't been stamped yet.
+        amount_expr = func.coalesce(Transaction.amount_primary, Transaction.amount)
+        if min_amount is not None:
+            base_query = base_query.where(amount_expr >= min_amount)
+        if max_amount is not None:
+            base_query = base_query.where(amount_expr <= max_amount)
+    if account_types:
+        base_query = base_query.where(Account.type.in_(account_types))
     # Bill-driven filter: when the caller passes bill_id, include
     #   (a) txs linked to this bill via Pluggy's billId mapping (handles
     #       charges the bank rolled into a bill whose nominal range doesn't
@@ -318,7 +338,15 @@ async def get_transactions(
     # statement ordering regardless of accounting mode.
     default_order_col = bill_view_date_col if in_bill_view else date_col
     sort_columns: dict[str, object] = {
+        # `date` is the cycle/accrual-aware column the UI lists use so its
+        # ordering matches the cash-flow & dashboard views.
         "date": default_order_col,
+        # `transaction_date` orders strictly by Transaction.date (purchase
+        # date), regardless of effective_bill_date. Useful for "what's my
+        # most recent transaction?" where credit-card bill projections
+        # would otherwise float old purchases to the top because their
+        # bill due date is in the future.
+        "transaction_date": Transaction.date,
         "amount": Transaction.amount,
         "description": Transaction.description,
         "payee": Payee.name,
@@ -326,6 +354,7 @@ async def get_transactions(
         "account": Account.name,
         "type": Transaction.type,
         "status": Transaction.status,
+        "created_at": Transaction.created_at,
     }
     chosen_col = sort_columns.get(sort_by) if sort_by else None
     if chosen_col is None:
