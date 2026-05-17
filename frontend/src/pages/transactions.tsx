@@ -512,6 +512,20 @@ export default function TransactionsPage() {
   const allSelected = selectableItems.length > 0 && selectableItems.every(tx => selectedIds.has(tx.id))
   const someSelected = selectableItems.some(tx => selectedIds.has(tx.id)) && !allSelected
 
+  // Net total of the currently-selected rows (issue #185). Selection is
+  // always page-scoped (cleared on page/filter change), so summing the
+  // visible page covers every selected id. Cross-currency rows use their
+  // primary-currency amount; credits add, debits subtract.
+  const selectedNet = useMemo(() => {
+    let net = 0
+    for (const tx of data?.items ?? []) {
+      if (!selectedIds.has(tx.id)) continue
+      const base = Math.abs(Number(tx.amount_primary ?? tx.amount))
+      net += tx.type === 'credit' ? base : -base
+    }
+    return net
+  }, [data?.items, selectedIds])
+
   // Resolve the currently-selected transactions into a valid debit/credit pair
   // for the "Link as transfer" action. Returns null if the pair is invalid
   // (wrong count, same account, same type, or already linked).
@@ -1133,6 +1147,37 @@ export default function TransactionsPage() {
           </Table>
           </div>
         )}
+        {/* Filtered summary (issue #185): income / expenses / net across
+            ALL rows matching the active filters — not just this page. */}
+        {!isLoading && data?.summary && filteredItems.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border bg-muted/30 px-4 py-2.5">
+            <span className="mr-auto text-xs text-muted-foreground">
+              {t('transactions.summaryCount', { count: data.total })}
+            </span>
+            <span className="flex items-baseline gap-1.5 text-xs">
+              <span className="text-muted-foreground">{t('transactions.summaryIncome')}</span>
+              <span className="text-sm font-semibold tabular-nums text-emerald-600">
+                {mask(formatCurrency(data.summary.income, data.summary.currency, locale))}
+              </span>
+            </span>
+            <span className="flex items-baseline gap-1.5 text-xs">
+              <span className="text-muted-foreground">{t('transactions.summaryExpenses')}</span>
+              <span className="text-sm font-semibold tabular-nums text-rose-500">
+                {mask(formatCurrency(data.summary.expense, data.summary.currency, locale))}
+              </span>
+            </span>
+            <span className="flex items-baseline gap-1.5 text-xs">
+              <span className="text-muted-foreground">{t('transactions.summaryNet')}</span>
+              <span
+                className={`text-sm font-bold tabular-nums ${
+                  data.summary.net >= 0 ? 'text-emerald-600' : 'text-rose-500'
+                }`}
+              >
+                {mask(formatCurrency(data.summary.net, data.summary.currency, locale))}
+              </span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Pagination */}
@@ -1169,12 +1214,32 @@ export default function TransactionsPage() {
       >
         <div className="mx-auto max-w-7xl px-3 md:px-6 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
-            {/* Selection count */}
-            <div className="flex items-center gap-2 pl-3 pr-4 text-sm font-medium text-foreground whitespace-nowrap">
-              <span className="inline-flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+            {/* Selection count + net total — stacked vertically so the
+                sum (issue #185) adds no horizontal width to an already
+                crowded bar. The sum is hidden below sm where only the
+                count pill shows. */}
+            <div className="flex items-center gap-2.5 pl-3 pr-4 whitespace-nowrap">
+              <span className="inline-flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
                 {selectedIds.size}
               </span>
-              <span className="hidden sm:inline">{t('transactions.selected')}</span>
+              <div className="hidden sm:flex flex-col leading-tight">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {t('transactions.selected')}
+                </span>
+                <span
+                  className={`text-sm font-bold tabular-nums ${
+                    selectedNet >= 0 ? 'text-emerald-600' : 'text-rose-500'
+                  }`}
+                >
+                  {mask(
+                    `${selectedNet >= 0 ? '+' : '−'}${formatCurrency(
+                      Math.abs(selectedNet),
+                      userCurrency,
+                      locale,
+                    )}`,
+                  )}
+                </span>
+              </div>
             </div>
 
             <div className="w-px bg-border/60 self-stretch" />

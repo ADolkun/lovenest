@@ -552,6 +552,19 @@ export interface PaginatedResponse<T> {
   limit: number
 }
 
+// Income / expense / net totals for all transactions matching the active
+// filters (issue #185) — accompanies the paginated /transactions response.
+export interface TransactionsSummary {
+  income: number
+  expense: number
+  net: number
+  currency: string
+}
+
+export interface PaginatedTransactions extends PaginatedResponse<Transaction> {
+  summary?: TransactionsSummary
+}
+
 // Reports (universal schema for all report types)
 export interface ReportBreakdown {
   key: string

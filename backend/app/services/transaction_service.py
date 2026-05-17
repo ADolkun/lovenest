@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import select, func, or_, update
@@ -78,7 +79,8 @@ async def get_transactions(
     min_amount: Optional[float] = None,
     max_amount: Optional[float] = None,
     account_types: Optional[list[str]] = None,
-) -> tuple[list[Transaction], int]:
+    include_summary: bool = False,
+) -> tuple[list[Transaction], int, Optional[dict]]:
     # In "accrual" mode, bucket/order by effective_date so list filters
     # line up with the cash-flow view used by the dashboard and reports.
     # When the user has set a manual cycle override (effective_bill_date)
@@ -333,6 +335,37 @@ async def get_transactions(
     count_query = select(func.count()).select_from(base_query.subquery())
     total = await session.scalar(count_query)
 
+    # Filtered summary (issue #185): income / expense / net across ALL
+    # rows matching the active filters — not just the current page — so
+    # the UI can show an accurate total even when results span pages.
+    # Cross-currency rows are normalized to their primary-currency amount
+    # when stamped (coalesce → native amount as fallback for unstamped
+    # rows). Computed before pagination so it covers the whole result set.
+    summary: Optional[dict] = None
+    if include_summary:
+        summary_subq = base_query.subquery()
+        amount_norm = func.coalesce(
+            summary_subq.c.amount_primary, summary_subq.c.amount
+        )
+        summary_rows = await session.execute(
+            select(
+                summary_subq.c.type,
+                func.coalesce(func.sum(func.abs(amount_norm)), 0),
+            ).group_by(summary_subq.c.type)
+        )
+        income = Decimal("0")
+        expense = Decimal("0")
+        for row_type, row_total in summary_rows:
+            if row_type == "credit":
+                income = Decimal(str(row_total or 0))
+            elif row_type == "debit":
+                expense = Decimal(str(row_total or 0))
+        summary = {
+            "income": income,
+            "expense": expense,
+            "net": income - expense,
+        }
+
     # Apply ordering (and pagination unless skipped). Bill-view callers
     # order by purchase date so the in-cycle list matches the bank's own
     # statement ordering regardless of accounting mode.
@@ -396,7 +429,7 @@ async def get_transactions(
         # and the frontend needs `is_shared` to lock them from edits.
         await _tag_shared_view(session, transactions, user_id)
 
-    return transactions, total or 0
+    return transactions, total or 0, summary
 
 
 async def _tag_shared_view(

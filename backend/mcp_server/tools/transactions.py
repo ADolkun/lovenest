@@ -120,7 +120,7 @@ async def list_transactions(
     # Hard cap regardless of what the LLM asks — the schema says 50 but
     # not every provider enforces additionalProperties / maximum.
     limit = max(1, min(int(limit), 50))
-    txs, total = await transaction_service.get_transactions(
+    txs, total, _ = await transaction_service.get_transactions(
         session,
         ctx.user_id,
         account_ids=parse_uuid_list(account_ids),

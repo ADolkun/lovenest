@@ -33,7 +33,7 @@ import type {
   SpendingByCategory,
   MonthlyTrend,
   BalanceHistory,
-  PaginatedResponse,
+  PaginatedTransactions,
   ReportResponse,
   Group,
   GroupKind,
@@ -275,7 +275,7 @@ export const transactions = {
     tags?: string[]
     sort_by?: string
     sort_dir?: 'asc' | 'desc'
-  }): Promise<PaginatedResponse<Transaction>> => {
+  }): Promise<PaginatedTransactions> => {
     const { data } = await api.get('/transactions', {
       params,
       paramsSerializer: { indexes: null },
