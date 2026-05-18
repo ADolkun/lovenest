@@ -266,6 +266,33 @@ DATE_FORMAT_MAP = {
     'YYYY-MM-DD': '%Y-%m-%d',
 }
 
+# Securo fields a CSV column can be mapped to. Used to validate the
+# user-supplied column_mapping and to drive the import-UI dropdowns.
+CSV_MAPPABLE_FIELDS = (
+    'date', 'description', 'amount', 'type',
+    'category', 'currency', 'fx_rate', 'inflow', 'outflow',
+)
+
+
+def _sniff_csv_dialect(text: str):
+    """Detect the CSV dialect (delimiter/quoting), falling back to comma."""
+    try:
+        return csv.Sniffer().sniff(text[:4096], delimiters=',;\t|')
+    except csv.Error:
+        return csv.excel
+
+
+def detect_csv_columns(content: bytes) -> list[str]:
+    """Return the CSV header column names exactly as they appear in the file.
+
+    Used by the import preview so the UI can offer accurate column-mapping
+    dropdowns instead of guessing headers client-side.
+    """
+    text = content.decode('utf-8-sig')  # Handle BOM
+    dialect = _sniff_csv_dialect(text)
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+    return [f.strip() for f in (reader.fieldnames or []) if f and f.strip()]
+
 
 def parse_csv(
     content: bytes,
@@ -273,6 +300,7 @@ def parse_csv(
     flip_amount: bool = False,
     inflow_column: str | None = None,
     outflow_column: str | None = None,
+    column_mapping: dict[str, str] | None = None,
 ) -> list[TransactionImport]:
     """Parse CSV file content and return transactions.
 
@@ -284,13 +312,11 @@ def parse_csv(
     - date_format: explicit date format (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD)
     - flip_amount: negate all parsed amounts
     - inflow_column/outflow_column: use split columns instead of single amount
+    - column_mapping: explicit Securo-field -> CSV-header map. Any field
+      present here overrides auto-detection; unmapped fields still auto-detect.
     """
     text = content.decode('utf-8-sig')  # Handle BOM
-    sample = text[:4096]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
-    except csv.Error:
-        dialect = csv.excel  # fallback to comma
+    dialect = _sniff_csv_dialect(text)
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
 
     # Normalize field names
@@ -305,31 +331,55 @@ def parse_csv(
     currency_cols = ['currency', 'moeda', 'currency_code']
     fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
 
+    # Normalize the user-supplied column mapping (Securo field -> CSV header).
+    mapping = {
+        field: value.lower().strip()
+        for field, value in (column_mapping or {}).items()
+        if field in CSV_MAPPABLE_FIELDS and value and value.strip()
+    }
+
     def find_col(candidates):
         for c in candidates:
             if c in fieldnames:
                 return c
         return None
 
-    date_col = find_col(date_cols)
-    desc_col = find_col(desc_cols)
+    def resolve_col(field, candidates):
+        """Resolve a CSV column for a Securo field.
 
-    # In split mode, we don't require a single amount column
-    use_split = inflow_column and outflow_column
-    inflow_col = inflow_column.lower().strip() if inflow_column else None
-    outflow_col = outflow_column.lower().strip() if outflow_column else None
+        An explicit user mapping always wins; otherwise fall back to
+        auto-detection against the known column-name candidates.
+        """
+        mapped = mapping.get(field)
+        if mapped:
+            if mapped not in fieldnames:
+                raise ValueError(
+                    f"Mapped column '{mapped}' for field '{field}' not found in CSV. "
+                    f"Available columns: {', '.join(fieldnames)}"
+                )
+            return mapped
+        return find_col(candidates)
+
+    date_col = resolve_col('date', date_cols)
+    desc_col = resolve_col('description', desc_cols)
+
+    # In split mode, we don't require a single amount column. The inflow/outflow
+    # columns may come from the explicit args or from the column mapping.
+    inflow_col = (inflow_column or mapping.get('inflow') or '').lower().strip() or None
+    outflow_col = (outflow_column or mapping.get('outflow') or '').lower().strip() or None
+    use_split = bool(inflow_col and outflow_col)
 
     if use_split:
         if inflow_col not in fieldnames or outflow_col not in fieldnames:
             raise ValueError(f"Inflow/outflow columns not found in CSV. Available columns: {', '.join(fieldnames)}")
         amount_col = None
     else:
-        amount_col = find_col(amount_cols)
+        amount_col = resolve_col('amount', amount_cols)
 
-    type_col = find_col(type_cols)
-    category_col = find_col(category_cols)
-    currency_col = find_col(currency_cols)
-    fx_rate_col = find_col(fx_rate_cols)
+    type_col = resolve_col('type', type_cols)
+    category_col = resolve_col('category', category_cols)
+    currency_col = resolve_col('currency', currency_cols)
+    fx_rate_col = resolve_col('fx_rate', fx_rate_cols)
 
     if not date_col or not desc_col:
         raise ValueError(

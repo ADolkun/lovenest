@@ -23,6 +23,17 @@ const TYPE_LABELS: Record<string, string> = {
   investment: 'accounts.typeInvestment',
 }
 
+// Securo fields a CSV column can be mapped to, in display order.
+const CSV_MAPPING_FIELDS = [
+  { key: 'date', label: 'import.mapDate' },
+  { key: 'description', label: 'import.mapDescription' },
+  { key: 'amount', label: 'import.mapAmount' },
+  { key: 'type', label: 'import.mapType' },
+  { key: 'category', label: 'import.mapCategory' },
+  { key: 'currency', label: 'import.mapCurrency' },
+  { key: 'fx_rate', label: 'import.mapFxRate' },
+] as const
+
 function toReviewTransactions(txns: ImportPreviewTransaction[]): ImportReviewTransaction[] {
   return txns.map((tx, i) => ({
     ...tx,
@@ -39,7 +50,7 @@ export default function ImportPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [previewData, setPreviewData] = useState<{ transactions: ImportPreviewTransaction[]; detected_format: string } | null>(null)
+  const [previewData, setPreviewData] = useState<{ transactions: ImportPreviewTransaction[]; detected_format: string; csv_columns?: string[]; parse_error?: string | null } | null>(null)
   const [reviewTransactions, setReviewTransactions] = useState<ImportReviewTransaction[]>([])
   const [selectedAccount, setSelectedAccount] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -60,6 +71,7 @@ export default function ImportPage() {
   const [csvSplitColumns, setCsvSplitColumns] = useState(false)
   const [csvInflowColumn, setCsvInflowColumn] = useState('')
   const [csvOutflowColumn, setCsvOutflowColumn] = useState('')
+  const [csvColumnMapping, setCsvColumnMapping] = useState<Record<string, string>>({})
 
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
@@ -82,10 +94,11 @@ export default function ImportPage() {
   })
 
   const previewMutation = useMutation({
-    mutationFn: ({ file, options }: { file: File; options?: { date_format?: string; flip_amount?: boolean; inflow_column?: string; outflow_column?: string } }) =>
+    mutationFn: ({ file, options }: { file: File; options?: { date_format?: string; flip_amount?: boolean; inflow_column?: string; outflow_column?: string; column_mapping?: Record<string, string> } }) =>
       transactionsApi.previewImport(file, options),
     onSuccess: (data) => {
       setPreviewData(data)
+      setCsvHeaders(data.csv_columns ?? [])
       setReviewTransactions(toReviewTransactions(data.transactions))
       setSearchQuery('')
       setFilterCategoryIds([])
@@ -163,6 +176,7 @@ export default function ImportPage() {
     setCsvSplitColumns(false)
     setCsvInflowColumn('')
     setCsvOutflowColumn('')
+    setCsvColumnMapping({})
     setCsvHeaders([])
   }
 
@@ -170,35 +184,50 @@ export default function ImportPage() {
     setFileName(file.name)
     setCurrentFile(file)
     resetCsvOptions()
-
-    // Extract CSV headers for column mapping
-    if (file.name.toLowerCase().endsWith('.csv')) {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const text = e.target?.result as string
-        const firstLine = text.split('\n')[0]
-        if (firstLine) {
-          setCsvHeaders(firstLine.split(',').map(h => h.trim()))
-        }
-      }
-      reader.readAsText(file)
-    }
-
+    // CSV headers come back from the preview response (csv_columns), which
+    // parses the file server-side and handles any delimiter/quoting.
     previewMutation.mutate({ file })
   }
 
-  const rePreview = useCallback(() => {
+  // Re-run the preview with the current CSV options. Accepts overrides so a
+  // change handler can pass its new value synchronously instead of waiting
+  // for the corresponding state update to flush.
+  const rePreview = useCallback((overrides?: {
+    date_format?: string
+    flip_amount?: boolean
+    split?: boolean
+    inflow?: string
+    outflow?: string
+    mapping?: Record<string, string>
+  }) => {
     if (!currentFile) return
-    const options: { date_format?: string; flip_amount?: boolean; inflow_column?: string; outflow_column?: string } = {}
-    if (csvDateFormat) options.date_format = csvDateFormat
-    if (csvFlipAmount) options.flip_amount = true
-    if (csvSplitColumns && csvInflowColumn && csvOutflowColumn) {
-      options.inflow_column = csvInflowColumn
-      options.outflow_column = csvOutflowColumn
+    const dateFormat = overrides?.date_format ?? csvDateFormat
+    const flip = overrides?.flip_amount ?? csvFlipAmount
+    const split = overrides?.split ?? csvSplitColumns
+    const inflow = overrides?.inflow ?? csvInflowColumn
+    const outflow = overrides?.outflow ?? csvOutflowColumn
+    const mapping = overrides?.mapping ?? csvColumnMapping
+
+    const options: { date_format?: string; flip_amount?: boolean; inflow_column?: string; outflow_column?: string; column_mapping?: Record<string, string> } = {}
+    if (dateFormat) options.date_format = dateFormat
+    if (flip) options.flip_amount = true
+    if (split && inflow && outflow) {
+      options.inflow_column = inflow
+      options.outflow_column = outflow
     }
+    const cleanMapping = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v))
+    if (Object.keys(cleanMapping).length > 0) options.column_mapping = cleanMapping
     previewMutation.mutate({ file: currentFile, options })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentFile, csvDateFormat, csvFlipAmount, csvSplitColumns, csvInflowColumn, csvOutflowColumn])
+  }, [currentFile, csvDateFormat, csvFlipAmount, csvSplitColumns, csvInflowColumn, csvOutflowColumn, csvColumnMapping])
+
+  const handleMappingChange = useCallback((field: string, column: string) => {
+    setCsvColumnMapping(prev => {
+      const next = { ...prev, [field]: column }
+      rePreview({ mapping: next })
+      return next
+    })
+  }, [rePreview])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -371,13 +400,20 @@ export default function ImportPage() {
                 <Settings2 size={14} className="text-muted-foreground" />
                 <p className="text-xs font-medium text-muted-foreground">{t('import.csvOptions')}</p>
               </div>
+
+              {previewData.parse_error && (
+                <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{t('import.mappingNeeded')}</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block">{t('import.dateFormat')}</Label>
                   <select
                     className="w-full border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     value={csvDateFormat}
-                    onChange={(e) => { setCsvDateFormat(e.target.value); setTimeout(rePreview, 0) }}
+                    onChange={(e) => { setCsvDateFormat(e.target.value); rePreview({ date_format: e.target.value }) }}
                   >
                     <option value="">{t('import.dateFormatAuto')}</option>
                     <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -390,7 +426,7 @@ export default function ImportPage() {
                     type="checkbox"
                     id="flip-amount"
                     checked={csvFlipAmount}
-                    onChange={(e) => { setCsvFlipAmount(e.target.checked); setTimeout(rePreview, 0) }}
+                    onChange={(e) => { setCsvFlipAmount(e.target.checked); rePreview({ flip_amount: e.target.checked }) }}
                     className="rounded border-border text-primary focus:ring-primary"
                   />
                   <Label htmlFor="flip-amount" className="text-sm text-muted-foreground cursor-pointer">
@@ -402,7 +438,7 @@ export default function ImportPage() {
                     type="checkbox"
                     id="split-columns"
                     checked={csvSplitColumns}
-                    onChange={(e) => setCsvSplitColumns(e.target.checked)}
+                    onChange={(e) => { setCsvSplitColumns(e.target.checked); rePreview({ split: e.target.checked }) }}
                     className="rounded border-border text-primary focus:ring-primary"
                   />
                   <Label htmlFor="split-columns" className="text-sm text-muted-foreground cursor-pointer">
@@ -430,7 +466,7 @@ export default function ImportPage() {
                     <select
                       className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvInflowColumn}
-                      onChange={(e) => { setCsvInflowColumn(e.target.value); setTimeout(rePreview, 0) }}
+                      onChange={(e) => { setCsvInflowColumn(e.target.value); rePreview({ inflow: e.target.value }) }}
                     >
                       <option value="">{t('import.selectColumn')}</option>
                       {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
@@ -441,11 +477,36 @@ export default function ImportPage() {
                     <select
                       className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvOutflowColumn}
-                      onChange={(e) => { setCsvOutflowColumn(e.target.value); setTimeout(rePreview, 0) }}
+                      onChange={(e) => { setCsvOutflowColumn(e.target.value); rePreview({ outflow: e.target.value }) }}
                     >
                       <option value="">{t('import.selectColumn')}</option>
                       {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Column mapping — map CSV headers to Securo fields */}
+              {csvHeaders.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs font-medium text-muted-foreground">{t('import.columnMapping')}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-3">{t('import.columnMappingHint')}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {CSV_MAPPING_FIELDS
+                      .filter((f) => !(csvSplitColumns && f.key === 'amount'))
+                      .map((f) => (
+                        <div key={f.key}>
+                          <Label className="text-xs text-muted-foreground mb-1 block">{t(f.label)}</Label>
+                          <select
+                            className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                            value={csvColumnMapping[f.key] ?? ''}
+                            onChange={(e) => handleMappingChange(f.key, e.target.value)}
+                          >
+                            <option value="">{t('import.columnAutoDetect')}</option>
+                            {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+                      ))}
                   </div>
                 </div>
               )}
@@ -490,7 +551,7 @@ export default function ImportPage() {
             </button>
             <Button
               onClick={() => importMutation.mutate()}
-              disabled={!selectedAccount || importMutation.isPending}
+              disabled={!selectedAccount || importMutation.isPending || reviewTransactions.length === 0}
               className="gap-2"
             >
               <Upload size={14} />

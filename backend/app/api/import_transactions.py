@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 
@@ -23,6 +24,7 @@ async def preview_import(
     flip_amount: bool = Form(False),
     inflow_column: Optional[str] = Form(None),
     outflow_column: Optional[str] = Form(None),
+    column_mapping: Optional[str] = Form(None),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
@@ -34,6 +36,23 @@ async def preview_import(
         filename, len(content), file.content_type,
     )
 
+    # column_mapping arrives as a JSON-encoded form field (Securo field -> CSV header)
+    parsed_mapping: Optional[dict] = None
+    if column_mapping:
+        try:
+            parsed_mapping = json.loads(column_mapping)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid column_mapping: must be a JSON object",
+            )
+        if not isinstance(parsed_mapping, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid column_mapping: must be a JSON object",
+            )
+
+    parse_error: Optional[str] = None
     try:
         if filename.lower().endswith('.ofx') or filename.lower().endswith('.qfx'):
             transactions = import_service.parse_ofx(content)
@@ -45,14 +64,24 @@ async def preview_import(
             transactions = import_service.parse_camt(content)
             detected_format = "camt"
         elif filename.lower().endswith('.csv'):
-            transactions = import_service.parse_csv(
-                content,
-                date_format=date_format,
-                flip_amount=flip_amount,
-                inflow_column=inflow_column,
-                outflow_column=outflow_column,
-            )
             detected_format = "csv"
+            try:
+                transactions = import_service.parse_csv(
+                    content,
+                    date_format=date_format,
+                    flip_amount=flip_amount,
+                    inflow_column=inflow_column,
+                    outflow_column=outflow_column,
+                    column_mapping=parsed_mapping,
+                )
+            except ValueError as csv_err:
+                # The CSV's columns couldn't be auto-mapped. As long as we can
+                # still read its headers, return a soft failure so the UI can
+                # show the column-mapping dropdowns instead of a hard error.
+                if not import_service.detect_csv_columns(content):
+                    raise
+                transactions = []
+                parse_error = str(csv_err)
         else:
             # Try to detect format
             try:
@@ -91,7 +120,20 @@ async def preview_import(
         session, user.id, transactions,
     )
 
-    return TransactionImportPreview(transactions=transactions, detected_format=detected_format)
+    # Expose CSV headers so the UI can offer accurate column-mapping dropdowns.
+    csv_columns: list[str] = []
+    if detected_format == "csv":
+        try:
+            csv_columns = import_service.detect_csv_columns(content)
+        except Exception:
+            csv_columns = []
+
+    return TransactionImportPreview(
+        transactions=transactions,
+        detected_format=detected_format,
+        csv_columns=csv_columns,
+        parse_error=parse_error,
+    )
 
 
 @router.post("/import", status_code=status.HTTP_201_CREATED)

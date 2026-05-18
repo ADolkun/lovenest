@@ -152,6 +152,12 @@ class TransactionImport(TransactionBase):
 class TransactionImportPreview(BaseModel):
     transactions: list[TransactionImport]
     detected_format: str
+    # CSV header column names, exposed so the UI can offer column-mapping
+    # dropdowns. Empty for non-CSV formats.
+    csv_columns: list[str] = []
+    # Set when a CSV's columns could not be auto-detected. The preview still
+    # succeeds (with no transactions) so the UI can show the mapping dropdowns.
+    parse_error: Optional[str] = None
 
 
 class TransactionImportRequest(BaseModel):

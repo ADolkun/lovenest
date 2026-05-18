@@ -367,13 +367,17 @@ export const transactions = {
     flip_amount?: boolean
     inflow_column?: string
     outflow_column?: string
-  }): Promise<{ transactions: ImportPreviewTransaction[]; detected_format: string }> => {
+    column_mapping?: Record<string, string>
+  }): Promise<{ transactions: ImportPreviewTransaction[]; detected_format: string; csv_columns?: string[]; parse_error?: string | null }> => {
     const formData = new FormData()
     formData.append('file', file)
     if (options?.date_format) formData.append('date_format', options.date_format)
     if (options?.flip_amount) formData.append('flip_amount', 'true')
     if (options?.inflow_column) formData.append('inflow_column', options.inflow_column)
     if (options?.outflow_column) formData.append('outflow_column', options.outflow_column)
+    if (options?.column_mapping && Object.keys(options.column_mapping).length > 0) {
+      formData.append('column_mapping', JSON.stringify(options.column_mapping))
+    }
     const { data } = await api.post('/transactions/import/preview', formData)
     return data
   },

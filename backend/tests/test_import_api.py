@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from httpx import AsyncClient
 
@@ -22,34 +24,109 @@ async def test_preview_csv_import(client: AsyncClient, auth_headers, test_accoun
 
 
 @pytest.mark.asyncio
-async def test_preview_invalid_file(client: AsyncClient, auth_headers, test_account):
+async def test_preview_csv_returns_columns(client: AsyncClient, auth_headers, test_account):
+    """The preview response exposes the CSV header columns for the mapping UI."""
+    csv_content = b"Posted On,Memo Line,Movement\n2026-01-10,COFFEE,-12.50\n"
+    response = await client.post(
+        "/api/transactions/import/preview",
+        headers=auth_headers,
+        files={"file": ("bank.csv", csv_content, "text/csv")},
+        data={"column_mapping": json.dumps({
+            "date": "Posted On",
+            "description": "Memo Line",
+            "amount": "Movement",
+        })},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["csv_columns"] == ["Posted On", "Memo Line", "Movement"]
+    assert len(data["transactions"]) == 1
+    assert data["transactions"][0]["description"] == "COFFEE"
+    assert data["transactions"][0]["amount"] == "12.50"
+
+
+@pytest.mark.asyncio
+async def test_preview_csv_with_column_mapping(client: AsyncClient, auth_headers, test_account):
+    """A CSV with non-standard headers parses once columns are mapped."""
+    csv_content = b"transaction_date,details,value\n15/02/2026,GROCERY STORE,-80.00\n"
+    # Without a mapping the description column can't be auto-detected: the
+    # preview soft-fails (200) with a parse_error and no transactions.
+    fail = await client.post(
+        "/api/transactions/import/preview",
+        headers=auth_headers,
+        files={"file": ("export.csv", csv_content, "text/csv")},
+    )
+    assert fail.status_code == 200
+    assert fail.json()["parse_error"]
+    assert fail.json()["transactions"] == []
+
+    # With a mapping it parses successfully.
+    ok = await client.post(
+        "/api/transactions/import/preview",
+        headers=auth_headers,
+        files={"file": ("export.csv", csv_content, "text/csv")},
+        data={"column_mapping": json.dumps({
+            "date": "transaction_date",
+            "description": "details",
+            "amount": "value",
+        })},
+    )
+    assert ok.status_code == 200
+    data = ok.json()
+    assert len(data["transactions"]) == 1
+    assert data["transactions"][0]["description"] == "GROCERY STORE"
+    assert data["transactions"][0]["type"] == "debit"
+
+
+@pytest.mark.asyncio
+async def test_preview_invalid_column_mapping_json(client: AsyncClient, auth_headers, test_account):
+    """A malformed column_mapping payload returns a 400 instead of a 500."""
+    csv_content = b"date,description,amount\n2026-01-10,X,-1.00\n"
+    response = await client.post(
+        "/api/transactions/import/preview",
+        headers=auth_headers,
+        files={"file": ("export.csv", csv_content, "text/csv")},
+        data={"column_mapping": "{not valid json"},
+    )
+    assert response.status_code == 400
+    assert "column_mapping" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_preview_unrecognized_csv_soft_fails_with_columns(
+    client: AsyncClient, auth_headers, test_account
+):
+    """A CSV whose columns can't be auto-detected returns a soft failure (200)
+    with the detected columns, so the UI can offer column mapping."""
     response = await client.post(
         "/api/transactions/import/preview",
         headers=auth_headers,
         files={"file": ("bad.csv", b"col1,col2,col3\na,b,c\n", "text/csv")},
     )
-    assert response.status_code == 400
+    assert response.status_code == 200
     data = response.json()
-    assert "detail" in data
-    assert data["detail"]  # must not be empty
+    assert data["detected_format"] == "csv"
+    assert data["transactions"] == []
+    assert data["csv_columns"] == ["col1", "col2", "col3"]
+    assert data["parse_error"]  # must not be empty
 
 
 @pytest.mark.asyncio
-async def test_preview_invalid_file_returns_specific_error(
+async def test_preview_unrecognized_csv_parse_error_is_specific(
     client: AsyncClient, auth_headers, test_account
 ):
-    """Error response should tell the user what columns were found and what is expected."""
+    """The parse_error should tell the user what columns were found and what is expected."""
     response = await client.post(
         "/api/transactions/import/preview",
         headers=auth_headers,
         files={"file": ("bad.csv", b"foo,bar,baz\n1,2,3\n", "text/csv")},
     )
-    assert response.status_code == 400
-    detail = response.json()["detail"]
+    assert response.status_code == 200
+    parse_error = response.json()["parse_error"]
     # Should mention what columns were found in the file
-    assert "foo" in detail
+    assert "foo" in parse_error
     # Should mention what columns are expected
-    assert "date" in detail and "description" in detail and "amount" in detail
+    assert "date" in parse_error and "description" in parse_error and "amount" in parse_error
 
 
 @pytest.mark.asyncio

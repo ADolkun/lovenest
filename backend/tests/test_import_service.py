@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.fx_rate import FxRate
 from app.models.user import User
-from app.services.import_service import parse_csv, parse_ofx, parse_qif, parse_camt, import_transactions
+from app.services.import_service import (
+    detect_csv_columns,
+    parse_csv,
+    parse_ofx,
+    parse_qif,
+    parse_camt,
+    import_transactions,
+)
 
 
 class TestParseCsv:
@@ -247,6 +254,214 @@ class TestParseCsv:
         assert len(transactions) == 2
         assert transactions[0].amount == Decimal("5000.00")
         assert transactions[1].amount == Decimal("1200.00")
+
+
+class TestParseCsvColumnMapping:
+    """Tests for customizable CSV column mapping (issue #201)."""
+
+    def test_column_mapping_unrecognized_headers(self):
+        """A CSV with headers Securo can't auto-detect parses with an explicit mapping."""
+        csv_content = (
+            "Posted On,Memo Line,Movement\n"
+            "2026-01-10,COFFEE SHOP,-12.50\n"
+            "2026-01-11,PAYCHECK,3000.00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={
+                "date": "Posted On",
+                "description": "Memo Line",
+                "amount": "Movement",
+            },
+        )
+        assert len(transactions) == 2
+        assert transactions[0].description == "COFFEE SHOP"
+        assert transactions[0].amount == Decimal("12.50")
+        assert transactions[0].type == "debit"
+        assert transactions[1].description == "PAYCHECK"
+        assert transactions[1].type == "credit"
+
+    def test_column_mapping_without_mapping_raises(self):
+        """The same unrecognized CSV fails without a mapping — proving the mapping is what fixes it."""
+        csv_content = "Posted On,Memo Line,Movement\n2026-01-10,COFFEE SHOP,-12.50\n"
+        with pytest.raises(ValueError):
+            parse_csv(csv_content.encode("utf-8"))
+
+    def test_column_mapping_overrides_autodetection(self):
+        """An explicit mapping wins over a column that would otherwise auto-detect."""
+        # Both `description` and `details` exist; mapping forces `details`.
+        csv_content = (
+            "date,description,details,amount\n"
+            "2026-01-10,WRONG,RIGHT,-10.00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={"description": "details"},
+        )
+        assert len(transactions) == 1
+        assert transactions[0].description == "RIGHT"
+
+    def test_column_mapping_partial_falls_back_to_autodetect(self):
+        """Unmapped fields still auto-detect; only mapped fields are overridden."""
+        csv_content = (
+            "txn_date,description,amount\n"
+            "2026-01-10,GROCERIES,-55.00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={"date": "txn_date"},
+        )
+        assert len(transactions) == 1
+        assert transactions[0].date == date(2026, 1, 10)
+        assert transactions[0].description == "GROCERIES"
+        assert transactions[0].amount == Decimal("55.00")
+
+    def test_column_mapping_missing_column_raises(self):
+        """Mapping a field to a column that doesn't exist raises a helpful error."""
+        csv_content = "date,description,amount\n2026-01-10,X,-1.00\n"
+        with pytest.raises(ValueError, match="nonexistent"):
+            parse_csv(
+                csv_content.encode("utf-8"),
+                column_mapping={"amount": "nonexistent"},
+            )
+
+    def test_column_mapping_case_insensitive(self):
+        """Mapping values are matched case-insensitively against CSV headers."""
+        csv_content = "Date,Description,Amount\n2026-01-10,X,-1.00\n"
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={"date": "DATE", "description": "Description", "amount": "amount"},
+        )
+        assert len(transactions) == 1
+        assert transactions[0].amount == Decimal("1.00")
+
+    def test_column_mapping_split_inflow_outflow(self):
+        """Inflow/outflow split columns can be supplied via column_mapping."""
+        csv_content = (
+            "Posted On,Memo,Credits,Debits\n"
+            "2026-01-10,SALARY,5000.00,\n"
+            "2026-01-11,RENT,,1200.00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={
+                "date": "Posted On",
+                "description": "Memo",
+                "inflow": "Credits",
+                "outflow": "Debits",
+            },
+        )
+        assert len(transactions) == 2
+        assert transactions[0].type == "credit"
+        assert transactions[0].amount == Decimal("5000.00")
+        assert transactions[1].type == "debit"
+        assert transactions[1].amount == Decimal("1200.00")
+
+    def test_column_mapping_currency_and_fx_rate(self):
+        """Currency and fx_rate columns can be mapped from non-standard headers."""
+        csv_content = (
+            "date,description,amount,ccy,exch\n"
+            "2026-01-10,HOTEL,-100.00,EUR,1.08\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={"currency": "ccy", "fx_rate": "exch"},
+        )
+        assert len(transactions) == 1
+        assert transactions[0].currency == "EUR"
+        assert transactions[0].fx_rate == Decimal("1.08")
+
+    def test_column_mapping_ignores_empty_values(self):
+        """Empty mapping values are ignored and fall back to auto-detection."""
+        csv_content = "date,description,amount\n2026-01-10,X,-1.00\n"
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={"date": "", "description": "  "},
+        )
+        assert len(transactions) == 1
+        assert transactions[0].description == "X"
+
+    def test_column_mapping_type_column_drives_credit_debit(self):
+        """A mapped type column overrides the amount sign for credit/debit."""
+        # All amounts are positive — only the Direction column distinguishes them.
+        csv_content = (
+            "Booking Date,Counterparty,Net,Direction\n"
+            "2026-04-01,Whole Foods,55.00,debit\n"
+            "2026-04-02,Employer Inc,4200.00,credit\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={
+                "date": "Booking Date",
+                "description": "Counterparty",
+                "amount": "Net",
+                "type": "Direction",
+            },
+        )
+        assert len(transactions) == 2
+        assert transactions[0].type == "debit"
+        assert transactions[0].amount == Decimal("55.00")
+        assert transactions[1].type == "credit"
+        assert transactions[1].amount == Decimal("4200.00")
+
+    def test_column_mapping_with_explicit_date_format(self):
+        """Column mapping composes with an explicit date_format."""
+        csv_content = (
+            "Posting Date,Details,Amount\n"
+            "22/03/2026,Gym Membership,-60.00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            date_format="DD/MM/YYYY",
+            column_mapping={
+                "date": "Posting Date",
+                "description": "Details",
+                "amount": "Amount",
+            },
+        )
+        assert len(transactions) == 1
+        assert transactions[0].date == date(2026, 3, 22)
+        assert transactions[0].description == "Gym Membership"
+
+    def test_column_mapping_semicolon_delimiter(self):
+        """Column mapping works on semicolon-delimited CSVs with comma decimals."""
+        csv_content = (
+            "Fecha;Concepto;Importe\n"
+            "2026-07-02;Nomina;3.500,00\n"
+            "2026-07-03;Hotel;-200,00\n"
+        )
+        transactions = parse_csv(
+            csv_content.encode("utf-8"),
+            column_mapping={
+                "date": "Fecha",
+                "description": "Concepto",
+                "amount": "Importe",
+            },
+        )
+        assert len(transactions) == 2
+        assert transactions[0].amount == Decimal("3500.00")
+        assert transactions[0].type == "credit"
+        assert transactions[1].amount == Decimal("200.00")
+        assert transactions[1].type == "debit"
+
+
+class TestDetectCsvColumns:
+    """Tests for detect_csv_columns — used to drive the import-UI mapping dropdowns."""
+
+    def test_detect_basic(self):
+        csv_content = b"Posted On,Memo Line,Movement\n2026-01-10,COFFEE,-12.50\n"
+        assert detect_csv_columns(csv_content) == ["Posted On", "Memo Line", "Movement"]
+
+    def test_detect_semicolon_delimiter(self):
+        csv_content = b"date;description;amount\n2026-01-10;COFFEE;-12.50\n"
+        assert detect_csv_columns(csv_content) == ["date", "description", "amount"]
+
+    def test_detect_strips_whitespace_and_bom(self):
+        csv_content = " date , description , amount \n2026-01-10,X,-1.00\n".encode("utf-8-sig")
+        assert detect_csv_columns(csv_content) == ["date", "description", "amount"]
+
+    def test_detect_empty_file(self):
+        assert detect_csv_columns(b"") == []
 
 
 class TestParseQif:
