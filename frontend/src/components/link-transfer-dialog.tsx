@@ -62,6 +62,8 @@ type Props = {
   anchor?: Transaction | null
   accounts: Account[]
   onConfirm: (debitId: string, creditId: string) => void
+  /** Picker mode only: auto-create the counterpart in a manual account. */
+  onCreateCounterpart?: (anchorId: string, toAccountId: string) => void
   loading: boolean
 }
 
@@ -73,6 +75,7 @@ export function LinkTransferDialog({
   anchor,
   accounts,
   onConfirm,
+  onCreateCounterpart,
   loading,
 }: Props) {
   const { t, i18n } = useTranslation()
@@ -85,6 +88,8 @@ export function LinkTransferDialog({
   // us into a small confirm step which reuses the same FROM/TO card layout.
   const [pickedCandidate, setPickedCandidate] = useState<Transaction | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  // Account chosen for auto-creating a counterpart when none exists yet.
+  const [counterpartAccountId, setCounterpartAccountId] = useState('')
 
   // Reset internal picker state when the dialog opens with a new anchor or
   // when it transitions from open → closed. Done during render via the
@@ -95,6 +100,7 @@ export function LinkTransferDialog({
     setPrevSessionKey(sessionKey)
     setPickedCandidate(null)
     setSearchTerm('')
+    setCounterpartAccountId('')
   }
 
   const { data: candidates, isLoading: candidatesLoading } = useQuery({
@@ -148,6 +154,12 @@ export function LinkTransferDialog({
   if (isPickerMode && !pickedCandidate) {
     const anchorAccount = accounts.find((a) => a.id === anchor!.account_id)
     const anchorAmount = Math.abs(Number(anchor!.amount))
+    // Manual accounts (no bank connection) where we can auto-create the
+    // counterpart, since a synced account would already have a real
+    // transaction showing in the candidates list above.
+    const manualCounterpartAccounts = accounts.filter(
+      (a) => a.connection_id == null && a.id !== anchor!.account_id,
+    )
 
     return (
       <Dialog open={open} onOpenChange={onClose}>
@@ -239,6 +251,40 @@ export function LinkTransferDialog({
                 </ul>
               )}
             </div>
+
+            {onCreateCounterpart && manualCounterpartAccounts.length > 0 && (
+              <div className="border-t border-border pt-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  {t('transactions.createCounterpartHeader')}
+                </p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  {t('transactions.createCounterpartDescription')}
+                </p>
+                <div className="flex gap-2">
+                  <select
+                    value={counterpartAccountId}
+                    onChange={(e) => setCounterpartAccountId(e.target.value)}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm rounded-md border border-border bg-card text-foreground focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                  >
+                    <option value="">{t('transactions.createCounterpartSelectAccount')}</option>
+                    {manualCounterpartAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {getAccountName(a)}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!counterpartAccountId || loading}
+                    onClick={() => onCreateCounterpart(anchor!.id, counterpartAccountId)}
+                    className="shrink-0"
+                  >
+                    {loading ? t('common.loading') : t('transactions.createCounterpartConfirm')}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

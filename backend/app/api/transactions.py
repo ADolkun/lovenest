@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.models.user import User
-from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, BulkTagsRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, BulkTagsRequest, CreateCounterpartRequest, LinkTransferRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.services import transaction_service
 from app.services.admin_service import get_credit_card_accounting_mode
 
@@ -263,6 +263,31 @@ async def link_transfer(
     try:
         debit_tx, credit_tx = await transaction_service.link_existing_as_transfer(
             session, user.id, data.transaction_ids
+        )
+        debit_full = await transaction_service.get_transaction(session, debit_tx.id, user.id)
+        credit_full = await transaction_service.get_transaction(session, credit_tx.id, user.id)
+        primary_currency = user.primary_currency
+        return TransferRead(
+            debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
+            credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
+            transfer_pair_id=debit_tx.transfer_pair_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{transaction_id}/create-counterpart", response_model=TransferRead, status_code=status.HTTP_201_CREATED)
+async def create_counterpart(
+    transaction_id: uuid.UUID,
+    data: CreateCounterpartRequest,
+    session: AsyncSession = Depends(get_async_session),
+    user: User = Depends(current_active_user),
+):
+    """Mark a transaction as a transfer by auto-creating its counterpart in
+    another (typically manual) account."""
+    try:
+        debit_tx, credit_tx = await transaction_service.create_transfer_counterpart(
+            session, user.id, transaction_id, data.to_account_id
         )
         debit_full = await transaction_service.get_transaction(session, debit_tx.id, user.id)
         credit_full = await transaction_service.get_transaction(session, credit_tx.id, user.id)

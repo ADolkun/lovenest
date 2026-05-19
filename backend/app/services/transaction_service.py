@@ -888,6 +888,93 @@ async def link_existing_as_transfer(
     return debit_tx, credit_tx
 
 
+async def create_transfer_counterpart(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+    to_account_id: uuid.UUID,
+) -> tuple[Transaction, Transaction]:
+    """Mark an existing transaction as a transfer by auto-creating its
+    counterpart in another account.
+
+    Used when the counterpart account is manual (not bank-synced), so no
+    matching transaction exists to link against. The counterpart mirrors the
+    anchor's date / description / notes with the opposite type, converting the
+    amount when the destination account uses a different currency.
+    """
+    from decimal import Decimal
+
+    anchor = await get_transaction(session, transaction_id, user_id)
+    if not anchor:
+        raise ValueError("Transaction not found")
+    if anchor.transfer_pair_id is not None:
+        raise ValueError("Transaction is already part of a transfer")
+    if anchor.account_id == to_account_id:
+        raise ValueError("Counterpart must be in a different account")
+
+    to_result = await session.execute(
+        select(Account)
+        .outerjoin(BankConnection)
+        .where(
+            Account.id == to_account_id,
+            or_(Account.user_id == user_id, BankConnection.user_id == user_id),
+        )
+    )
+    to_account = to_result.scalar_one_or_none()
+    if not to_account:
+        raise ValueError("Destination account not found")
+
+    opposing_type = "credit" if anchor.type == "debit" else "debit"
+
+    # Convert the amount when the destination account uses another currency.
+    if anchor.currency != to_account.currency:
+        counterpart_amount, _ = await fx_convert(
+            session, Decimal(str(anchor.amount)), anchor.currency, to_account.currency, anchor.date
+        )
+    else:
+        counterpart_amount = anchor.amount
+
+    transfer_pair_id = uuid.uuid4()
+
+    counterpart_tx = Transaction(
+        user_id=user_id,
+        account_id=to_account_id,
+        description=anchor.description,
+        amount=counterpart_amount,
+        currency=to_account.currency,
+        date=anchor.date,
+        type=opposing_type,
+        source="transfer",
+        notes=anchor.notes,
+        transfer_pair_id=transfer_pair_id,
+    )
+    apply_effective_date(counterpart_tx, to_account)
+    session.add(counterpart_tx)
+
+    # Link the anchor into the pair; transfers are excluded from category reports.
+    anchor.transfer_pair_id = transfer_pair_id
+    anchor.category_id = None
+
+    await session.flush()
+    await stamp_primary_amount(session, user_id, counterpart_tx)
+
+    # Cross-currency: keep both sides on the same primary amount.
+    if anchor.currency != to_account.currency and anchor.amount_primary is not None:
+        counterpart_tx.amount_primary = anchor.amount_primary
+        if counterpart_tx.amount and Decimal(str(counterpart_tx.amount)):
+            counterpart_tx.fx_rate_used = Decimal(str(anchor.amount_primary)) / Decimal(
+                str(counterpart_tx.amount)
+            )
+
+    await session.commit()
+    await session.refresh(anchor, ["category"])
+    await session.refresh(counterpart_tx, ["category"])
+
+    debit_tx = anchor if anchor.type == "debit" else counterpart_tx
+    credit_tx = counterpart_tx if anchor.type == "debit" else anchor
+    return debit_tx, credit_tx
+
+
 async def _resync_bill_link_from_override(
     session: AsyncSession, transaction: Transaction, account: Optional[Account]
 ) -> None:

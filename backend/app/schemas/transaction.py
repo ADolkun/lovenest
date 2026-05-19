@@ -128,6 +128,13 @@ class LinkTransferRequest(BaseModel):
     transaction_ids: list[uuid.UUID]
 
 
+class CreateCounterpartRequest(BaseModel):
+    """Mark a transaction as a transfer by auto-creating its counterpart in
+    another account. Used when the counterpart account is manual, so no
+    matching transaction exists to link against."""
+    to_account_id: uuid.UUID
+
+
 class BulkTagsRequest(BaseModel):
     transaction_ids: list[uuid.UUID]
     tags: list[str]

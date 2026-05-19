@@ -355,6 +355,15 @@ export const transactions = {
     })
     return data
   },
+  createTransferCounterpart: async (
+    transactionId: string,
+    toAccountId: string,
+  ): Promise<{ debit: Transaction; credit: Transaction; transfer_pair_id: string }> => {
+    const { data } = await api.post(`/transactions/${transactionId}/create-counterpart`, {
+      to_account_id: toAccountId,
+    })
+    return data
+  },
   transferCandidates: async (transactionId: string, params?: { limit?: number; window_days?: number }): Promise<Transaction[]> => {
     const { data } = await api.get(`/transactions/${transactionId}/transfer-candidates`, { params })
     return data

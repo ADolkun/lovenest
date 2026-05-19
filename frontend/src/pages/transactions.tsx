@@ -452,6 +452,21 @@ export default function TransactionsPage() {
     },
   })
 
+  const createCounterpartMutation = useMutation({
+    mutationFn: ({ anchorId, toAccountId }: { anchorId: string; toAccountId: string }) =>
+      transactions.createTransferCounterpart(anchorId, toAccountId),
+    onSuccess: () => {
+      invalidateAfterTxMutation()
+      queryClient.invalidateQueries({ queryKey: ['transfer-candidates'] })
+      setLinkTransferDialogOpen(false)
+      setSelectedIds(new Set())
+      toast.success(t('transactions.linkTransferSuccess'))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   const unlinkTransferMutation = useMutation({
     mutationFn: (pairId: string) => transactions.unlinkTransfer(pairId),
     onSuccess: () => {
@@ -1363,7 +1378,10 @@ export default function TransactionsPage() {
         onConfirm={(debitId, creditId) => {
           linkTransferMutation.mutate([debitId, creditId])
         }}
-        loading={linkTransferMutation.isPending}
+        onCreateCounterpart={(anchorId, toAccountId) => {
+          createCounterpartMutation.mutate({ anchorId, toAccountId })
+        }}
+        loading={linkTransferMutation.isPending || createCounterpartMutation.isPending}
       />
 
       {/* Transfer Dialog */}
