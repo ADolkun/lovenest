@@ -1561,6 +1561,15 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
 
     return { series: s, displayTrend: newTrend }
   }, [mode, data, wallets, t])
+  const sortedSeries = useMemo(() => {
+    const lastRow = displayTrend[displayTrend.length - 1]
+    if (!lastRow) return series
+    return [...series].sort((a, b) => {
+      const av = Math.abs((lastRow[a.key] as number) ?? 0)
+      const bv = Math.abs((lastRow[b.key] as number) ?? 0)
+      return bv - av || a.name.localeCompare(b.name)
+    })
+  }, [series, displayTrend])
 
   return (
     <div className="border border-border rounded-xl bg-card shadow-sm p-5">
@@ -1593,7 +1602,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={displayTrend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
             <defs>
-              {series.map(s => (
+              {sortedSeries.map(s => (
                 <linearGradient key={s.key} id={`portfolio-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={s.color} stopOpacity={0.5} />
                   <stop offset="100%" stopColor={s.color} stopOpacity={0.1} />
@@ -1618,16 +1627,14 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
             <RechartsTooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null
-                const totalEntry = payload.find(p => p.dataKey === '_total')
-                const dateTotal = totalEntry?.value as number ?? 0
-                const items = series
+                const row = displayTrend.find(r => r.date === label)
+                const dateTotal = row ? ((row._total as number) ?? 0) : 0
+                const items = sortedSeries
                   .map(s => {
-                    const row = displayTrend.find(r => r.date === label)
                     const val = row ? ((row[s.key] as number) ?? 0) : 0
                     return { key: s.key, name: s.name, value: val, color: s.color }
                   })
                   .filter(item => item.value !== 0)
-                  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
                 if (items.length === 0) return null
                 return (
                   <div style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: '0.75rem', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
@@ -1652,7 +1659,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
               }}
             />
             {/* Stacked areas — one colored band per series */}
-            {series.map(s => (
+            {sortedSeries.map(s => (
               <Area
                 key={s.key}
                 type="monotone"
@@ -1672,7 +1679,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
       </div>
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 px-1">
-        {series.map(s => (
+        {sortedSeries.map(s => (
           <div key={s.key} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
             <span className="text-[11px] text-muted-foreground">{s.name}</span>
