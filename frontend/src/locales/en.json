@@ -435,6 +435,9 @@
   },
   "connections": {
     "settings": "Connection settings",
+    "displayName": "Nickname",
+    "displayNamePlaceholder": "e.g. Personal Nubank",
+    "displayNameHint": "Leave empty to show the institution name.",
     "payeeSource": "Payee source",
     "payeeAuto": "Auto (merchant > payment data)",
     "payeeMerchant": "Merchant name only",

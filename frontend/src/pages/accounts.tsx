@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
+import { getConnectionName } from '@/lib/connection-utils'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -305,7 +306,7 @@ export default function AccountsPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">{conn.institution_name}</p>
+                            <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
                             <Badge
                               variant={conn.status === 'active' ? 'default' : 'secondary'}
                               className="text-[10px] px-1.5 py-0 h-4"
@@ -517,7 +518,7 @@ export default function AccountsPage() {
             <DialogTitle>{t('accounts.confirmDisconnectTitle')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {t('accounts.confirmDisconnectDesc', { institution: disconnectingConnection?.institution_name ?? '' })}
+            {t('accounts.confirmDisconnectDesc', { institution: disconnectingConnection ? getConnectionName(disconnectingConnection) : '' })}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDisconnectingConnection(null)}>

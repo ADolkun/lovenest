@@ -376,6 +376,11 @@ async def update_connection_settings(
     if not connection:
         return None
 
+    if "display_name" in settings_update:
+        raw = settings_update.pop("display_name")
+        trimmed = raw.strip() if isinstance(raw, str) else raw
+        connection.display_name = trimmed or None
+
     current = dict(connection.settings or {})
     for key, value in settings_update.items():
         if value is not None:

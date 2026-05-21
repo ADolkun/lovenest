@@ -435,6 +435,9 @@
   },
   "connections": {
     "settings": "Configurações da conexão",
+    "displayName": "Apelido",
+    "displayNamePlaceholder": "ex: Nubank Pessoal",
+    "displayNameHint": "Deixe vazio para usar o nome da instituição.",
     "payeeSource": "Origem do beneficiário",
     "payeeAuto": "Automático (comerciante > dados de pagamento)",
     "payeeMerchant": "Apenas nome do comerciante",

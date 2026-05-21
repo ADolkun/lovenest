@@ -191,7 +191,10 @@ export const connections = {
     const { data } = await api.post(`/connections/${connectionId}/reconnect-token`)
     return data.access_token
   },
-  updateSettings: async (id: string, settings: Partial<ConnectionSettings>): Promise<BankConnection> => {
+  updateSettings: async (
+    id: string,
+    settings: Partial<ConnectionSettings> & { display_name?: string | null },
+  ): Promise<BankConnection> => {
     const { data } = await api.patch(`/connections/${id}/settings`, settings)
     return data
   },

@@ -64,6 +64,7 @@ export interface BankConnection {
   user_id: string
   provider: string
   institution_name: string
+  display_name: string | null
   external_id: string
   status: string
   settings: ConnectionSettings | null

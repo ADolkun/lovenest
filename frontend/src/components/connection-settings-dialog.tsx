@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { BankConnection, ConnectionSettings } from '@/types'
 
@@ -30,11 +31,13 @@ export function ConnectionSettingsDialog({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
+  const [displayName, setDisplayName] = useState('')
   const [payeeSource, setPayeeSource] = useState<PayeeSource>('auto')
   const [importPending, setImportPending] = useState(true)
 
   useEffect(() => {
     if (connection) {
+      setDisplayName(connection.display_name ?? '')
       setPayeeSource(connection.settings?.payee_source ?? 'auto')
       setImportPending(connection.settings?.import_pending ?? true)
     }
@@ -43,6 +46,7 @@ export function ConnectionSettingsDialog({
   const mutation = useMutation({
     mutationFn: () =>
       connections.updateSettings(connection!.id, {
+        display_name: displayName.trim() || null,
         payee_source: payeeSource,
         import_pending: importPending,
       }),
@@ -61,6 +65,17 @@ export function ConnectionSettingsDialog({
           <DialogTitle>{t('connections.settings')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="connection-display-name">{t('connections.displayName')}</Label>
+            <Input
+              id="connection-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={connection?.institution_name ?? t('connections.displayNamePlaceholder')}
+              maxLength={255}
+            />
+            <p className="text-[11px] text-muted-foreground">{t('connections.displayNameHint')}</p>
+          </div>
           <div className="space-y-2">
             <Label>{t('connections.payeeSource')}</Label>
             <select

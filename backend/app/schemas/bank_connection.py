@@ -14,6 +14,7 @@ class BankConnectionRead(BankConnectionBase):
     id: uuid.UUID
     user_id: uuid.UUID
     external_id: str
+    display_name: Optional[str] = None
     settings: Optional[dict] = None
     status: str
     last_sync_at: Optional[datetime] = None
@@ -48,5 +49,6 @@ class ReconnectTokenResponse(BaseModel):
 
 
 class ConnectionSettingsUpdate(BaseModel):
+    display_name: Optional[str] = None
     payee_source: Optional[Literal["auto", "merchant", "payment_data", "description", "none"]] = None
     import_pending: Optional[bool] = None
