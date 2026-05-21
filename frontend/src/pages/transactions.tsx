@@ -87,6 +87,8 @@ export default function TransactionsPage() {
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [filterGroupId, setFilterGroupId] = useState<string>(searchParams.get('group_id') ?? '')
   const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
+  const [filterMinAmount, setFilterMinAmount] = useState<string>(searchParams.get('min_amount') ?? '')
+  const [filterMaxAmount, setFilterMaxAmount] = useState<string>(searchParams.get('max_amount') ?? '')
   const [tagFilters, setTagFilters] = useState<string[]>([])
 
   // When the page is opened with a `group_id`, fetch its name so the
@@ -153,6 +155,8 @@ export default function TransactionsPage() {
     setFilterAccountIds(accounts ? accounts.split(',') : []);
     setFilterFrom(searchParams.get('from') ?? '');
     setFilterTo(searchParams.get('to') ?? '');
+    setFilterMinAmount(searchParams.get('min_amount') ?? '');
+    setFilterMaxAmount(searchParams.get('max_amount') ?? '');
     setPage(1)
   }, [searchParams])
 
@@ -171,6 +175,8 @@ export default function TransactionsPage() {
         ['account_id', filterAccountIds.join(',')],
         ['from', filterFrom],
         ['to', filterTo],
+        ['min_amount', filterMinAmount],
+        ['max_amount', filterMaxAmount],
       ].filter(([, v]) => v.length),
     );
 
@@ -190,6 +196,8 @@ export default function TransactionsPage() {
     filterAccountIds,
     filterFrom,
     filterTo,
+    filterMinAmount,
+    filterMaxAmount,
   ]);
 
   useEffect(() => {
@@ -205,7 +213,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkCategory('')
-  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, searchQuery])
+  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery])
 
   // Reset bulk category when selection changes so the same category can be re-applied
   useEffect(() => {
@@ -234,7 +242,7 @@ export default function TransactionsPage() {
   }, [highlightId, searchQuery, filterPayee, filterCategoryIds, page])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
+    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
     queryFn: () =>
       transactions.list({
         page,
@@ -247,6 +255,8 @@ export default function TransactionsPage() {
         uncategorized: filterUncategorized ? true : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
+        min_amount: filterMinAmount ? Number(filterMinAmount) : undefined,
+        max_amount: filterMaxAmount ? Number(filterMaxAmount) : undefined,
         q: searchQuery || undefined,
         tags: tagFilters.length > 0 ? tagFilters : undefined,
         ...grid.apiSort,
@@ -267,6 +277,8 @@ export default function TransactionsPage() {
     uncategorized: filterUncategorized || undefined,
     from: filterFrom || undefined,
     to: filterTo || undefined,
+    min_amount: filterMinAmount || undefined,
+    max_amount: filterMaxAmount || undefined,
     tags: tagFilters.length ? tagFilters : undefined,
     sort_by: grid.sortBy,
     sort_dir: grid.sortDir,
@@ -1040,6 +1052,9 @@ export default function TransactionsPage() {
         filterFrom={filterFrom}
         filterTo={filterTo}
         onDateRangeChange={(from, to) => { setFilterFrom(from); setFilterTo(to); setPage(1) }}
+        filterMinAmount={filterMinAmount}
+        filterMaxAmount={filterMaxAmount}
+        onAmountRangeChange={(min, max) => { setFilterMinAmount(min); setFilterMaxAmount(max); setPage(1) }}
         onClearAll={() => {
           setFilterFrom('')
           setFilterTo('')
@@ -1049,6 +1064,8 @@ export default function TransactionsPage() {
           setFilterPayee('')
           setFilterGroupId('')
           setFilterType('')
+          setFilterMinAmount('')
+          setFilterMaxAmount('')
           setSearchInput('')
           setSearchQuery('')
           clearTagFilters()

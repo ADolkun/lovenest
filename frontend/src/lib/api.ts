@@ -273,6 +273,8 @@ export const transactions = {
     include_opening_balance?: boolean
     exclude_transfers?: boolean
     tags?: string[]
+    min_amount?: number
+    max_amount?: number
     sort_by?: string
     sort_dir?: 'asc' | 'desc'
   }): Promise<PaginatedTransactions> => {

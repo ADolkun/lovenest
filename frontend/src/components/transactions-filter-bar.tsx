@@ -7,6 +7,7 @@ import {
   Calendar as CalendarIcon,
   Check,
   ChevronRight,
+  Coins,
   ListFilter,
   Search,
   Store,
@@ -60,6 +61,9 @@ interface TransactionsFilterBarProps {
   filterFrom: string
   filterTo: string
   onDateRangeChange: (from: string, to: string) => void
+  filterMinAmount: string
+  filterMaxAmount: string
+  onAmountRangeChange: (min: string, max: string) => void
   onClearAll: () => void
   accounts: Account[]
   categories: Category[]
@@ -95,6 +99,9 @@ export function TransactionsFilterBar({
   filterFrom,
   filterTo,
   onDateRangeChange,
+  filterMinAmount,
+  filterMaxAmount,
+  onAmountRangeChange,
   onClearAll,
   accounts,
   categories,
@@ -113,6 +120,9 @@ export function TransactionsFilterBar({
   const [dateCustomOpen, setDateCustomOpen] = useState(false)
   const [draftFrom, setDraftFrom] = useState<string>(filterFrom)
   const [draftTo, setDraftTo] = useState<string>(filterTo)
+  const [amountSubOpen, setAmountSubOpen] = useState(false)
+  const [draftMinAmount, setDraftMinAmount] = useState<string>(filterMinAmount)
+  const [draftMaxAmount, setDraftMaxAmount] = useState<string>(filterMaxAmount)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // When a CheckRow is clicked inside a submenu, Radix tries to close the submenu
@@ -138,6 +148,7 @@ export function TransactionsFilterBar({
     if (!open) {
       setAccountSubOpen(false)
       setCategorySubOpen(false)
+      setAmountSubOpen(false)
       keepAccountSubOpenRef.current = false
       keepCategorySubOpenRef.current = false
     }
@@ -174,6 +185,8 @@ export function TransactionsFilterBar({
     !!filterType ||
     !!filterFrom ||
     !!filterTo ||
+    !!filterMinAmount ||
+    !!filterMaxAmount ||
     searchInput.trim().length > 0
 
   const typeLabel =
@@ -194,6 +207,49 @@ export function TransactionsFilterBar({
     if (filterFrom) return `≥ ${fmt(filterFrom)}`
     return `≤ ${fmt(filterTo)}`
   }, [filterFrom, filterTo, locale])
+
+  const amountLabel = useMemo(() => {
+    if (!filterMinAmount && !filterMaxAmount) return null
+    const fmt = (raw: string) => {
+      const n = Number(raw)
+      if (!Number.isFinite(n)) return raw
+      return n.toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })
+    }
+    if (filterMinAmount && filterMaxAmount) {
+      if (filterMinAmount === filterMaxAmount) return `= ${fmt(filterMinAmount)}`
+      return `${fmt(filterMinAmount)} — ${fmt(filterMaxAmount)}`
+    }
+    if (filterMinAmount) return `≥ ${fmt(filterMinAmount)}`
+    return `≤ ${fmt(filterMaxAmount)}`
+  }, [filterMinAmount, filterMaxAmount, locale])
+
+  const applyAmountRange = () => {
+    const normalize = (raw: string) => raw.trim().replace(',', '.')
+    const min = normalize(draftMinAmount)
+    const max = normalize(draftMaxAmount)
+    const minOk = min === '' || (Number.isFinite(Number(min)) && Number(min) >= 0)
+    const maxOk = max === '' || (Number.isFinite(Number(max)) && Number(max) >= 0)
+    if (!minOk || !maxOk) return
+    // Swap if user inverted the range so the filter still makes sense.
+    if (min && max && Number(min) > Number(max)) {
+      onAmountRangeChange(max, min)
+    } else {
+      onAmountRangeChange(min, max)
+    }
+    setAmountSubOpen(false)
+    setMenuOpen(false)
+  }
+
+  const handleAmountSubOpenChange = (open: boolean) => {
+    if (open) {
+      setDraftMinAmount(filterMinAmount)
+      setDraftMaxAmount(filterMaxAmount)
+    }
+    setAmountSubOpen(open)
+  }
 
   const datePresets = useMemo(() => {
     const today = new Date()
@@ -652,6 +708,101 @@ export function TransactionsFilterBar({
                     </DropdownMenuSubContent>
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
+
+                {/* Amount range submenu — exact match by setting min=max */}
+                <DropdownMenuSub
+                  open={amountSubOpen}
+                  onOpenChange={handleAmountSubOpenChange}
+                >
+                  <DropdownMenuSubTrigger className="gap-2 text-[13px]">
+                    <Coins size={14} className="text-muted-foreground" />
+                    <span className="flex-1">
+                      {t('transactions.filtersBar.amount')}
+                    </span>
+                    {amountLabel && (
+                      <span className="max-w-[90px] truncate text-[11px] text-muted-foreground">
+                        {amountLabel}
+                      </span>
+                    )}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent
+                      sideOffset={8}
+                      className="w-[260px] p-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <label className="block px-1 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+                            {t('transactions.filtersBar.amountMinLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={draftMinAmount}
+                            onChange={(e) => setDraftMinAmount(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                applyAmountRange()
+                              }
+                            }}
+                            className="h-8 w-full rounded-md border border-border bg-background px-2 text-[13px] outline-none focus:border-primary/60 focus:ring-[2px] focus:ring-primary/15"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block px-1 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+                            {t('transactions.filtersBar.amountMaxLabel')}
+                          </label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={draftMaxAmount}
+                            onChange={(e) => setDraftMaxAmount(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                applyAmountRange()
+                              }
+                            }}
+                            className="h-8 w-full rounded-md border border-border bg-background px-2 text-[13px] outline-none focus:border-primary/60 focus:ring-[2px] focus:ring-primary/15"
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-[10.5px] leading-snug text-muted-foreground/80">
+                        {t('transactions.filtersBar.amountHint')}
+                      </p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDraftMinAmount('')
+                            setDraftMaxAmount('')
+                            onAmountRangeChange('', '')
+                            setAmountSubOpen(false)
+                            setMenuOpen(false)
+                          }}
+                          className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {t('transactions.filtersBar.reset')}
+                        </button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!draftMinAmount && !draftMaxAmount}
+                          onClick={applyAmountRange}
+                        >
+                          {t('transactions.filtersBar.apply')}
+                        </Button>
+                      </div>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
+                </DropdownMenuSub>
               </DropdownMenuGroup>
 
               {hasAnyFilter && (
@@ -680,7 +831,8 @@ export function TransactionsFilterBar({
           filterUncategorized ||
           !!selectedPayee ||
           !!typeLabel ||
-          !!dateLabel) && (
+          !!dateLabel ||
+          !!amountLabel) && (
           <div className="flex flex-wrap items-center gap-1 border-t border-border/60 px-2 py-1.5">
             {filterAccountIds.map((id) => {
               const account = accountById.get(id)
@@ -745,6 +897,14 @@ export function TransactionsFilterBar({
                 label={t('transactions.filtersBar.date')}
                 value={dateLabel}
                 onRemove={() => onDateRangeChange('', '')}
+              />
+            )}
+            {amountLabel && (
+              <FilterChip
+                icon={<Coins size={12} />}
+                label={t('transactions.filtersBar.amount')}
+                value={amountLabel}
+                onRemove={() => onAmountRangeChange('', '')}
               />
             )}
           </div>

@@ -77,6 +77,8 @@ async def list_transactions(
     include_opening_balance: bool = Query(False),
     exclude_transfers: bool = Query(False),
     tags: Optional[List[str]] = Query(None),
+    min_amount: Optional[float] = Query(None, ge=0, description="Filter to transactions with absolute amount >= this value (primary currency)."),
+    max_amount: Optional[float] = Query(None, ge=0, description="Filter to transactions with absolute amount <= this value (primary currency)."),
     sort_by: Optional[str] = Query(None, description="Column to sort by (date|amount|description|payee|category|account|type|status). Default: date desc."),
     sort_dir: str = Query("desc", regex="^(asc|desc)$"),
     session: AsyncSession = Depends(get_async_session),
@@ -97,6 +99,8 @@ async def list_transactions(
         unbilled_only=unbilled_only,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        min_amount=min_amount,
+        max_amount=max_amount,
         include_summary=True,
     )
     primary_currency = user.primary_currency
