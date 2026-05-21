@@ -343,15 +343,22 @@ async def get_transactions(
     # rows). Computed before pagination so it covers the whole result set.
     summary: Optional[dict] = None
     if include_summary:
-        summary_subq = base_query.subquery()
+        ignored_category_ids = select(Category.id).where(Category.is_ignored == True)
+        pnl_subq = base_query.where(
+        Transaction.is_ignored == False,
+        or_(
+            Transaction.category_id.is_(None),
+            Transaction.category_id.not_in(ignored_category_ids),
+        ),
+    ).subquery()
         amount_norm = func.coalesce(
-            summary_subq.c.amount_primary, summary_subq.c.amount
+            pnl_subq.c.amount_primary, pnl_subq.c.amount
         )
         summary_rows = await session.execute(
             select(
-                summary_subq.c.type,
+                pnl_subq.c.type,
                 func.coalesce(func.sum(func.abs(amount_norm)), 0),
-            ).group_by(summary_subq.c.type)
+            ).group_by(pnl_subq.c.type)
         )
         income = Decimal("0")
         expense = Decimal("0")
@@ -419,7 +426,8 @@ async def get_transactions(
         for tx in transactions:
             tx.attachment_count = counts.get(tx.id, 0)
             tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
-
+            if not tx.is_ignored and tx.category and tx.category.is_ignored:
+                tx.is_ignored = True
         # Tag shared rows with the viewer's share + the source group.
         # Owned rows stay as-is. We pre-compute the viewer's linked
         # member ids → group ids once, then look up each transaction's
@@ -1335,6 +1343,22 @@ async def bulk_add_to_group(
 
     await session.commit()
     return {"updated": updated, "skipped": skipped}
+
+
+async def toggle_ignore_transaction(
+    session: AsyncSession, transaction_id: uuid.UUID, user_id: uuid.UUID
+) -> Optional[Transaction]:
+    """Flip the is_ignored flag on a transaction. Acts immediately (no
+    other field is touched) so the edit dialog can offer ignore as a
+    one-click action alongside delete, instead of bundling it into the
+    form's Salvar flow."""
+    transaction = await get_transaction(session, transaction_id, user_id)
+    if not transaction:
+        return None
+    transaction.is_ignored = not transaction.is_ignored
+    await session.commit()
+    await session.refresh(transaction)
+    return transaction
 
 
 async def delete_transaction(

@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { AlertTriangle, ChevronDown, ChevronLeft, Download, Paperclip, Upload, X, FileText, Plus, Unlink } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, Download, Eye, EyeClosed, Paperclip, Upload, X, FileText, Plus, Unlink } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,6 +71,7 @@ export function TransactionDialog({
   onSave,
   onDelete,
   onUnlinkTransfer,
+  onIgnoreChanged,
   loading,
   error,
   isSynced = false,
@@ -87,6 +88,7 @@ export function TransactionDialog({
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
   onUnlinkTransfer?: (pairId: string) => void
+  onIgnoreChanged?: () => void
   loading: boolean
   error: string | null
   isSynced?: boolean
@@ -157,6 +159,7 @@ export function TransactionDialog({
               onSave={onSave}
               onDelete={onDelete}
               onUnlinkTransfer={onUnlinkTransfer}
+              onIgnoreChanged={onIgnoreChanged}
               onCancel={onClose}
               loading={loading}
               error={error}
@@ -273,6 +276,7 @@ function TransactionForm({
   onSave,
   onDelete,
   onUnlinkTransfer,
+  onIgnoreChanged,
   onCancel,
   loading,
   error,
@@ -290,6 +294,7 @@ function TransactionForm({
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
   onUnlinkTransfer?: (pairId: string) => void
+  onIgnoreChanged?: () => void
   onCancel: () => void
   loading: boolean
   error: string | null
@@ -364,6 +369,25 @@ function TransactionForm({
   const pendingFileInputRef = useRef<HTMLInputElement>(null)
   const pendingActionRef = useRef<SaveAction>('save')
   const formRef = useRef<HTMLFormElement>(null)
+  const [isIgnored, setIsIgnored] = useState(seed?.is_ignored ?? false)
+  const [togglingIgnore, setTogglingIgnore] = useState(false)
+
+  const handleToggleIgnore = async () => {
+    if (!seed?.id || togglingIgnore) return
+    setTogglingIgnore(true)
+    try {
+      const updated = await transactionsApi.toggleIgnore(seed.id)
+      setIsIgnored(updated.is_ignored)
+      toast.success(updated.is_ignored
+        ? t('transactions.ignoreSuccess')
+        : t('transactions.unignoreSuccess'))
+      onIgnoreChanged?.()
+    } catch {
+      toast.error(t('common.error'))
+    } finally {
+      setTogglingIgnore(false)
+    }
+  }
 
   const triggerSubmit = (action: SaveAction) => {
     pendingActionRef.current = action
@@ -487,6 +511,7 @@ function TransactionForm({
               category_id: categoryId || null,
               payee_id: payeeId || null,
               notes: notes.trim() || null,
+              is_ignored: isIgnored,
               ...overridePayload,
               ...splitsPayload,
             } as Partial<Transaction>
@@ -500,6 +525,7 @@ function TransactionForm({
               payee_id: payeeId || null,
               account_id: accountId || undefined,
               notes: notes.trim() || null,
+              is_ignored: isIgnored,
               ...fxFields,
               ...overridePayload,
               ...splitsPayload,
@@ -827,13 +853,28 @@ function TransactionForm({
 
       <DialogFooter className={cn(
         'shrink-0 border-t pt-4 mt-2',
-        onDelete ? 'flex justify-between sm:justify-between' : ''
+        (onDelete || seed?.id) ? 'flex justify-between sm:justify-between' : ''
       )}>
-        {onDelete && (
-          <Button type="button" variant="destructive" onClick={onDelete} disabled={loading}>
-            {t('common.delete')}
-          </Button>
-        )}
+        <div className="flex gap-2 items-center">
+          {onDelete && (
+            <Button type="button" variant="destructive" onClick={onDelete} disabled={loading}>
+              {t('common.delete')}
+            </Button>
+          )}
+          {seed?.id && (
+            <Button
+              type="button"
+              variant={isIgnored ? 'secondary' : 'outline'}
+              onClick={handleToggleIgnore}
+              disabled={loading || togglingIgnore}
+              title={t('transactions.ignoreTransferHint')}
+              className="gap-1.5"
+            >
+              {isIgnored ? <Eye size={16} /> : <EyeClosed size={16} />}
+              {isIgnored ? t('transactions.unignoreAction') : t('transactions.ignoreAction')}
+            </Button>
+          )}
+        </div>
         <div className="flex gap-2">
           <Button type="button" variant="outline" onClick={onCancel}>
             {t('common.cancel')}

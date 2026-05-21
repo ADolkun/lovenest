@@ -304,6 +304,13 @@
     "confirmTransferCategoryDesc": "Transfers come in pairs. You can update only this transaction or apply the same category change to both sides.",
     "confirmTransferCategorySingle": "Only this transaction",
     "confirmTransferCategoryBoth": "Update both",
+    "ignoreTransfer": "Ignore this transaction",
+    "ignoreTransferHint": "Ignored transactions will not show on reports and balance",
+    "ignored": "Ignored",
+    "ignoreAction": "Ignore",
+    "unignoreAction": "Restore",
+    "ignoreSuccess": "Transaction ignored",
+    "unignoreSuccess": "Transaction restored",
     "filtersBar": {
       "filters": "Filters",
       "filterBy": "Filter by",
@@ -576,6 +583,8 @@
     "setPayee": "Set payee",
     "selectPayee": "Select payee...",
     "appendNotes": "Append tags/notes",
+    "ignoreAction": "Ignore transaction",
+    "ignoreActionHint": "(no value needed)",
     "selectCategory": "Select category...",
     "selectAccount": "Select account...",
     "ruleActive": "Active rule",
@@ -620,7 +629,10 @@
     "collapseAll": "Collapse all",
     "treatAsTransfer": "Treat as transfer",
     "treatAsTransferDesc": "Transactions in this category won't count as income or expense in reports. Use this for movements between your own accounts (investments, savings deposits, loan repayments).",
-    "treatAsTransferBadge": "Transfer"
+    "treatAsTransferBadge": "Transfer",
+    "ignoreTransfer": "Ignore this transfer",
+    "ignoreTransferDesc": "Ignored transactions won't show on income or expense reports.",
+    "ignoreTransferBadge": "Ignore"
   },
   "groups": {
     "title": "Category Groups",
