@@ -19,6 +19,9 @@ x-backend-env: &backend-env
   AGENTS_BUILTIN_MCP_URL: ${AGENTS_BUILTIN_MCP_URL:-http://mcp-server:8765/mcp}
   AGENTS_EXTRA_MCP_SERVERS: ${AGENTS_EXTRA_MCP_SERVERS:-}
   AGENTS_MCP_JWT_SECRET: ${AGENTS_MCP_JWT_SECRET:-dev-mcp-secret-change-in-production}
+  # TTL for tokens minted from /agents/connections → "External MCP access".
+  # Used by Claude Desktop, n8n, custom clients plugging into Securo.
+  AGENTS_MCP_EXTERNAL_TTL_DAYS: ${AGENTS_MCP_EXTERNAL_TTL_DAYS:-90}
   # LLM provider config — only the provider you actually use needs setting.
   AGENTS_DEFAULT_PROVIDER: ${AGENTS_DEFAULT_PROVIDER:-ollama}
   AGENTS_DEFAULT_MODEL: ${AGENTS_DEFAULT_MODEL:-}
@@ -111,12 +114,17 @@ services:
   # profile (`docker compose --profile agents up`). Reuses the backend
   # image, just runs a different uvicorn entry point. Modular by design —
   # users not using the agents feature pay zero cost.
+  #
+  # The port is published on the host (127.0.0.1 by default) so external
+  # agents — Claude Desktop, n8n, custom clients — can reach it after
+  # minting a token from the UI. JWT auth is always required. Override
+  # AGENTS_MCP_EXTERNAL_HOST_PORT to e.g. "0.0.0.0:8765" to expose to LAN.
   mcp-server:
     <<: *backend-base
     profiles: [agents]
     command: uvicorn mcp_server.main:app --host 0.0.0.0 --port 8765
-    expose:
-      - "8765"
+    ports:
+      - "${AGENTS_MCP_EXTERNAL_HOST_PORT:-127.0.0.1:8765}:8765"
 
 volumes:
   pgdata:

@@ -1106,7 +1106,14 @@ export const agents = {
       default_top_n: number
       default_similarity_threshold: number
       extra_mcp_servers_configured: boolean
+      mcp_external_ttl_days: number
     }
+  },
+  mcpTokens: {
+    create: async (): Promise<{ token: string; expires_in_seconds: number; expires_in_days: number }> => {
+      const { data } = await api.post('/agents/mcp-tokens')
+      return data
+    },
   },
   list: async (includeArchived = false): Promise<Agent[]> => {
     const { data } = await api.get('/agents', { params: { include_archived: includeArchived } })

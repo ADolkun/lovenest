@@ -20,6 +20,7 @@ def mint_token(
     conversation_id: Optional[uuid.UUID] = None,
     agent_id: Optional[uuid.UUID] = None,
     ttl_seconds: Optional[int] = None,
+    external: bool = False,
 ) -> str:
     s = get_agent_settings()
     now = int(time.time())
@@ -34,4 +35,6 @@ def mint_token(
         payload["conv_id"] = str(conversation_id)
     if agent_id:
         payload["agent_id"] = str(agent_id)
+    if external:
+        payload["ext"] = True
     return jwt.encode(payload, s.mcp_jwt_secret, algorithm=JWT_ALGO)

@@ -26,6 +26,10 @@ class CallContext:
     user_id: uuid.UUID
     conversation_id: Optional[uuid.UUID] = None
     agent_id: Optional[uuid.UUID] = None
+    # True when the JWT was minted for an external agent (Claude Desktop,
+    # n8n, etc.) rather than Securo's own runtime. Used for log tagging;
+    # tool authorization is identical (same user scope).
+    external: bool = False
 
 
 def _settings():
@@ -62,4 +66,5 @@ def verify_request(request: Request) -> CallContext:
         user_id=user_id,
         conversation_id=uuid.UUID(conv_raw) if conv_raw else None,
         agent_id=uuid.UUID(agent_raw) if agent_raw else None,
+        external=bool(payload.get("ext")),
     )

@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/page-header'
 import { agents } from '@/lib/api'
 import type { LlmConnection } from '@/lib/api'
 import { ConnectionFormDialog } from '@/components/agents/connection-form-dialog'
+import { McpExternalPanel } from '@/components/agents/mcp-external-panel'
 
 export default function AgentConnectionsPage() {
   const { t } = useTranslation()
@@ -151,6 +152,8 @@ export default function AgentConnectionsPage() {
           </div>
         </div>
       )}
+
+      <McpExternalPanel />
 
       <ConnectionFormDialog open={createOpen} onOpenChange={setCreateOpen} />
       <ConnectionFormDialog
