@@ -866,7 +866,13 @@
     "byExpenses": "By Expenses",
     "other": "Other",
     "uncategorized": "Uncategorized",
-    "categoryTrends": "Category Trends"
+    "categoryTrends": "Category Trends",
+    "today": "Today",
+    "forecast": "Forecast",
+    "forecastBaseline": "Forecast with estimate",
+    "includeEstimate": "Include estimate",
+    "includeEstimateHelp": "Estimates future inflows and outflows from your history average (up to 12 months, or all available data), instead of using your recurring rules",
+    "baseline": "Estimate"
   },
   "payees": {
     "title": "Payees",

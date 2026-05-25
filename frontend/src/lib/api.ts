@@ -850,8 +850,8 @@ export const reports = {
     const { data } = await api.get('/reports/income-expenses', { params: { months, interval } })
     return data
   },
-  cashFlow: async (months = 6, interval = 'daily'): Promise<ReportResponse> => {
-    const { data } = await api.get('/reports/cash-flow', { params: { months, interval } })
+  cashFlow: async (months = 6, interval = 'daily', baseline = false): Promise<ReportResponse> => {
+    const { data } = await api.get('/reports/cash-flow', { params: { months, interval, baseline } })
     return data
   },
 }

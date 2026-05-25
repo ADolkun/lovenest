@@ -18,6 +18,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts'
+import { HelpCircle } from 'lucide-react'
 import { reports } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PageHeader } from '@/components/page-header'
@@ -108,6 +109,7 @@ export default function ReportsPage() {
   const [compositionView, setCompositionView] = useState<string>('summary')
   const [sparklineView, setSparklineView] = useState<'byExpenses' | 'byIncome'>('byExpenses')
   const [sparklinePage, setSparklinePage] = useState(0)
+  const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
 
   const currentTab = REPORT_TABS.find((tab) => tab.key === activeTab) ?? REPORT_TABS[0]
 
@@ -131,8 +133,11 @@ export default function ReportsPage() {
   }
 
   const { data, isLoading } = useQuery<ReportResponse>({
-    queryKey: ['reports', activeTab, months, interval],
-    queryFn: () => currentTab.fetch(months, interval),
+    queryKey: ['reports', activeTab, months, interval, isCashFlow ? cashFlowBaseline : false],
+    queryFn: () =>
+      isCashFlow
+        ? reports.cashFlow(months, interval, cashFlowBaseline)
+        : currentTab.fetch(months, interval),
     enabled: currentTab.enabled,
   })
 
@@ -140,11 +145,22 @@ export default function ReportsPage() {
   const trend = data?.trend ?? []
   const meta = data?.meta
 
-  const chartData = trend.map((dp) => ({
-    date: dp.date,
-    value: dp.value,
-    ...dp.breakdowns,
-  } as Record<string, string | number>))
+  // For cash flow we split the line at `forecast_start_date` so the past
+  // section renders solid and the forward projection renders dashed.
+  // The boundary point is duplicated in both series so the line visually
+  // connects without a gap.
+  const forecastStart = meta?.forecast_start_date ?? null
+  const chartData = trend.map((dp) => {
+    const isPast = forecastStart ? dp.date < forecastStart : false
+    const isBoundary = forecastStart ? dp.date === forecastStart : false
+    return {
+      date: dp.date,
+      value: dp.value,
+      valuePast: isPast || isBoundary ? dp.value : null,
+      valueForecast: !isPast ? dp.value : null,
+      ...dp.breakdowns,
+    } as Record<string, string | number | null>
+  })
 
   const allBreakdowns = summary?.breakdowns ?? []
   const breakdownData = allBreakdowns.filter((b) => b.value > 0)
@@ -201,11 +217,12 @@ export default function ReportsPage() {
     const rest = sorted.slice(COMPOSITION_TOP_N)
     const otherValue = rest.reduce((sum, c) => sum + c.value, 0)
 
-    const result = top.map((c) => ({
-      name: c.key === 'uncategorized' ? t('reports.uncategorized') : c.label,
-      value: c.value,
-      color: c.color,
-    }))
+    const result = top.map((c) => {
+      let name = c.label
+      if (c.key === 'uncategorized') name = t('reports.uncategorized')
+      else if (c.key === 'baseline') name = t('reports.baseline')
+      return { name, value: c.value, color: c.color }
+    })
     if (otherValue > 0) {
       result.push({ name: t('reports.other'), value: Math.round(otherValue * 100) / 100, color: '#6B7280' })
     }
@@ -219,6 +236,42 @@ export default function ReportsPage() {
         title={t(currentTab.labelKey)}
         action={
           <div className="flex items-center gap-2">
+            {isCashFlow && (
+              <div
+                className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  cashFlowBaseline
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border bg-card text-muted-foreground'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setCashFlowBaseline((v) => !v)}
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  aria-pressed={cashFlowBaseline}
+                >
+                  <span
+                    className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors ${
+                      cashFlowBaseline ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                        cashFlowBaseline ? 'translate-x-3' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </span>
+                  {t('reports.includeEstimate')}
+                </button>
+                <span
+                  title={t('reports.includeEstimateHelp')}
+                  aria-label={t('reports.includeEstimateHelp')}
+                  className="inline-flex cursor-help"
+                >
+                  <HelpCircle className="h-3.5 w-3.5 opacity-60" />
+                </span>
+              </div>
+            )}
             <div className="flex items-center rounded-lg border border-border bg-card overflow-hidden">
               {rangeOptions.map((opt) => (
                 <button
@@ -364,6 +417,14 @@ export default function ReportsPage() {
                   </span>
                 </div>
               )}
+              {meta.type === 'cash_flow' && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-0 border-t-2 border-dashed" style={{ borderColor: '#6366F1' }} />
+                  <span className="text-[11px] text-muted-foreground">
+                    {meta.baseline_active ? t('reports.forecastBaseline') : t('reports.forecast')}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -439,12 +500,39 @@ export default function ReportsPage() {
                       strokeDasharray="4 4"
                       strokeOpacity={0.5}
                     />
+                    {forecastStart && (
+                      <ReferenceLine
+                        x={forecastStart}
+                        stroke="var(--muted-foreground)"
+                        strokeDasharray="3 3"
+                        strokeOpacity={0.6}
+                        label={{
+                          value: t('reports.today'),
+                          position: 'insideTopRight',
+                          fill: 'var(--muted-foreground)',
+                          fontSize: 10,
+                        }}
+                      />
+                    )}
                     <Area
                       type="monotone"
-                      dataKey="value"
+                      dataKey="valuePast"
                       stroke="#6366F1"
                       strokeWidth={2.5}
                       fill="url(#cashFlowGrad)"
+                      dot={false}
+                      activeDot={{ r: 4, fill: '#6366F1' }}
+                      isAnimationActive={false}
+                      connectNulls={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="valueForecast"
+                      stroke="#6366F1"
+                      strokeWidth={2.5}
+                      strokeDasharray="6 3"
+                      fill="url(#cashFlowGrad)"
+                      fillOpacity={0.4}
                       dot={false}
                       activeDot={{ r: 4, fill: '#6366F1' }}
                     />

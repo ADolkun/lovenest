@@ -596,6 +596,9 @@ export interface ReportMeta {
   series_keys: string[]
   currency: string
   interval: string
+  forecast_start_date?: string | null
+  baseline_active?: boolean
+  baseline_lookback_days?: number | null
 }
 
 export interface ReportCompositionItem {

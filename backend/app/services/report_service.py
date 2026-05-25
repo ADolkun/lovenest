@@ -869,38 +869,148 @@ def _add_months(d: date, months: int) -> date:
     return date(new_year, new_month, new_day)
 
 
+_BASELINE_MAX_LOOKBACK_MONTHS = 12
+_PAST_HISTORY_MONTHS = 1
+
+
+async def _get_baseline_projection(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    today: date,
+    end: date,
+    primary_currency: str,
+    to_primary,
+) -> tuple[list[dict], int]:
+    """Estimate future flows by averaging the user's recent transaction history.
+
+    Replaces deterministic recurring projections when baseline mode is on:
+    sums all non-ignored, P&L-counting transactions inside the look-back
+    window, splits into mean daily inflow and outflow, then emits one
+    synthetic flow per day from today+1 to end.
+
+    The look-back window is **adaptive**: capped at
+    ``_BASELINE_MAX_LOOKBACK_MONTHS`` (12) but shrunk to the user's earliest
+    qualifying transaction date when they have less history. This means a
+    user with 4 months of activity gets a 4-month average; a user with
+    3 years gets a 12-month average. More history → more stable estimate;
+    less history → still works, just noisier.
+
+    Symmetric for income and expense — fixes the "no recurring salary set
+    up, chart looks catastrophic" case as well as the "no recurring expenses
+    set up, chart looks rosy" case.
+
+    Returns ``(projections, lookback_days)`` so the caller can surface the
+    actual window used in the response (zero when there's no history).
+    """
+    cap_start = _add_months(today, -_BASELINE_MAX_LOOKBACK_MONTHS)
+    earliest_result = await session.execute(
+        select(func.min(Transaction.date))
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Transaction.user_id == user_id,
+            Account.is_closed == False,
+            Transaction.date <= today,
+            Transaction.source != "opening_balance",
+            counts_as_pnl(),
+        )
+    )
+    earliest_date = earliest_result.scalar_one_or_none()
+    if earliest_date is None:
+        return [], 0
+    window_start = max(earliest_date, cap_start)
+
+    rows = await session.execute(
+        select(
+            Transaction.type,
+            Transaction.amount,
+            Transaction.amount_primary,
+            Transaction.currency,
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Transaction.user_id == user_id,
+            Account.is_closed == False,
+            Transaction.date >= window_start,
+            Transaction.date <= today,
+            Transaction.source != "opening_balance",
+            counts_as_pnl(),
+        )
+    )
+    total_inflow_primary = 0.0
+    total_outflow_primary = 0.0
+    for tx_type, amt, amt_primary, ccy in rows.all():
+        if amt_primary is not None:
+            amount = float(amt_primary)
+        else:
+            amount = await to_primary(Decimal(str(amt or 0)), ccy)
+        if amount == 0:
+            continue
+        if tx_type == "credit":
+            total_inflow_primary += abs(amount)
+        else:
+            total_outflow_primary += abs(amount)
+
+    lookback_days = max((today - window_start).days, 1)
+    daily_inflow = total_inflow_primary / lookback_days
+    daily_outflow = total_outflow_primary / lookback_days
+
+    projections: list[dict] = []
+    if daily_inflow == 0 and daily_outflow == 0:
+        return projections, lookback_days
+
+    cursor = today + timedelta(days=1)
+    while cursor <= end:
+        if daily_inflow > 0:
+            projections.append({
+                "date": cursor,
+                "amount": daily_inflow,
+                "currency": primary_currency,
+                "type": "credit",
+                "category_id": None,
+            })
+        if daily_outflow > 0:
+            projections.append({
+                "date": cursor,
+                "amount": daily_outflow,
+                "currency": primary_currency,
+                "type": "debit",
+                "category_id": None,
+            })
+        cursor = cursor + timedelta(days=1)
+    return projections, lookback_days
+
+
 async def get_cash_flow_report(
     session: AsyncSession,
     user_id: uuid.UUID,
     months: int = 6,
     interval: str = "daily",
     currency: str = "USD",
+    baseline: bool = False,
 ) -> ReportResponse:
-    """Forward-looking cash flow projection.
+    """Cash flow chart with a short past window plus a forward projection.
 
-    Starts from today's total balance (across all open accounts, converted to
-    the user's primary currency) and walks forward, applying:
-      - already-booked transactions whose cash impact is in the future,
-      - virtual recurring-transaction occurrences (the bulk of the projection).
+    Past window (``_PAST_HISTORY_MONTHS`` months back to today) shows actual
+    booked transactions so the user has a visible "this is real" anchor next
+    to the forecast. Forward window walks from today to ``today + months``
+    applying either deterministic recurring projections (default) or a
+    historical-mean baseline (when ``baseline=True``) — see
+    ``_get_baseline_projection`` for the latter.
 
     Respects the global ``credit_card_accounting_mode`` setting:
-      - **cash**: future flows queried by ``Transaction.date``. CC purchases
-        impact balance on purchase date.
-      - **accrual**: future flows queried by ``Transaction.effective_date`` so
-        a CC purchase shows up as cash leaving on its bill due date. The
-        starting balance is also adjusted to add back any pending CC
-        purchases (purchase date <= today, due date > today) so they're not
-        double-counted (the CC liability already reduced ``_balance_at``).
-
-    Aggregates the resulting day-by-day running balance into the requested
-    interval and returns a ReportResponse compatible with the existing report
-    chart on the frontend.
+      - **cash**: flows queried by ``Transaction.date``.
+      - **accrual**: flows queried by ``Transaction.effective_date`` so CC
+        purchases show up as cash leaving on their bill due date. The
+        balance at past-history start is also adjusted to add back any
+        pending CC purchases whose effective_date is in the future window,
+        avoiding double-counting against ``_balance_at``.
     """
     from app.services.dashboard_service import _balance_at, _get_recurring_projections
     from app.services.fx_rate_service import get_rate
 
     today = date.today()
     end = _add_months(today, months)
+    chart_start = _add_months(today, -_PAST_HISTORY_MONTHS)
 
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
@@ -908,10 +1018,11 @@ async def get_cash_flow_report(
     accounting_mode = await get_credit_card_accounting_mode(session)
     accrual = accounting_mode == "accrual"
 
-    starting_balance = await _balance_at(session, user_id, today)
+    # "Saldo Atual" shown in the hero card. The walk is anchored at this
+    # value (not at balance-at-chart_start) so opening-balance transactions
+    # inside the past-history window can't introduce drift.
+    current_balance = await _balance_at(session, user_id, today)
 
-    # FX rate cache: currency -> rate to primary_currency (using today's rate;
-    # future rates are unknown so we project at today's rate).
     rate_cache: dict[str, Decimal] = {primary_currency: Decimal("1")}
 
     async def _to_primary(amount: Decimal, ccy: str) -> float:
@@ -923,7 +1034,6 @@ async def get_cash_flow_report(
             rate_cache[ccy] = rate
         return float((amount * rate).quantize(Decimal("0.01")))
 
-    # Per-day flow accumulator: date -> {"inflow": float, "outflow": float}
     flows: dict[date, dict[str, float]] = {}
 
     def _add_flow(d: date, amount: float, is_credit: bool) -> None:
@@ -933,11 +1043,38 @@ async def get_cash_flow_report(
         else:
             bucket["outflow"] += amount
 
-    # 1. Already-booked transactions whose CASH impact is in the future.
-    #    - cash mode: filter on Transaction.date.
-    #    - accrual mode: filter on Transaction.effective_date so CC purchases
-    #      hit their bill due date instead of purchase date.
     flow_date_col = Transaction.effective_date if accrual else Transaction.date
+
+    # 1a. Past actual transactions (chart_start, today]. Gives the chart a
+    #     "real" section before the forecast so the today-marker has meaning.
+    past_result = await session.execute(
+        select(
+            flow_date_col,
+            Transaction.type,
+            Transaction.amount,
+            Transaction.amount_primary,
+            Transaction.currency,
+        )
+        .join(Account, Transaction.account_id == Account.id)
+        .where(
+            Transaction.user_id == user_id,
+            Account.is_closed == False,
+            flow_date_col > chart_start,
+            flow_date_col <= today,
+            Transaction.source != "opening_balance",
+            counts_as_pnl(),
+        )
+    )
+    for flow_date, tx_type, amt, amt_primary, ccy in past_result.all():
+        if amt_primary is not None:
+            amount_primary = float(amt_primary)
+        else:
+            amount_primary = await _to_primary(Decimal(str(amt or 0)), ccy)
+        if amount_primary == 0:
+            continue
+        _add_flow(flow_date, abs(amount_primary), tx_type == "credit")
+
+    # 1b. Future booked transactions whose cash impact is past today.
     booked_result = await session.execute(
         select(
             flow_date_col,
@@ -966,11 +1103,10 @@ async def get_cash_flow_report(
             continue
         _add_flow(flow_date, abs(amount_primary), tx_type == "credit")
 
-    # 2. Accrual mode only: undo the impact of pending CC purchases on the
-    #    starting balance. _balance_at already deducted them via the CC
-    #    account's debt (Transaction.date <= today), but in accrual mode we
-    #    project them as outflows on their effective_date — so add them back
-    #    here to avoid double-counting.
+    # 2. Accrual mode: pending CC purchases (purchase date <= today, due
+    #    date in the forward window) already reduced today's balance via the
+    #    CC liability. We re-project them as outflows on their effective_date,
+    #    so add them back to both balance snapshots to avoid double-counting.
     if accrual:
         pending_cc = await session.execute(
             select(
@@ -998,22 +1134,28 @@ async def get_cash_flow_report(
                 amount_primary = await _to_primary(Decimal(str(amt or 0)), ccy)
             if amount_primary == 0:
                 continue
-            # On a CC account: a debit (purchase) reduced total balance via
-            # extra debt; add it back. A credit (refund/payment) raised total;
-            # subtract it back.
             if tx_type == "debit":
-                starting_balance += abs(amount_primary)
+                current_balance += abs(amount_primary)
             else:
-                starting_balance -= abs(amount_primary)
+                current_balance -= abs(amount_primary)
 
-    # 2. Recurring projections — single call for the whole forward window
-    #    (range_end is exclusive in get_occurrences_in_range, so use end+1).
+    # 3. Forward projection. Default: deterministic recurring rules.
+    #    Baseline mode: replace them with a historical-mean estimate so the
+    #    chart reflects the user's actual recent lifestyle, not just what
+    #    they've explicitly marked as recurring.
     cat_totals: dict[tuple[str, str], dict] = {}
     cat_cache: dict[str, dict] = {}
+    baseline_lookback_days = 0
 
-    projections = await _get_recurring_projections(
-        session, user_id, today + timedelta(days=1), end + timedelta(days=1),
-    )
+    if baseline:
+        projections, baseline_lookback_days = await _get_baseline_projection(
+            session, user_id, today, end, primary_currency, _to_primary,
+        )
+    else:
+        projections = await _get_recurring_projections(
+            session, user_id, today + timedelta(days=1), end + timedelta(days=1),
+        )
+
     for proj in projections:
         d = proj["date"]
         if d <= today or d > end:
@@ -1025,9 +1167,11 @@ async def get_cash_flow_report(
             continue
         _add_flow(d, amount_primary, proj["type"] == "credit")
 
-        # Track category contributions for the composition donut
         cat_id = proj["category_id"]
-        cat_id_str = str(cat_id) if cat_id else "uncategorized"
+        if cat_id:
+            cat_id_str = str(cat_id)
+        else:
+            cat_id_str = "baseline" if baseline else "uncategorized"
         group = "income" if proj["type"] == "credit" else "expenses"
         if cat_id and cat_id_str not in cat_cache:
             cat_row = await session.execute(
@@ -1038,17 +1182,47 @@ async def get_cash_flow_report(
                 "label": row[0] if row else "Uncategorized",
                 "color": row[1] if row else "#6B7280",
             }
+        elif cat_id_str == "baseline" and cat_id_str not in cat_cache:
+            # Frontend translates via reports.baseline; label is the fallback.
+            cat_cache[cat_id_str] = {"label": "Baseline", "color": "#94A3B8"}
         info = cat_cache.get(cat_id_str, {"label": "Uncategorized", "color": "#6B7280"})
         key = (cat_id_str, group)
         if key not in cat_totals:
             cat_totals[key] = {"label": info["label"], "color": info["color"], "value": 0.0}
         cat_totals[key]["value"] += amount_primary
 
-    # Walk day-by-day from today to end, building per-day running balance.
-    daily_balance: dict[date, float] = {today: starting_balance}
-    daily_inflow: dict[date, float] = {today: 0.0}
-    daily_outflow: dict[date, float] = {today: 0.0}
-    running = starting_balance
+    # 4. Walk day-by-day. The walk is anchored at today's authoritative
+    #    balance (``current_balance`` from ``_balance_at``) rather than at
+    #    ``chart_starting_balance``: opening-balance transactions are excluded
+    #    from the past-actuals query, so a forward walk seeded from
+    #    ``chart_starting_balance`` would drift if any opening balance falls
+    #    inside the past-history window. Anchoring at today eliminates that
+    #    class of bug and keeps the past trend visually correct.
+    daily_balance: dict[date, float] = {today: current_balance}
+    daily_inflow: dict[date, float] = {}
+    daily_outflow: dict[date, float] = {}
+
+    # Today's own inflow/outflow bucket (for tooltip), but the balance at
+    # end-of-today is already current_balance regardless of today's flows
+    # (they're folded into the authoritative number from _balance_at).
+    today_bucket = flows.get(today, {"inflow": 0.0, "outflow": 0.0})
+    daily_inflow[today] = today_bucket["inflow"]
+    daily_outflow[today] = today_bucket["outflow"]
+
+    # Backward walk: balance(d-1) = balance(d) - net_flow(d).
+    running = current_balance
+    cursor_d = today
+    while cursor_d > chart_start:
+        bucket = flows.get(cursor_d, {"inflow": 0.0, "outflow": 0.0})
+        running -= bucket["inflow"] - bucket["outflow"]
+        cursor_d = cursor_d - timedelta(days=1)
+        daily_balance[cursor_d] = running
+        prev_bucket = flows.get(cursor_d, {"inflow": 0.0, "outflow": 0.0})
+        daily_inflow[cursor_d] = prev_bucket["inflow"]
+        daily_outflow[cursor_d] = prev_bucket["outflow"]
+
+    # Forward walk: balance(d+1) = balance(d) + net_flow(d+1).
+    running = current_balance
     cursor_d = today
     while cursor_d < end:
         cursor_d = cursor_d + timedelta(days=1)
@@ -1058,9 +1232,8 @@ async def get_cash_flow_report(
         daily_inflow[cursor_d] = bucket["inflow"]
         daily_outflow[cursor_d] = bucket["outflow"]
 
-    # Aggregate to interval. For each interval label, take the running balance
-    # at the last day in the bucket; sum inflow/outflow over the bucket.
-    points = _date_points(today, end, interval)
+    # 5. Aggregate to interval.
+    points = _date_points(chart_start, end, interval)
     trend: list[ReportDataPoint] = []
 
     if interval == "daily":
@@ -1074,22 +1247,22 @@ async def get_cash_flow_report(
                 breakdowns={"inflow": round(inf, 2), "outflow": round(outf, 2)},
             ))
     else:
-        # Build per-bucket aggregates by walking all daily points in order
         groups: dict[str, dict] = {}
-        cur = today
+        cur = chart_start
         while cur <= end:
             label = _format_date_label(cur, interval)
             g = groups.setdefault(
-                label, {"balance": daily_balance[cur], "last_d": cur, "inflow": 0.0, "outflow": 0.0}
+                label,
+                {"balance": daily_balance.get(cur, running), "last_d": cur,
+                 "inflow": 0.0, "outflow": 0.0},
             )
             if cur >= g["last_d"]:
-                g["balance"] = daily_balance[cur]
+                g["balance"] = daily_balance.get(cur, running)
                 g["last_d"] = cur
             g["inflow"] += daily_inflow.get(cur, 0.0)
             g["outflow"] += daily_outflow.get(cur, 0.0)
             cur = cur + timedelta(days=1)
 
-        # Emit trend points in the order produced by _date_points
         seen: set[str] = set()
         for p in points:
             label = _format_date_label(p, interval)
@@ -1108,13 +1281,20 @@ async def get_cash_flow_report(
                 },
             ))
 
-    # Summary
-    ending_balance = trend[-1].value if trend else round(starting_balance, 2)
-    total_inflow = round(sum(p.breakdowns.get("inflow", 0.0) for p in trend), 2)
-    total_outflow = round(sum(p.breakdowns.get("outflow", 0.0) for p in trend), 2)
-    change_amount = round(ending_balance - starting_balance, 2)
+    # 6. Summary. "Projected income/expenses" sums only the forward portion,
+    #    not the past actuals that the chart now also includes.
+    ending_balance = trend[-1].value if trend else round(current_balance, 2)
+    forward_inflow = 0.0
+    forward_outflow = 0.0
+    for d, bucket in flows.items():
+        if today < d <= end:
+            forward_inflow += bucket["inflow"]
+            forward_outflow += bucket["outflow"]
+    total_inflow = round(forward_inflow, 2)
+    total_outflow = round(forward_outflow, 2)
+    change_amount = round(ending_balance - current_balance, 2)
     change_percent = (
-        (change_amount / abs(starting_balance) * 100) if starting_balance != 0 else None
+        (change_amount / abs(current_balance) * 100) if current_balance != 0 else None
     )
 
     summary = ReportSummary(
@@ -1124,7 +1304,7 @@ async def get_cash_flow_report(
         breakdowns=[
             ReportBreakdown(
                 key="startingBalance", label="Starting Balance",
-                value=round(starting_balance, 2), color="#6366F1",
+                value=round(current_balance, 2), color="#6366F1",
             ),
             ReportBreakdown(
                 key="projectedIncome", label="Projected Income",
@@ -1146,6 +1326,9 @@ async def get_cash_flow_report(
         series_keys=["balance"],
         currency=primary_currency,
         interval=interval,
+        forecast_start_date=_format_date_label(today, interval),
+        baseline_active=baseline,
+        baseline_lookback_days=baseline_lookback_days if baseline else None,
     )
 
     composition: list[ReportCompositionItem] = []

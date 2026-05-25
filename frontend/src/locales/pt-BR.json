@@ -866,7 +866,13 @@
     "byExpenses": "Por Despesa",
     "other": "Outros",
     "uncategorized": "Sem categoria",
-    "categoryTrends": "Tendência por Categoria"
+    "categoryTrends": "Tendência por Categoria",
+    "today": "Hoje",
+    "forecast": "Projeção",
+    "forecastBaseline": "Projeção com estimativa",
+    "includeEstimate": "Incluir estimativa",
+    "includeEstimateHelp": "Estima entradas e saídas futuras pela média do seu histórico (até 12 meses, ou todo o histórico disponível), em vez das transações recorrentes cadastradas",
+    "baseline": "Estimativa"
   },
   "payees": {
     "title": "Beneficiários",

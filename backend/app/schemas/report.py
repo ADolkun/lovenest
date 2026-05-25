@@ -26,6 +26,9 @@ class ReportMeta(BaseModel):
     series_keys: list[str]
     currency: str
     interval: str
+    forecast_start_date: str | None = None
+    baseline_active: bool = False
+    baseline_lookback_days: int | None = None
 
 
 class ReportCompositionItem(BaseModel):

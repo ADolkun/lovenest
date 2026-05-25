@@ -38,9 +38,10 @@ async def get_income_expenses(
 async def get_cash_flow(
     months: int = Query(6, ge=1, le=12),
     interval: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
+    baseline: bool = Query(False),
     session: AsyncSession = Depends(get_async_session),
     user: User = Depends(current_active_user),
 ):
     return await report_service.get_cash_flow_report(
-        session, user.id, months, interval, user.primary_currency
+        session, user.id, months, interval, user.primary_currency, baseline=baseline,
     )
