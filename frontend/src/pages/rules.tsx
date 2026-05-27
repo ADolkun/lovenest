@@ -20,6 +20,7 @@ import { Trash2, Plus, RefreshCw, X, Package, Check, ArrowUpDown, ArrowUp, Arrow
 import { cn } from '@/lib/utils'
 import { CategorySelect } from '@/components/category-select'
 import { PageHeader } from '@/components/page-header'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
@@ -115,6 +116,7 @@ function actionSummary(actions: RuleAction[], categories: Category[], payeesList
 export default function RulesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { canWrite } = useWorkspace()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [packsDialogOpen, setPacksDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
@@ -231,30 +233,32 @@ export default function RulesPage() {
         <SectionHeader
           title={t('rules.sectionTitle')}
           action={
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => setPacksDialogOpen(true)}
-              >
-                <Package size={12} />
-                <span className="hidden sm:inline">{t('rules.packs')}</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8"
-                onClick={() => applyAllMutation.mutate()}
-                disabled={applyAllMutation.isPending}
-              >
-                <RefreshCw size={12} />
-                <span className="hidden sm:inline">{t('rules.reapplyAll')}</span>
-              </Button>
-              <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
-                <Plus size={13} /> <span className="hidden sm:inline">{t('rules.add')}</span>
-              </Button>
-            </div>
+            canWrite ? (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => setPacksDialogOpen(true)}
+                >
+                  <Package size={12} />
+                  <span className="hidden sm:inline">{t('rules.packs')}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8"
+                  onClick={() => applyAllMutation.mutate()}
+                  disabled={applyAllMutation.isPending}
+                >
+                  <RefreshCw size={12} />
+                  <span className="hidden sm:inline">{t('rules.reapplyAll')}</span>
+                </Button>
+                <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+                  <Plus size={13} /> <span className="hidden sm:inline">{t('rules.add')}</span>
+                </Button>
+              </div>
+            ) : undefined
           }
         />
         <div className="px-4 sm:px-5 py-2 bg-muted/50 border-b border-border flex items-center gap-2">
@@ -285,8 +289,11 @@ export default function RulesPage() {
             {sortedRules.map((rule) => (
               <div
                 key={rule.id}
-                className="px-4 sm:px-5 py-3 hover:bg-muted transition-colors cursor-pointer"
-                onClick={() => { setEditing(rule); setDialogOpen(true) }}
+                className={cn(
+                  'px-4 sm:px-5 py-3 hover:bg-muted transition-colors',
+                  canWrite && 'cursor-pointer',
+                )}
+                onClick={() => { if (canWrite) { setEditing(rule); setDialogOpen(true) } }}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -308,15 +315,17 @@ export default function RulesPage() {
                       {actionSummary(rule.actions, categories, payees, t)}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(rule.id) }}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  {canWrite && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(rule.id) }}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

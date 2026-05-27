@@ -18,6 +18,7 @@ import { Pencil, Trash2, Plus, ChevronDown, ChevronRight, ChevronsUpDown } from 
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { IconPicker } from '@/components/icon-picker'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
@@ -41,6 +42,7 @@ function SectionHeader({ title, titleExtra, action }: { title: string; titleExtr
 export default function CategoriesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { canWrite } = useWorkspace()
   const [catDialogOpen, setCatDialogOpen] = useState(false)
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [formIcon, setFormIcon] = useState('circle-help')
@@ -147,25 +149,27 @@ export default function CategoriesPage() {
         <span className="inline-block w-3.5 h-3.5 rounded-full border border-black/10" style={{ backgroundColor: cat.color }} />
         <span className="text-xs text-muted-foreground font-mono">{cat.color}</span>
       </div>
-      <div className="flex items-center gap-1 shrink-0 ml-2">
-        <button
-          className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
-          onClick={() => openCatDialog(cat)}
-          title={t('common.edit')}
-        >
-          <Pencil size={13} />
-        </button>
-        {!cat.is_system && (
+      {canWrite && (
+        <div className="flex items-center gap-1 shrink-0 ml-2">
           <button
-            className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-            onClick={() => deleteCatMutation.mutate(cat.id)}
-            disabled={deleteCatMutation.isPending}
-            title={t('common.delete')}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+            onClick={() => openCatDialog(cat)}
+            title={t('common.edit')}
           >
-            <Trash2 size={13} />
+            <Pencil size={13} />
           </button>
-        )}
-      </div>
+          {!cat.is_system && (
+            <button
+              className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+              onClick={() => deleteCatMutation.mutate(cat.id)}
+              disabled={deleteCatMutation.isPending}
+              title={t('common.delete')}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 
@@ -194,14 +198,16 @@ export default function CategoriesPage() {
             </button>
           }
           action={
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={() => openGroupDialog(null)}>
-                <Plus size={13} /> <span className="hidden sm:inline">{t('groups.add')}</span>
-              </Button>
-              <Button size="sm" className="gap-1.5 h-8" onClick={() => openCatDialog(null)}>
-                <Plus size={13} /> <span className="hidden sm:inline">{t('categories.addCategory')}</span>
-              </Button>
-            </div>
+            canWrite ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={() => openGroupDialog(null)}>
+                  <Plus size={13} /> <span className="hidden sm:inline">{t('groups.add')}</span>
+                </Button>
+                <Button size="sm" className="gap-1.5 h-8" onClick={() => openCatDialog(null)}>
+                  <Plus size={13} /> <span className="hidden sm:inline">{t('categories.addCategory')}</span>
+                </Button>
+              </div>
+            ) : undefined
           }
         />
         <div>
@@ -219,25 +225,27 @@ export default function CategoriesPage() {
                     <span className="text-sm font-semibold" style={{ color: group.color }}>{group.name}</span>
                     <span className="text-xs text-muted-foreground">({group.categories.length})</span>
                   </button>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
-                      onClick={() => openGroupDialog(group)}
-                      title={t('common.edit')}
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    {!group.is_system && (
+                  {canWrite && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                        onClick={() => deleteGroupMutation.mutate(group.id)}
-                        disabled={deleteGroupMutation.isPending}
-                        title={t('common.delete')}
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                        onClick={() => openGroupDialog(group)}
+                        title={t('common.edit')}
                       >
-                        <Trash2 size={13} />
+                        <Pencil size={13} />
                       </button>
-                    )}
-                  </div>
+                      {!group.is_system && (
+                        <button
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                          onClick={() => deleteGroupMutation.mutate(group.id)}
+                          disabled={deleteGroupMutation.isPending}
+                          title={t('common.delete')}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {!isCollapsed && group.categories.map(renderCategoryItem)}
               </div>

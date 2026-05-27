@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/contexts/auth-context'
+import { WorkspaceProvider } from '@/contexts/workspace-context'
 import { ProtectedRoute } from '@/components/protected-route'
 import { AdminRoute } from '@/components/admin-route'
 import { AgentsRoute } from '@/components/agents-route'
@@ -31,6 +32,7 @@ const AdminSettingsPage = lazy(() => import('@/pages/admin/settings'))
 const AgentsListPage = lazy(() => import('@/pages/agents-list'))
 const AgentDetailPage = lazy(() => import('@/pages/agent-detail'))
 const AgentConnectionsPage = lazy(() => import('@/pages/agent-connections'))
+const WorkspaceSettingsPage = lazy(() => import('@/pages/workspace-settings'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +57,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
+            <WorkspaceProvider>
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
                 <Route path="/setup" element={<SetupPage />} />
@@ -82,6 +85,7 @@ function App() {
                   <Route path="/payees" element={<PayeesPage />} />
                   <Route path="/groups" element={<GroupsPage />} />
                   <Route path="/groups/:id" element={<GroupDetailPage />} />
+                  <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
                   <Route path="/agents" element={<AgentsRoute><AgentsListPage /></AgentsRoute>} />
                   <Route path="/agents/connections" element={<AgentsRoute><AgentConnectionsPage /></AgentsRoute>} />
@@ -90,6 +94,7 @@ function App() {
               </Routes>
             </Suspense>
             <Toaster />
+            </WorkspaceProvider>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

@@ -31,6 +31,8 @@ async def _resolve_current_amount(
     Returns the amount in the goal's currency.
     """
     goal_currency = goal.currency
+    # Asset/account/net_worth lookups need the goal's workspace scope.
+    workspace_id = goal.workspace_id
 
     if goal.tracking_type == "account" and goal.account_id:
         account = await session.get(Account, goal.account_id)
@@ -61,7 +63,7 @@ async def _resolve_current_amount(
     elif goal.tracking_type == "net_worth":
         # Reuse dashboard's account query and balance logic so manual accounts
         # (whose balance is computed from transactions) are handled correctly.
-        accounts = await _get_open_accounts(session, user_id)
+        accounts = await _get_open_accounts(session, workspace_id)
         today = date.today()
         total = Decimal("0")
         for acc in accounts:
@@ -72,8 +74,8 @@ async def _resolve_current_amount(
                 converted, _ = await convert(session, bal, acc.currency, goal_currency)
                 total += converted
 
-        # Add asset values
-        assets_by_currency, _ = await get_asset_values_at(session, user_id)
+        # Add asset values (scoped by the goal's workspace).
+        assets_by_currency, _ = await get_asset_values_at(session, workspace_id, by_workspace=True)
         for currency, amount in assets_by_currency.items():
             if currency == goal_currency:
                 total += Decimal(str(amount))
@@ -217,9 +219,12 @@ async def _enrich_goal(
 
 
 async def get_goals(
-    session: AsyncSession, user_id: uuid.UUID, status: Optional[str] = None
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    status: Optional[str] = None,
 ) -> list[GoalRead]:
-    query = select(Goal).where(Goal.user_id == user_id).order_by(Goal.position, Goal.created_at)
+    query = select(Goal).where(Goal.workspace_id == workspace_id).order_by(Goal.position, Goal.created_at)
     if status:
         query = query.where(Goal.status == status)
     result = await session.execute(query)
@@ -228,10 +233,13 @@ async def get_goals(
 
 
 async def get_goal(
-    session: AsyncSession, goal_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession,
+    goal_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> Optional[GoalRead]:
     result = await session.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
+        select(Goal).where(Goal.id == goal_id, Goal.workspace_id == workspace_id)
     )
     goal = result.scalar_one_or_none()
     if not goal:
@@ -240,10 +248,14 @@ async def get_goal(
 
 
 async def create_goal(
-    session: AsyncSession, user_id: uuid.UUID, data: GoalCreate
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: GoalCreate,
 ) -> GoalRead:
     goal = Goal(
         user_id=user_id,
+        workspace_id=workspace_id,
         name=data.name,
         target_amount=data.target_amount,
         current_amount=data.current_amount,
@@ -266,10 +278,14 @@ async def create_goal(
 
 
 async def update_goal(
-    session: AsyncSession, goal_id: uuid.UUID, user_id: uuid.UUID, data: GoalUpdate
+    session: AsyncSession,
+    goal_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: GoalUpdate,
 ) -> Optional[GoalRead]:
     result = await session.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
+        select(Goal).where(Goal.id == goal_id, Goal.workspace_id == workspace_id)
     )
     goal = result.scalar_one_or_none()
     if not goal:
@@ -282,10 +298,10 @@ async def update_goal(
 
 
 async def delete_goal(
-    session: AsyncSession, goal_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, goal_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
     result = await session.execute(
-        select(Goal).where(Goal.id == goal_id, Goal.user_id == user_id)
+        select(Goal).where(Goal.id == goal_id, Goal.workspace_id == workspace_id)
     )
     goal = result.scalar_one_or_none()
     if not goal:
@@ -296,12 +312,15 @@ async def delete_goal(
 
 
 async def get_goal_summary(
-    session: AsyncSession, user_id: uuid.UUID, limit: int = 3
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    limit: int = 3,
 ) -> list[GoalSummary]:
     """Get a summary of active goals for the dashboard widget."""
     result = await session.execute(
         select(Goal)
-        .where(Goal.user_id == user_id, Goal.status == "active")
+        .where(Goal.workspace_id == workspace_id, Goal.status == "active")
         .order_by(Goal.position, Goal.created_at)
         .limit(limit)
     )

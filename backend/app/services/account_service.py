@@ -20,7 +20,7 @@ def get_account_name(account: Account) -> str:
     return account.display_name or account.name
 
 
-async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
+async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
     # Subquery: compute current_balance per account from transactions in one pass
     # Use amount_primary only when tx currency differs from account currency
     # (converts foreign txs to account's reporting currency)
@@ -86,8 +86,8 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
         .outerjoin(prev_balance_sq, Account.id == prev_balance_sq.c.account_id)
         .where(
             or_(
-                Account.user_id == user_id,
-                BankConnection.user_id == user_id,
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
             )
         )
     )
@@ -151,7 +151,7 @@ def serialize_account(
 async def get_credit_card_bills(
     session: AsyncSession,
     account_id: uuid.UUID,
-    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     *,
     limit: int = 24,
 ) -> Optional[list[CreditCardBill]]:
@@ -162,7 +162,7 @@ async def get_credit_card_bills(
     accounts with no synced bills — the read path then keeps using the
     cycle-math fallback.
     """
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if account is None:
         return None
     if account.type != "credit_card":
@@ -176,25 +176,31 @@ async def get_credit_card_bills(
     return list(result.scalars().all())
 
 
-async def get_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Account]:
+async def get_account(session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Account]:
     result = await session.execute(
         select(Account)
         .outerjoin(BankConnection)
         .where(
             Account.id == account_id,
             or_(
-                Account.user_id == user_id,
-                BankConnection.user_id == user_id,
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
             ),
         )
     )
     return result.scalar_one_or_none()
 
 
-async def create_account(session: AsyncSession, user_id: uuid.UUID, data: AccountCreate) -> Account:
+async def create_account(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: AccountCreate,
+) -> Account:
     is_cc = data.type == "credit_card"
     account = Account(
         user_id=user_id,
+        workspace_id=workspace_id,
         name=data.name,
         type=data.type,
         balance=data.balance,
@@ -215,6 +221,7 @@ async def create_account(session: AsyncSession, user_id: uuid.UUID, data: Accoun
         opening_type = "debit" if data.type == "credit_card" else "credit"
         opening_tx = Transaction(
             user_id=user_id,
+            workspace_id=workspace_id,
             account_id=account.id,
             description="Saldo inicial",
             amount=data.balance,
@@ -232,9 +239,9 @@ async def create_account(session: AsyncSession, user_id: uuid.UUID, data: Accoun
 
 
 async def update_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID, data: AccountUpdate
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID, data: AccountUpdate
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 
@@ -309,6 +316,7 @@ async def update_account(
             else:
                 opening_tx = Transaction(
                     user_id=account.user_id,
+                    workspace_id=account.workspace_id,
                     account_id=account_id,
                     description="Saldo inicial",
                     amount=new_balance,
@@ -425,6 +433,7 @@ async def sync_opening_balance_for_connected_account(
     else:
         opening_tx = Transaction(
             user_id=account.user_id,
+            workspace_id=account.workspace_id,
             account_id=account.id,
             description="Saldo inicial",
             amount=amount,
@@ -438,8 +447,8 @@ async def sync_opening_balance_for_connected_account(
     await session.flush()
 
 
-async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> bool:
-    account = await get_account(session, account_id, user_id)
+async def delete_account(session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return False
 
@@ -493,9 +502,9 @@ async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: 
 
 
 async def close_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
     if account.is_closed:
@@ -517,9 +526,9 @@ async def close_account(
 
 
 async def reopen_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
     if not account.is_closed:
@@ -534,12 +543,12 @@ async def reopen_account(
 
 
 async def get_account_summary(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID,
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID,
     date_from: Optional[_Date] = None, date_to: Optional[_Date] = None,
     bill_id: Optional[uuid.UUID] = None,
     unbilled_only: bool = False,
 ) -> Optional[dict]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 
@@ -785,10 +794,10 @@ async def _account_daily_balance_series(
 
 
 async def get_account_balance_history(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID,
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID,
     date_from: Optional[_Date] = None, date_to: Optional[_Date] = None,
 ) -> Optional[list[dict]]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 

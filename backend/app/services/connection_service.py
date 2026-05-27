@@ -331,10 +331,10 @@ async def _match_pluggy_category(
     return result.scalar_one_or_none()
 
 
-async def get_connections(session: AsyncSession, user_id: uuid.UUID) -> list[BankConnection]:
+async def get_connections(session: AsyncSession, workspace_id: uuid.UUID) -> list[BankConnection]:
     result = await session.execute(
         select(BankConnection)
-        .where(BankConnection.user_id == user_id)
+        .where(BankConnection.workspace_id == workspace_id)
         .options(selectinload(BankConnection.accounts))
         .order_by(BankConnection.created_at.desc())
     )
@@ -342,11 +342,11 @@ async def get_connections(session: AsyncSession, user_id: uuid.UUID) -> list[Ban
 
 
 async def get_connection(
-    session: AsyncSession, connection_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[BankConnection]:
     result = await session.execute(
         select(BankConnection)
-        .where(BankConnection.id == connection_id, BankConnection.user_id == user_id)
+        .where(BankConnection.id == connection_id, BankConnection.workspace_id == workspace_id)
         .options(selectinload(BankConnection.accounts))
     )
     return result.scalar_one_or_none()
@@ -369,10 +369,10 @@ async def create_connect_token(
 async def update_connection_settings(
     session: AsyncSession,
     connection_id: uuid.UUID,
-    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     settings_update: dict,
 ) -> Optional[BankConnection]:
-    connection = await get_connection(session, connection_id, user_id)
+    connection = await get_connection(session, connection_id, workspace_id)
     if not connection:
         return None
 
@@ -393,12 +393,17 @@ async def update_connection_settings(
 
 
 async def handle_oauth_callback(
-    session: AsyncSession, user_id: uuid.UUID, code: str, provider_name: str
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    code: str,
+    provider_name: str,
 ) -> BankConnection:
     provider = get_provider(provider_name)
     connection_data = await provider.handle_oauth_callback(code)
 
     connection = BankConnection(
+        workspace_id=workspace_id,
         user_id=user_id,
         provider=provider_name,
         external_id=connection_data.external_id,
@@ -419,6 +424,7 @@ async def handle_oauth_callback(
         is_cc = acc_data.type == "credit_card"
         account = Account(
             user_id=user_id,
+            workspace_id=workspace_id,
             connection_id=connection.id,
             external_id=acc_data.external_id,
             name=acc_data.name,
@@ -482,6 +488,7 @@ async def handle_oauth_callback(
             )
             transaction = Transaction(
                 user_id=user_id,
+                workspace_id=workspace_id,
                 account_id=account.id,
                 external_id=txn_data.external_id,
                 description=txn_data.description,
@@ -530,7 +537,7 @@ async def handle_oauth_callback(
         await sync_opening_balance_for_connected_account(session, account)
 
     # Detect transfer pairs among newly synced transactions
-    await detect_transfer_pairs(session, user_id, candidate_ids=new_tx_ids)
+    await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
 
     # Investment holdings live on /investments — separate endpoint from
     # /accounts. Pulled after account setup so holdings are available on
@@ -958,9 +965,12 @@ async def _sync_credit_card_bills(
 
 
 async def sync_connection(
-    session: AsyncSession, connection_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
 ) -> tuple[BankConnection, int]:
-    connection = await get_connection(session, connection_id, user_id)
+    connection = await get_connection(session, connection_id, workspace_id)
     if not connection:
         raise ValueError("Connection not found")
 
@@ -1207,7 +1217,7 @@ async def sync_connection(
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:
-            await detect_transfer_pairs(session, user_id, candidate_ids=new_tx_ids)
+            await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
 
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired
@@ -1237,9 +1247,9 @@ async def sync_connection(
 
 
 async def delete_connection(
-    session: AsyncSession, connection_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
-    connection = await get_connection(session, connection_id, user_id)
+    connection = await get_connection(session, connection_id, workspace_id)
     if not connection:
         return False
 
@@ -1283,7 +1293,7 @@ async def delete_connection(
         )
         await session.execute(
             delete(Payee).where(
-                Payee.user_id == user_id,
+                Payee.workspace_id == workspace_id,
                 Payee.id.in_(affected_payee_ids),
                 ~has_transactions,
                 ~has_external_mappings,

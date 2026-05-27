@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import current_active_user
 from app.core.database import get_async_session
-from app.models.user import User
+from app.core.workspace_context import WorkspaceContext, current_workspace
 from app.schemas.report import ReportResponse
 from app.services import report_service
 
@@ -14,11 +13,11 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 async def get_net_worth(
     months: int = Query(12, ge=1, le=24),
     interval: str = Query("monthly", pattern="^(daily|weekly|monthly|yearly)$"),
+    ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     return await report_service.get_net_worth_report(
-        session, user.id, months, interval, user.primary_currency
+        session, ctx.workspace.id, ctx.user_id, months, interval, ctx.user.primary_currency
     )
 
 
@@ -26,11 +25,11 @@ async def get_net_worth(
 async def get_income_expenses(
     months: int = Query(12, ge=1, le=24),
     interval: str = Query("monthly", pattern="^(daily|weekly|monthly|yearly)$"),
+    ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     return await report_service.get_income_expenses_report(
-        session, user.id, months, interval, user.primary_currency
+        session, ctx.workspace.id, ctx.user_id, months, interval, ctx.user.primary_currency
     )
 
 
@@ -39,9 +38,9 @@ async def get_cash_flow(
     months: int = Query(6, ge=1, le=12),
     interval: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
     baseline: bool = Query(False),
+    ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     return await report_service.get_cash_flow_report(
-        session, user.id, months, interval, user.primary_currency, baseline=baseline,
+        session, ctx.workspace.id, ctx.user_id, months, interval, ctx.user.primary_currency, baseline=baseline,
     )

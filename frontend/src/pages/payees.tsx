@@ -28,6 +28,7 @@ import { PageHeader } from '@/components/page-header'
 import { Search, Star, Merge, Trash2, ArrowRight } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 import type { Payee } from '@/types'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
@@ -40,6 +41,7 @@ export default function PayeesPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const typeLabels: Record<string, string> = {
     merchant: t('payees.typeMerchant'),
@@ -175,17 +177,19 @@ export default function PayeesPage() {
         section={t('payees.section')}
         title={t('payees.title')}
         action={
-          <div className="flex items-center gap-2">
-            {selectedIds.size >= 2 && (
-              <Button variant="outline" onClick={() => { setMergeTargetId(''); setMergeDialogOpen(true) }}>
-                <Merge size={16} className="mr-1.5" />
-                {t('payees.merge')} ({selectedIds.size})
+          canWrite ? (
+            <div className="flex items-center gap-2">
+              {selectedIds.size >= 2 && (
+                <Button variant="outline" onClick={() => { setMergeTargetId(''); setMergeDialogOpen(true) }}>
+                  <Merge size={16} className="mr-1.5" />
+                  {t('payees.merge')} ({selectedIds.size})
+                </Button>
+              )}
+              <Button onClick={openCreate}>
+                + {t('payees.add')}
               </Button>
-            )}
-            <Button onClick={openCreate}>
-              + {t('payees.add')}
-            </Button>
-          </div>
+            </div>
+          ) : undefined
         }
       />
 
@@ -215,12 +219,12 @@ export default function PayeesPage() {
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border hover:bg-transparent">
-                <TableHead className="w-[40px] py-3 pl-4 pr-0" />
+                {canWrite && <TableHead className="w-[40px] py-3 pl-4 pr-0" />}
                 <TableHead className="text-xs font-medium text-muted-foreground py-3 w-[32px]" />
                 <TableHead className="text-xs font-medium text-muted-foreground py-3">{t('payees.name')}</TableHead>
                 <TableHead className="hidden md:table-cell text-xs font-medium text-muted-foreground py-3 w-[120px]">{t('payees.type')}</TableHead>
                 <TableHead className="text-xs font-medium text-muted-foreground py-3 text-right w-[120px]">{t('payees.transactionCount')}</TableHead>
-                <TableHead className="w-[60px]" />
+                {canWrite && <TableHead className="w-[60px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -232,28 +236,37 @@ export default function PayeesPage() {
                     setSummaryPayee(summaryPayee === payee.id ? null : payee.id)
                   }}
                 >
-                  <TableCell className="py-2.5 pl-4 pr-0 w-[40px]">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(payee.id)}
-                      onChange={() => toggleSelect(payee.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                    />
-                  </TableCell>
+                  {canWrite && (
+                    <TableCell className="py-2.5 pl-4 pr-0 w-[40px]">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(payee.id)}
+                        onChange={() => toggleSelect(payee.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="py-2.5 w-[32px]">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        favoriteMutation.mutate({ id: payee.id, is_favorite: !payee.is_favorite })
-                      }}
-                      className="p-1 rounded hover:bg-accent"
-                    >
+                    {canWrite ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          favoriteMutation.mutate({ id: payee.id, is_favorite: !payee.is_favorite })
+                        }}
+                        className="p-1 rounded hover:bg-accent"
+                      >
+                        <Star
+                          size={14}
+                          className={payee.is_favorite ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}
+                        />
+                      </button>
+                    ) : (
                       <Star
                         size={14}
-                        className={payee.is_favorite ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}
+                        className={payee.is_favorite ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground opacity-50'}
                       />
-                    </button>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5">
                     <span className="text-sm font-semibold text-foreground">{payee.name}</span>
@@ -267,20 +280,22 @@ export default function PayeesPage() {
                   <TableCell className="py-2.5 text-right">
                     <span className="text-sm tabular-nums text-muted-foreground">{payee.transaction_count}</span>
                   </TableCell>
-                  <TableCell className="py-2.5 pr-4">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); openEdit(payee) }}
-                    >
-                      {t('common.edit')}
-                    </Button>
-                  </TableCell>
+                  {canWrite && (
+                    <TableCell className="py-2.5 pr-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); openEdit(payee) }}
+                      >
+                        {t('common.edit')}
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
               {filtered.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-16 text-muted-foreground">
+                  <TableCell colSpan={canWrite ? 6 : 4} className="text-center py-16 text-muted-foreground">
                     {t('payees.empty')}
                   </TableCell>
                 </TableRow>

@@ -51,6 +51,7 @@ async def create_user(
     from app.models.account import Account
     from app.services.category_service import create_default_categories
     from app.services.rule_service import create_default_rules
+    from app.services.workspace_service import create_personal_workspace_for_user
 
     create_schema = BaseUserCreate(
         email=data.email,
@@ -77,9 +78,15 @@ async def create_user(
     # request=None — which is exactly this path — so admin-created users
     # would otherwise land with no defaults and a broken UX.
     lang = (user.preferences or {}).get("language", "en")
+    # Every new user gets a Personal workspace + owner membership so the
+    # seeded wallet/categories/rules below have somewhere to live.
+    workspace = await create_personal_workspace_for_user(session, user)
+    await session.commit()
+
     wallet_name = "Carteira" if lang.startswith("pt") else "Wallet"
     wallet = Account(
         user_id=user.id,
+        workspace_id=workspace.id,
         name=wallet_name,
         type="checking",
         balance=Decimal("0.00"),
@@ -88,8 +95,8 @@ async def create_user(
     session.add(wallet)
     await session.commit()
 
-    await create_default_categories(session, user.id, lang)
-    await create_default_rules(session, user.id, lang)
+    await create_default_categories(session, user.id, lang, workspace_id=workspace.id)
+    await create_default_rules(session, user.id, lang, workspace_id=workspace.id)
 
     return user
 

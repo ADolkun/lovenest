@@ -27,6 +27,32 @@ export interface AppSetting {
   value: string
 }
 
+export type WorkspaceRole = 'owner' | 'editor' | 'viewer' | 'manager'
+
+export interface Workspace {
+  id: string
+  name: string
+  kind: string
+  is_archived: boolean
+  default_currency: string
+  locale: string | null
+  icon: string | null
+  color: string | null
+  created_at: string
+  created_by_user_id: string | null
+  managed_by_user_id: string | null
+  role: WorkspaceRole | null
+}
+
+export interface WorkspaceMember {
+  id: string
+  user_id: string
+  email: string
+  display_name: string | null
+  role: WorkspaceRole
+  joined_at: string
+}
+
 export interface UserPreferences {
   language?: string
   date_format?: string

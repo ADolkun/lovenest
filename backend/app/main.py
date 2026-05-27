@@ -33,6 +33,7 @@ from app.api.settings import router as settings_router
 from app.api.transactions import router as transactions_router
 from app.api.two_factor import router as two_factor_router
 from app.api.user_lookup import router as user_lookup_router
+from app.api.workspaces import router as workspaces_router
 from app.api.admin import router as admin_router, check_registration_enabled
 from app.core.auth import fastapi_users
 from app.core.config import get_settings
@@ -133,6 +134,7 @@ app.include_router(export_router)
 app.include_router(attachments_router)
 app.include_router(payees_router)
 app.include_router(settings_router)
+app.include_router(workspaces_router)
 app.include_router(admin_router)
 app.include_router(info_router)
 

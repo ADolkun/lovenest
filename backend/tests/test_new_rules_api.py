@@ -285,6 +285,7 @@ async def test_rule_user_isolation(
 ):
     """One user's rules don't affect another user's transactions."""
     import bcrypt as _bcrypt
+    from app.services.workspace_service import create_personal_workspace_for_user
 
     # Create second user
     hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
@@ -299,6 +300,8 @@ async def test_rule_user_isolation(
                       "timezone": "America/Sao_Paulo", "currency_display": "BRL"},
     )
     session.add(user2)
+    await session.flush()
+    await create_personal_workspace_for_user(session, user2)
     await session.commit()
 
     # Login as user2

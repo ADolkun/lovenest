@@ -163,12 +163,12 @@ async def test_match_pluggy_user_has_no_category(session: AsyncSession, test_use
 
 
 @pytest.mark.asyncio
-async def test_get_connections_returns_list(session: AsyncSession, test_user):
+async def test_get_connections_returns_list(session: AsyncSession, test_user, test_workspace):
     """Returns list of connections for user."""
     await _make_connection(session, test_user.id, "Bank A")
     await _make_connection(session, test_user.id, "Bank B")
 
-    connections = await get_connections(session, test_user.id)
+    connections = await get_connections(session, test_workspace.id)
     assert len(connections) >= 2
     names = {c.institution_name for c in connections}
     assert "Bank A" in names
@@ -176,31 +176,31 @@ async def test_get_connections_returns_list(session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
-async def test_get_connections_empty(session: AsyncSession, test_user):
+async def test_get_connections_empty(session: AsyncSession, test_user, test_workspace):
     """Returns empty list when no connections."""
-    connections = await get_connections(session, test_user.id)
+    connections = await get_connections(session, test_workspace.id)
     # May have connections from other fixtures; just verify it's a list
     assert isinstance(connections, list)
 
 
 @pytest.mark.asyncio
-async def test_get_connection_found(session: AsyncSession, test_user):
+async def test_get_connection_found(session: AsyncSession, test_user, test_workspace):
     """Returns a specific connection."""
     conn = await _make_connection(session, test_user.id, "Specific Bank")
-    result = await get_connection(session, conn.id, test_user.id)
+    result = await get_connection(session, conn.id, test_workspace.id)
     assert result is not None
     assert result.institution_name == "Specific Bank"
 
 
 @pytest.mark.asyncio
-async def test_get_connection_not_found(session: AsyncSession, test_user):
+async def test_get_connection_not_found(session: AsyncSession, test_user, test_workspace):
     """Returns None for nonexistent connection."""
-    result = await get_connection(session, uuid.uuid4(), test_user.id)
+    result = await get_connection(session, uuid.uuid4(), test_workspace.id)
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_get_connection_wrong_user(session: AsyncSession, test_user):
+async def test_get_connection_wrong_user(session: AsyncSession, test_user, test_workspace):
     """Returns None when connection belongs to another user."""
     conn = await _make_connection(session, test_user.id, "Other User Bank")
     result = await get_connection(session, conn.id, uuid.uuid4())
@@ -213,19 +213,19 @@ async def test_get_connection_wrong_user(session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
-async def test_update_settings_new(session: AsyncSession, test_user):
+async def test_update_settings_new(session: AsyncSession, test_user, test_workspace):
     """Updates settings on a connection with no prior settings."""
     conn = await _make_connection(session, test_user.id, "Settings Test")
 
     updated = await update_connection_settings(
-        session, conn.id, test_user.id, {"payee_source": "merchant"},
+        session, conn.id, test_workspace.id, {"payee_source": "merchant"},
     )
     assert updated is not None
     assert updated.settings["payee_source"] == "merchant"
 
 
 @pytest.mark.asyncio
-async def test_update_settings_preserves_existing(session: AsyncSession, test_user):
+async def test_update_settings_preserves_existing(session: AsyncSession, test_user, test_workspace):
     """Updates one setting without clobbering others."""
     conn = await _make_connection(
         session, test_user.id, "Preserve Test",
@@ -233,7 +233,7 @@ async def test_update_settings_preserves_existing(session: AsyncSession, test_us
     )
 
     updated = await update_connection_settings(
-        session, conn.id, test_user.id, {"import_pending": False},
+        session, conn.id, test_workspace.id, {"import_pending": False},
     )
     assert updated is not None
     assert updated.settings["payee_source"] == "auto"
@@ -241,24 +241,24 @@ async def test_update_settings_preserves_existing(session: AsyncSession, test_us
 
 
 @pytest.mark.asyncio
-async def test_update_settings_ignores_none(session: AsyncSession, test_user):
+async def test_update_settings_ignores_none(session: AsyncSession, test_user, test_workspace):
     """None values in settings_update are not written."""
     conn = await _make_connection(
         session, test_user.id, "None Test",
         settings={"payee_source": "auto"},
     )
     updated = await update_connection_settings(
-        session, conn.id, test_user.id, {"payee_source": None},
+        session, conn.id, test_workspace.id, {"payee_source": None},
     )
     assert updated is not None
     assert updated.settings["payee_source"] == "auto"
 
 
 @pytest.mark.asyncio
-async def test_update_settings_not_found(session: AsyncSession, test_user):
+async def test_update_settings_not_found(session: AsyncSession, test_user, test_workspace):
     """Returns None when connection not found."""
     result = await update_connection_settings(
-        session, uuid.uuid4(), test_user.id, {"payee_source": "auto"},
+        session, uuid.uuid4(), test_workspace.id, {"payee_source": "auto"},
     )
     assert result is None
 
@@ -269,24 +269,24 @@ async def test_update_settings_not_found(session: AsyncSession, test_user):
 
 
 @pytest.mark.asyncio
-async def test_delete_connection_found(session: AsyncSession, test_user):
+async def test_delete_connection_found(session: AsyncSession, test_user, test_workspace):
     """Deletes an existing connection."""
     conn = await _make_connection(session, test_user.id, "To Delete")
-    result = await delete_connection(session, conn.id, test_user.id)
+    result = await delete_connection(session, conn.id, test_workspace.id)
     assert result is True
 
-    assert await get_connection(session, conn.id, test_user.id) is None
+    assert await get_connection(session, conn.id, test_workspace.id) is None
 
 
 @pytest.mark.asyncio
-async def test_delete_connection_not_found(session: AsyncSession, test_user):
+async def test_delete_connection_not_found(session: AsyncSession, test_user, test_workspace):
     """Returns False for nonexistent connection."""
-    result = await delete_connection(session, uuid.uuid4(), test_user.id)
+    result = await delete_connection(session, uuid.uuid4(), test_workspace.id)
     assert result is False
 
 
 @pytest.mark.asyncio
-async def test_delete_connection_archives_linked_assets(session: AsyncSession, test_user):
+async def test_delete_connection_archives_linked_assets(session: AsyncSession, test_user, test_workspace):
     """Deleting a connection archives linked assets before removing the connection."""
     from app.models.asset import Asset
 
@@ -305,7 +305,7 @@ async def test_delete_connection_archives_linked_assets(session: AsyncSession, t
     session.add(asset)
     await session.commit()
 
-    result = await delete_connection(session, conn.id, test_user.id)
+    result = await delete_connection(session, conn.id, test_workspace.id)
     assert result is True
 
     refreshed = (await session.execute(select(Asset).where(Asset.id == asset.id))).scalar_one()
@@ -313,7 +313,7 @@ async def test_delete_connection_archives_linked_assets(session: AsyncSession, t
 
 
 @pytest.mark.asyncio
-async def test_delete_connection_deletes_orphan_payees(session: AsyncSession, test_user):
+async def test_delete_connection_deletes_orphan_payees(session: AsyncSession, test_user, test_workspace):
     """Unlink should remove payees that become orphaned after tx deletion."""
     from app.models.account import Account
     from app.models.payee import Payee
@@ -348,14 +348,14 @@ async def test_delete_connection_deletes_orphan_payees(session: AsyncSession, te
     )
     await session.commit()
 
-    assert await delete_connection(session, conn.id, test_user.id) is True
+    assert await delete_connection(session, conn.id, test_workspace.id) is True
 
     refreshed = (await session.execute(select(Payee).where(Payee.id == payee.id))).scalar_one_or_none()
     assert refreshed is None
 
 
 @pytest.mark.asyncio
-async def test_delete_connection_keeps_payees_with_external_mappings(session: AsyncSession, test_user):
+async def test_delete_connection_keeps_payees_with_external_mappings(session: AsyncSession, test_user, test_workspace):
     """Unlink should not remove payees that still have external mappings."""
     from app.models.account import Account
     from app.models.payee import Payee, PayeeMapping
@@ -394,7 +394,7 @@ async def test_delete_connection_keeps_payees_with_external_mappings(session: As
     )
     await session.commit()
 
-    assert await delete_connection(session, conn.id, test_user.id) is True
+    assert await delete_connection(session, conn.id, test_workspace.id) is True
 
     refreshed = (await session.execute(select(Payee).where(Payee.id == payee.id))).scalar_one_or_none()
     assert refreshed is not None
@@ -422,7 +422,7 @@ async def test_create_connect_token_success(test_user):
 
 
 @pytest.mark.asyncio
-async def test_handle_oauth_callback_creates_connection(session: AsyncSession, test_user):
+async def test_handle_oauth_callback_creates_connection(session: AsyncSession, test_user, test_workspace):
     mock_provider = AsyncMock()
     mock_provider.handle_oauth_callback = AsyncMock(return_value=ConnectionData(
         external_id="ext-oauth-1",
@@ -446,7 +446,7 @@ async def test_handle_oauth_callback_creates_connection(session: AsyncSession, t
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        conn = await handle_oauth_callback(session, test_user.id, "auth-code", "pluggy")
+        conn = await handle_oauth_callback(session, test_workspace.id, test_user.id, "auth-code", "pluggy")
 
     assert conn.institution_name == "Test Bank"
     assert conn.external_id == "ext-oauth-1"
@@ -454,7 +454,7 @@ async def test_handle_oauth_callback_creates_connection(session: AsyncSession, t
 
 
 @pytest.mark.asyncio
-async def test_handle_oauth_callback_with_payee(session: AsyncSession, test_user):
+async def test_handle_oauth_callback_with_payee(session: AsyncSession, test_user, test_workspace):
     mock_provider = AsyncMock()
     mock_provider.handle_oauth_callback = AsyncMock(return_value=ConnectionData(
         external_id="ext-oauth-2",
@@ -479,7 +479,7 @@ async def test_handle_oauth_callback_with_payee(session: AsyncSession, test_user
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        conn = await handle_oauth_callback(session, test_user.id, "code2", "pluggy")
+        conn = await handle_oauth_callback(session, test_workspace.id, test_user.id, "code2", "pluggy")
 
     assert conn.institution_name == "Payee Bank"
 
@@ -490,7 +490,7 @@ async def test_handle_oauth_callback_with_payee(session: AsyncSession, test_user
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_new_transactions(session: AsyncSession, test_user):
+async def test_sync_connection_new_transactions(session: AsyncSession, test_user, test_workspace):
     conn = await _make_connection(session, test_user.id, "Sync Bank")
     mock_provider = AsyncMock()
     mock_provider.refresh_credentials = AsyncMock(return_value={"token": "refreshed"})
@@ -511,20 +511,20 @@ async def test_sync_connection_new_transactions(session: AsyncSession, test_user
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        result_conn, merged = await sync_connection(session, conn.id, test_user.id)
+        result_conn, merged = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     assert result_conn.status == "active"
     assert merged == 0
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_not_found(session: AsyncSession, test_user):
+async def test_sync_connection_not_found(session: AsyncSession, test_user, test_workspace):
     with pytest.raises(ValueError, match="not found"):
-        await sync_connection(session, uuid.uuid4(), test_user.id)
+        await sync_connection(session, uuid.uuid4(), test_workspace.id, test_user.id)
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_with_category_mapping(session: AsyncSession, test_user):
+async def test_sync_connection_with_category_mapping(session: AsyncSession, test_user, test_workspace):
     conn = await _make_connection(session, test_user.id, "Cat Bank")
     await _make_category(session, test_user.id, "Alimentação")
 
@@ -547,24 +547,24 @@ async def test_sync_connection_with_category_mapping(session: AsyncSession, test
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock):
-        result_conn, _ = await sync_connection(session, conn.id, test_user.id)
+        result_conn, _ = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     assert result_conn.status == "active"
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_error_raises(session: AsyncSession, test_user):
+async def test_sync_connection_error_raises(session: AsyncSession, test_user, test_workspace):
     conn = await _make_connection(session, test_user.id, "Error Bank")
     mock_provider = AsyncMock()
     mock_provider.refresh_credentials = AsyncMock(side_effect=RuntimeError("API down"))
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider):
         with pytest.raises(RuntimeError, match="API down"):
-            await sync_connection(session, conn.id, test_user.id)
+            await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_skips_pending(session: AsyncSession, test_user):
+async def test_sync_connection_skips_pending(session: AsyncSession, test_user, test_workspace):
     conn = await _make_connection(
         session, test_user.id, "Pending Bank",
         settings={"import_pending": False},
@@ -594,14 +594,14 @@ async def test_sync_connection_skips_pending(session: AsyncSession, test_user):
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        result_conn, _ = await sync_connection(session, conn.id, test_user.id)
+        result_conn, _ = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     assert result_conn.status == "active"
 
 
 @pytest.mark.asyncio
 async def test_sync_connection_does_not_revive_ignored_transaction(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Issue #200: a transaction the user flagged is_ignored=True must not be
     mutated by a subsequent sync, even when Pluggy returns the same external_id
@@ -648,7 +648,7 @@ async def test_sync_connection_does_not_revive_ignored_transaction(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     refreshed = (await session.execute(
         select(Transaction).where(Transaction.external_id == "ign-tx-1")
@@ -664,7 +664,7 @@ async def test_sync_connection_does_not_revive_ignored_transaction(
 
 @pytest.mark.asyncio
 async def test_oauth_callback_persists_installment_metadata(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """handle_oauth_callback must store all 4 installment fields on the
     Transaction row exactly as the provider returned them."""
@@ -702,7 +702,7 @@ async def test_oauth_callback_persists_installment_metadata(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await handle_oauth_callback(session, test_user.id, "code", "pluggy")
+        await handle_oauth_callback(session, test_workspace.id, test_user.id, "code", "pluggy")
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -728,7 +728,7 @@ async def test_oauth_callback_persists_installment_metadata(
 
 @pytest.mark.asyncio
 async def test_sync_connection_persists_installment_metadata(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Incremental sync path must also persist installment fields."""
     conn = await _make_connection(session, test_user.id, "Sync Inst Bank")
@@ -756,7 +756,7 @@ async def test_sync_connection_persists_installment_metadata(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     row = (await session.execute(
         select(Transaction).where(Transaction.external_id == "sync-inst-tx-1")
@@ -768,7 +768,7 @@ async def test_sync_connection_persists_installment_metadata(
 
 
 @pytest.mark.asyncio
-async def test_sync_connection_preserves_display_name(session: AsyncSession, test_user):
+async def test_sync_connection_preserves_display_name(session: AsyncSession, test_user, test_workspace):
     """Resyncing a connection must update the provider name but never overwrite display_name."""
     from app.models.account import Account
 
@@ -787,7 +787,7 @@ async def test_sync_connection_preserves_display_name(session: AsyncSession, tes
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # Set a display_name after the first sync
     account = (await session.execute(
@@ -808,7 +808,7 @@ async def test_sync_connection_preserves_display_name(session: AsyncSession, tes
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     await session.refresh(account)
     assert account.name == "BANCO ATUALIZADO"
@@ -817,7 +817,7 @@ async def test_sync_connection_preserves_display_name(session: AsyncSession, tes
 
 @pytest.mark.asyncio
 async def test_sync_connection_does_not_recreate_closed_accounts(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Closing a connected account then resyncing must NOT create a duplicate
     active row for the same provider account, and the original closed row must
@@ -841,14 +841,14 @@ async def test_sync_connection_does_not_recreate_closed_accounts(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     account = (await session.execute(
         select(Account).where(Account.external_id == "closed-acc-1")
     )).scalar_one()
     assert account.connection_id == conn.id
 
-    await close_account(session, account.id, test_user.id)
+    await close_account(session, account.id, test_workspace.id)
     await session.refresh(account)
     assert account.is_closed is True
     assert account.connection_id == conn.id  # link preserved
@@ -865,7 +865,7 @@ async def test_sync_connection_does_not_recreate_closed_accounts(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Account).where(Account.external_id == "closed-acc-1")
@@ -921,7 +921,7 @@ def _patch_sync_helpers():
 
 @pytest.mark.asyncio
 async def test_sync_persists_bills_for_credit_card_account(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """First sync of a CC account upserts bills returned by /bills."""
     from app.models.credit_card_bill import CreditCardBill
@@ -942,7 +942,7 @@ async def test_sync_persists_bills_for_credit_card_account(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(CreditCardBill).where(CreditCardBill.user_id == test_user.id)
@@ -957,7 +957,7 @@ async def test_sync_persists_bills_for_credit_card_account(
 
 @pytest.mark.asyncio
 async def test_sync_links_transaction_to_matching_bill(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Transactions whose bill_external_id matches a synced bill get bill_id
     set and effective_date = bill.due_date (the bank-truth path, issue #92)."""
@@ -984,7 +984,7 @@ async def test_sync_links_transaction_to_matching_bill(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     bill_row = (await session.execute(
         select(CreditCardBill).where(CreditCardBill.external_id == "bill-99")
@@ -999,7 +999,7 @@ async def test_sync_links_transaction_to_matching_bill(
 
 @pytest.mark.asyncio
 async def test_sync_falls_back_to_cycle_math_when_bill_missing(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A tx with bill_external_id that isn't in the bills feed (older bill,
     bills 4xx, etc.) leaves bill_id null and uses local cycle math —
@@ -1030,7 +1030,7 @@ async def test_sync_falls_back_to_cycle_math_when_bill_missing(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     tx_row = (await session.execute(
         select(Transaction).where(Transaction.external_id == "tx-orphan")
@@ -1042,7 +1042,7 @@ async def test_sync_falls_back_to_cycle_math_when_bill_missing(
 
 @pytest.mark.asyncio
 async def test_sync_swallows_get_bills_error(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Non-regulado Pluggy connections 4xx on /bills. Sync must keep going
     and persist transactions via the cycle-math fallback."""
@@ -1063,7 +1063,7 @@ async def test_sync_swallows_get_bills_error(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        result, _ = await sync_connection(session, conn.id, test_user.id)
+        result, _ = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     assert result.status == "active"
     tx_row = (await session.execute(
@@ -1074,7 +1074,7 @@ async def test_sync_swallows_get_bills_error(
 
 @pytest.mark.asyncio
 async def test_sync_skips_get_bills_for_non_credit_card_account(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Checking accounts must not hit /bills — saves an HTTP roundtrip and
     avoids 4xx noise on providers that scope bills to credit accounts."""
@@ -1093,14 +1093,14 @@ async def test_sync_skips_get_bills_for_non_credit_card_account(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     mock_provider.get_bills.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sync_backfills_bill_link_on_existing_transaction(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A transaction synced before the /bills feature must self-heal: on the
     next sync, when the matching bill is in the feed, bill_id and
@@ -1124,7 +1124,7 @@ async def test_sync_backfills_bill_link_on_existing_transaction(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     pre = (await session.execute(
         select(Transaction).where(Transaction.external_id == "tx-preexisting")
@@ -1143,7 +1143,7 @@ async def test_sync_backfills_bill_link_on_existing_transaction(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     bill_row = (await session.execute(
         select(CreditCardBill).where(CreditCardBill.external_id == "bill-future-1")
@@ -1159,7 +1159,7 @@ async def test_sync_backfills_bill_link_on_existing_transaction(
 
 @pytest.mark.asyncio
 async def test_sync_relinks_transaction_when_bank_moves_it_to_another_bill(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """If the bank later re-buckets a tx (chargeback, billing dispute), the
     next sync must update bill_id and effective_date — same row, new link."""
@@ -1186,7 +1186,7 @@ async def test_sync_relinks_transaction_when_bank_moves_it_to_another_bill(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # Bank moves the tx to bill_b on the next sync
     txn_to_b = TransactionData(
@@ -1198,7 +1198,7 @@ async def test_sync_relinks_transaction_when_bank_moves_it_to_another_bill(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     bill_b_row = (await session.execute(
         select(CreditCardBill).where(CreditCardBill.external_id == "bill-b")
@@ -1212,7 +1212,7 @@ async def test_sync_relinks_transaction_when_bank_moves_it_to_another_bill(
 
 @pytest.mark.asyncio
 async def test_sync_creates_synthetic_transactions_for_finance_charges(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A bill carrying IOF / multa / juros lines that don't exist as standalone
     transactions must yield synthetic txs so the cycle sum reconciles to
@@ -1237,7 +1237,7 @@ async def test_sync_creates_synthetic_transactions_for_finance_charges(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction)
@@ -1263,7 +1263,7 @@ async def test_sync_creates_synthetic_transactions_for_finance_charges(
 
 @pytest.mark.asyncio
 async def test_sync_dates_charges_at_cycle_close_when_close_day_known(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Synthetic finance charges should be dated at the cycle close (the
     bank's snapshot moment) rather than the bill's due date — otherwise
@@ -1298,7 +1298,7 @@ async def test_sync_dates_charges_at_cycle_close_when_close_day_known(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     tx = (await session.execute(
         select(Transaction).where(
@@ -1314,7 +1314,7 @@ async def test_sync_dates_charges_at_cycle_close_when_close_day_known(
 
 @pytest.mark.asyncio
 async def test_sync_skips_carry_over_balance_finance_charge(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """`Saldo em atraso` is the prior bill's unpaid balance carried into this
     bill — informational only, NOT part of bill.total_amount, so we must not
@@ -1338,7 +1338,7 @@ async def test_sync_skips_carry_over_balance_finance_charge(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1353,7 +1353,7 @@ async def test_sync_skips_carry_over_balance_finance_charge(
 
 @pytest.mark.asyncio
 async def test_sync_skips_juros_aggregate_finance_charge(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """`Juros de dívida encerrada` is an aggregate that equals the sum of the
     detailed late-charge lines Pluggy ALSO emits — including it would
@@ -1378,7 +1378,7 @@ async def test_sync_skips_juros_aggregate_finance_charge(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1393,7 +1393,7 @@ async def test_sync_skips_juros_aggregate_finance_charge(
 
 @pytest.mark.asyncio
 async def test_sync_finance_charges_are_idempotent(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Re-syncing the same bill must not duplicate synthetic charges."""
     conn = await _make_connection(session, test_user.id, "IdemFC")
@@ -1415,7 +1415,7 @@ async def test_sync_finance_charges_are_idempotent(
     for _ in range(2):
         with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
              p1, p2, p3:
-            await sync_connection(session, conn.id, test_user.id)
+            await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1428,7 +1428,7 @@ async def test_sync_finance_charges_are_idempotent(
 
 @pytest.mark.asyncio
 async def test_sync_removes_orphaned_finance_charges_on_resync(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """If a charge disappears from the bill on the next sync (e.g. bank
     reversed it), the synthetic tx must be removed."""
@@ -1451,7 +1451,7 @@ async def test_sync_removes_orphaned_finance_charges_on_resync(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # Second sync — the LATE_PAYMENT_FEE charge is gone (bank reversed it)
     bill_v2 = BillData(
@@ -1470,7 +1470,7 @@ async def test_sync_removes_orphaned_finance_charges_on_resync(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1484,7 +1484,7 @@ async def test_sync_removes_orphaned_finance_charges_on_resync(
 
 @pytest.mark.asyncio
 async def test_sync_does_not_overwrite_manual_effective_bill_date(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """When the user has manually set effective_bill_date on a tx, the next
     sync must NOT relink bill_id or recompute effective_date — the user is
@@ -1511,7 +1511,7 @@ async def test_sync_does_not_overwrite_manual_effective_bill_date(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # User overrides: this tx belongs to a different bill (May 5, manually).
     tx_row = (await session.execute(
@@ -1526,7 +1526,7 @@ async def test_sync_does_not_overwrite_manual_effective_bill_date(
     # Re-sync — provider still says bill A. Override must be preserved.
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     tx_row = (await session.execute(
         select(Transaction).where(Transaction.external_id == "tx-overridden")
@@ -1539,7 +1539,7 @@ async def test_sync_does_not_overwrite_manual_effective_bill_date(
 
 @pytest.mark.asyncio
 async def test_sync_updates_existing_bill_idempotently(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A second sync that returns the same bill id with updated totals must
     update in place, not insert a duplicate (the unique(account_id,
@@ -1558,7 +1558,7 @@ async def test_sync_updates_existing_bill_idempotently(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # Second sync: same id, new totals (e.g. mid-cycle adjustment)
     bill_v2 = BillData(
@@ -1571,7 +1571,7 @@ async def test_sync_updates_existing_bill_idempotently(
 
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(CreditCardBill).where(CreditCardBill.user_id == test_user.id)
@@ -1588,7 +1588,7 @@ async def test_sync_updates_existing_bill_idempotently(
 
 @pytest.mark.asyncio
 async def test_sync_dedupes_pending_posted_twin_in_same_fetch(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A provider emits the same operation twice in a single fetch — once
     pending (the scheduled row) and once posted (the executed row) — under
@@ -1621,7 +1621,7 @@ async def test_sync_dedupes_pending_posted_twin_in_same_fetch(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1636,7 +1636,7 @@ async def test_sync_dedupes_pending_posted_twin_in_same_fetch(
 
 @pytest.mark.asyncio
 async def test_sync_dedupes_pending_posted_twin_with_identical_descriptions(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Same case as above but the descriptions are byte-identical — the
     status differential alone is enough to collapse them."""
@@ -1668,7 +1668,7 @@ async def test_sync_dedupes_pending_posted_twin_with_identical_descriptions(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1682,7 +1682,7 @@ async def test_sync_dedupes_pending_posted_twin_with_identical_descriptions(
 
 @pytest.mark.asyncio
 async def test_sync_keeps_unrelated_pending_and_posted_with_different_descriptions(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Two unrelated transactions that happen to share a date and amount —
     one pending, one posted, completely different merchants — must NOT be
@@ -1716,7 +1716,7 @@ async def test_sync_keeps_unrelated_pending_and_posted_with_different_descriptio
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1729,7 +1729,7 @@ async def test_sync_keeps_unrelated_pending_and_posted_with_different_descriptio
 
 @pytest.mark.asyncio
 async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """When the pending row was synced first and the posted twin arrives on
     the next sync with a different external_id, the existing row must be
@@ -1755,7 +1755,7 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     # Second sync: posted twin arrives with a new id and identifier; the
     # pending row is also still in the feed (providers don't always drop the
@@ -1772,7 +1772,7 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1789,7 +1789,7 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
 
 @pytest.mark.asyncio
 async def test_sync_dedupes_advanced_installment_payment(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """A credit-card installment paid in advance shows up as posted on the
     current bill *and* pending on the next bill. Two different external
@@ -1842,7 +1842,7 @@ async def test_sync_dedupes_advanced_installment_payment(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1869,7 +1869,7 @@ async def test_sync_dedupes_advanced_installment_payment(
 
 @pytest.mark.asyncio
 async def test_sync_dedupes_advanced_installment_when_pending_lands_first(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Same as the previous test but the pending next-bill row arrives
     before the posted current-bill row in the fetch list. Order must not
@@ -1916,7 +1916,7 @@ async def test_sync_dedupes_advanced_installment_when_pending_lands_first(
     p1, p2, p3 = _patch_sync_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
          p1, p2, p3:
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(
@@ -1931,7 +1931,7 @@ async def test_sync_dedupes_advanced_installment_when_pending_lands_first(
 
 @pytest.mark.asyncio
 async def test_sync_keeps_genuine_same_day_repeats(
-    session: AsyncSession, test_user,
+    session: AsyncSession, test_user, test_workspace,
 ):
     """Two genuine same-day same-amount transactions with byte-identical
     descriptions and identical statuses must NOT be collapsed — those are
@@ -1966,7 +1966,7 @@ async def test_sync_keeps_genuine_same_day_repeats(
          patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
          patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
          patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
-        await sync_connection(session, conn.id, test_user.id)
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     rows = (await session.execute(
         select(Transaction).where(

@@ -38,6 +38,7 @@ import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/component
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 type TransactionUpdatePayload = Partial<Transaction> & {
   apply_to_transfer_pair?: boolean
@@ -65,6 +66,7 @@ export default function TransactionsPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
@@ -996,7 +998,7 @@ export default function TransactionsPage() {
                 that row's fields; identity-bearing fields (id,
                 transfer_pair_id, splits) are not copied. Hidden for
                 shared rows and transfers — they can't be duplicated. */}
-            {selectedIds.size === 1 && (() => {
+            {canWrite && selectedIds.size === 1 && (() => {
               const selectedTx = filteredItems.find(tx => selectedIds.has(tx.id))
               if (!selectedTx || selectedTx.is_shared || selectedTx.transfer_pair_id) return null
               return (
@@ -1009,13 +1011,17 @@ export default function TransactionsPage() {
                 </Button>
               )
             })()}
-            <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
-              <ArrowLeftRight size={16} className="mr-1.5" />
-              {t('transactions.transfer')}
-            </Button>
-            <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
-              + {t('transactions.addManual')}
-            </Button>
+            {canWrite && (
+              <>
+                <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
+                  <ArrowLeftRight size={16} className="mr-1.5" />
+                  {t('transactions.transfer')}
+                </Button>
+                <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
+                  + {t('transactions.addManual')}
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -1131,13 +1137,15 @@ export default function TransactionsPage() {
             <TableHeader>
               <TableRow className="border-b border-border hover:bg-transparent">
                 <TableHead style={{ width: 40, minWidth: 40 }} className="py-3 pl-4 pr-0">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    ref={(el) => { if (el) el.indeterminate = someSelected }}
-                    onChange={toggleSelectAll}
-                    className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                  />
+                  {canWrite && (
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected }}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  )}
                 </TableHead>
                 {grid.visibleColumns.map(renderHeaderCell)}
               </TableRow>
@@ -1149,13 +1157,14 @@ export default function TransactionsPage() {
                   ref={tx.id === highlightId ? highlightedRowRef : undefined}
                   className={`hover:bg-muted border-b border-border last:border-0 ${
                     selectedIds.has(tx.id) ? 'bg-primary/5' : ''
-                  } ${tx.is_shared ? 'cursor-default' : 'cursor-pointer'}`}
+                  } ${tx.is_shared || !canWrite ? 'cursor-default' : 'cursor-pointer'}`}
                   onClick={() => {
                     if (tx.is_shared) {
                       // Owned by another user — view in the group context instead.
                       if (tx.group_id) navigate(`/groups/${tx.group_id}`)
                       return
                     }
+                    if (!canWrite) return
                     setEditingTx(tx)
                     setDialogOpen(true)
                   }}
@@ -1164,7 +1173,7 @@ export default function TransactionsPage() {
                     {/* Bulk operations are scoped to user.id so they
                         silently skip shared rows — hide the checkbox
                         on those to avoid the dead-end UX. */}
-                    {!tx.is_shared && (
+                    {canWrite && !tx.is_shared && (
                       <input
                         type="checkbox"
                         checked={selectedIds.has(tx.id)}

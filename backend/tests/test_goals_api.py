@@ -366,6 +366,7 @@ async def test_goal_ownership_isolation(
 
     hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
     from app.models.user import User as UserModel
+    from app.services.workspace_service import create_personal_workspace_for_user
 
     other_user = UserModel(
         id=uuid.uuid4(),
@@ -377,6 +378,8 @@ async def test_goal_ownership_isolation(
         preferences={"language": "en", "date_format": "MM/DD/YYYY", "timezone": "UTC", "currency_display": "USD"},
     )
     session.add(other_user)
+    await session.flush()
+    await create_personal_workspace_for_user(session, other_user)
     await session.commit()
 
     # Login as other user

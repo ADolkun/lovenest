@@ -46,7 +46,7 @@ from app.services import (
 )
 from mcp_server.auth import CallContext
 from mcp_server.registry import tool
-from mcp_server.tools._helpers import num, parse_date, parse_uuid, parse_uuid_list
+from mcp_server.tools._helpers import num, parse_date, parse_uuid, parse_uuid_list, resolve_workspace_id
 
 
 # Repeated in EVERY propose_* tool description. The LLM reads these when
@@ -111,16 +111,17 @@ async def propose_categorize(
     category_id: str,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     cat_id = parse_uuid(category_id)
     cat = (await session.execute(
-        select(Category).where(Category.id == cat_id, Category.user_id == ctx.user_id)
+        select(Category).where(Category.id == cat_id, Category.workspace_id == ws_id)
     )).scalar_one_or_none()
     if cat is None:
         return {"error": "category not found"}
 
     tx_ids = parse_uuid_list(transaction_ids) or []
     txs = (await session.execute(
-        select(Transaction).where(Transaction.id.in_(tx_ids), Transaction.user_id == ctx.user_id)
+        select(Transaction).where(Transaction.id.in_(tx_ids), Transaction.workspace_id == ws_id)
     )).scalars().all()
 
     affected = [
@@ -141,7 +142,7 @@ async def propose_categorize(
         if not affected:
             return {**preview, "error": "no matching transactions to update"}
         updated = await transaction_service.bulk_update_category(
-            session, ctx.user_id, [parse_uuid(a["id"]) for a in affected], cat.id
+            session, ws_id, [parse_uuid(a["id"]) for a in affected], cat.id
         )
         return {**preview, "applied": True, "updated_count": updated}
 
@@ -179,9 +180,10 @@ async def propose_create_category(
     color: str | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     existing = (await session.execute(
         select(Category.id, Category.name).where(
-            Category.user_id == ctx.user_id,
+            Category.workspace_id == ws_id,
             Category.name.ilike(name.strip()),
         )
     )).first()
@@ -202,6 +204,7 @@ async def propose_create_category(
             return {**preview, "error": f"category named {existing.name!r} already exists"}
         created = await category_service.create_category(
             session,
+            ws_id,
             ctx.user_id,
             CategoryCreate(
                 name=preview["proposed"]["name"],
@@ -253,11 +256,12 @@ async def propose_create_budget(
     is_recurring: bool = False,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     cat_id = parse_uuid(category_id)
     target_month = (parse_date(month) or date.today()).replace(day=1)
 
     cat = (await session.execute(
-        select(Category).where(Category.id == cat_id, Category.user_id == ctx.user_id)
+        select(Category).where(Category.id == cat_id, Category.workspace_id == ws_id)
     )).scalar_one_or_none()
     if cat is None:
         return {"error": "category not found"}
@@ -278,6 +282,7 @@ async def propose_create_budget(
     if _can_apply(ctx, apply):
         created = await budget_service.create_budget(
             session,
+            ws_id,
             ctx.user_id,
             BudgetCreate(
                 category_id=cat.id,
@@ -364,9 +369,10 @@ async def propose_create_transaction(
     splits: dict[str, Any] | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     acc_id = parse_uuid(account_id)
     acc = (await session.execute(
-        select(Account).where(Account.id == acc_id, Account.user_id == ctx.user_id)
+        select(Account).where(Account.id == acc_id, Account.workspace_id == ws_id)
     )).scalar_one_or_none()
     if acc is None:
         return {"error": "account not found"}
@@ -374,7 +380,7 @@ async def propose_create_transaction(
     cat = None
     if category_id:
         cat = (await session.execute(
-            select(Category).where(Category.id == parse_uuid(category_id), Category.user_id == ctx.user_id)
+            select(Category).where(Category.id == parse_uuid(category_id), Category.workspace_id == ws_id)
         )).scalar_one_or_none()
         if cat is None:
             return {"error": "category not found"}
@@ -386,6 +392,9 @@ async def propose_create_transaction(
         if not (group_id and splits):
             return {"error": "group_id and splits must be provided together"}
         gid = parse_uuid(group_id)
+        # Group ownership stays user-scoped (Splitwise authorship check) —
+        # the user_id column on `groups` represents the owner, not a
+        # tenant filter.
         group = (await session.execute(
             select(Group).where(Group.id == gid, Group.user_id == ctx.user_id)
         )).scalar_one_or_none()
@@ -498,6 +507,7 @@ async def propose_create_transaction(
         try:
             created = await transaction_service.create_transaction(
                 session,
+                ws_id,
                 ctx.user_id,
                 TransactionCreate(
                     description=proposed["description"],
@@ -564,15 +574,16 @@ async def propose_create_recurring_transaction(
 ) -> dict[str, Any]:
     if frequency == "monthly" and not day_of_month:
         return {"error": "day_of_month is required for monthly frequency"}
+    ws_id = await resolve_workspace_id(session, ctx)
     acc = (await session.execute(
-        select(Account).where(Account.id == parse_uuid(account_id), Account.user_id == ctx.user_id)
+        select(Account).where(Account.id == parse_uuid(account_id), Account.workspace_id == ws_id)
     )).scalar_one_or_none()
     if acc is None:
         return {"error": "account not found"}
     cat = None
     if category_id:
         cat = (await session.execute(
-            select(Category).where(Category.id == parse_uuid(category_id), Category.user_id == ctx.user_id)
+            select(Category).where(Category.id == parse_uuid(category_id), Category.workspace_id == ws_id)
         )).scalar_one_or_none()
         if cat is None:
             return {"error": "category not found"}
@@ -602,6 +613,7 @@ async def propose_create_recurring_transaction(
     if _can_apply(ctx, apply):
         created = await recurring_transaction_service.create_recurring_transaction(
             session,
+            ws_id,
             ctx.user_id,
             RecurringTransactionCreate(
                 description=description.strip(),
@@ -663,10 +675,11 @@ async def propose_update_recurring_transaction(
     is_active: bool | None = None,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     rid = parse_uuid(recurring_id)
     rt = (await session.execute(
         select(RecurringTransaction).where(
-            RecurringTransaction.id == rid, RecurringTransaction.user_id == ctx.user_id
+            RecurringTransaction.id == rid, RecurringTransaction.workspace_id == ws_id
         )
     )).scalar_one_or_none()
     if rt is None:
@@ -675,7 +688,7 @@ async def propose_update_recurring_transaction(
     cat = None
     if category_id:
         cat = (await session.execute(
-            select(Category).where(Category.id == parse_uuid(category_id), Category.user_id == ctx.user_id)
+            select(Category).where(Category.id == parse_uuid(category_id), Category.workspace_id == ws_id)
         )).scalar_one_or_none()
         if cat is None:
             return {"error": "category not found"}
@@ -731,7 +744,7 @@ async def propose_update_recurring_transaction(
         if "is_active" in changes:
             update_data["is_active"] = changes["is_active"]
         updated = await recurring_transaction_service.update_recurring_transaction(
-            session, rt.id, ctx.user_id, RecurringTransactionUpdate(**update_data)
+            session, rt.id, ws_id, RecurringTransactionUpdate(**update_data)
         )
         if updated is None:
             return {**preview, "error": "recurring transaction not found"}
@@ -769,10 +782,11 @@ async def propose_cancel_recurring_transaction(
     mode: str = "deactivate",
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     rt = (await session.execute(
         select(RecurringTransaction).where(
             RecurringTransaction.id == parse_uuid(recurring_id),
-            RecurringTransaction.user_id == ctx.user_id,
+            RecurringTransaction.workspace_id == ws_id,
         )
     )).scalar_one_or_none()
     if rt is None:
@@ -800,14 +814,14 @@ async def propose_cancel_recurring_transaction(
     if _can_apply(ctx, apply):
         if mode == "delete":
             ok = await recurring_transaction_service.delete_recurring_transaction(
-                session, rt.id, ctx.user_id
+                session, rt.id, ws_id
             )
             if not ok:
                 return {**preview, "error": "recurring transaction not found"}
             return {**preview, "applied": True, "deleted": True}
         # deactivate path
         updated = await recurring_transaction_service.update_recurring_transaction(
-            session, rt.id, ctx.user_id, RecurringTransactionUpdate(is_active=False)
+            session, rt.id, ws_id, RecurringTransactionUpdate(is_active=False)
         )
         if updated is None:
             return {**preview, "error": "recurring transaction not found"}
@@ -871,8 +885,10 @@ async def propose_create_goal(
     }
 
     if _can_apply(ctx, apply):
+        ws_id = await resolve_workspace_id(session, ctx)
         created = await goal_service.create_goal(
             session,
+            ws_id,
             ctx.user_id,
             GoalCreate(
                 name=name.strip(),
@@ -921,9 +937,10 @@ async def propose_create_payee_rule(
     category_id: str,
     apply: bool = False,
 ) -> dict[str, Any]:
+    ws_id = await resolve_workspace_id(session, ctx)
     cat_id = parse_uuid(category_id)
     cat = (await session.execute(
-        select(Category).where(Category.id == cat_id, Category.user_id == ctx.user_id)
+        select(Category).where(Category.id == cat_id, Category.workspace_id == ws_id)
     )).scalar_one_or_none()
     if cat is None:
         return {"error": "category not found"}
@@ -941,6 +958,7 @@ async def propose_create_payee_rule(
     if _can_apply(ctx, apply):
         created = await rule_service.create_rule(
             session,
+            ws_id,
             ctx.user_id,
             RuleCreate(
                 name=f"Auto-categorize: {match_pattern}",

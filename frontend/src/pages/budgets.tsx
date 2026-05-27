@@ -23,6 +23,7 @@ import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -55,6 +56,7 @@ export default function BudgetsPage() {
   const { t, i18n } = useTranslation()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const queryClient = useQueryClient()
@@ -179,9 +181,11 @@ export default function BudgetsPage() {
         <SectionHeader
           title={t('budgets.title')}
           action={
-            <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
-              <Plus size={13} /> {t('budgets.add')}
-            </Button>
+            canWrite ? (
+              <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+                <Plus size={13} /> {t('budgets.add')}
+              </Button>
+            ) : undefined
           }
         />
         {budgetsList && budgetsList.length > 0 ? (
@@ -190,7 +194,7 @@ export default function BudgetsPage() {
               <tr className="border-b border-border">
                 <th className={`${TH} pl-4 sm:pl-5 text-left`}>{t('budgets.category')}</th>
                 <th className={`${TH} text-left w-36`}>{t('budgets.amount')}</th>
-                <th className={`${TH} pr-4 sm:pr-5 text-right w-24`}>{t('budgets.actions')}</th>
+                {canWrite && <th className={`${TH} pr-4 sm:pr-5 text-right w-24`}>{t('budgets.actions')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -207,23 +211,25 @@ export default function BudgetsPage() {
                     </span>
                   </td>
                   <td className="py-3 text-sm font-semibold tabular-nums text-foreground">{mask(formatCurrency(budget.amount, userCurrency, locale))}</td>
-                  <td className="py-3 pr-4 sm:pr-5">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
-                        onClick={() => { setEditing(budget); setDialogOpen(true) }}
-                      >
-                        <Pencil size={13} />
-                      </button>
-                      <button
-                        className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                        onClick={() => deleteMutation.mutate(budget.id)}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
+                  {canWrite && (
+                    <td className="py-3 pr-4 sm:pr-5">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                          onClick={() => { setEditing(budget); setDialogOpen(true) }}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                          onClick={() => deleteMutation.mutate(budget.id)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

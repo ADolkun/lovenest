@@ -20,7 +20,7 @@ pytestmark = pytest.mark.asyncio
 # real MCP server during HTTP tests. Returns an empty tool list.
 @pytest.fixture(autouse=True)
 def _mock_mcp_discover():
-    async def _empty_discover(self, *, user_id, conversation_id=None):
+    async def _empty_discover(self, *, user_id, workspace_id=None, conversation_id=None, agent_id=None):
         return []
     with patch("app.agents.api.agents.MCPRegistry.discover", new=_empty_discover):
         yield
@@ -29,6 +29,8 @@ def _mock_mcp_discover():
 @pytest_asyncio.fixture
 async def other_user(session: AsyncSession) -> User:
     """A second user in the same DB to verify cross-tenant isolation."""
+    from app.services.workspace_service import create_personal_workspace_for_user
+
     hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
     user = User(
         id=uuid.uuid4(),
@@ -40,6 +42,8 @@ async def other_user(session: AsyncSession) -> User:
         preferences={"language": "en", "currency_display": "USD"},
     )
     session.add(user)
+    await session.flush()
+    await create_personal_workspace_for_user(session, user)
     await session.commit()
     await session.refresh(user)
     return user

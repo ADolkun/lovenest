@@ -21,6 +21,9 @@ import type {
   Rule,
   ImportLog,
   ImportPreviewTransaction,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceRole,
   Asset,
   AssetGroup,
   AssetValue,
@@ -47,11 +50,20 @@ const api = axios.create({
   baseURL: '/api',
 })
 
-// Add auth token to requests
+// Storage key for the currently-selected workspace ID. Lives in
+// localStorage so reloads + new tabs stay on the same workspace until
+// the user picks another one.
+export const WORKSPACE_STORAGE_KEY = 'workspace_id'
+
+// Add auth token + active workspace header to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  if (workspaceId) {
+    config.headers['X-Workspace-Id'] = workspaceId
   }
   return config
 })
@@ -67,6 +79,57 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// Workspaces
+export const workspaces = {
+  list: async (): Promise<Workspace[]> => {
+    const { data } = await api.get('/workspaces')
+    return data
+  },
+  current: async (): Promise<Workspace> => {
+    const { data } = await api.get('/workspaces/current')
+    return data
+  },
+  create: async (payload: {
+    name: string
+    kind?: string
+    default_currency?: string
+    locale?: string
+    icon?: string
+    color?: string
+    self_membership?: boolean
+  }): Promise<Workspace> => {
+    const { data } = await api.post('/workspaces', payload)
+    return data
+  },
+  update: async (id: string, payload: Partial<Pick<Workspace, 'name' | 'icon' | 'color' | 'default_currency' | 'locale'>>): Promise<Workspace> => {
+    const { data } = await api.patch(`/workspaces/${id}`, payload)
+    return data
+  },
+  listMembers: async (id: string): Promise<WorkspaceMember[]> => {
+    const { data } = await api.get(`/workspaces/${id}/members`)
+    return data
+  },
+  invite: async (id: string, payload: { email: string; role?: WorkspaceRole; password?: string }): Promise<WorkspaceMember> => {
+    const { data } = await api.post(`/workspaces/${id}/members`, payload)
+    return data
+  },
+  changeRole: async (id: string, memberUserId: string, role: WorkspaceRole): Promise<WorkspaceMember> => {
+    const { data } = await api.patch(`/workspaces/${id}/members/${memberUserId}`, { role })
+    return data
+  },
+  removeMember: async (id: string, memberUserId: string): Promise<void> => {
+    await api.delete(`/workspaces/${id}/members/${memberUserId}`)
+  },
+  stats: async (id: string): Promise<{ members: number; accounts: number; transactions: number }> => {
+    const { data } = await api.get(`/workspaces/${id}/stats`)
+    return data
+  },
+  archive: async (id: string): Promise<Workspace> => {
+    const { data } = await api.post(`/workspaces/${id}/archive`)
+    return data
+  },
+}
 
 // Setup
 export const setup = {

@@ -15,6 +15,9 @@ class AssetValue(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="CASCADE"))
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=6))
     date: Mapped[date] = mapped_column(Date)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual, rule, sync

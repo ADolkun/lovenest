@@ -102,7 +102,7 @@ def _quote(symbol: str, price: float, currency: str = "USD") -> MarketSymbolQuot
 
 @pytest.mark.asyncio
 async def test_create_market_price_asset_seeds_quote_and_initial_value(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     provider = FakeMarketProvider({"AAPL": _quote("AAPL", 180.25)})
     data = AssetCreate(
@@ -115,7 +115,7 @@ async def test_create_market_price_asset_seeds_quote_and_initial_value(
     )
 
     created = await asset_service.create_asset(
-        session, test_user.id, data, market_provider=provider
+        session, test_workspace.id, test_user.id, data, market_provider=provider
     )
 
     assert created.valuation_method == "market_price"
@@ -131,7 +131,7 @@ async def test_create_market_price_asset_seeds_quote_and_initial_value(
 
 @pytest.mark.asyncio
 async def test_create_market_price_asset_rejects_missing_ticker(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     provider = FakeMarketProvider({})
     data = AssetCreate(
@@ -143,14 +143,14 @@ async def test_create_market_price_asset_rejects_missing_ticker(
 
     with pytest.raises(Exception) as excinfo:  # FastAPI's HTTPException
         await asset_service.create_asset(
-            session, test_user.id, data, market_provider=provider
+            session, test_workspace.id, test_user.id, data, market_provider=provider
         )
     assert "ticker" in str(excinfo.value).lower()
 
 
 @pytest.mark.asyncio
 async def test_create_market_price_asset_rejects_zero_units(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     provider = FakeMarketProvider({"AAPL": _quote("AAPL", 180.0)})
     data = AssetCreate(
@@ -163,14 +163,14 @@ async def test_create_market_price_asset_rejects_zero_units(
 
     with pytest.raises(Exception) as excinfo:
         await asset_service.create_asset(
-            session, test_user.id, data, market_provider=provider
+            session, test_workspace.id, test_user.id, data, market_provider=provider
         )
     assert "units" in str(excinfo.value).lower()
 
 
 @pytest.mark.asyncio
 async def test_create_market_price_asset_errors_when_quote_unavailable(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     provider = FakeMarketProvider({})  # no canned quote for any symbol
     data = AssetCreate(
@@ -183,14 +183,14 @@ async def test_create_market_price_asset_errors_when_quote_unavailable(
 
     with pytest.raises(Exception) as excinfo:
         await asset_service.create_asset(
-            session, test_user.id, data, market_provider=provider
+            session, test_workspace.id, test_user.id, data, market_provider=provider
         )
     assert "quote" in str(excinfo.value).lower()
 
 
 @pytest.mark.asyncio
 async def test_refresh_market_price_updates_cached_price_and_upserts_today(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     # First create with an initial quote, then bump the quote and refresh.
     initial = FakeMarketProvider({"AAPL": _quote("AAPL", 180.00)})
@@ -202,7 +202,7 @@ async def test_refresh_market_price_updates_cached_price_and_upserts_today(
         units=Decimal("10"),
     )
     created = await asset_service.create_asset(
-        session, test_user.id, data, market_provider=initial
+        session, test_workspace.id, test_user.id, data, market_provider=initial
     )
 
     # Reload the ORM entity (service returned a schema, not the model).
@@ -231,7 +231,7 @@ async def test_refresh_market_price_updates_cached_price_and_upserts_today(
 
 @pytest.mark.asyncio
 async def test_refresh_all_uses_batch_endpoint(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     """Scheduled refresh should hit the batch path once, not N single quotes."""
     provider = FakeMarketProvider(
@@ -244,6 +244,7 @@ async def test_refresh_all_uses_batch_endpoint(
     for ticker in ("AAPL", "MSFT", "GOOG"):
         await asset_service.create_asset(
             session,
+            test_workspace.id,
             test_user.id,
             AssetCreate(
                 name=ticker,
@@ -270,7 +271,7 @@ async def test_refresh_all_uses_batch_endpoint(
 
 @pytest.mark.asyncio
 async def test_refresh_all_falls_back_when_batch_misses_symbol(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     """If a symbol is missing from the batch response, per-asset path picks it up."""
     provider = FakeMarketProvider(
@@ -279,6 +280,7 @@ async def test_refresh_all_falls_back_when_batch_misses_symbol(
     for ticker in ("AAPL", "MSFT"):
         await asset_service.create_asset(
             session,
+            test_workspace.id,
             test_user.id,
             AssetCreate(
                 name=ticker,
@@ -306,13 +308,14 @@ async def test_refresh_all_falls_back_when_batch_misses_symbol(
 
 @pytest.mark.asyncio
 async def test_refresh_all_halts_on_rate_limit(
-    session: AsyncSession, test_user: User
+    session: AsyncSession, test_user: User, test_workspace
 ):
     # Create two market-priced assets
     provider = FakeMarketProvider({"AAPL": _quote("AAPL", 180.0), "MSFT": _quote("MSFT", 400.0)})
     for ticker in ("AAPL", "MSFT"):
         await asset_service.create_asset(
             session,
+            test_workspace.id,
             test_user.id,
             AssetCreate(
                 name=ticker,

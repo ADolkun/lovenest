@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 import {
   AreaChart,
   Area,
@@ -265,6 +266,7 @@ export default function AccountDetailPage() {
   const { t, i18n } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const queryClient = useQueryClient()
@@ -780,7 +782,7 @@ export default function AccountDetailPage() {
                   </>
                 )
               })()}
-              {isCreditCard && (!account.statement_close_day || !account.payment_due_day) && (
+              {isCreditCard && canWrite && (!account.statement_close_day || !account.payment_due_day) && (
                 <>
                   <span className="text-muted-foreground text-xs">·</span>
                   <button
@@ -796,7 +798,7 @@ export default function AccountDetailPage() {
               )}
             </div>
           </div>
-          {!account.is_closed && (
+          {!account.is_closed && canWrite && (
             <Button
               variant="outline"
               size="sm"
@@ -927,14 +929,16 @@ export default function AccountDetailPage() {
       {account.is_closed && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-muted px-4 py-3 mb-6">
           <span className="text-sm text-muted-foreground">{t('accounts.closedBanner')}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => reopenMutation.mutate()}
-            disabled={reopenMutation.isPending}
-          >
-            {t('accounts.reopen')}
-          </Button>
+          {canWrite && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => reopenMutation.mutate()}
+              disabled={reopenMutation.isPending}
+            >
+              {t('accounts.reopen')}
+            </Button>
+          )}
         </div>
       )}
 
@@ -1176,14 +1180,16 @@ export default function AccountDetailPage() {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setCcSettingsOpen(true)}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title={t('common.edit')}
-              >
-                <Pencil size={13} />
-              </button>
+              {canWrite && (
+                <button
+                  type="button"
+                  onClick={() => setCcSettingsOpen(true)}
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title={t('common.edit')}
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
             </div>
             {limit != null && pct != null && rawPct != null && (
               <>
@@ -1357,9 +1363,9 @@ export default function AccountDetailPage() {
                     return (
                       <tr
                         key={tx.id}
-                        className={`border-b last:border-0 transition-colors ${isOpening ? 'bg-muted/60' : isPending ? 'opacity-60' : 'hover:bg-muted cursor-pointer'}`}
+                        className={`border-b last:border-0 transition-colors ${isOpening ? 'bg-muted/60' : isPending ? 'opacity-60' : canWrite ? 'hover:bg-muted cursor-pointer' : ''}`}
                         onClick={() => {
-                          if (!isOpening) {
+                          if (!isOpening && canWrite) {
                             setEditingTx(tx)
                             setDialogOpen(true)
                           }

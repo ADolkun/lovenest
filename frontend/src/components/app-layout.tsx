@@ -28,12 +28,12 @@ import { APP_VERSION } from '@/lib/build-info'
 import { ShellLogo } from '@/components/shell-logo'
 import { UpdateAvailableBanner } from '@/components/update-available-banner'
 import { UpdateAvailableDialog } from '@/components/update-available-dialog'
+import { WorkspaceSwitcher } from '@/components/workspace-switcher'
 import {
   ArrowLeftRight,
   Building2,
   SlidersHorizontal,
   Upload,
-  LogOut,
   Menu,
   ChevronRight,
   Tag,
@@ -54,7 +54,6 @@ import {
   HardDriveDownload,
   Shield,
   ShieldCheck,
-  Download,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
@@ -104,7 +103,6 @@ export function AppLayout() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { theme, setTheme } = useTheme()
   const location = useLocation()
-  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const [accountsShowAll, setAccountsShowAll] = useState(false)
@@ -162,7 +160,6 @@ export function AppLayout() {
   }, [user, updateUser])
 
   const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?'
-  const currentLang = i18n.language
   const resolvedTheme = theme === 'system' ? undefined : theme
   const isDark = resolvedTheme
     ? resolvedTheme === 'dark'
@@ -487,126 +484,30 @@ export function AppLayout() {
 
           <UpdateAvailableBanner onOpen={() => setUpdateDialogOpen(true)} />
 
-          {/* User section */}
+          {/* Merged account + workspace menu — one trigger at the
+              bottom of the sidebar shows the active workspace as the
+              primary identity, the user email + role as the secondary
+              line, and combines workspace switching with all the
+              account actions that used to live in a separate dropdown. */}
           <div className="px-3 pt-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-sm hover:bg-sidebar-accent transition-colors text-left">
-                  <Avatar className="h-7 w-7 shrink-0">
-                    <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
-                      {userInitial}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-xs text-sidebar-muted truncate flex-1">
-                    {user?.email}
-                  </span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48" side="top">
-                {user?.is_superuser && (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => navigate('/admin')}
-                      className="flex items-center gap-2"
-                    >
-                      <Shield size={14} />
-                      {t('nav.groupAdmin')}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                <DropdownMenuItem
-                  onClick={() => setChangePasswordOpen(true)}
-                  className="flex items-center gap-2"
-                >
-                  <KeyRound size={14} />
-                  {t('auth.changePassword')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setTwoFactorOpen(true)}
-                  className="flex items-center gap-2"
-                >
-                  <ShieldCheck size={14} />
-                  {t('auth.twoFactorTitle')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backingUp}
-                  onClick={async () => {
-                    setBackingUp(true)
-                    try {
-                      await backupApi.download()
-                      toast.success(t('backup.success'))
-                    } catch {
-                      toast.error(t('backup.error'))
-                    } finally {
-                      setBackingUp(false)
-                    }
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <HardDriveDownload size={14} />
-                  {backingUp ? t('backup.downloading') : t('backup.button')}
-                </DropdownMenuItem>
-                {agentsEnabled && (
-                  <DropdownMenuItem
-                    onClick={() => navigate('/agents')}
-                    className="flex items-center gap-2"
-                  >
-                    <Sparkles size={14} />
-                    {t('nav.aiAgents')}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  onClick={() => setUpdateDialogOpen(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Download size={14} />
-                  {t('update.menuItem')}
-                </DropdownMenuItem>
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="flex items-center gap-2">
-                    <Languages size={14} />
-                    <span className="flex-1">{t('setup.language')}</span>
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {currentLang === 'pt-BR' ? 'PT' : 'EN'}
-                    </span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent className="w-40">
-                      <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
-                        {t('setup.language')}
-                      </DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onClick={() => i18n.changeLanguage('pt-BR')}
-                        className="flex items-center gap-2"
-                      >
-                        <span className="flex-1">Português</span>
-                        {currentLang === 'pt-BR' && (
-                          <Check size={13} className="text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => i18n.changeLanguage('en')}
-                        className="flex items-center gap-2"
-                      >
-                        <span className="flex-1">English</span>
-                        {currentLang === 'en' && (
-                          <Check size={13} className="text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="flex items-center gap-2 text-rose-600 focus:text-rose-600"
-                >
-                  <LogOut size={14} />
-                  {t('auth.logout')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <WorkspaceSwitcher
+              backingUp={backingUp}
+              onChangePassword={() => setChangePasswordOpen(true)}
+              onTwoFactor={() => setTwoFactorOpen(true)}
+              onBackup={async () => {
+                setBackingUp(true)
+                try {
+                  await backupApi.download()
+                  toast.success(t('backup.success'))
+                } catch {
+                  toast.error(t('backup.error'))
+                } finally {
+                  setBackingUp(false)
+                }
+              }}
+              onUpdateAvailable={() => setUpdateDialogOpen(true)}
+              agentsEnabled={agentsEnabled}
+            />
           </div>
 
           <div className="px-3 pb-3 pt-1">

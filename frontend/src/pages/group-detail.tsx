@@ -32,6 +32,7 @@ import {
   type GroupSettlementPayload,
 } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -159,6 +160,7 @@ export default function GroupDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
 
   const { data: group, isLoading: loadingGroup } = useQuery({
     queryKey: ['groups', groupId],
@@ -704,7 +706,7 @@ export default function GroupDetailPage() {
         <SectionHeader
           title={t('splitGroups.members')}
           action={
-            isOwner ? (
+            isOwner && canWrite ? (
               <Button size="sm" className="gap-1.5 h-8" onClick={openCreateMember}>
                 <UserPlus size={13} />
                 {t('splitGroups.addMember')}
@@ -748,7 +750,7 @@ export default function GroupDetailPage() {
                     </p>
                   )}
                 </div>
-                {isOwner && (
+                {isOwner && canWrite && (
                   <Button variant="ghost" size="sm" onClick={() => openEditMember(member)}>
                     {t('common.edit')}
                   </Button>
@@ -808,6 +810,7 @@ export default function GroupDetailPage() {
                       //   (positive amount = they owe the owner)
                       const canActLinked = !isOwner && isViewerLine && positive
                       if (!isOwner && !canActLinked) return null
+                      if (!canWrite) return null
                       return (
                         <Button
                           variant="outline"
@@ -911,7 +914,7 @@ export default function GroupDetailPage() {
         <SectionHeader
           title={t('splitGroups.settlements')}
           action={
-            isOwner ? (
+            isOwner && canWrite ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -942,7 +945,7 @@ export default function GroupDetailPage() {
                   <span className="text-sm font-semibold tabular-nums">
                     {formatCurrency(s.amount, s.currency, locale)}
                   </span>
-                  {isOwner && (
+                  {isOwner && canWrite && (
                     <Button
                       variant="ghost"
                       size="sm"
