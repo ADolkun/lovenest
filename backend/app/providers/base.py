@@ -2,7 +2,20 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
+
+
+# Outcome of asking a provider to pull fresh data from the underlying institution
+# before we read accounts/transactions.
+#
+# - "refreshed":         provider successfully synced; safe to read.
+# - "skipped":           provider has no on-demand refresh (default for most providers).
+# - "needs_user_action": provider needs the user to act (MFA, expired credentials).
+#                        Caller should mark the connection as needing reconnection
+#                        and skip the read pass.
+# - "failed":            transient error (timeout, rate limit). Caller may proceed
+#                        with a stale read; we don't punish the user for it.
+RefreshOutcome = Literal["refreshed", "skipped", "needs_user_action", "failed"]
 
 
 @dataclass
@@ -252,6 +265,20 @@ class BankProvider(ABC):
     async def refresh_credentials(self, credentials: dict) -> dict:
         """Refresh access token if needed."""
         ...
+
+    async def trigger_refresh(self, credentials: dict) -> RefreshOutcome:
+        """Ask the provider to pull fresh data from the underlying institution.
+
+        Some aggregator providers cache the bank's data on their own side and
+        only re-fetch on their own schedule. For those, the value we read on a
+        sync may be older than what the bank actually has. When the user asks
+        for fresh data, providers that expose an on-demand refresh should
+        override this method to trigger it and poll until it completes.
+
+        The default is a no-op (returns ``"skipped"``) — providers whose APIs
+        already serve live data on every read don't need to override.
+        """
+        return "skipped"
 
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
         """Fetch investment holdings for a connection.

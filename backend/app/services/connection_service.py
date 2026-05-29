@@ -1074,6 +1074,7 @@ async def sync_connection(
     connection_id: uuid.UUID,
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
+    trigger_provider_refresh: bool = False,
 ) -> tuple[BankConnection, int]:
     connection = await get_connection(session, connection_id, workspace_id)
     if not connection:
@@ -1090,6 +1091,24 @@ async def sync_connection(
         # Refresh credentials if needed
         credentials = await provider.refresh_credentials(connection.credentials)
         connection.credentials = credentials
+
+        # When the caller asks for fresh data (typically a user-initiated
+        # manual sync), ask the provider to pull from the bank before we
+        # read. Providers that don't expose an on-demand refresh return
+        # "skipped" via the default implementation and we proceed normally.
+        if trigger_provider_refresh:
+            outcome = await provider.trigger_refresh(credentials)
+            if outcome == "needs_user_action":
+                # Surfacing reconnect immediately is better than silently
+                # reading stale data the user knows is stale.
+                connection.status = "error"
+                await session.commit()
+                raise RuntimeError(
+                    "Provider needs the user to reconnect before fetching fresh data"
+                )
+            # "refreshed", "skipped", or "failed" all fall through to a read.
+            # On "failed" we read whatever cached copy the provider has —
+            # better than aborting the entire sync over a transient hiccup.
 
         # Update accounts
         user = await session.get(User, user_id)

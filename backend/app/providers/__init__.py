@@ -7,6 +7,7 @@ from app.providers.base import (
     InstitutionData,
     InstitutionListData,
     ProviderUserActionRequired,
+    RefreshOutcome,
     SessionExpiredError,
     TransactionData,
 )
@@ -115,6 +116,7 @@ __all__ = [
     "InstitutionData",
     "InstitutionListData",
     "ProviderUserActionRequired",
+    "RefreshOutcome",
     "SessionExpiredError",
     "register_provider",
     "get_provider",

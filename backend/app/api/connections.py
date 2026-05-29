@@ -161,8 +161,15 @@ async def sync_connection(
     session: AsyncSession = Depends(get_async_session),
 ):
     try:
+        # Manual sync is user-initiated, so ask the provider to pull fresh
+        # data from the bank before we read. Scheduled syncs (Celery) keep
+        # the default behaviour: read whatever the provider already has.
         connection, merged_count = await connection_service.sync_connection(
-            session, connection_id, ctx.workspace.id, ctx.user_id
+            session,
+            connection_id,
+            ctx.workspace.id,
+            ctx.user_id,
+            trigger_provider_refresh=True,
         )
         result = BankConnectionRead.model_validate(connection)
         return {**result.model_dump(mode="json"), "merged_count": merged_count}

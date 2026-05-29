@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -13,8 +15,37 @@ from app.providers.base import (
     ConnectionData,
     ConnectTokenData,
     HoldingData,
+    RefreshOutcome,
     TransactionData,
 )
+
+logger = logging.getLogger(__name__)
+
+# How long to wait for Pluggy to finish syncing with the bank before giving up
+# and reading whatever Pluggy already has. Pluggy docs describe credential
+# connectors completing in tens of seconds; we cap at 90s to keep manual sync
+# requests bounded.
+PLUGGY_REFRESH_TIMEOUT_SECONDS = 90
+PLUGGY_REFRESH_POLL_INTERVAL = 3.0
+
+# Item statuses we treat as terminal when polling /items/{id}.
+# https://docs.pluggy.ai/docs/item-lifecycle
+_PLUGGY_TERMINAL_STATUSES = {
+    "UPDATED",
+    "LOGIN_ERROR",
+    "OUTDATED",
+    "WAITING_USER_INPUT",
+}
+
+# Pluggy 400 ``codeDescription`` values that genuinely require the user to
+# re-authenticate through the widget (MFA path). Every other 400 — items
+# under MeuPluggy that can't be PATCHed, transient rate limits, etc. — is
+# treated as a soft failure: we fall back to reading whatever Pluggy
+# already has rather than punishing the user with a reconnect prompt.
+_PLUGGY_REFRESH_USER_ACTION_CODES = {
+    "MFA_PARAMERTER_WAS_ALREADY_USED_ERROR",
+    "CONNECTOR_REQUIRED_PARAMETER_VALIDATION_ERROR",
+}
 
 PLUGGY_API_BASE = "https://api.pluggy.ai"
 
@@ -420,6 +451,104 @@ class PluggyProvider(BankProvider):
     async def refresh_credentials(self, credentials: dict) -> dict:
         # Pluggy manages API keys at the provider level, not per-connection
         return credentials
+
+    async def trigger_refresh(self, credentials: dict) -> RefreshOutcome:
+        """Trigger ``PATCH /items/{id}`` and poll the item until it leaves
+        the ``UPDATING`` state.
+
+        See https://docs.pluggy.ai/docs/item-lifecycle for the state machine.
+        Pluggy's own auto-sync runs daily; this triggers an on-demand pull so
+        Securo reads what the bank shows now, not what Pluggy last cached.
+        """
+        item_id = credentials.get("item_id") if credentials else None
+        if not item_id:
+            return "skipped"
+
+        headers = await self._headers()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                trigger_resp = await client.patch(
+                    f"{PLUGGY_API_BASE}/items/{item_id}",
+                    headers=headers,
+                    json={},
+                )
+            except httpx.HTTPError:
+                logger.warning("Pluggy refresh PATCH failed for item %s", item_id)
+                return "failed"
+
+            if trigger_resp.status_code == 400:
+                # Pluggy returns 400 for several distinct cases. Only treat
+                # the explicit MFA-related codes as "needs_user_action" — the
+                # others (MeuPluggy-managed items that can't be PATCHed,
+                # consecutive-failure backoffs, etc.) are transient or
+                # outside the user's control. For those, fall through to a
+                # read of cached data.
+                body: dict = {}
+                try:
+                    body = trigger_resp.json()
+                except ValueError:
+                    pass
+                code_desc = str(body.get("codeDescription") or "").upper()
+                logger.info(
+                    "Pluggy refresh rejected for item %s (code=%s): %s",
+                    item_id,
+                    code_desc or "<no code>",
+                    trigger_resp.text[:200],
+                )
+                if code_desc in _PLUGGY_REFRESH_USER_ACTION_CODES:
+                    return "needs_user_action"
+                return "failed"
+            if trigger_resp.status_code >= 400:
+                logger.warning(
+                    "Pluggy refresh returned %s for item %s: %s",
+                    trigger_resp.status_code,
+                    item_id,
+                    trigger_resp.text[:200],
+                )
+                return "failed"
+
+            deadline = time.monotonic() + PLUGGY_REFRESH_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                await asyncio.sleep(PLUGGY_REFRESH_POLL_INTERVAL)
+                try:
+                    status_resp = await client.get(
+                        f"{PLUGGY_API_BASE}/items/{item_id}", headers=headers
+                    )
+                except httpx.HTTPError:
+                    continue  # transient — retry until deadline
+                if status_resp.status_code >= 400:
+                    logger.warning(
+                        "Pluggy item poll returned %s for %s",
+                        status_resp.status_code,
+                        item_id,
+                    )
+                    return "failed"
+
+                item = status_resp.json() or {}
+                status = (item.get("status") or "").upper()
+                if status == "UPDATING":
+                    continue
+                if status not in _PLUGGY_TERMINAL_STATUSES:
+                    # Unknown status — be conservative.
+                    return "failed"
+                if status == "UPDATED":
+                    return "refreshed"
+                if status == "WAITING_USER_INPUT":
+                    return "needs_user_action"
+                if status == "LOGIN_ERROR":
+                    return "needs_user_action"
+                # OUTDATED: previous sync failed but credentials were valid.
+                # Surfacing this as a hard error would hide otherwise-readable
+                # cached data, so treat as a soft failure and read what we have.
+                return "failed"
+
+            logger.info(
+                "Pluggy refresh for item %s timed out after %ss; "
+                "proceeding with cached data",
+                item_id,
+                PLUGGY_REFRESH_TIMEOUT_SECONDS,
+            )
+            return "failed"
 
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
         """Fetch investment holdings from Pluggy's /investments endpoint.
