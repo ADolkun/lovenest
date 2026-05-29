@@ -53,6 +53,10 @@ asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 
 [tool.coverage.run]
+# FastAPI/Starlette route handlers run on SQLAlchemy's greenlet, so coverage.py
+# must track greenlet (and thread) execution contexts — otherwise async endpoint
+# bodies execute but their lines are never attributed, under-reporting every API module.
+concurrency = ["greenlet", "thread"]
 omit = [
     "app/cli.py",
     "app/worker.py",
