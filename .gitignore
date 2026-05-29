@@ -1,4 +1,5 @@
 .env
+secrets/
 .worktrees/
 .DS_Store
 .playwright-mcp/

@@ -10,15 +10,18 @@ from app.core.workspace_context import (
     current_writable_workspace,
 )
 from app.providers import all_known_providers
+from app.providers.base import ProviderUserActionRequired, SessionExpiredError
 from app.schemas.bank_connection import (
     BankConnectionRead,
-    OAuthUrlRequest,
-    OAuthUrlResponse,
-    OAuthCallbackRequest,
+    ConnectionSettingsUpdate,
     ConnectTokenRequest,
     ConnectTokenResponse,
+    InstitutionListResponse,
+    OAuthCallbackRequest,
+    OAuthUrlRequest,
+    OAuthUrlResponse,
+    ReauthUrlResponse,
     ReconnectTokenResponse,
-    ConnectionSettingsUpdate,
 )
 from app.services import connection_service
 from app.services.transfer_detection_service import detect_transfer_pairs, unlink_transfer_pair
@@ -64,10 +67,29 @@ async def get_oauth_url(
     ctx: WorkspaceContext = Depends(current_writable_workspace),
 ):
     try:
-        url = connection_service.get_oauth_url(data.provider, ctx.user_id)
+        url = await connection_service.get_oauth_url(
+            data.provider, ctx.user_id, ctx.workspace.id, flow_params=data.flow_params
+        )
         return OAuthUrlResponse(url=url)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{provider}/institutions", response_model=InstitutionListResponse)
+async def list_provider_institutions(
+    provider: str,
+    country: str | None = None,
+    ctx: WorkspaceContext = Depends(current_workspace),
+):
+    try:
+        return await connection_service.list_provider_institutions(provider, country)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to load institutions: {str(e)}",
+        )
 
 
 @router.post("/oauth/callback", response_model=BankConnectionRead)
@@ -78,13 +100,57 @@ async def oauth_callback(
 ):
     try:
         connection = await connection_service.handle_oauth_callback(
-            session, ctx.workspace.id, ctx.user_id, data.code, data.provider
+            session,
+            ctx.workspace.id,
+            ctx.user_id,
+            data.code,
+            provider_name=data.provider,
+            state=data.state,
         )
         return connection
+    except ProviderUserActionRequired as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(e),
+                "code": e.code,
+                "help_url": e.help_url,
+            },
+        )
+    except SessionExpiredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE, detail=str(e)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to connect: {str(e)}",
+        )
+
+
+@router.post(
+    "/{connection_id}/oauth/reauth-url", response_model=ReauthUrlResponse
+)
+async def get_reauth_url(
+    connection_id: uuid.UUID,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    try:
+        url = await connection_service.get_reauth_url(
+            session, connection_id, ctx.workspace.id, ctx.user_id
+        )
+        return ReauthUrlResponse(url=url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to build reauth URL: {str(e)}",
         )
 
 

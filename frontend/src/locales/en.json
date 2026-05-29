@@ -486,9 +486,33 @@
     "selectConnectorDesc": "Choose a bank connection provider",
     "connectorNotConfigured": "This connector requires configuration. Set up the required credentials to enable it.",
     "noConnectorsAvailable": "No bank connectors available",
+    "selectCountry": "Select country",
+    "selectCountryDesc": "Choose the country your bank is in",
+    "selectBank": "Select bank",
+    "selectBankDesc": "Choose your bank from the list of supported institutions",
+    "noInstitutionsFound": "No banks available for this country",
+    "loadingInstitutions": "Loading banks…",
+    "loadingInstitutionsError": "Failed to load banks",
+    "connectionExpired": "Connection expired — reconnect to fix",
+    "back": "Back",
+    "redirecting": "Redirecting to your bank…",
+    "oauthCallback": {
+      "title": "Connecting your bank",
+      "linking": "Importing your accounts, balances and transactions. This can take a minute.",
+      "dontClose": "Don't close this tab — we'll redirect you when it's ready.",
+      "linkAccountsFirstTitle": "Accounts not linked yet",
+      "linkAccountsFirstDesc": "Your Enable Banking account is in restricted mode, so accounts have to be pre-linked in the Enable Banking portal before they can be imported here.",
+      "openPortal": "Open Enable Banking portal",
+      "retry": "I've linked my accounts, try again",
+      "missingState": "OAuth state is missing or invalid. Please start the connection again.",
+      "providerError": "The bank reported an error: {{message}}"
+    },
     "providers": {
       "pluggy": {
         "description": "Open finance provider for Brazilian banks"
+      },
+      "enable_banking": {
+        "description": "European banks via PSD2 open banking"
       }
     }
   },

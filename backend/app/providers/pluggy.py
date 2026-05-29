@@ -236,7 +236,12 @@ class PluggyProvider(BankProvider):
             data = resp.json()
         return ConnectTokenData(access_token=data["accessToken"])
 
-    def get_oauth_url(self, redirect_uri: str, state: str) -> str:
+    async def get_oauth_url(
+        self,
+        redirect_uri: str,
+        state: str,
+        flow_params: Optional[dict] = None,
+    ) -> str:
         raise NotImplementedError("Pluggy uses widget flow, not OAuth redirect")
 
     async def handle_oauth_callback(self, code: str) -> ConnectionData:

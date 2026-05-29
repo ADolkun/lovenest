@@ -486,9 +486,33 @@
     "selectConnectorDesc": "Escolha um provedor de conexão bancária",
     "connectorNotConfigured": "Este conector requer configuração. Configure as credenciais necessárias para habilitá-lo.",
     "noConnectorsAvailable": "Nenhum conector bancário disponível",
+    "selectCountry": "Selecione o país",
+    "selectCountryDesc": "Escolha o país do seu banco",
+    "selectBank": "Selecione o banco",
+    "selectBankDesc": "Escolha seu banco na lista de instituições suportadas",
+    "noInstitutionsFound": "Nenhum banco disponível para este país",
+    "loadingInstitutions": "Carregando bancos…",
+    "loadingInstitutionsError": "Falha ao carregar bancos",
+    "connectionExpired": "Conexão expirada — reconecte para corrigir",
+    "back": "Voltar",
+    "redirecting": "Redirecionando para o seu banco…",
+    "oauthCallback": {
+      "title": "Conectando seu banco",
+      "linking": "Importando suas contas, saldos e transações. Isto pode levar um minuto.",
+      "dontClose": "Não feche esta aba — vamos te redirecionar quando estiver pronto.",
+      "linkAccountsFirstTitle": "Contas ainda não vinculadas",
+      "linkAccountsFirstDesc": "Sua conta Enable Banking está em modo restrito, então as contas precisam ser pré-vinculadas no portal Enable Banking antes de poderem ser importadas aqui.",
+      "openPortal": "Abrir portal Enable Banking",
+      "retry": "Já vinculei minhas contas, tentar novamente",
+      "missingState": "O estado do OAuth está ausente ou inválido. Inicie a conexão novamente.",
+      "providerError": "O banco reportou um erro: {{message}}"
+    },
     "providers": {
       "pluggy": {
         "description": "Provedor Open Finance para bancos brasileiros"
+      },
+      "enable_banking": {
+        "description": "Bancos europeus via PSD2 Open Banking"
       }
     }
   },

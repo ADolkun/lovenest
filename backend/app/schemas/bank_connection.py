@@ -25,6 +25,7 @@ class BankConnectionRead(BankConnectionBase):
 
 class OAuthUrlRequest(BaseModel):
     provider: str = "pluggy"
+    flow_params: Optional[dict] = None
 
 
 class OAuthUrlResponse(BaseModel):
@@ -33,7 +34,28 @@ class OAuthUrlResponse(BaseModel):
 
 class OAuthCallbackRequest(BaseModel):
     code: str
-    provider: str = "pluggy"
+    state: Optional[str] = None
+    provider: Optional[str] = None
+
+
+class ReauthUrlResponse(BaseModel):
+    url: str
+
+
+class InstitutionRead(BaseModel):
+    name: str
+    display_name: str
+    country: str
+    logo: Optional[str] = None
+    bic: Optional[str] = None
+    psu_types: list[str] = []
+    max_consent_days: Optional[int] = None
+    max_history_days: Optional[int] = None
+
+
+class InstitutionListResponse(BaseModel):
+    countries: list[str]
+    institutions: list[InstitutionRead]
 
 
 class ConnectTokenRequest(BaseModel):

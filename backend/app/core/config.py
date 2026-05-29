@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     pluggy_client_secret: str = ""
     pluggy_oauth_redirect_uri: str = "http://localhost:5173/oauth/callback"
 
+    # Enable Banking (European PSD2 banks)
+    enable_banking_app_id: str = ""
+    enable_banking_private_key: str = ""  # raw PEM; supports \n-escaped envs
+    enable_banking_private_key_file: str = ""  # path to PEM file; takes precedence
+    enable_banking_api_url: str = "https://api.enablebanking.com"
+    enable_banking_oauth_redirect_uri: str = "http://localhost:5173/oauth/callback"
+
     # Frontend
     frontend_url: str = "http://localhost:5173"
 

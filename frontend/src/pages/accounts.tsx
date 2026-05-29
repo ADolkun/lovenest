@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { getConnectionName } from '@/lib/connection-utils'
 import { Link } from 'react-router-dom'
@@ -37,7 +37,8 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { BankConnectDialog } from '@/components/bank-connect-dialog'
-import { ConnectorSelectDialog } from '@/components/connector-select-dialog'
+import { ConnectorSelectDialog, type Provider } from '@/components/connector-select-dialog'
+import { OAuthConnectDialog } from '@/components/oauth-connect-dialog'
 import { ConnectionSettingsDialog } from '@/components/connection-settings-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -79,7 +80,7 @@ export default function AccountsPage() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [connectorSelectOpen, setConnectorSelectOpen] = useState(false)
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
   const [settingsConnection, setSettingsConnection] = useState<BankConnection | null>(null)
   const [disconnectingConnection, setDisconnectingConnection] = useState<BankConnection | null>(null)
   const [closingAccountId, setClosingAccountId] = useState<string | null>(null)
@@ -95,6 +96,35 @@ export default function AccountsPage() {
     queryKey: ['connections'],
     queryFn: connections.list,
   })
+
+  const { data: providersList } = useQuery({
+    queryKey: ['connections', 'providers'],
+    queryFn: connections.getProviders,
+    staleTime: 1000 * 60 * 10,
+  })
+
+  const providersByName = useMemo(() => {
+    const map = new Map<string, Provider>()
+    for (const p of providersList ?? []) map.set(p.name, p as Provider)
+    return map
+  }, [providersList])
+
+  const handleReconnectClick = async (conn: BankConnection) => {
+    const providerInfo = providersByName.get(conn.provider)
+    if (providerInfo?.flow_type === 'oauth') {
+      try {
+        const url = await connections.getReauthUrl(conn.id)
+        window.location.assign(url)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        toast.error(message || t('accounts.connectError'))
+      }
+      return
+    }
+    // Widget flow (Pluggy): re-open the widget with the existing item_id.
+    setReconnectConnId(conn.id)
+    setReconnectItemId(conn.external_id)
+  }
 
   const { data: closedAccountsList } = useQuery({
     queryKey: ['accounts', 'closed'],
@@ -362,17 +392,16 @@ export default function AccountsPage() {
                     {conn.status !== 'active' && (
                       <div className="mx-5 mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
                         <span className="text-sm text-amber-800">
-                          {t('accounts.connectionError')}
+                          {conn.status === 'expired'
+                            ? t('accounts.connectionExpired')
+                            : t('accounts.connectionError')}
                         </span>
                         {canWrite && (
                           <Button
                             variant="outline"
                             size="sm"
                             className="border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5 h-8"
-                            onClick={() => {
-                              setReconnectConnId(conn.id)
-                              setReconnectItemId(conn.external_id)
-                            }}
+                            onClick={() => handleReconnectClick(conn)}
                           >
                             <RefreshCw size={12} />
                             {t('accounts.reconnect')}
@@ -585,11 +614,18 @@ export default function AccountsPage() {
         onSelect={(provider) => setSelectedProvider(provider)}
       />
 
-      {/* Bank Connect Dialog */}
+      {/* Bank Connect Dialog — widget-based (Pluggy) */}
       <BankConnectDialog
-        open={!!selectedProvider}
+        open={!!selectedProvider && selectedProvider.flow_type === 'widget'}
         onClose={() => setSelectedProvider(null)}
-        provider={selectedProvider ?? undefined}
+        provider={selectedProvider?.name}
+      />
+
+      {/* OAuth Connect Dialog — institution-pickers (Enable Banking) */}
+      <OAuthConnectDialog
+        open={!!selectedProvider && selectedProvider.flow_type === 'oauth'}
+        onClose={() => setSelectedProvider(null)}
+        provider={selectedProvider?.name ?? ''}
       />
 
       {/* Reconnect Dialog */}

@@ -20,7 +20,12 @@ from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
-from app.providers.base import HoldingData
+from app.providers.base import (
+    HoldingData,
+    ProviderUserActionRequired,
+    SessionExpiredError,
+)
+from app.services import oauth_state
 from app.services import admin_service
 from app.services.account_service import sync_opening_balance_for_connected_account
 from app.services.asset_group_service import ensure_group_for_connection
@@ -352,10 +357,76 @@ async def get_connection(
     return result.scalar_one_or_none()
 
 
-def get_oauth_url(provider_name: str, user_id: uuid.UUID) -> str:
+async def get_oauth_url(
+    provider_name: str,
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    flow_params: Optional[dict] = None,
+    reconnect_connection_id: Optional[uuid.UUID] = None,
+) -> str:
     provider = get_provider(provider_name)
-    state = str(user_id)
-    return provider.get_oauth_url(settings.pluggy_oauth_redirect_uri, state)
+    state = await oauth_state.store_state(
+        {
+            "user_id": str(user_id),
+            "workspace_id": str(workspace_id),
+            "provider": provider_name,
+            "flow_params": flow_params or {},
+            "reconnect_connection_id": (
+                str(reconnect_connection_id) if reconnect_connection_id else None
+            ),
+        }
+    )
+    return await provider.get_oauth_url(provider.redirect_uri, state, flow_params)
+
+
+async def get_reauth_url(
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> str:
+    connection = await get_connection(session, connection_id, workspace_id)
+    if not connection:
+        raise ValueError("Connection not found")
+    provider = get_provider(connection.provider)
+    state = await oauth_state.store_state(
+        {
+            "user_id": str(user_id),
+            "workspace_id": str(workspace_id),
+            "provider": connection.provider,
+            "flow_params": (connection.settings or {}).get("flow_params") or {},
+            "reconnect_connection_id": str(connection.id),
+        }
+    )
+    return await provider.reauth_url(
+        connection.credentials or {},
+        connection.settings or {},
+        provider.redirect_uri,
+        state,
+    )
+
+
+async def list_provider_institutions(
+    provider_name: str, country: Optional[str] = None
+) -> dict:
+    provider = get_provider(provider_name)
+    data = await provider.list_institutions(country)
+    return {
+        "countries": data.countries,
+        "institutions": [
+            {
+                "name": i.name,
+                "display_name": i.display_name,
+                "country": i.country,
+                "logo": i.logo,
+                "bic": i.bic,
+                "psu_types": i.psu_types,
+                "max_consent_days": i.max_consent_days,
+                "max_history_days": i.max_history_days,
+            }
+            for i in data.institutions
+        ],
+    }
 
 
 async def create_connect_token(
@@ -397,10 +468,43 @@ async def handle_oauth_callback(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     code: str,
-    provider_name: str,
+    provider_name: Optional[str] = None,
+    state: Optional[str] = None,
 ) -> BankConnection:
+    state_payload: dict = {}
+    if state:
+        consumed = await oauth_state.consume_state(state)
+        if not consumed:
+            raise ValueError("OAuth state is invalid or expired")
+        # The state is authoritative — caller-supplied provider_name is a hint.
+        if consumed.get("user_id") != str(user_id):
+            raise ValueError("OAuth state user does not match authenticated user")
+        if consumed.get("workspace_id") != str(workspace_id):
+            raise ValueError("OAuth state workspace does not match active workspace")
+        state_payload = consumed
+        provider_name = consumed.get("provider") or provider_name
+    if not provider_name:
+        raise ValueError("OAuth callback missing provider")
+
     provider = get_provider(provider_name)
     connection_data = await provider.handle_oauth_callback(code)
+
+    reconnect_id = state_payload.get("reconnect_connection_id")
+    if reconnect_id:
+        existing = await session.get(BankConnection, uuid.UUID(reconnect_id))
+        if not existing or existing.workspace_id != workspace_id:
+            raise ValueError("Reconnect target connection not found")
+        existing.external_id = connection_data.external_id
+        existing.institution_name = (
+            connection_data.institution_name or existing.institution_name
+        )
+        existing.credentials = connection_data.credentials
+        existing.status = "active"
+        # Re-sync from current data on next sync cycle.
+        existing.last_sync_at = None
+        await session.commit()
+        await session.refresh(existing)
+        return existing
 
     connection = BankConnection(
         workspace_id=workspace_id,
@@ -409,6 +513,7 @@ async def handle_oauth_callback(
         external_id=connection_data.external_id,
         institution_name=connection_data.institution_name,
         credentials=connection_data.credentials,
+        settings={"flow_params": state_payload.get("flow_params") or {}},
         status="active",
     )
     session.add(connection)
@@ -1236,6 +1341,21 @@ async def sync_connection(
         await session.refresh(connection)
         return connection, merged_count
 
+    except SessionExpiredError:
+        # Provider consent expired — distinct from a generic error so the UI
+        # can show a clearer "reauthorize" prompt.
+        await session.rollback()
+        async with session.begin():
+            conn = await session.get(BankConnection, connection_id)
+            if conn:
+                conn.status = "expired"
+        raise
+    except ProviderUserActionRequired:
+        # User must act in the provider's portal (e.g. EB restricted-mode
+        # account linking). Don't mark the connection errored — propagate
+        # so the API layer can surface the specific code to the UI.
+        await session.rollback()
+        raise
     except Exception:
         # Mark connection as errored so UI shows reconnect banner
         await session.rollback()

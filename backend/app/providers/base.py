@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -99,6 +99,45 @@ class HoldingData:
     metadata: Optional[dict] = None
 
 
+@dataclass
+class InstitutionData:
+    """One ASPSP/bank offered by an OAuth provider."""
+
+    name: str  # canonical identifier the provider expects in subsequent calls
+    display_name: str
+    country: str  # ISO 3166-1 alpha-2
+    logo: Optional[str] = None
+    bic: Optional[str] = None
+    psu_types: list[str] = field(default_factory=list)  # e.g. ["personal", "business"]
+    max_consent_days: Optional[int] = None
+    max_history_days: Optional[int] = None
+
+
+@dataclass
+class InstitutionListData:
+    """List of supported institutions (banks) for a provider, optionally for one country."""
+
+    countries: list[str]
+    institutions: list[InstitutionData]
+
+
+class SessionExpiredError(Exception):
+    """Raised when a provider session/consent has expired and reauth is required."""
+
+
+class ProviderUserActionRequired(Exception):
+    """Raised when a provider needs the user to take an action outside the app.
+
+    Example: Enable Banking restricted mode requires the user to pre-link
+    accounts in the EB portal before sessions return any accounts.
+    """
+
+    def __init__(self, message: str, *, code: str, help_url: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.help_url = help_url
+
+
 class FxRateProvider(ABC):
     """Abstract interface for FX rate providers."""
 
@@ -137,16 +176,59 @@ class BankProvider(ABC):
         """Connection flow type: 'oauth' for redirect-based, 'widget' for embedded widget."""
         return "oauth"
 
+    @property
+    def redirect_uri(self) -> str:
+        """Provider-specific OAuth redirect URI.
+
+        Each provider reads its own env var (e.g.
+        ``PLUGGY_OAUTH_REDIRECT_URI``, ``ENABLE_BANKING_OAUTH_REDIRECT_URI``)
+        so different providers can register different URLs in their
+        respective dashboards.
+        """
+        from app.core.config import get_settings
+
+        return get_settings().pluggy_oauth_redirect_uri
+
     async def create_connect_token(
         self, client_user_id: str, item_id: str | None = None
     ) -> ConnectTokenData:
         """Create a connect token for widget-based flows. Override in widget providers."""
         raise NotImplementedError(f"{self.name} does not support widget connect tokens")
 
+    async def list_institutions(
+        self, country: Optional[str] = None
+    ) -> "InstitutionListData":
+        """List supported institutions (banks). Empty by default for providers
+        that don't surface a selection step (Pluggy uses its own widget).
+        """
+        return InstitutionListData(countries=[], institutions=[])
+
     @abstractmethod
-    def get_oauth_url(self, redirect_uri: str, state: str) -> str:
-        """Generate OAuth URL for user to authorize."""
+    async def get_oauth_url(
+        self,
+        redirect_uri: str,
+        state: str,
+        flow_params: Optional[dict] = None,
+    ) -> str:
+        """Generate OAuth URL for user to authorize.
+
+        ``flow_params`` carries provider-specific options gathered up-front
+        (e.g. EB needs ``{"country": "DE", "institution_name": "Revolut"}``).
+        """
         ...
+
+    async def reauth_url(
+        self,
+        credentials: dict,
+        settings: dict,
+        redirect_uri: str,
+        state: str,
+    ) -> str:
+        """Build a re-authorization URL for an existing connection whose
+        session/consent expired. Default raises — only providers with
+        renewable consent (OAuth-redirect) need to override.
+        """
+        raise NotImplementedError(f"{self.name} does not support reauth_url")
 
     @abstractmethod
     async def handle_oauth_callback(self, code: str) -> ConnectionData:

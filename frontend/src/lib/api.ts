@@ -230,7 +230,7 @@ export const connections = {
     const { data } = await api.get('/connections')
     return data
   },
-  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean }[]> => {
+  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean; requires_institution_select?: boolean }[]> => {
     const { data } = await api.get('/connections/providers')
     return data.providers
   },
@@ -238,13 +238,38 @@ export const connections = {
     const { data } = await api.post('/connections/connect-token', { provider })
     return data.access_token
   },
-  getOAuthUrl: async (provider: string): Promise<string> => {
-    const { data } = await api.post('/connections/oauth/url', { provider })
+  getOAuthUrl: async (provider: string, flow_params?: Record<string, unknown>): Promise<string> => {
+    const { data } = await api.post('/connections/oauth/url', { provider, flow_params })
     return data.url
   },
-  handleCallback: async (code: string, provider: string): Promise<BankConnection> => {
-    const { data } = await api.post('/connections/oauth/callback', { code, provider })
+  listInstitutions: async (
+    provider: string,
+    country?: string,
+  ): Promise<{
+    countries: string[]
+    institutions: {
+      name: string
+      display_name: string
+      country: string
+      logo?: string | null
+      bic?: string | null
+      psu_types: string[]
+      max_consent_days?: number | null
+      max_history_days?: number | null
+    }[]
+  }> => {
+    const { data } = await api.get(`/connections/${provider}/institutions`, {
+      params: country ? { country } : undefined,
+    })
     return data
+  },
+  handleCallback: async (code: string, provider: string, state?: string): Promise<BankConnection> => {
+    const { data } = await api.post('/connections/oauth/callback', { code, provider, state })
+    return data
+  },
+  getReauthUrl: async (connectionId: string): Promise<string> => {
+    const { data } = await api.post(`/connections/${connectionId}/oauth/reauth-url`)
+    return data.url
   },
   sync: async (id: string): Promise<BankConnection> => {
     const { data } = await api.post(`/connections/${id}/sync`)

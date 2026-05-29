@@ -58,6 +58,7 @@ omit = [
     "app/worker.py",
     "app/tasks/*",
     "app/providers/pluggy.py",
+    "app/providers/enable_banking.py",
     "app/providers/market_price.py",
 ]
 
