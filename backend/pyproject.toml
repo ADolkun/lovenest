@@ -59,6 +59,7 @@ omit = [
     "app/tasks/*",
     "app/providers/pluggy.py",
     "app/providers/enable_banking.py",
+    "app/providers/simplefin.py",
     "app/providers/market_price.py",
 ]
 

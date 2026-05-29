@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     enable_banking_api_url: str = "https://api.enablebanking.com"
     enable_banking_oauth_redirect_uri: str = "http://localhost:5173/oauth/callback"
 
+    # SimpleFIN Bridge (US/intl banks, paste-a-token flow). Off by default.
+    # The bridge URL defaults to the beta/sandbox host so users can test with
+    # the demo token; flip to https://bridge.simplefin.org for production.
+    simplefin_enabled: bool = False
+    simplefin_api_url: str = "https://beta-bridge.simplefin.org"
+
     # Frontend
     frontend_url: str = "http://localhost:5173"
 

@@ -507,12 +507,29 @@
       "missingState": "OAuth state is missing or invalid. Please start the connection again.",
       "providerError": "The bank reported an error: {{message}}"
     },
+    "tokenConnect": {
+      "defaultTitle": "Connect with a token",
+      "defaultDescription": "Generate a setup token at the provider and paste it below to link your accounts.",
+      "openBridge": "Generate token at SimpleFIN Bridge",
+      "tokenLabel": "Setup token",
+      "tokenPlaceholder": "Paste the token you received…",
+      "tokenHelp": "The setup token is single-use. Securo claims a private access URL from it and stores it encrypted.",
+      "connect": "Connect",
+      "connecting": "Connecting…",
+      "simplefin": {
+        "title": "Connect via SimpleFIN",
+        "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
+      }
+    },
     "providers": {
       "pluggy": {
         "description": "Open finance provider for Brazilian banks"
       },
       "enable_banking": {
         "description": "European banks via PSD2 open banking"
+      },
+      "simplefin": {
+        "description": "US and international banks via SimpleFIN Bridge"
       }
     }
   },

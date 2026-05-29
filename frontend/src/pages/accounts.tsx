@@ -39,6 +39,7 @@ import { PageHeader } from '@/components/page-header'
 import { BankConnectDialog } from '@/components/bank-connect-dialog'
 import { ConnectorSelectDialog, type Provider } from '@/components/connector-select-dialog'
 import { OAuthConnectDialog } from '@/components/oauth-connect-dialog'
+import { TokenConnectDialog } from '@/components/token-connect-dialog'
 import { ConnectionSettingsDialog } from '@/components/connection-settings-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -624,6 +625,13 @@ export default function AccountsPage() {
       {/* OAuth Connect Dialog — institution-pickers (Enable Banking) */}
       <OAuthConnectDialog
         open={!!selectedProvider && selectedProvider.flow_type === 'oauth'}
+        onClose={() => setSelectedProvider(null)}
+        provider={selectedProvider?.name ?? ''}
+      />
+
+      {/* Token Connect Dialog — paste-a-token flow (SimpleFIN) */}
+      <TokenConnectDialog
+        open={!!selectedProvider && selectedProvider.flow_type === 'token'}
         onClose={() => setSelectedProvider(null)}
         provider={selectedProvider?.name ?? ''}
       />

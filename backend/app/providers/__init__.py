@@ -31,6 +31,13 @@ KNOWN_PROVIDERS = [
         "flow_type": "oauth",
         "requires_institution_select": True,
     },
+    {
+        "name": "simplefin",
+        "display_name": "SimpleFIN",
+        "description": "US and international banks via SimpleFIN Bridge",
+        "flow_type": "token",
+        "requires_institution_select": False,
+    },
 ]
 
 
@@ -79,6 +86,10 @@ def _auto_register_providers() -> None:
     if settings.enable_banking_app_id and eb_has_key:
         from app.providers.enable_banking import EnableBankingProvider
         register_provider("enable_banking", EnableBankingProvider)
+
+    if settings.simplefin_enabled:
+        from app.providers.simplefin import SimpleFinProvider
+        register_provider("simplefin", SimpleFinProvider)
 
 
 _auto_register_providers()

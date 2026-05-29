@@ -507,12 +507,29 @@
       "missingState": "O estado do OAuth está ausente ou inválido. Inicie a conexão novamente.",
       "providerError": "O banco reportou um erro: {{message}}"
     },
+    "tokenConnect": {
+      "defaultTitle": "Conectar com um token",
+      "defaultDescription": "Gere um token de configuração no provedor e cole abaixo para conectar suas contas.",
+      "openBridge": "Gerar token no SimpleFIN Bridge",
+      "tokenLabel": "Token de configuração",
+      "tokenPlaceholder": "Cole o token que você recebeu…",
+      "tokenHelp": "O token é de uso único. O Securo gera uma URL de acesso privada a partir dele e a armazena criptografada.",
+      "connect": "Conectar",
+      "connecting": "Conectando…",
+      "simplefin": {
+        "title": "Conectar via SimpleFIN",
+        "description": "O SimpleFIN é um protocolo de leitura de dados bancários. Vá ao SimpleFIN Bridge, escolha o seu banco e copie o token de configuração aqui."
+      }
+    },
     "providers": {
       "pluggy": {
         "description": "Provedor Open Finance para bancos brasileiros"
       },
       "enable_banking": {
         "description": "Bancos europeus via PSD2 Open Banking"
+      },
+      "simplefin": {
+        "description": "Bancos dos EUA e internacionais via SimpleFIN Bridge"
       }
     }
   },
