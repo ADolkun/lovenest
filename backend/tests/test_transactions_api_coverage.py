@@ -4,15 +4,12 @@ Covers list filters, export (filtered + selection), get/create/update/delete,
 ignore toggle, bulk endpoints, transfer/link/counterpart/candidates, and
 error branches (404/400/422).
 """
-import uuid
 from datetime import date
-from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 
 from app.models.account import Account
-from app.models.transaction import Transaction
 
 
 NONEXISTENT = "00000000-0000-0000-0000-000000000000"

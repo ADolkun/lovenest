@@ -7,7 +7,7 @@ assorted edge branches. See test_transaction_service.py for the baseline.
 """
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -15,7 +15,6 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
-from app.models.category import Category
 from app.models.credit_card_bill import CreditCardBill
 from app.models.group import Group, GroupMember
 from app.models.transaction import Transaction
@@ -369,11 +368,11 @@ async def test_get_transfer_candidates_ranks_by_proximity(session, test_user, te
         type="debit", date=date(2025, 3, 15),
     )
     # Best candidate: closest date + same amount, opposing type, other account
-    close = await _mk_txn(
+    await _mk_txn(
         session, test_user, acct2, description="Close", amount=Decimal("100"),
         type="credit", date=date(2025, 3, 16),
     )
-    far = await _mk_txn(
+    await _mk_txn(
         session, test_user, acct2, description="Far", amount=Decimal("100"),
         type="credit", date=date(2025, 3, 25),
     )
@@ -830,12 +829,12 @@ async def test_get_transactions_bill_id_filter(session, test_user, test_workspac
     await session.commit()
 
     # Linked to the bill directly.
-    linked = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="Linked", amount=Decimal("100"),
         date=date(2025, 4, 5), bill_id=bill.id, effective_date=date(2025, 4, 20),
     )
     # Unlinked manual tx whose date falls inside the window.
-    in_window = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="InWindow", amount=Decimal("50"),
         date=date(2025, 4, 7), effective_date=date(2025, 4, 7),
     )
@@ -863,7 +862,7 @@ async def test_get_transactions_bill_id_no_dates(session, test_user, test_worksp
     )
     session.add(bill)
     await session.commit()
-    linked = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="OnlyLinked", amount=Decimal("100"),
         date=date(2025, 4, 5), bill_id=bill.id, effective_date=date(2025, 4, 20),
     )
@@ -880,11 +879,11 @@ async def test_get_transactions_unbilled_only(session, test_user, test_workspace
     session.add(bill)
     await session.commit()
 
-    billed = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="AlreadyBilled", amount=Decimal("100"),
         date=date(2025, 5, 3), bill_id=bill.id, effective_date=date(2025, 5, 3),
     )
-    unbilled = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="StillUnbilled", amount=Decimal("40"),
         date=date(2025, 5, 4), effective_date=date(2025, 5, 4),
     )
@@ -900,7 +899,7 @@ async def test_get_transactions_unbilled_only(session, test_user, test_workspace
 async def test_get_transactions_unbilled_only_forward_override(session, test_user, test_workspace, cc_account):
     # A tx with a forward-pointing manual override beyond the window edge
     # should still surface in the in-progress cycle (issue #162).
-    forward = await _mk_txn(
+    await _mk_txn(
         session, test_user, cc_account, description="ForwardOverride", amount=Decimal("70"),
         date=date(2025, 5, 10), effective_date=date(2025, 7, 20),
         effective_bill_date=date(2025, 7, 20),

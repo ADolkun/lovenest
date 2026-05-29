@@ -12,7 +12,6 @@ import bcrypt as _bcrypt
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.account import Account
 from app.models.transaction import Transaction
 from app.models.transaction_split import TransactionSplit
 from app.models.user import User

@@ -6,8 +6,6 @@ paths, update_member_role validation, get_workspace_stats, archive_workspace,
 and remove_member.
 """
 import uuid
-from datetime import date, datetime, timezone
-from decimal import Decimal
 
 import bcrypt as _bcrypt
 import pytest
@@ -15,10 +13,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.account import Account
-from app.models.transaction import Transaction
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace
 from app.services import workspace_service
 
 
@@ -189,7 +185,7 @@ async def test_archive_workspace_blocks_last(session: AsyncSession, test_user: U
 
 @pytest.mark.asyncio
 async def test_archive_workspace_succeeds_with_other(session: AsyncSession, test_user: User, test_workspace):
-    second = await workspace_service.create_workspace(
+    await workspace_service.create_workspace(
         session, name="Second", creator=test_user, self_membership=True, seed_defaults=False
     )
     await session.commit()

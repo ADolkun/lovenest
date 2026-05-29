@@ -4,8 +4,6 @@ Exercises list filters, get/create/update/delete, close/reopen, summary,
 balance-history and bills endpoints, plus 404/400 error branches and the
 non-primary-currency conversion path.
 """
-import uuid
-from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
