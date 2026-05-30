@@ -136,8 +136,19 @@ async def update_workspace(
     workspace = await session.get(Workspace, workspace_id)
     if workspace is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    for key, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    for key, value in updates.items():
         setattr(workspace, key, value)
+    # Changing the workspace currency follows through to the acting
+    # owner's display currency, so the whole app re-renders in the new
+    # currency (display is driven by user.currency_display, not the
+    # workspace). Other members keep their own currency_display override.
+    new_currency = updates.get("default_currency")
+    if new_currency and (user.preferences or {}).get("currency_display") != new_currency:
+        prefs = dict(user.preferences or {})
+        prefs["currency_display"] = new_currency
+        user.preferences = prefs
+        session.add(user)
     await session.commit()
     await session.refresh(workspace)
     item = WorkspaceRead.model_validate(workspace)
@@ -203,6 +214,19 @@ async def invite_member(
                 password=body.password,
             )
             target = await user_manager.create(create_payload)
+            # A user created to join this workspace inherits its currency
+            # as their display currency, so the app comes up in the
+            # workspace's currency rather than the USD default. Set this
+            # before bootstrapping their Personal workspace below, which
+            # reads currency_display for its own default_currency.
+            ws = await session.get(Workspace, workspace_id)
+            if ws is not None:
+                target.preferences = {
+                    **(target.preferences or {}),
+                    "currency_display": ws.default_currency,
+                }
+                session.add(target)
+                await session.flush()
             # The fresh user gets their own Personal workspace by virtue
             # of the registration hook (called below via on_after_register
             # when request is non-None; programmatic call leaves it empty,

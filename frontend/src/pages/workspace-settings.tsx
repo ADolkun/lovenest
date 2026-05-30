@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { currencies as currenciesApi, workspaces as workspacesApi } from '@/lib/api'
+import { auth as authApi, currencies as currenciesApi, workspaces as workspacesApi } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
@@ -74,7 +74,7 @@ export default function WorkspaceSettingsPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { current, canManage, workspaces: allWorkspaces, refresh, switchWorkspace } = useWorkspace()
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, updateUser } = useAuth()
   const queryClient = useQueryClient()
 
   const [editName, setEditName] = useState('')
@@ -130,6 +130,12 @@ export default function WorkspaceSettingsPage() {
     onSuccess: () => {
       toast.success(t('workspace.saveSuccess'))
       void refresh()
+      // Changing the workspace currency also updates the acting user's
+      // display currency server-side; refresh the cached user so the
+      // whole app re-renders in the new currency, then drop currency-
+      // dependent queries.
+      void authApi.me().then(updateUser).catch(() => {})
+      void queryClient.invalidateQueries()
     },
     onError: (e: unknown) => {
       const detail =

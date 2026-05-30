@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { admin as adminApi } from '@/lib/api'
+import { admin as adminApi, currencies as currenciesApi } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,13 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale, Tag } from 'lucide-react'
 import type { AdminUser } from '@/types'
@@ -132,6 +139,12 @@ export default function AdminSettingsPage() {
     retry: false,
   })
 
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currenciesApi.list,
+    staleTime: Infinity,
+  })
+
   const updateProviderCatsMutation = useMutation({
     mutationFn: (value: string) => adminApi.updateSetting('use_provider_categories', value),
     onSuccess: () => {
@@ -150,7 +163,9 @@ export default function AdminSettingsPage() {
     setFormPassword('')
     setFormIsAdmin(false)
     setFormLanguage('en')
-    setFormCurrency('USD')
+    // New users default to the admin's current display currency so they
+    // follow the currency the workspace is running in.
+    setFormCurrency(currentUser?.preferences?.currency_display ?? 'USD')
   }
 
   function openEdit(u: AdminUser) {
@@ -393,7 +408,18 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[13px]">{t('setup.currency')}</Label>
-                  <Input value={formCurrency} onChange={(e) => setFormCurrency(e.target.value)} className="h-10 rounded-lg" />
+                  <Select value={formCurrency} onValueChange={setFormCurrency}>
+                    <SelectTrigger className="h-10 rounded-lg w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(supportedCurrencies ?? []).map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.flag} {c.code} — {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <button
