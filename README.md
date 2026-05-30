@@ -18,7 +18,7 @@ We believe personal finance should actually be <em>personal</em>. No corporation
 
 ## Quick Start
 
-**Linux & macOS** (installs Docker if needed):
+**Linux & macOS** (uses Docker or Podman; installs Docker if neither is present):
 
 ```bash
 curl -fsSL https://usesecuro.com/install.sh | bash
