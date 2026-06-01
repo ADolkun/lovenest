@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { getAccountName } from '@/lib/account-utils'
+import { currentMonth, monthRange, monthFromRange } from '@/lib/month-utils'
+import { MonthStepper } from '@/components/month-stepper'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -76,8 +78,28 @@ export default function TransactionsPage() {
     return initial ? [initial] : []
   })
   const [filterUncategorized, setFilterUncategorized] = useState<boolean>(false)
-  const [filterFrom, setFilterFrom] = useState<string>('')
-  const [filterTo, setFilterTo] = useState<string>('')
+  // Seed the date range from the URL, or default to the current month on first
+  // open (no ?from/?to). Done in the initializer so it survives effect re-runs
+  // (e.g. React StrictMode's double-invoke in development).
+  const [filterFrom, setFilterFrom] = useState<string>(() => {
+    const f = searchParams.get('from')
+    const t = searchParams.get('to')
+    return f || t ? (f ?? '') : monthRange(currentMonth()).from
+  })
+  const [filterTo, setFilterTo] = useState<string>(() => {
+    const f = searchParams.get('from')
+    const t = searchParams.get('to')
+    return f || t ? (t ?? '') : monthRange(currentMonth()).to
+  })
+  // Month reflected by the stepper: the active range when it spans exactly one
+  // full month, otherwise the current month (custom ranges still navigable).
+  const steppedMonth = monthFromRange(filterFrom, filterTo) ?? currentMonth()
+  const handleMonthChange = (ym: string) => {
+    const { from, to } = monthRange(ym)
+    setFilterFrom(from)
+    setFilterTo(to)
+    setPage(1)
+  }
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') ?? '')
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') ?? '')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -137,11 +159,22 @@ export default function TransactionsPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const highlightId = searchParams.get('highlight')
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null)
+  // Last URL query we synced from, to tell a genuine navigation apart from the
+  // initial mount (and from StrictMode's double-invoke, which repeats the same
+  // value). Starts null so the first run is recognized as the initial mount.
+  const prevSearchRef = useRef<string | null>(null)
 
   // Sync state from URL when navigating (e.g. from the command palette) while
   // the page is already mounted. Typing in the search box does not touch the
   // URL, so this effect only fires on genuine navigation events.
   useEffect(() => {
+    const search = searchParams.toString()
+    // Skip re-runs with an unchanged query (e.g. StrictMode's second mount),
+    // so they can't override the initial current-month default.
+    if (prevSearchRef.current === search) return
+    const isInitial = prevSearchRef.current === null
+    prevSearchRef.current = search
+
     const nextQ = searchParams.get('q') ?? ''
     setSearchInput(nextQ)
     setSearchQuery(nextQ)
@@ -155,8 +188,18 @@ export default function TransactionsPage() {
     setFilterUncategorized(searchParams.get('uncategorized') === '1');
     const accounts = searchParams.get('account_id');
     setFilterAccountIds(accounts ? accounts.split(',') : []);
-    setFilterFrom(searchParams.get('from') ?? '');
-    setFilterTo(searchParams.get('to') ?? '');
+    const urlFrom = searchParams.get('from')
+    const urlTo = searchParams.get('to')
+    if (urlFrom || urlTo) {
+      // Explicit range in the URL (shared/bookmarked link) wins.
+      setFilterFrom(urlFrom ?? '')
+      setFilterTo(urlTo ?? '')
+    } else if (!isInitial) {
+      // A genuine navigation cleared the range (e.g. Clear filters): show all.
+      // On the initial mount we keep the current-month default seeded above.
+      setFilterFrom('')
+      setFilterTo('')
+    }
     setFilterMinAmount(searchParams.get('min_amount') ?? '');
     setFilterMaxAmount(searchParams.get('max_amount') ?? '');
     setPage(1)
@@ -955,6 +998,13 @@ export default function TransactionsPage() {
         title={t('transactions.title')}
         action={
           <div className="flex items-center gap-2">
+            <MonthStepper
+              value={steppedMonth}
+              onChange={handleMonthChange}
+              locale={i18n.language === 'en' ? 'en-US' : i18n.language}
+              prevLabel={t('transactions.monthPrevious')}
+              nextLabel={t('transactions.monthNext')}
+            />
             <TransactionsColumnPicker state={grid} />
             <Button
               variant="outline"
