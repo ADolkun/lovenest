@@ -27,6 +27,7 @@ const currencies = [
   { code: 'HUF', flag: '\u{1F1ED}\u{1F1FA}', symbol: 'Ft' },
   { code: 'RON', flag: '\u{1F1F7}\u{1F1F4}', symbol: 'lei' },
   { code: 'CRC', flag: '\u{1F1E8}\u{1F1F7}', symbol: '₡' },
+  { code: 'IDR', flag: '\u{1F1EE}\u{1F1E9}', symbol: 'Rp' },
 ] as const
 
 export default function RegisterPage() {

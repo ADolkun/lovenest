@@ -29,6 +29,7 @@ CURRENCY_META = {
     "HUF": {"symbol": "Ft", "name": "Hungarian Forint", "flag": "\U0001F1ED\U0001F1FA"},
     "RON": {"symbol": "lei", "name": "Romanian Leu", "flag": "\U0001F1F7\U0001F1F4"},
     "CRC": {"symbol": "₡", "name": "Costa Rican Colón", "flag": "\U0001F1E8\U0001F1F7"},
+    "IDR": {"symbol": "Rp", "name": "Indonesian Rupiah", "flag": "\U0001F1EE\U0001F1E9"},
 }
 
 
