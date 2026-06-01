@@ -157,6 +157,7 @@ export default function SetupPage() {
                   { code: 'RON', flag: '\u{1F1F7}\u{1F1F4}', symbol: 'lei' },
                   { code: 'CRC', flag: '\u{1F1E8}\u{1F1F7}', symbol: '₡' },
                   { code: 'IDR', flag: '\u{1F1EE}\u{1F1E9}', symbol: 'Rp' },
+                  { code: 'COP', flag: '\u{1F1E8}\u{1F1F4}', symbol: '$' },
                 ] as const).map(({ code, flag, symbol }) => (
                   <button
                     key={code}
