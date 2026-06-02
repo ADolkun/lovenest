@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
+import { CurrencySelect } from '@/components/currency-select'
+import { AuthBrandPanel } from '@/components/auth-brand-panel'
 import { cn } from '@/lib/utils'
 import { Sun, Moon, Globe } from 'lucide-react'
 import { ShellLogo } from '@/components/shell-logo'
@@ -75,11 +77,13 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background px-4">
-      <Card className="w-full max-w-[400px] shadow-sm">
+    <div className="min-h-screen lg:grid lg:grid-cols-2">
+      <AuthBrandPanel />
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+      <Card className="w-full max-w-[400px] border-border/60 shadow-sm">
         <form onSubmit={handleSubmit}>
           <div className="flex flex-col items-center pt-8 pb-2 px-8">
-            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4 lg:hidden">
               <ShellLogo size={22} className="text-primary" />
             </div>
             <h1 className="text-xl font-semibold tracking-tight">{t('setup.title')}</h1>
@@ -91,6 +95,81 @@ export default function SetupPage() {
                 {error}
               </div>
             )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-sm flex items-center gap-1.5">
+                  <Globe size={14} />
+                  {t('setup.language')}
+                </Label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('en')}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
+                      currentLang === 'en'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    EN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('es')}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
+                      currentLang === 'es'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    ES
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('pt-BR')}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
+                      currentLang === 'pt-BR'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    PT
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-sm">{t('setup.theme')}</Label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setTheme('light')}
+                    className={cn(
+                      'p-1.5 rounded transition-colors',
+                      theme === 'light'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Sun size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTheme('dark')}
+                    className={cn(
+                      'p-1.5 rounded transition-colors',
+                      theme === 'dark'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    <Moon size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-sm">{t('setup.name')}</Label>
               <Input
@@ -138,122 +217,9 @@ export default function SetupPage() {
                 minLength={8}
               />
             </div>
-            <div className="space-y-2 pt-1">
-              <Label className="text-sm">{t('setup.currency')}</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {([
-                  { code: 'USD', flag: '\u{1F1FA}\u{1F1F8}', symbol: '$' },
-                  { code: 'EUR', flag: '\u{1F1EA}\u{1F1FA}', symbol: '\u20AC' },
-                  { code: 'GBP', flag: '\u{1F1EC}\u{1F1E7}', symbol: '\u00A3' },
-                  { code: 'BRL', flag: '\u{1F1E7}\u{1F1F7}', symbol: 'R$' },
-                  { code: 'CAD', flag: '\u{1F1E8}\u{1F1E6}', symbol: 'C$' },
-                  { code: 'AUD', flag: '\u{1F1E6}\u{1F1FA}', symbol: 'A$' },
-                  { code: 'CHF', flag: '\u{1F1E8}\u{1F1ED}', symbol: 'Fr' },
-                  { code: 'ARS', flag: '\u{1F1E6}\u{1F1F7}', symbol: '$' },
-                  { code: 'DKK', flag: '\u{1F1E9}\u{1F1F0}', symbol: 'kr' },
-                  { code: 'NOK', flag: '\u{1F1F3}\u{1F1F4}', symbol: 'kr' },
-                  { code: 'PLN', flag: '\u{1F1F5}\u{1F1F1}', symbol: 'zł' },
-                  { code: 'CZK', flag: '\u{1F1E8}\u{1F1FF}', symbol: 'Kč' },
-                  { code: 'HUF', flag: '\u{1F1ED}\u{1F1FA}', symbol: 'Ft' },
-                  { code: 'RON', flag: '\u{1F1F7}\u{1F1F4}', symbol: 'lei' },
-                  { code: 'CRC', flag: '\u{1F1E8}\u{1F1F7}', symbol: '₡' },
-                  { code: 'IDR', flag: '\u{1F1EE}\u{1F1E9}', symbol: 'Rp' },
-                  { code: 'COP', flag: '\u{1F1E8}\u{1F1F4}', symbol: '$' },
-                  { code: 'CLP', flag: '\u{1F1E8}\u{1F1F1}', symbol: '$' },
-                  { code: 'DOP', flag: '\u{1F1E9}\u{1F1F4}', symbol: 'RD$' },
-                ] as const).map(({ code, flag, symbol }) => (
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={() => setCurrency(code)}
-                    className={cn(
-                      'flex flex-col items-center gap-1 py-2.5 rounded-lg border transition-all',
-                      currency === code
-                        ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary/30'
-                        : 'border-border text-muted-foreground hover:border-foreground/20 hover:text-foreground'
-                    )}
-                  >
-                    <span className="text-lg leading-none">{flag}</span>
-                    <span className="text-[11px] font-bold">{code}</span>
-                    <span className="text-[10px] opacity-60">{symbol}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-4 pt-1">
-              <div className="space-y-1.5">
-                <Label className="text-sm flex items-center gap-1.5">
-                  <Globe size={14} />
-                  {t('setup.language')}
-                </Label>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => i18n.changeLanguage('pt-BR')}
-                    className={cn(
-                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
-                      currentLang === 'pt-BR'
-                        ? 'bg-primary/15 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    PT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => i18n.changeLanguage('en')}
-                    className={cn(
-                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
-                      currentLang === 'en'
-                        ? 'bg-primary/15 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    EN
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => i18n.changeLanguage('es')}
-                    className={cn(
-                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
-                      currentLang === 'es'
-                        ? 'bg-primary/15 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    ES
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm">{t('setup.theme')}</Label>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setTheme('light')}
-                    className={cn(
-                      'p-1.5 rounded transition-colors',
-                      theme === 'light'
-                        ? 'bg-primary/15 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <Sun size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTheme('dark')}
-                    className={cn(
-                      'p-1.5 rounded transition-colors',
-                      theme === 'dark'
-                        ? 'bg-primary/15 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <Moon size={14} />
-                  </button>
-                </div>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="currency" className="text-sm">{t('setup.currency')}</Label>
+              <CurrencySelect id="currency" value={currency} onChange={setCurrency} />
             </div>
           </CardContent>
           <CardFooter className="px-8 pb-8 pt-2">
@@ -263,6 +229,7 @@ export default function SetupPage() {
           </CardFooter>
         </form>
       </Card>
+      </div>
     </div>
   )
 }

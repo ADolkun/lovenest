@@ -1087,7 +1087,7 @@
     "recentTransactions": "Recent transactions",
     "recentTransactionsHint": "Transactions split through this group",
     "viewAllTransactions": "View all",
-    "noTransactions": "No transactions split through this group yet",
+    "noTransactions": "No transactions found.",
     "splitWays": "split {{count}} ways",
     "isSelf": "This is me",
     "balances": "Balances",
@@ -1109,7 +1109,6 @@
     "txActionCreate": "Create a new transaction",
     "txActionExisting": "Link an existing transaction",
     "searchTransaction": "Search transactions by description...",
-    "noTransactions": "No transactions found.",
     "selectedTransaction": "Selected",
     "settled": "Settlement recorded",
     "settlements": "Settlements",
@@ -1156,7 +1155,12 @@
     "theme": "Theme",
     "currency": "Currency",
     "name": "Your name",
-    "namePlaceholder": "How should we call you?"
+    "namePlaceholder": "How should we call you?",
+    "brandTagline": "Own your finances.",
+    "brandSubtitle": "Self-hosted personal finance that keeps you in control. Your money, your data, your rules.",
+    "brandOpen": "Open source",
+    "brandSelfHosted": "Self-hosted",
+    "brandPrivate": "Private by design"
   },
   "backup": {
     "button": "Backup",

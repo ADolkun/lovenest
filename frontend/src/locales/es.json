@@ -1085,7 +1085,7 @@
     "recentTransactions": "Transacciones recientes",
     "recentTransactionsHint": "Transacciones divididas a través de este grupo",
     "viewAllTransactions": "Ver todo",
-    "noTransactions": "Aún no hay transacciones divididas en este grupo",
+    "noTransactions": "No se encontraron transacciones.",
     "splitWays": "dividir en {{count}} partes",
     "isSelf": "Soy yo",
     "balances": "Saldos",
@@ -1107,7 +1107,6 @@
     "txActionCreate": "Crear una nueva transacción",
     "txActionExisting": "Vincular una transacción existente",
     "searchTransaction": "Buscar transacciones por descripción...",
-    "noTransactions": "No se encontraron transacciones.",
     "selectedTransaction": "Seleccionada",
     "settled": "Liquidación registrada",
     "settlements": "Liquidaciones",
@@ -1154,7 +1153,12 @@
     "theme": "Tema",
     "currency": "Moneda",
     "name": "Tu nombre",
-    "namePlaceholder": "¿Cómo deberíamos llamarte?"
+    "namePlaceholder": "¿Cómo deberíamos llamarte?",
+    "brandTagline": "Sé dueño de tus finanzas.",
+    "brandSubtitle": "Finanzas personales self-hosted, con el control en tus manos. Tu dinero, tus datos, tus reglas.",
+    "brandOpen": "Código abierto",
+    "brandSelfHosted": "Self-hosted",
+    "brandPrivate": "Privado por diseño"
   },
   "backup": {
     "button": "Copia de seguridad",
