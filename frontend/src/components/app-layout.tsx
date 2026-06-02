@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { auth as authApi, backup as backupApi } from '@/lib/api'
+import { resolveSupportedLang } from '@/lib/i18n'
 import { toast } from 'sonner'
 import { OnboardingTour } from '@/components/onboarding-tour'
 import { useTheme } from 'next-themes'
@@ -576,7 +577,7 @@ function UserMenu({
 }) {
   const { t, i18n } = useTranslation()
   const nav = useNavigate()
-  const currentLang = i18n.language
+  const currentLang = resolveSupportedLang(i18n.resolvedLanguage ?? i18n.language)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -643,7 +644,7 @@ function UserMenu({
             <Languages size={14} />
             <span className="flex-1">{t('setup.language')}</span>
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {currentLang === 'pt-BR' ? 'PT' : 'EN'}
+              {currentLang.split('-')[0]}
             </span>
           </DropdownMenuSubTrigger>
           <DropdownMenuPortal>
@@ -666,6 +667,15 @@ function UserMenu({
               >
                 <span className="flex-1">English</span>
                 {currentLang === 'en' && (
+                  <Check size={13} className="text-primary" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => i18n.changeLanguage('es')}
+                className="flex items-center gap-2"
+              >
+                <span className="flex-1">Español</span>
+                {currentLang === 'es' && (
                   <Check size={13} className="text-primary" />
                 )}
               </DropdownMenuItem>

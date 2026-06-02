@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '@/contexts/auth-context'
 import { admin as adminApi } from '@/lib/api'
+import { resolveSupportedLang } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -65,7 +66,7 @@ export default function RegisterPage() {
 
     setIsLoading(true)
     try {
-      const lang = i18n.language?.startsWith('pt') ? 'pt-BR' : 'en'
+      const lang = resolveSupportedLang(i18n.resolvedLanguage ?? i18n.language)
       await register(email, password, {
         currency_display: currency,
         language: lang,

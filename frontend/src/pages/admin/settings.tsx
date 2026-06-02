@@ -404,6 +404,7 @@ export default function AdminSettingsPage() {
                   >
                     <option value="en">English</option>
                     <option value="pt-BR">Português (BR)</option>
+                    <option value="es">Español</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">

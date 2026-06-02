@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from 'next-themes'
 import { setup } from '@/lib/api'
+import { resolveSupportedLang } from '@/lib/i18n'
 import { useAuth } from '@/contexts/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +18,7 @@ export default function SetupPage() {
   const navigate = useNavigate()
   const { loginWithToken, token } = useAuth()
   const { theme, setTheme } = useTheme()
-  const currentLang = i18n.language?.startsWith('pt') ? 'pt-BR' : 'en'
+  const currentLang = resolveSupportedLang(i18n.resolvedLanguage ?? i18n.language)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -208,6 +209,18 @@ export default function SetupPage() {
                     )}
                   >
                     EN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => i18n.changeLanguage('es')}
+                    className={cn(
+                      'px-2.5 py-1 rounded text-[11px] font-semibold transition-colors',
+                      currentLang === 'es'
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    ES
                   </button>
                 </div>
               </div>

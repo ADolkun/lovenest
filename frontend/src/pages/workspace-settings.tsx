@@ -402,6 +402,7 @@ export default function WorkspaceSettingsPage() {
                   <SelectItem value="__none__">—</SelectItem>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="pt-BR">Português (BR)</SelectItem>
+                  <SelectItem value="es">Español</SelectItem>
                 </SelectContent>
               </Select>
             </div>
