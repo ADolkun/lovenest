@@ -31,6 +31,7 @@ const currencies = [
   { code: 'IDR', flag: '\u{1F1EE}\u{1F1E9}', symbol: 'Rp' },
   { code: 'COP', flag: '\u{1F1E8}\u{1F1F4}', symbol: '$' },
   { code: 'CLP', flag: '\u{1F1E8}\u{1F1F1}', symbol: '$' },
+  { code: 'DOP', flag: '\u{1F1E9}\u{1F1F4}', symbol: 'RD$' },
 ] as const
 
 export default function RegisterPage() {
