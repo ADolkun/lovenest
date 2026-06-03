@@ -26,7 +26,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Download, HelpCircle, Info, Paperclip, Users, X, EyeClosed, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Download, HelpCircle, Info, MoreHorizontal, Paperclip, Users, X, EyeClosed, SlidersHorizontal } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type { Transaction, Rule } from '@/types'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { PageHeader } from '@/components/page-header'
@@ -732,6 +738,31 @@ export default function TransactionsPage() {
     setDialogOpen(true)
   }
 
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      if (selectedIds.size > 0) {
+        // Selection-only export bypasses other filters and hits the
+        // backend's `transaction_ids` short-circuit.
+        await transactions.export({ transaction_ids: Array.from(selectedIds) })
+      } else {
+        await transactions.export({
+          account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
+          category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
+          uncategorized: filterUncategorized ? true : undefined,
+          from: filterFrom || undefined,
+          to: filterTo || undefined,
+          q: searchQuery || undefined,
+        })
+      }
+      toast.success(t('transactions.exportSuccess'))
+    } catch {
+      toast.error(t('transactions.exportError'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   // Resize: track which column is being dragged so we can clear listeners
   // when the gesture ends. The width is committed to grid state on every
   // pointermove for live feedback (cheap — single React state update).
@@ -1030,13 +1061,28 @@ export default function TransactionsPage() {
     }
   }
 
+  // A single non-shared, non-transfer row selected can be duplicated; shared
+  // and transfer rows can't (issue #158). Computed once for both the desktop
+  // button and the mobile overflow menu.
+  const selectedSingleTx = canWrite && selectedIds.size === 1
+    ? filteredItems.find(tx => selectedIds.has(tx.id))
+    : undefined
+  const duplicableTx = selectedSingleTx && !selectedSingleTx.is_shared && !selectedSingleTx.transfer_pair_id
+    ? selectedSingleTx
+    : null
+
   return (
     <div>
       <PageHeader
         section={t('transactions.section')}
         title={t('transactions.title')}
         action={
-          <div className="flex items-center gap-2">
+          // Single row at every width: [month stepper] [+ Add Transaction] [⋯].
+          // The stepper is compact and shrinks first so all three fit on a
+          // phone (#257). On desktop the secondary actions (Columns, Export,
+          // Duplicate, Transfer) are inline labelled buttons; on mobile they
+          // collapse into the overflow menu so the row stays uncrowded.
+          <div className="flex items-center gap-2 sm:flex-wrap sm:justify-end">
             <MonthStepper
               value={steppedMonth}
               onChange={handleMonthChange}
@@ -1044,73 +1090,72 @@ export default function TransactionsPage() {
               prevLabel={t('transactions.monthPrevious')}
               nextLabel={t('transactions.monthNext')}
             />
-            <TransactionsColumnPicker state={grid} />
-            <Button
-              variant="outline"
-              disabled={exporting}
-              onClick={async () => {
-                setExporting(true)
-                try {
-                  if (selectedIds.size > 0) {
-                    // Selection-only export bypasses other filters and
-                    // hits the backend's `transaction_ids` short-circuit.
-                    await transactions.export({
-                      transaction_ids: Array.from(selectedIds),
-                    })
-                  } else {
-                    await transactions.export({
-                      account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
-                      category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
-                      uncategorized: filterUncategorized ? true : undefined,
-                      from: filterFrom || undefined,
-                      to: filterTo || undefined,
-                      q: searchQuery || undefined,
-                    })
-                  }
-                  toast.success(t('transactions.exportSuccess'))
-                } catch {
-                  toast.error(t('transactions.exportError'))
-                } finally {
-                  setExporting(false)
-                }
-              }}
-            >
-              <Download size={16} className="mr-1.5" />
-              {exporting
-                ? t('transactions.exporting')
-                : selectedIds.size > 0
-                  ? t('transactions.exportSelected', { count: selectedIds.size })
-                  : t('transactions.exportCsv')}
-            </Button>
-            {/* Duplicate (issue #158): only when a single row is
-                selected. Pre-fills the Add Transaction dialog from
-                that row's fields; identity-bearing fields (id,
-                transfer_pair_id, splits) are not copied. Hidden for
-                shared rows and transfers — they can't be duplicated. */}
-            {canWrite && selectedIds.size === 1 && (() => {
-              const selectedTx = filteredItems.find(tx => selectedIds.has(tx.id))
-              if (!selectedTx || selectedTx.is_shared || selectedTx.transfer_pair_id) return null
-              return (
-                <Button
-                  variant="outline"
-                  onClick={() => handleDuplicateTransaction(selectedTx)}
-                >
+
+            {/* Secondary actions: inline labelled buttons on desktop. */}
+            <div className="hidden sm:contents">
+              <TransactionsColumnPicker state={grid} />
+              <Button variant="outline" disabled={exporting} onClick={handleExport}>
+                <Download size={16} className="mr-1.5" />
+                {exporting
+                  ? t('transactions.exporting')
+                  : selectedIds.size > 0
+                    ? t('transactions.exportSelected', { count: selectedIds.size })
+                    : t('transactions.exportCsv')}
+              </Button>
+              {/* Duplicate (issue #158): single non-shared, non-transfer row
+                  selected. Pre-fills Add Transaction from its fields. */}
+              {duplicableTx && (
+                <Button variant="outline" onClick={() => handleDuplicateTransaction(duplicableTx)}>
                   <Copy size={16} className="mr-1.5" />
                   {t('transactions.duplicate')}
                 </Button>
-              )
-            })()}
-            {canWrite && (
-              <>
+              )}
+              {canWrite && (
                 <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
                   <ArrowLeftRight size={16} className="mr-1.5" />
                   {t('transactions.transfer')}
                 </Button>
-                <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
-                  + {t('transactions.addManual')}
-                </Button>
-              </>
+              )}
+            </div>
+
+            {/* Primary action: present at every width. */}
+            {canWrite && (
+              <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
+                + {t('transactions.addManual')}
+              </Button>
             )}
+
+            {/* Secondary actions: overflow menu on mobile only. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="!size-9 sm:hidden"
+                  aria-label={t('common.more')}
+                >
+                  <MoreHorizontal size={18} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={exporting} onClick={handleExport}>
+                  <Download size={16} className="mr-2" />
+                  {t('transactions.exportCsv')}
+                </DropdownMenuItem>
+                {duplicableTx && (
+                  <DropdownMenuItem onClick={() => handleDuplicateTransaction(duplicableTx)}>
+                    <Copy size={16} className="mr-2" />
+                    {t('transactions.duplicate')}
+                  </DropdownMenuItem>
+                )}
+                {canWrite && (
+                  <DropdownMenuItem onClick={() => setTransferDialogOpen(true)}>
+                    <ArrowLeftRight size={16} className="mr-2" />
+                    {t('transactions.transfer')}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />
