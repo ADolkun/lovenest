@@ -374,6 +374,18 @@ function TransactionForm({
   const pendingFileInputRef = useRef<HTMLInputElement>(null)
   const pendingActionRef = useRef<SaveAction>('save')
   const formRef = useRef<HTMLFormElement>(null)
+  const descriptionRef = useRef<HTMLTextAreaElement>(null)
+
+  // Bank-synced descriptions are read-only and can be long; auto-grow the
+  // textarea so the full text is always visible (issue #256).
+  useEffect(() => {
+    const el = descriptionRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    // border-box: add the border so scrollHeight content isn't clipped
+    const border = el.offsetHeight - el.clientHeight
+    el.style.height = `${el.scrollHeight + border}px`
+  }, [description, isSynced])
   const [isIgnored, setIsIgnored] = useState(seed?.is_ignored ?? false)
   const [togglingIgnore, setTogglingIgnore] = useState(false)
 
@@ -593,12 +605,21 @@ function TransactionForm({
       )}
       <div className="space-y-2">
         <Label>{t('transactions.description')}</Label>
-        <Input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
-          disabled={isSynced}
-        />
+        {isSynced ? (
+          <textarea
+            ref={descriptionRef}
+            className="w-full border border-input rounded-md px-3 py-2 text-sm bg-muted/40 text-muted-foreground resize-none overflow-hidden cursor-default outline-none focus:outline-none focus-visible:outline-none"
+            value={description}
+            readOnly
+            rows={1}
+          />
+        ) : (
+          <Input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            required
+          />
+        )}
         {isSynced && transaction?.payee && transaction.payee !== transaction.description && (
           <p className="text-xs text-muted-foreground">{transaction.payee}</p>
         )}
