@@ -438,17 +438,45 @@ class EnableBankingProvider(BankProvider):
         # Backward compat: plaintext during dev.
         return credentials.get("session_id") or ""
 
+    @staticmethod
+    def _account_uids(session_data: dict) -> list[str]:
+        """Extract account uids from a GET /sessions payload.
+
+        EB exposes the uids in two shapes and neither carries the account
+        name/type: `accounts` is a list of uid *strings*, while
+        `accounts_data` is a list of objects keyed by `uid` (plus identity
+        hashes only). The human-readable name/type/currency live behind
+        /accounts/{uid}/details, fetched per account below.
+        """
+        uids: list[str] = []
+        for entry in session_data.get("accounts_data") or []:
+            if isinstance(entry, dict):
+                uid = entry.get("uid") or entry.get("account_uid")
+                if uid:
+                    uids.append(uid)
+        if uids:
+            return uids
+        # Fallback: `accounts` is a plain list of uid strings.
+        return [a for a in (session_data.get("accounts") or []) if isinstance(a, str)]
+
     async def get_accounts(self, credentials: dict) -> list[AccountData]:
         session_id = self._session_id(credentials)
         if not session_id:
             raise SessionExpiredError("Enable Banking session_id missing")
         data = await self._request("GET", f"/sessions/{session_id}")
-        accounts_raw = data.get("accounts") or []
         result: list[AccountData] = []
-        for raw_acc in accounts_raw:
-            if isinstance(raw_acc, str):
+        for uid in self._account_uids(data):
+            try:
+                details = await self._request("GET", f"/accounts/{uid}/details")
+            except (httpx.HTTPError, SessionExpiredError) as exc:
+                # Without details we can't safely name/type the account, and a
+                # bare-uid AccountData would overwrite the stored name with a
+                # placeholder. Skip this account for this run (non-destructive:
+                # the existing row and its transactions are left intact and the
+                # next sync retries) rather than corrupt it.
+                logger.warning("Failed to fetch details for account %s: %s", uid, exc)
                 continue
-            result.append(await self._build_account(raw_acc))
+            result.append(await self._build_account(details))
         return result
 
     async def get_transactions(

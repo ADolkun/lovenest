@@ -63,7 +63,15 @@ async def _sync_all() -> int:
 async def _sync_one(session_maker, connection_id: uuid.UUID, user_id: uuid.UUID) -> None:
     """Sync a single connection. Error status is set by sync_connection itself."""
     async with session_maker() as session:
-        await connection_service.sync_connection(session, connection_id, user_id)
+        workspace_id = await session.scalar(
+            select(BankConnection.workspace_id).where(BankConnection.id == connection_id)
+        )
+        if workspace_id is None:
+            logger.warning("Connection %s has no workspace; skipping sync", connection_id)
+            return
+        await connection_service.sync_connection(
+            session, connection_id, workspace_id, user_id
+        )
 
 
 @celery_app.task(name="app.tasks.sync_tasks.sync_all_connections")
@@ -89,6 +97,15 @@ async def _sync_one_celery(connection_id: str, user_id: str) -> None:
     engine, session_maker = _make_session_maker()
     try:
         async with session_maker() as session:
-            await connection_service.sync_connection(session, uuid.UUID(connection_id), uuid.UUID(user_id))
+            conn_uuid = uuid.UUID(connection_id)
+            workspace_id = await session.scalar(
+                select(BankConnection.workspace_id).where(BankConnection.id == conn_uuid)
+            )
+            if workspace_id is None:
+                logger.warning("Connection %s has no workspace; skipping sync", connection_id)
+                return
+            await connection_service.sync_connection(
+                session, conn_uuid, workspace_id, uuid.UUID(user_id)
+            )
     finally:
         await engine.dispose()
