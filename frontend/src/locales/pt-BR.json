@@ -557,7 +557,11 @@
     "theme": "Tema",
     "themeLight": "Claro",
     "themeDark": "Escuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "customization": "Personalização",
+    "themeColor": "Cor do tema",
+    "lightMode": "Modo claro",
+    "darkMode": "Modo escuro"
   },
   "budgets": {
     "title": "Orçamentos",

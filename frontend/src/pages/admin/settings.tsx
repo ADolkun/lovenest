@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from 'next-themes'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { admin as adminApi, currencies as currenciesApi } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
@@ -26,13 +27,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
-import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale, Tag } from 'lucide-react'
+import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale, Tag, Palette, Save } from 'lucide-react'
 import type { AdminUser } from '@/types'
 
 export default function AdminSettingsPage() {
   const { t } = useTranslation()
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
+  const { resolvedTheme } = useTheme()
 
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -50,6 +53,11 @@ export default function AdminSettingsPage() {
   const [editIsAdmin, setEditIsAdmin] = useState(false)
   const [editPassword, setEditPassword] = useState('')
   const [showPasswordField, setShowPasswordField] = useState(false)
+
+  const [lastSyncedLight, setLastSyncedLight] = useState<string | undefined>()
+  const [lastSyncedDark, setLastSyncedDark] = useState<string | undefined>()
+  const [localLight, setLocalLight] = useState<string>('#6366F1')
+  const [localDark, setLocalDark] = useState<string>('#818CF8')
 
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ['admin', 'users', search],
@@ -111,6 +119,19 @@ export default function AdminSettingsPage() {
     },
   })
 
+  // Theme color settings
+  const { data: themeColorLightSetting } = useQuery({
+    queryKey: ['admin', 'settings', 'theme_color_light'],
+    queryFn: () => adminApi.getSetting('theme_color_light').catch(() => null),
+    retry: false,
+  })
+
+  const { data: themeColorDarkSetting } = useQuery({
+    queryKey: ['admin', 'settings', 'theme_color_dark'],
+    queryFn: () => adminApi.getSetting('theme_color_dark').catch(() => null),
+    retry: false,
+  })
+
   // Credit card accounting mode: returns 404 when unset → defaults to "cash".
   const { data: ccModeSetting } = useQuery({
     queryKey: ['admin', 'settings', 'credit_card_accounting_mode'],
@@ -157,6 +178,32 @@ export default function AdminSettingsPage() {
   })
 
   const useProviderCats = providerCatsSetting?.value !== 'false'
+
+  if (themeColorLightSetting?.value && themeColorLightSetting.value !== lastSyncedLight) {
+    setLastSyncedLight(themeColorLightSetting.value)
+    setLocalLight(themeColorLightSetting.value)
+  }
+  if (themeColorDarkSetting?.value && themeColorDarkSetting.value !== lastSyncedDark) {
+    setLastSyncedDark(themeColorDarkSetting.value)
+    setLocalDark(themeColorDarkSetting.value)
+  }
+
+  const saveColorsMutation = useMutation({
+    mutationFn: async () => {
+      await Promise.all([
+        adminApi.updateSetting('theme_color_light', localLight),
+        adminApi.updateSetting('theme_color_dark', localDark),
+      ])
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      setThemeBasedOnSystem(localLight, localDark, resolvedTheme)
+      toast.success(t('admin.settings.updated'))
+    },
+    onError: () => {
+      toast.error(t('common.error'))
+    },
+  })
 
   function resetCreateForm() {
     setFormEmail('')
@@ -269,6 +316,64 @@ export default function AdminSettingsPage() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Theme and Customization Section */}
+      <div className="grid grid-cols-1 gap-6 mb-8">
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border/40 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Palette size={15} className="text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">{t('settings.customization')}</h3>
+            </div>
+            <Button
+              onClick={() => saveColorsMutation.mutate()}
+              disabled={saveColorsMutation.isPending}
+            >
+              <Save size={13} />
+              {saveColorsMutation.isPending ? t('common.loading') : t('common.save')}
+            </Button>
+          </div>
+          <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Light Mode Colors */}
+            <div className="space-y-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {t('settings.lightMode')}
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('settings.themeColor')}</Label>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    type="color" 
+                    className="w-12 h-9 p-1 cursor-pointer" 
+                    value={localLight}
+                    onChange={(e) => setLocalLight(e.target.value)}
+                  />
+                  <span className="text-xs font-mono text-muted-foreground">{localLight}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dark Mode Colors */}
+            <div className="space-y-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {t('settings.darkMode')}
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('settings.themeColor')}</Label>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    type="color" 
+                    className="w-12 h-9 p-1 cursor-pointer" 
+                    value={localDark}
+                    onChange={(e) => setLocalDark(e.target.value)}
+                  />
+                  <span className="text-xs font-mono text-muted-foreground">{localDark}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Accounting section */}

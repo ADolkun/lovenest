@@ -557,7 +557,11 @@
     "theme": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "customization": "Customization",
+    "themeColor": "Theme color",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode"
   },
   "budgets": {
     "title": "Budgets",

@@ -1036,6 +1036,10 @@ export const admin = {
     const { data } = await api.get('/admin/accounting-mode')
     return data
   },
+  defaultColors: async (): Promise<{ light: string | null; dark: string | null }> => {
+    const { data } = await api.get('/admin/default-colors')
+    return data
+  },
 }
 
 // Global search (powers the command palette)

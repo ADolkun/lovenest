@@ -9,11 +9,14 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import type { AxiosError } from 'axios'
+import { useTheme } from 'next-themes'
+import { setThemeBasedOnSystem } from '@/lib/theme-utils'
 
 export default function LoginPage() {
   const { t } = useTranslation()
   const { login, verify2fa, token } = useAuth()
   const navigate = useNavigate()
+  const { resolvedTheme } = useTheme()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -38,7 +41,10 @@ export default function LoginPage() {
     adminApi.registrationStatus().then(({ enabled }) => {
       setRegistrationEnabled(enabled)
     }).catch(() => {})
-  }, [navigate, token])
+    adminApi.defaultColors().then(({ light, dark }) => {
+      setThemeBasedOnSystem(light, dark, resolvedTheme)
+    }).catch(() => {})
+  }, [navigate, token, resolvedTheme])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
