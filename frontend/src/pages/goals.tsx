@@ -1,6 +1,7 @@
 import { createElement, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { goals as goalsApi, accounts as accountsApi, assets as assetsApi, currencies as currenciesApi } from '@/lib/api'
 import { toast } from 'sonner'
@@ -102,12 +103,12 @@ function daysUntil(dateStr: string): number {
 }
 
 export default function GoalsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Goal | null>(null)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
@@ -97,11 +98,11 @@ const REPORT_TABS: ReportTab[] = [
 ]
 
 export default function ReportsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
 
   const [months, setMonths] = useState(12)
   const [interval, setInterval] = useState('monthly')

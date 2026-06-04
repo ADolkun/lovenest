@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -155,8 +156,9 @@ function KpiCard({
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>()
   const groupId = id ?? ''
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -532,10 +534,10 @@ export default function GroupDetailPage() {
     return Array.from(byMonth.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, total]) => ({
-        month: new Date(month + '-01').toLocaleString(locale, { month: 'short' }),
+        month: new Date(month + '-01').toLocaleString(dateLocale, { month: 'short' }),
         total: Number(total.toFixed(2)),
       }))
-  }, [groupTxs, locale])
+  }, [groupTxs, locale, dateLocale])
 
   // Group spending broken down by category — for the stacked horizontal
   // bar. We sum debits only (income/credits aren't "spending"). When a
@@ -889,7 +891,7 @@ export default function GroupDetailPage() {
                     {tx.description}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(tx.date + 'T00:00:00').toLocaleDateString(locale)}
+                    {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                     {tx.category?.name ? ` · ${tx.category.name}` : ''}
                     {tx.splits && tx.splits.length > 0
                       ? ` · ${t('splitGroups.splitWays', { count: tx.splits.length })}`
@@ -937,7 +939,7 @@ export default function GroupDetailPage() {
                     <span className="font-medium">{memberName_(s.to_member_id)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {new Date(s.date + 'T00:00:00').toLocaleDateString(locale)}
+                    {new Date(s.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                     {s.notes ? ` · ${s.notes}` : ''}
                   </p>
                 </div>

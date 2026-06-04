@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useDateLocale } from '@/hooks/use-display-locale'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { auth as authApi, currencies as currenciesApi, workspaces as workspacesApi } from '@/lib/api'
@@ -71,8 +72,9 @@ const DEFAULT_WORKSPACE_COLOR = '#6366F1'
 const DEFAULT_WORKSPACE_ICON = 'briefcase'
 
 export default function WorkspaceSettingsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
+  const localeForFormat = useDateLocale()
   const { current, canManage, workspaces: allWorkspaces, refresh, switchWorkspace } = useWorkspace()
   const { user: currentUser, updateUser } = useAuth()
   const queryClient = useQueryClient()
@@ -244,7 +246,6 @@ export default function WorkspaceSettingsPage() {
   const stats = statsQuery.data ?? { members: 1, accounts: 0, transactions: 0 }
   const isManaged = !!current.managed_by_user_id
   const isManagerSelf = isManaged && current.managed_by_user_id === currentUser?.id
-  const localeForFormat = i18n.language === 'pt-BR' ? 'pt-BR' : 'en-US'
 
   return (
     <div className="container max-w-5xl py-8 space-y-6">

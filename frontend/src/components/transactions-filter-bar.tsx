@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { format, startOfMonth, startOfYear, subDays } from 'date-fns'
 import {
   ArrowUpDown,
@@ -110,7 +111,8 @@ export function TransactionsFilterBar({
   groups,
 }: TransactionsFilterBarProps) {
   const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const dateFnsLocale = i18n.language === 'pt-BR' ? ptBR : enUS
   const [menuOpen, setMenuOpen] = useState(false)
   const [accountSubOpen, setAccountSubOpen] = useState(false)
@@ -199,14 +201,14 @@ export function TransactionsFilterBar({
   const dateLabel = useMemo(() => {
     if (!filterFrom && !filterTo) return null
     const fmt = (iso: string) =>
-      new Date(iso + 'T00:00:00').toLocaleDateString(locale, {
+      new Date(iso + 'T00:00:00').toLocaleDateString(dateLocale, {
         day: '2-digit',
         month: 'short',
       })
     if (filterFrom && filterTo) return `${fmt(filterFrom)} — ${fmt(filterTo)}`
     if (filterFrom) return `≥ ${fmt(filterFrom)}`
     return `≤ ${fmt(filterTo)}`
-  }, [filterFrom, filterTo, locale])
+  }, [filterFrom, filterTo, dateLocale])
 
   const amountLabel = useMemo(() => {
     if (!filterMinAmount && !filterMaxAmount) return null
@@ -925,7 +927,7 @@ export function TransactionsFilterBar({
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground/70">
               {draftFrom || draftTo
-                ? formatRange(draftFrom, draftTo, locale)
+                ? formatRange(draftFrom, draftTo, dateLocale)
                 : t('transactions.filtersBar.pickRange')}
             </p>
           </div>

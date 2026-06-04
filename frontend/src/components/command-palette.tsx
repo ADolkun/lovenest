@@ -3,6 +3,7 @@ import { Command } from 'cmdk'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import {
   Search,
@@ -258,13 +259,13 @@ export interface CommandPaletteProps {
 }
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const recents = useSyncExternalStore(subscribeRecents, getRecentSnapshot, getRecentSnapshot)
   const inputRef = useRef<HTMLInputElement>(null)
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
 
   // Focus the input whenever the palette opens. The cmdk Command is re-keyed
   // on `open` so results and selection reset automatically. We reset our own

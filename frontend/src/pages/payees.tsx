@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { payees as payeesApi, transactions as transactionsApi } from '@/lib/api'
@@ -36,9 +37,10 @@ function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
 }
 
 export default function PayeesPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
@@ -339,7 +341,7 @@ export default function PayeesPage() {
                   <p className="text-xs text-muted-foreground">{t('payees.lastTransaction')}</p>
                   <p className="text-sm font-medium">
                     {summaryData.last_transaction_date
-                      ? new Date(summaryData.last_transaction_date + 'T00:00:00').toLocaleDateString(locale)
+                      ? new Date(summaryData.last_transaction_date + 'T00:00:00').toLocaleDateString(dateLocale)
                       : '—'}
                   </p>
                 </div>
@@ -360,7 +362,7 @@ export default function PayeesPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(tx.date + 'T00:00:00').toLocaleDateString(locale)}
+                            {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                             {tx.category?.name && <> · {tx.category.name}</>}
                           </p>
                         </div>

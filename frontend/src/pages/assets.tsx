@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
@@ -169,8 +170,9 @@ const GROWTH_TYPES = ['percentage', 'absolute'] as const
 const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 
 export default function AssetsPage() {
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
@@ -666,7 +668,7 @@ export default function AssetsPage() {
               ) : null}
               {asset.maturity_date && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-                  {t('assets.maturesOn', { date: new Date(asset.maturity_date).toLocaleDateString(locale) })}
+                  {t('assets.maturesOn', { date: new Date(asset.maturity_date).toLocaleDateString(dateLocale) })}
                 </Badge>
               )}
               {asset.valuation_method === 'growth_rule' && asset.growth_rate && (
@@ -740,7 +742,7 @@ export default function AssetsPage() {
           </div>
         </div>
 
-        {isExpanded && <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} />}
+        {isExpanded && <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} />}
       </div>
     )
   }
@@ -910,6 +912,7 @@ export default function AssetsPage() {
           wallets={sortedWallets}
           currency={userCurrency}
           locale={locale}
+          dateLocale={dateLocale}
           mask={mask}
         />
       )}
@@ -1122,7 +1125,7 @@ export default function AssetsPage() {
                             during create because the quote is inline-live. */}
                         {editingAsset?.last_price_at && (
                           <span className="text-[10px] text-muted-foreground mt-0.5">
-                            {t('assets.lastUpdated', { when: formatRelativeTime(editingAsset.last_price_at, locale) })}
+                            {t('assets.lastUpdated', { when: formatRelativeTime(editingAsset.last_price_at, dateLocale) })}
                           </span>
                         )}
                       </div>
@@ -1481,11 +1484,12 @@ export default function AssetsPage() {
 
 const PORTFOLIO_COLORS = ['#6366F1', '#F43F5E', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16']
 
-function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
+function PortfolioChart({ data, wallets, currency, locale: loc, dateLocale: dateLoc, mask }: {
   data: { assets: { id: string; name: string; type: string; group_id: string | null }[]; trend: Record<string, unknown>[]; total: number }
   wallets: AssetGroup[]
   currency: string
   locale: string
+  dateLocale: string
   mask: (v: string) => string
 }) {
   const { t } = useTranslation()
@@ -1627,7 +1631,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
               tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v: string) => new Date(v + 'T00:00:00').toLocaleDateString(loc, { month: 'short', year: '2-digit' })}
+              tickFormatter={(v: string) => new Date(v + 'T00:00:00').toLocaleDateString(dateLoc, { month: 'short', year: '2-digit' })}
             />
             <YAxis
               tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
@@ -1651,7 +1655,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
                 return (
                   <div style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: '0.75rem', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
                     <p style={{ fontWeight: 600, marginBottom: 6 }}>
-                      {new Date(label + 'T00:00:00').toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}
+                      {new Date(label + 'T00:00:00').toLocaleDateString(dateLoc, { day: 'numeric', month: 'long', year: 'numeric' })}
                     </p>
                     {items.map(item => (
                       <div key={item.key} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 2 }}>
@@ -1702,8 +1706,8 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
   )
 }
 
-function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDate, valuationMethod, canWrite }: {
-  assetId: string; currency: string; locale: string
+function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite }: {
+  assetId: string; currency: string; locale: string; dateLocale: string
   purchasePrice: number | null; purchaseDate: string | null
   valuationMethod: string
   canWrite: boolean
@@ -1811,7 +1815,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
                   tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v: string) => new Date(v + 'T00:00:00').toLocaleDateString(loc, { month: 'short', year: '2-digit' })}
+                  tickFormatter={(v: string) => new Date(v + 'T00:00:00').toLocaleDateString(dateLoc, { month: 'short', year: '2-digit' })}
                 />
                 <YAxis
                   tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
@@ -1830,7 +1834,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
                 />
                 <RechartsTooltip
                   formatter={(value: number | undefined) => [mask(formatCurrency(value ?? 0, currency, loc)), t('assets.currentValue')]}
-                  labelFormatter={(label: unknown) => new Date(String(label) + 'T00:00:00').toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' })}
+                  labelFormatter={(label: unknown) => new Date(String(label) + 'T00:00:00').toLocaleDateString(dateLoc, { day: 'numeric', month: 'long', year: 'numeric' })}
                   contentStyle={{
                     background: 'var(--card)',
                     color: 'var(--foreground)',
@@ -1923,7 +1927,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
                       {t(`assets.source${v.source.charAt(0).toUpperCase() + v.source.slice(1)}`)}
                     </Badge>
                     <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {new Date(v.date + 'T00:00:00').toLocaleDateString(loc)}
+                      {new Date(v.date + 'T00:00:00').toLocaleDateString(dateLoc)}
                     </span>
                     {valuationMethod === 'manual' && v.source === 'manual' && canWrite && (
                       <button

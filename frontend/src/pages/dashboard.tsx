@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { currentMonth, shiftMonth, monthLastDay, monthLabel, monthRange } from '@/lib/month-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
@@ -56,7 +57,8 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const displayName = user?.preferences?.display_name || ''
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const greeting = (() => {
     const hour = new Date().getHours()
@@ -74,7 +76,7 @@ export default function DashboardPage() {
   const dateFnsLocale = i18n.language === 'pt-BR' ? ptBR : enUS
   const { from: monthStart, to: monthEnd } = monthRange(selectedMonth)
   const monthParam = monthStart
-  const monthLabelStr = monthLabel(selectedMonth, locale)
+  const monthLabelStr = monthLabel(selectedMonth, dateLocale)
 
   const handleMonthChange = (newMonth: string) => {
     setSelectedMonth(newMonth)
@@ -377,7 +379,7 @@ export default function DashboardPage() {
       {/* Header */}
       <PageHeader
         section={greeting}
-        title={new Date(selectedMonth + '-02').toLocaleDateString(locale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+        title={new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
         action={
           <div className="flex items-center gap-1">
             <button
@@ -391,7 +393,7 @@ export default function DashboardPage() {
                   className="inline-flex items-center justify-center gap-2 border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
                 >
                   <CalendarIcon className="size-3.5 text-muted-foreground" />
-                  {new Date(selectedMonth + '-02').toLocaleDateString(locale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+                  {new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="center" className="w-auto p-0">
@@ -678,7 +680,7 @@ export default function DashboardPage() {
               <div>
                 <p className="text-base font-bold text-foreground">{t('dashboard.balanceFlow')}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {new Date(`${selectedMonth}-01T00:00:00`).toLocaleDateString(locale)} → {new Date(`${selectedMonth}-${String(lastCurrentPoint?.day ?? monthLastDay(selectedMonth)).padStart(2, '0')}T00:00:00`).toLocaleDateString(locale)}
+                  {new Date(`${selectedMonth}-01T00:00:00`).toLocaleDateString(dateLocale)} → {new Date(`${selectedMonth}-${String(lastCurrentPoint?.day ?? monthLastDay(selectedMonth)).padStart(2, '0')}T00:00:00`).toLocaleDateString(dateLocale)}
                 </p>
               </div>
               {!balanceHistoryLoading && lastCurrentPoint && (
@@ -713,7 +715,7 @@ export default function DashboardPage() {
                       const day = String(payload[0].payload.day).padStart(2, '0')
                       const dateStr = `${selectedMonth}-${day}`
                       setDrillDown({
-                        title: t('dashboard.drillDownDay', { date: new Date(dateStr + 'T00:00:00').toLocaleDateString(locale) }),
+                        title: t('dashboard.drillDownDay', { date: new Date(dateStr + 'T00:00:00').toLocaleDateString(dateLocale) }),
                         from: dateStr,
                         to: dateStr,
                       })
@@ -752,7 +754,7 @@ export default function DashboardPage() {
                   <Tooltip
                     formatter={(value, name) => [
                       value !== null ? (privacyMode ? MASK : formatCurrency(Number(value), userCurrency, locale)) : '\u2014',
-                      name === 'current' ? monthLabel(selectedMonth, locale).split(' ')[0] : monthLabel(prevMonth, locale).split(' ')[0],
+                      name === 'current' ? monthLabel(selectedMonth, dateLocale).split(' ')[0] : monthLabel(prevMonth, dateLocale).split(' ')[0],
                     ]}
                     labelFormatter={(day) => t('dashboard.day', { day })}
                     contentStyle={{
@@ -799,7 +801,7 @@ export default function DashboardPage() {
               <div className="px-5 pb-4 pt-0 shrink-0">
                 <p className="text-xs text-muted-foreground">
                   {t('dashboard.balanceFlowVsPrev', {
-                    month: monthLabel(prevMonth, locale).split(' ')[0],
+                    month: monthLabel(prevMonth, dateLocale).split(' ')[0],
                     day: footerDay,
                     amount: mask(formatCurrency(footerPrev, userCurrency, locale)),
                     delta: `${footerPct >= 0 ? '+' : ''}${footerPct.toFixed(1)}%`,
@@ -966,7 +968,7 @@ export default function DashboardPage() {
                                 <Paperclip size={12} className="text-muted-foreground shrink-0" />
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground">{formatDate(row.date, locale)}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(row.date, dateLocale)}</p>
                           </div>
                         </div>
                       </TableCell>

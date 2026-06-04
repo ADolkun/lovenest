@@ -3,6 +3,7 @@ import { getAccountName } from '@/lib/account-utils'
 import { getConnectionName } from '@/lib/connection-utils'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accounts, connections, currencies } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -70,8 +71,9 @@ function getTypeConfig(type: string) {
 }
 
 export default function AccountsPage() {
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
@@ -353,7 +355,7 @@ export default function AccountsPage() {
                           </div>
                           {conn.last_sync_at && (
                             <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {t('accounts.lastSync')}: {new Date(conn.last_sync_at).toLocaleString(locale)}
+                              {t('accounts.lastSync')}: {new Date(conn.last_sync_at).toLocaleString(dateLocale)}
                             </p>
                           )}
                         </div>

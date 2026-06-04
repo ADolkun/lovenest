@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi } from '@/lib/api'
@@ -308,10 +309,10 @@ function TransactionForm({
   activePreviewId: string | null
   hasPreview: boolean
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const dateLocale = useDateLocale()
   const { data: supportedCurrencies } = useQuery({
     queryKey: ['currencies'],
     queryFn: currenciesApi.list,
@@ -599,7 +600,7 @@ function TransactionForm({
         <div className="flex items-center gap-2 p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
           <span>{t('transactions.recurringInfo', {
             frequency: t(`recurring.${recurringMatch.frequency}`),
-            next: new Date(recurringMatch.next_occurrence).toLocaleDateString(locale),
+            next: new Date(recurringMatch.next_occurrence).toLocaleDateString(dateLocale),
           })}</span>
         </div>
       )}
@@ -774,16 +775,16 @@ function TransactionForm({
         return (
           <div className="space-y-2">
             <Label>
-              {t('transactions.effectiveBillDate', 'Data efetiva da fatura')}{' '}
+              {t('transactions.effectiveBillDate', 'Effective bill date')}{' '}
               <span className="text-muted-foreground font-normal text-xs">
-                ({t('transactions.effectiveBillDateHint', 'manual, sobrescreve o ciclo automático')})
+                ({t('transactions.effectiveBillDateHint', 'manual, overrides the automatic cycle')})
               </span>
             </Label>
             <div className="inline-flex items-center gap-1">
               <DatePickerInput
                 value={effectiveBillDate}
                 onChange={setEffectiveBillDate}
-                placeholder={t('transactions.effectiveBillDatePlaceholder', 'Vencimento da fatura (opcional)')}
+                placeholder={t('transactions.effectiveBillDatePlaceholder', 'Bill due date (optional)')}
               />
               {effectiveBillDate && (
                 <button

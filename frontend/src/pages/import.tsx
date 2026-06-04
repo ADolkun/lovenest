@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { transactions as transactionsApi, accounts as accountsApi, importLogs as importLogsApi, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -45,11 +46,12 @@ function toReviewTransactions(txns: ImportPreviewTransaction[]): ImportReviewTra
 }
 
 export default function ImportPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewData, setPreviewData] = useState<{ transactions: ImportPreviewTransaction[]; detected_format: string; csv_columns?: string[]; parse_error?: string | null } | null>(null)
@@ -529,6 +531,7 @@ export default function ImportPage() {
             groups={categoryGroupsList}
             userCurrency={userCurrency}
             locale={locale}
+            dateLocale={dateLocale}
             searchQuery={searchQuery}
             filterCategoryIds={filterCategoryIds}
             filterUncategorized={filterUncategorized}
@@ -595,7 +598,7 @@ export default function ImportPage() {
                 {importHistory.map((log) => (
                   <tr key={log.id} className="hover:bg-muted">
                     <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
-                      {new Date(log.created_at).toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })}
+                      {new Date(log.created_at).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}
                     </td>
                     <td className="px-3 sm:px-4 py-3 font-mono text-xs text-foreground max-w-[120px] sm:max-w-none truncate">{log.filename || '—'}</td>
                     <td className="px-4 py-3 hidden lg:table-cell">

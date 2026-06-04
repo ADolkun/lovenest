@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { NumberFormat, DateFormat } from '@/lib/format'
 import type {
   User,
   AdminUser,
@@ -1034,6 +1035,14 @@ export const admin = {
   },
   accountingMode: async (): Promise<{ mode: 'cash' | 'accrual' }> => {
     const { data } = await api.get('/admin/accounting-mode')
+    return data
+  },
+  numberFormat: async (): Promise<{ format: NumberFormat }> => {
+    const { data } = await api.get('/admin/number-format')
+    return data
+  },
+  dateFormat: async (): Promise<{ format: DateFormat }> => {
+    const { data } = await api.get('/admin/date-format')
     return data
   },
   defaultColors: async (): Promise<{ light: string | null; dark: string | null }> => {

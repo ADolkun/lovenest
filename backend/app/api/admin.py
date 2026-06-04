@@ -25,6 +25,8 @@ ALLOWED_SETTINGS = {
     "use_provider_categories",
     "theme_color_light",
     "theme_color_dark",
+    "number_format",
+    "date_format",
 }
 
 
@@ -127,6 +129,8 @@ async def update_setting(
         "registration_enabled": {"true", "false"},
         "credit_card_accounting_mode": {"cash", "accrual"},
         "use_provider_categories": {"true", "false"},
+        "number_format": {"auto", "comma_dot", "dot_comma", "space_comma"},
+        "date_format": {"auto", "dmy", "mdy", "ymd"},
     }
 
     if key in SETTING_VALIDATORS and data.value not in SETTING_VALIDATORS[key]:
@@ -170,6 +174,30 @@ async def accounting_mode(
 ):
     mode = await admin_service.get_credit_card_accounting_mode(session)
     return {"mode": mode}
+
+
+@router.get("/number-format")
+async def number_format(
+    session: AsyncSession = Depends(get_async_session),
+    _user: User = Depends(current_active_user),
+):
+    """Global display format for numbers and dates. Readable by any signed-in
+    user (not just admins) so the frontend can format consistently for everyone.
+    Defaults to 'auto' — derive separators from each user's display currency."""
+    fmt = await admin_service.get_number_format(session)
+    return {"format": fmt}
+
+
+@router.get("/date-format")
+async def date_format(
+    session: AsyncSession = Depends(get_async_session),
+    _user: User = Depends(current_active_user),
+):
+    """Global display format for dates. Readable by any signed-in user.
+    Defaults to 'auto' — derive the field order from the number format /
+    display currency. Month names always follow the user's app language."""
+    fmt = await admin_service.get_date_format(session)
+    return {"format": fmt}
 
 
 async def check_registration_enabled(

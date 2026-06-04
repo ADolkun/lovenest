@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, categoryGroups as categoryGroupsApi, recurring as recurringApi, accounts as accountsApi, currencies as currenciesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -60,8 +61,9 @@ export default function RecurringPage() {
 }
 
 function RecurringTab() {
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
@@ -196,7 +198,7 @@ function RecurringTab() {
                     </span>
                   </td>
                   <td className="py-3 text-xs text-muted-foreground tabular-nums hidden md:table-cell">
-                    {new Date(rt.next_occurrence + 'T00:00:00').toLocaleDateString(locale)}
+                    {new Date(rt.next_occurrence + 'T00:00:00').toLocaleDateString(dateLocale)}
                   </td>
                   <td className="py-3 hidden sm:table-cell">
                     <span className={cn(

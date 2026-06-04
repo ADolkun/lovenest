@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, categoryGroups as groupsApi, budgets as budgetsApi } from '@/lib/api'
 import { toast } from 'sonner'
@@ -58,7 +59,8 @@ export default function BudgetsPage() {
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const queryClient = useQueryClient()
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [monthCalOpen, setMonthCalOpen] = useState(false)
@@ -124,7 +126,7 @@ export default function BudgetsPage() {
     )
   }
 
-  const monthTitle = new Date(selectedMonth + '-02').toLocaleDateString(locale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())
+  const monthTitle = new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())
 
   return (
     <div>

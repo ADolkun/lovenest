@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { auth as authApi, backup as backupApi, admin as adminApi } from '@/lib/api'
@@ -99,10 +100,10 @@ function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
 }
 
 export function AppLayout() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { user, logout, updateUser } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
   const { theme, setTheme, resolvedTheme } = useTheme()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -459,7 +460,7 @@ export function AppLayout() {
                         </div>
                         <div className="text-right shrink-0 ml-2">
                           <span className={`block tabular-nums font-medium text-xs ${balance < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
-                            {mask(formatCurrency(balance, acc.currency))}
+                            {mask(formatCurrency(balance, acc.currency, locale))}
                           </span>
                           {pctChange !== null && (
                             <span className={`block text-[10px] tabular-nums font-medium ${pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,9 +29,10 @@ type CounterpartCardProps = {
   currency: string
   sign: '+' | '−'
   locale: string
+  dateLocale: string
 }
 
-function CounterpartCard({ label, description, account, date, amount, currency, sign, locale }: CounterpartCardProps) {
+function CounterpartCard({ label, description, account, date, amount, currency, sign, locale, dateLocale }: CounterpartCardProps) {
   const colorClass = sign === '+' ? 'text-emerald-600' : 'text-rose-500'
   return (
     <div className="rounded-lg border border-border bg-muted/30 p-3">
@@ -42,7 +44,7 @@ function CounterpartCard({ label, description, account, date, amount, currency, 
       </p>
       <p className="text-xs text-muted-foreground truncate">{account}</p>
       <p className="text-xs text-muted-foreground mt-1">
-        {new Date(date + 'T00:00:00').toLocaleDateString(locale)}
+        {new Date(date + 'T00:00:00').toLocaleDateString(dateLocale)}{/* date order from setting, words from app language */}
       </p>
       <p className={`text-sm font-bold tabular-nums ${colorClass} mt-2`}>
         {sign}
@@ -78,8 +80,9 @@ export function LinkTransferDialog({
   onCreateCounterpart,
   loading,
 }: Props) {
-  const { t, i18n } = useTranslation()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
 
   const isDirectMode = !!(debit && credit)
   const isPickerMode = !!anchor && !isDirectMode
@@ -182,6 +185,7 @@ export function LinkTransferDialog({
               currency={anchor!.currency}
               sign={anchor!.type === 'debit' ? '−' : '+'}
               locale={locale}
+              dateLocale={dateLocale}
             />
 
             <div className="relative">
@@ -237,7 +241,7 @@ export function LinkTransferDialog({
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground truncate">
-                              {account ? getAccountName(account) : '—'} · {new Date(c.date + 'T00:00:00').toLocaleDateString(locale)}
+                              {account ? getAccountName(account) : '—'} · {new Date(c.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                             </p>
                           </div>
                           <p className={`text-sm font-bold tabular-nums ${colorClass} shrink-0`}>
@@ -329,6 +333,7 @@ export function LinkTransferDialog({
               currency={effectiveDebit.currency}
               sign="−"
               locale={locale}
+              dateLocale={dateLocale}
             />
             <div className="flex items-center">
               <ArrowRight size={18} className="text-muted-foreground" />
@@ -342,6 +347,7 @@ export function LinkTransferDialog({
               currency={effectiveCredit.currency}
               sign="+"
               locale={locale}
+              dateLocale={dateLocale}
             />
           </div>
 

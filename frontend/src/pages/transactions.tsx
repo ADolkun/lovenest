@@ -5,6 +5,7 @@ import { currentMonth, monthRange, monthFromRange } from '@/lib/month-utils'
 import { MonthStepper } from '@/components/month-stepper'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, recurring, payees as payeesApi, admin, groups as groupsApi, rules as rulesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -69,10 +70,11 @@ function parseHashtags(notes: string | null): string[] {
 }
 
 export default function TransactionsPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const locale = i18n.language === 'en' ? 'en-US' : i18n.language
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { canWrite } = useWorkspace()
@@ -928,7 +930,7 @@ export default function TransactionsPage() {
             )}
           </div>
           {showInlineDate && (
-            <p className="text-xs text-muted-foreground mt-0.5">{new Date(tx.date + 'T00:00:00').toLocaleDateString(locale)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}</p>
           )}
           {(showInlineNotes || showInlineTags) && tx.notes && (
             <div className="mt-1 space-y-0.5">
@@ -963,7 +965,7 @@ export default function TransactionsPage() {
       case 'date':
         return (
           <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground tabular-nums`}>
-            {new Date(tx.date + 'T00:00:00').toLocaleDateString(locale)}
+            {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
           </TableCell>
         )
       case 'description':
@@ -1086,7 +1088,7 @@ export default function TransactionsPage() {
             <MonthStepper
               value={steppedMonth}
               onChange={handleMonthChange}
-              locale={i18n.language === 'en' ? 'en-US' : i18n.language}
+              locale={dateLocale}
               prevLabel={t('transactions.monthPrevious')}
               nextLabel={t('transactions.monthNext')}
             />

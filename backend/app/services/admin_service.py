@@ -255,6 +255,32 @@ async def get_credit_card_accounting_mode(session: AsyncSession) -> str:
     return "cash"
 
 
+async def get_number_format(session: AsyncSession) -> str:
+    """Return the global number/date display format.
+
+    Global app setting controlling thousands/decimal separators (and, on the
+    frontend, the locale used for date display). One of 'auto', 'comma_dot'
+    (1,000.00), 'dot_comma' (1.000,00) or 'space_comma' (1 000,00). Defaults to
+    'auto', which derives the format from the user's display currency."""
+    setting = await get_app_setting(session, "number_format")
+    if setting and setting.value in ("auto", "comma_dot", "dot_comma", "space_comma"):
+        return setting.value
+    return "auto"
+
+
+async def get_date_format(session: AsyncSession) -> str:
+    """Return the global date display format.
+
+    Global app setting controlling the date field order. One of 'auto'
+    (derive from the number format / currency), 'dmy' (DD/MM/YYYY), 'mdy'
+    (MM/DD/YYYY) or 'ymd' (YYYY-MM-DD). Month names follow the user's app
+    language regardless. Defaults to 'auto'."""
+    setting = await get_app_setting(session, "date_format")
+    if setting and setting.value in ("auto", "dmy", "mdy", "ymd"):
+        return setting.value
+    return "auto"
+
+
 async def use_provider_categories(session: AsyncSession) -> bool:
     """Whether sync should map provider-supplied categories (e.g. Pluggy's
     `category` field) onto the user's seeded categories via PLUGGY_CATEGORY_MAP.
