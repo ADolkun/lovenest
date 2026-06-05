@@ -4,6 +4,7 @@ import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -335,27 +336,31 @@ class PluggyProvider(BankProvider):
     ) -> list[TransactionData]:
         headers = await self._headers()
         all_transactions: list[TransactionData] = []
-        page = 1
+        after: Optional[str] = None
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             while True:
-                params: dict = {
-                    "accountId": account_external_id,
-                    "pageSize": 500,
-                    "page": page,
-                }
+                # v2 cursor-based listing. Pluggy deprecated v1 GET
+                # /transactions — it returns 410 ENDPOINT_DEPRECATED on newer
+                # API keys (rolled out per key). /v2/transactions pages via an
+                # opaque `after` cursor (returned in `next`) instead of
+                # page/pageSize.
+                params: dict = {"accountId": account_external_id}
                 if since:
                     # Filter by Pluggy ingestion time, NOT transaction date.
-                    # `from`/`to` filter on `date` (when the txn happened),
-                    # which silently drops transactions Pluggy ingests later
-                    # but backdates — e.g. credit card bill payments dated
-                    # to the bill close, or merchants that settle weeks late.
-                    # `createdAtFrom` filters on Pluggy's row creation time,
-                    # so any newly-ingested row is fetched regardless of date.
+                    # `dateFrom`/`dateTo` filter on `date` (when the txn
+                    # happened), which silently drops transactions Pluggy
+                    # ingests later but backdates — e.g. credit card bill
+                    # payments dated to the bill close, or merchants that
+                    # settle weeks late. `createdAtFrom` filters on Pluggy's
+                    # row creation time, so any newly-ingested row is fetched
+                    # regardless of date. v2 still supports it.
                     params["createdAtFrom"] = since.isoformat()
+                if after:
+                    params["after"] = after
 
                 resp = await client.get(
-                    f"{PLUGGY_API_BASE}/transactions",
+                    f"{PLUGGY_API_BASE}/v2/transactions",
                     headers=headers,
                     params=params,
                 )
@@ -441,12 +446,26 @@ class PluggyProvider(BankProvider):
                         )
                     )
 
-                total_pages = data.get("totalPages", 1)
-                if page >= total_pages:
+                next_after = self._extract_after(data.get("next"))
+                if not next_after or next_after == after:
                     break
-                page += 1
+                after = next_after
 
         return all_transactions
+
+    @staticmethod
+    def _extract_after(next_value: Optional[str]) -> Optional[str]:
+        """Pull the `after` cursor out of v2's `next` field.
+
+        Pluggy returns `next` as a URL carrying the cursor
+        (".../v2/transactions?accountId=...&after=<cursor>"), or null on the
+        last page. Returns None when there's no further page so the caller
+        stops — and never loops on a malformed value.
+        """
+        if not next_value:
+            return None
+        after_vals = parse_qs(urlparse(next_value).query).get("after")
+        return after_vals[0] if after_vals else None
 
     async def refresh_credentials(self, credentials: dict) -> dict:
         # Pluggy manages API keys at the provider level, not per-connection
