@@ -100,37 +100,41 @@ def test_description_similarity_case_insensitive():
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_exact(session: AsyncSession, test_user):
-    """Exact Pluggy category match maps to user's category."""
+async def test_match_pluggy_exact(session: AsyncSession, test_user, test_workspace):
+    """Exact Pluggy category match maps to the workspace's category."""
     await _make_category(session, test_user.id, "Alimentação")
-    cat_id = await _match_pluggy_category(session, test_user.id, "Eating out")
+    cat_id = await _match_pluggy_category(session, test_workspace.id, "Eating out")
     assert cat_id is not None
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_prefix(session: AsyncSession, test_user):
+async def test_match_pluggy_prefix(session: AsyncSession, test_user, test_workspace):
     """Pluggy category with ' - ' prefix matches via split."""
     await _make_category(session, test_user.id, "Transferências")
-    cat_id = await _match_pluggy_category(session, test_user.id, "Transfer - PIX")
+    cat_id = await _match_pluggy_category(session, test_workspace.id, "Transfer - PIX")
     assert cat_id is not None
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_no_match(session: AsyncSession, test_user):
+async def test_match_pluggy_no_match(session: AsyncSession, test_workspace):
     """Unknown Pluggy category returns None."""
-    cat_id = await _match_pluggy_category(session, test_user.id, "Unknown Category XYZ")
+    cat_id = await _match_pluggy_category(
+        session, test_workspace.id, "Unknown Category XYZ"
+    )
     assert cat_id is None
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_none(session: AsyncSession, test_user):
+async def test_match_pluggy_none(session: AsyncSession, test_workspace):
     """None category returns None."""
-    cat_id = await _match_pluggy_category(session, test_user.id, None)
+    cat_id = await _match_pluggy_category(session, test_workspace.id, None)
     assert cat_id is None
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_disabled_short_circuits(session: AsyncSession, test_user):
+async def test_match_pluggy_disabled_short_circuits(
+    session: AsyncSession, test_user, test_workspace
+):
     """When the global use_provider_categories flag is off, the matcher returns
     None even on inputs that would otherwise resolve. This is the contract
     sync_connection / handle_oauth_callback rely on to leave transactions
@@ -138,22 +142,22 @@ async def test_match_pluggy_disabled_short_circuits(session: AsyncSession, test_
     await _make_category(session, test_user.id, "Alimentação")
     # Sanity: enabled=True still matches.
     enabled_match = await _match_pluggy_category(
-        session, test_user.id, "Eating out", enabled=True
+        session, test_workspace.id, "Eating out", enabled=True
     )
     assert enabled_match is not None
 
     # enabled=False short-circuits before any DB lookup.
     disabled_match = await _match_pluggy_category(
-        session, test_user.id, "Eating out", enabled=False
+        session, test_workspace.id, "Eating out", enabled=False
     )
     assert disabled_match is None
 
 
 @pytest.mark.asyncio
-async def test_match_pluggy_user_has_no_category(session: AsyncSession, test_user):
-    """Pluggy category maps but user doesn't have the target category."""
+async def test_match_pluggy_user_has_no_category(session: AsyncSession, test_workspace):
+    """Pluggy category maps but the workspace doesn't have the target category."""
     # "Eating out" maps to "Alimentação" but we don't create it
-    cat_id = await _match_pluggy_category(session, test_user.id, "Eating out")
+    cat_id = await _match_pluggy_category(session, test_workspace.id, "Eating out")
     assert cat_id is None
 
 
