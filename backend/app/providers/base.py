@@ -151,6 +151,16 @@ class ProviderUserActionRequired(Exception):
         self.help_url = help_url
 
 
+class ProviderRateLimited(Exception):
+    """Raised when the upstream bank/aggregator is throttling data requests.
+
+    Transient and outside the user's control — PSD2 caps unattended account
+    access (commonly ~4/day per resource), so a burst of syncs returns HTTP
+    429. The connection is healthy; callers should skip this run and retry
+    later rather than flag it as errored.
+    """
+
+
 class FxRateProvider(ABC):
     """Abstract interface for FX rate providers."""
 

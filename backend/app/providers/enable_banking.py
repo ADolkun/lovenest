@@ -30,6 +30,7 @@ from app.providers.base import (
     ConnectionData,
     InstitutionData,
     InstitutionListData,
+    ProviderRateLimited,
     ProviderUserActionRequired,
     SessionExpiredError,
     TransactionData,
@@ -243,6 +244,13 @@ class EnableBankingProvider(BankProvider):
         if resp.status_code in (401, 410):
             raise SessionExpiredError(
                 f"Enable Banking returned {resp.status_code} for {path}"
+            )
+        if resp.status_code == 429:
+            # The bank (ASPSP) is throttling us — transient, not a broken
+            # connection. Surface a distinct type so sync can skip-and-retry
+            # instead of erroring the connection.
+            raise ProviderRateLimited(
+                f"Enable Banking {method} {path} → 429: {resp.text[:200]}"
             )
         if resp.status_code >= 400:
             raise httpx.HTTPStatusError(

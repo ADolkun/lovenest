@@ -22,6 +22,7 @@ from app.models.user import User
 from app.providers import get_provider
 from app.providers.base import (
     HoldingData,
+    ProviderRateLimited,
     ProviderUserActionRequired,
     SessionExpiredError,
 )
@@ -1375,6 +1376,18 @@ async def sync_connection(
         # so the API layer can surface the specific code to the UI.
         await session.rollback()
         raise
+    except ProviderRateLimited:
+        # The bank/aggregator is throttling data requests (PSD2 caps unattended
+        # access, commonly ~4/day). The connection is healthy, so don't error
+        # it or 500 the request — skip this run, keep it active, and leave
+        # last_sync_at untouched so the next sync retries the same window.
+        await session.rollback()
+        async with session.begin():
+            conn = await session.get(BankConnection, connection_id)
+            if conn and conn.status != "expired":
+                conn.status = "active"
+        refreshed = await session.get(BankConnection, connection_id)
+        return refreshed, 0
     except Exception:
         # Mark connection as errored so UI shows reconnect banner
         await session.rollback()
