@@ -851,7 +851,20 @@ async def test_net_worth_negative_manual_balance(session: AsyncSession, test_use
     await _add_txn(session, test_user.id, acct.id, 1000, "debit", date.today())
 
     dp = await _net_worth_at(session, test_workspace.id, date.today(), "BRL")
-    assert dp.breakdowns["accounts"] == -1000.0
+    assert dp.breakdowns["accounts"] == 0.0
+    assert dp.breakdowns["liabilities"] == 1000.0
+    assert dp.value == -1000.0
+
+
+@pytest.mark.asyncio
+async def test_net_worth_negative_account_in_composition(session: AsyncSession, test_user, test_workspace: User):
+    acct = await _make_manual_account(session, test_user.id, "Overdrawn Acct")
+    await _add_txn(session, test_user.id, acct.id, 500, "debit", date.today())
+
+    report = await get_net_worth_report(session, test_workspace.id, test_user.id, months=1, interval="monthly")
+    liability_items = [c for c in report.composition if c.group == "liabilities"]
+    labels = [c.label for c in liability_items]
+    assert "Overdrawn Acct" in labels
 
 
 # ---------------------------------------------------------------------------

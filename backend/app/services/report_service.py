@@ -74,13 +74,10 @@ async def _net_worth_at(
             session, Decimal(str(abs(bal))), account.currency, primary_currency, cutoff
         )
         converted_val = float(converted)
-        if account.type == "credit_card":
+        if account.type == "credit_card" or bal < 0:
             liabilities_total += converted_val
         else:
-            if bal < 0:
-                accounts_total -= converted_val
-            else:
-                accounts_total += converted_val
+            accounts_total += converted_val
 
     assets_total = await _asset_value_at(session, workspace_id, cutoff, primary_currency)
     net_worth = accounts_total + assets_total - liabilities_total
@@ -268,6 +265,14 @@ async def get_net_worth_report(
                     value=round(converted_val, 2),
                     color=account_type_colors.get(account.type, "#6B7280"),
                     group="accounts",
+                ))
+            elif bal < 0:
+                composition.append(ReportCompositionItem(
+                    key=str(account.id),
+                    label=get_account_name(account),
+                    value=round(converted_val, 2),
+                    color="#F43F5E",
+                    group="liabilities",
                 ))
 
     # Assets — scoped to workspace
