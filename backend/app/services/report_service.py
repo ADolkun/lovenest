@@ -179,6 +179,7 @@ async def get_net_worth_report(
     for point in points:
         dp = await _net_worth_at(session, workspace_id, point, primary_currency)
         dp.date = _format_date_label(point, interval)
+        dp.change = round(dp.value - trend[-1].value, 2) if trend else None
         trend.append(dp)
 
     # Current snapshot (last point) for summary; baseline at period start for delta

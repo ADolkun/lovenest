@@ -615,6 +615,7 @@ export interface ReportDataPoint {
   date: string
   value: number
   breakdowns: Record<string, number>
+  change: number | null
 }
 
 export interface ReportMeta {

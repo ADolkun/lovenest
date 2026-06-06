@@ -927,6 +927,64 @@ async def test_net_worth_change_percent_zero_previous(session: AsyncSession, tes
 
 
 # ---------------------------------------------------------------------------
+# Trend data point change field
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trend_change_calculation(session: AsyncSession, test_user, test_workspace: User):
+    """change is None on the first point and equals round(value - prev.value, 2) on all others.
+    Uses activity spread over time so the trend contains positive, negative, and flat changes."""
+    acct = await _make_manual_account(session, test_user.id, "Change Calc")
+    today = date.today()
+    await _add_txn(session, test_user.id, acct.id, 5000, "credit", today - timedelta(days=150))  # opening
+    await _add_txn(session, test_user.id, acct.id, 1200, "credit", today - timedelta(days=90))   # income
+    await _add_txn(session, test_user.id, acct.id, 300,  "debit",  today - timedelta(days=60))   # expense
+    await _add_txn(session, test_user.id, acct.id, 800,  "credit", today - timedelta(days=30))   # income
+    await _add_txn(session, test_user.id, acct.id, 450,  "debit",  today)                        # recent expense
+
+    report = await get_net_worth_report(session, test_workspace.id, test_user.id, months=6, interval="monthly")
+
+    assert len(report.trend) > 1
+    assert report.trend[0].change is None
+    for prev, curr in zip(report.trend, report.trend[1:]):
+        assert curr.change == round(curr.value - prev.value, 2)
+
+
+@pytest.mark.asyncio
+async def test_trend_change_zero_when_net_worth_unchanged(
+    session: AsyncSession, test_user, test_workspace: User
+):
+    """When no activity occurs inside the report window, every non-first point has change == 0."""
+    acct = await _make_manual_account(session, test_user.id, "Change Zero")
+    two_years_ago = date.today() - timedelta(days=730)
+    await _add_txn(session, test_user.id, acct.id, 4000, "credit", two_years_ago)
+
+    report = await get_net_worth_report(session, test_workspace.id, test_user.id, months=3, interval="monthly")
+
+    for dp in report.trend[1:]:
+        assert dp.change == 0.0
+
+
+@pytest.mark.asyncio
+async def test_net_worth_api_trend_points_include_change(client, auth_headers, test_transactions):
+    """GET /reports/net-worth: change is None on the first point and present on all others."""
+    response = await client.get(
+        "/api/reports/net-worth",
+        params={"months": 6, "interval": "monthly"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    trend = data["trend"]
+    assert len(trend) > 1
+    assert trend[0]["change"] is None
+    for point in trend[1:]:
+        assert point["change"] is not None
+
+
+# ---------------------------------------------------------------------------
 # Pure-function tests: _add_months
 # ---------------------------------------------------------------------------
 

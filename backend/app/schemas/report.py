@@ -19,6 +19,7 @@ class ReportDataPoint(BaseModel):
     date: str
     value: float
     breakdowns: dict[str, float]
+    change: float | None = None
 
 
 class ReportMeta(BaseModel):

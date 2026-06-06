@@ -956,6 +956,7 @@
     "balance": "Saldo",
     "inflow": "Entrada",
     "outflow": "Salida",
+    "change": "Variación",
     "inflowOutflow": "Entrada vs. salida",
     "startingBalance": "Saldo inicial",
     "endingBalance": "Saldo proyectado",

@@ -958,6 +958,7 @@
     "balance": "Balance",
     "inflow": "Inflow",
     "outflow": "Outflow",
+    "change": "Change",
     "inflowOutflow": "Inflow vs Outflow",
     "startingBalance": "Starting Balance",
     "endingBalance": "Projected Balance",

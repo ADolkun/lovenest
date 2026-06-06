@@ -1024,6 +1024,7 @@
     "balance": "Saldo",
     "inflow": "Wpływy",
     "outflow": "Wypływy",
+    "change": "Zmiana",
     "inflowOutflow": "Wpływy a wypływy",
     "startingBalance": "Saldo początkowe",
     "endingBalance": "Saldo prognozowane",

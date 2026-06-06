@@ -162,6 +162,7 @@ export default function ReportsPage() {
     return {
       date: dp.date,
       value: dp.value,
+      change: dp.change ?? null,
       valuePast: isPast || isBoundary ? dp.value : null,
       valueForecast: !isPast ? dp.value : null,
       ...dp.breakdowns,
@@ -620,14 +621,29 @@ export default function ReportsPage() {
                   tickCount={5}
                 />
                 <Tooltip
-                  formatter={(value?: number, name?: string) => [
-                    privacyMode ? MASK : formatCurrency(value ?? 0, userCurrency, locale),
-                    name === 'value'
-                      ? t(currentTab.labelKey)
-                      : t(`reports.${name ?? ''}`, { defaultValue: name ?? '' }),
-                  ]}
-                  labelFormatter={(label) => label}
-                  contentStyle={tooltipStyle}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || payload.length === 0) return null
+                    const point = payload[0]?.payload as Record<string, number | null>
+                    const value = (payload[0]?.value as number) ?? 0
+                    const change = point.change ?? null
+                    const changeSign = change !== null && change >= 0 ? '+' : ''
+                    const changeColor = change !== null ? (change >= 0 ? '#10B981' : '#F43F5E') : ''
+                    return (
+                      <div style={tooltipStyle} className="px-3 py-2">
+                        <p className="text-xs font-medium mb-1">{label}</p>
+                        <p className="text-xs" style={{ color: '#6366F1' }}>
+                          {t(currentTab.labelKey)}:{' '}
+                          {privacyMode ? MASK : formatCurrency(value, userCurrency, locale)}
+                        </p>
+                        {change !== null && (
+                          <p className="text-xs" style={{ color: changeColor }}>
+                            {t('reports.change')}:{' '}
+                            {privacyMode ? MASK : `${changeSign}${formatCurrency(change, userCurrency, locale)}`}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }}
                 />
                 <Area
                   type="monotone"
