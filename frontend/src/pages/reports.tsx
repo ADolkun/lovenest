@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import {
   AreaChart,
   Area,
-  BarChart,
   Bar,
   ComposedChart,
   Line,
@@ -156,16 +155,21 @@ export default function ReportsPage() {
   // The boundary point is duplicated in both series so the line visually
   // connects without a gap.
   const forecastStart = meta?.forecast_start_date ?? null
+  const NEGATIVE_SERIES = new Set(['liabilities'])
+
   const chartData = trend.map((dp) => {
     const isPast = forecastStart ? dp.date < forecastStart : false
     const isBoundary = forecastStart ? dp.date === forecastStart : false
+    const breakdowns = meta?.type === 'net_worth'
+      ? Object.fromEntries(Object.entries(dp.breakdowns).map(([k, v]) => [k, NEGATIVE_SERIES.has(k) ? -v : v]))
+      : dp.breakdowns
     return {
       date: dp.date,
       value: dp.value,
       change: dp.change ?? null,
       valuePast: isPast || isBoundary ? dp.value : null,
       valueForecast: !isPast ? dp.value : null,
-      ...dp.breakdowns,
+      ...breakdowns,
     } as Record<string, string | number | null>
   })
 
@@ -934,7 +938,7 @@ export default function ReportsPage() {
               </div>
             ) : chartData.length > 0 && meta ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }} stackOffset="sign">
                   <XAxis
                     dataKey="date"
                     tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }}
@@ -954,10 +958,11 @@ export default function ReportsPage() {
                     width={64}
                     tickCount={5}
                   />
+                  <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                   <Tooltip
                     content={({ active, payload, label }) => {
                       if (!active || !payload) return null
-                      const items = payload.filter((p) => (p.value as number) > 0)
+                      const items = payload.filter((p) => p.value !== null && p.value !== undefined && (p.value as number) !== 0)
                       if (items.length === 0) return null
                       return (
                         <div style={tooltipStyle} className="px-3 py-2">
@@ -979,26 +984,53 @@ export default function ReportsPage() {
                     formatter={(value: string) => t(`reports.${value}`, { defaultValue: value })}
                   />
                   {(() => {
-                    const barSeries = meta.type === 'cash_flow'
+                    const isNetWorth = meta.type === 'net_worth'
+                    const allSeries = meta.type === 'cash_flow'
                       ? [
                           { key: 'inflow', color: '#10B981' },
                           { key: 'outflow', color: '#F43F5E' },
                         ]
                       : meta.series_keys.map((k) => ({ key: k, color: colorMap[k] || '#6366F1' }))
-                    return barSeries
-                      .filter(({ key }) => chartData.some((d) => (d[key] as number) > 0))
-                      .map(({ key, color }, idx, arr) => (
+                    const filteredSeries = allSeries.filter(({ key }) =>
+                      chartData.some((d) => { const v = d[key]; return typeof v === 'number' && v !== 0 })
+                    )
+                    const positiveKeys = isNetWorth ? filteredSeries.filter(({ key }) => !NEGATIVE_SERIES.has(key)) : filteredSeries
+                    const negativeKeys = isNetWorth ? filteredSeries.filter(({ key }) => NEGATIVE_SERIES.has(key)) : []
+                    const lastPositiveKey = positiveKeys.at(-1)?.key ?? null
+                    const lastNegativeKey = negativeKeys.at(-1)?.key ?? null
+                    return filteredSeries.map(({ key, color }) => {
+                      let radius: [number, number, number, number] = [0, 0, 0, 0]
+                      if (isNetWorth && NEGATIVE_SERIES.has(key) && key === lastNegativeKey) {
+                        radius = [4, 4, 0, 0]
+                      } else if (key === lastPositiveKey) {
+                        radius = [4, 4, 0, 0]
+                      }
+                      return (
                         <Bar
                           key={key}
                           dataKey={key}
                           stackId="stack"
                           fill={color}
-                          radius={idx === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          radius={radius}
                           maxBarSize={32}
                         />
-                      ))
+                      )
+                    })
                   })()}
-                </BarChart>
+                  {meta.type === 'net_worth' && (
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      name={t('reports.netWorth', { defaultValue: 'Net Worth' })}
+                      stroke="#10B981"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      dot={false}
+                      activeDot={{ r: 4, fill: '#10B981' }}
+                      isAnimationActive={false}
+                    />
+                  )}
+                </ComposedChart>
               </ResponsiveContainer>
             ) : (
               <p className="text-muted-foreground text-sm text-center py-16">
