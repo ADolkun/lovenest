@@ -1,7 +1,7 @@
 """add collection <-> wallet (asset_group) membership
 
-Revision ID: 056
-Revises: 055
+Revision ID: 057
+Revises: 056
 Create Date: 2026-06-05
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = "056"
-down_revision = "055"
+revision = "057"
+down_revision = "056"
 branch_labels = None
 depends_on = None
 
