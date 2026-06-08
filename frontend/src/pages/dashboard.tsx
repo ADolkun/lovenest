@@ -34,6 +34,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ICON_MAP } from '@/lib/category-icons'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
+import { AccountIcon } from '@/components/account-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
@@ -292,6 +293,7 @@ export default function DashboardPage() {
     categoryIcon: string | null
     categoryName: string | null
     categoryColor: string | null
+    accountId: string | null
     isProjected: boolean
     attachmentCount: number
     isShared: boolean
@@ -334,6 +336,7 @@ export default function DashboardPage() {
         categoryIcon: tx.category?.icon ?? null,
         categoryName: tx.category?.name ?? null,
         categoryColor: tx.category?.color ?? null,
+        accountId: tx.account_id ?? null,
         isProjected: false,
         attachmentCount: tx.attachment_count ?? 0,
         isShared,
@@ -357,6 +360,7 @@ export default function DashboardPage() {
         categoryIcon: pt.category_icon,
         categoryName: pt.category_name,
         categoryColor: pt.category_color ?? null,
+        accountId: null,
         isProjected: true,
         attachmentCount: 0,
         isShared: false,
@@ -927,7 +931,9 @@ export default function DashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-b border-border hover:bg-transparent">
-                    <TableHead className="pl-5 text-xs font-medium text-muted-foreground">{t('transactions.description')}</TableHead>
+                    <TableHead className="pl-5 text-xs font-medium text-muted-foreground hidden sm:table-cell">{t('transactions.date')}</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground">{t('transactions.description')}</TableHead>
+                    <TableHead className="text-xs font-medium text-muted-foreground hidden sm:table-cell">{t('transactions.account')}</TableHead>
                     <TableHead className="pr-5 text-right text-xs font-medium text-muted-foreground">{t('transactions.amount')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -954,7 +960,10 @@ export default function DashboardPage() {
                         if (tx) { setEditingTx(tx); setDialogOpen(true) }
                       }}
                     >
-                      <TableCell className="py-2.5 pl-5">
+                      <TableCell className="py-2.5 pl-5 text-sm text-muted-foreground tabular-nums whitespace-nowrap hidden sm:table-cell">
+                        {formatDate(row.date, dateLocale)}
+                      </TableCell>
+                      <TableCell className="py-2.5 pl-5 sm:pl-0">
                         <div className="flex items-center gap-3">
                           <CategoryIcon icon={row.categoryIcon} color={row.categoryColor} size="lg" />
                           <div className="min-w-0">
@@ -983,9 +992,23 @@ export default function DashboardPage() {
                                 <Paperclip size={12} className="text-muted-foreground shrink-0" />
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground">{formatDate(row.date, dateLocale)}</p>
+                            <p className="text-xs text-muted-foreground sm:hidden">{formatDate(row.date, dateLocale)}</p>
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell className="py-2.5 text-sm text-muted-foreground hidden sm:table-cell">
+                        {(() => {
+                          const acc = row.accountId
+                            ? accountsList?.find((a) => a.id === row.accountId)
+                            : undefined
+                          if (!acc) return <span className="text-muted-foreground">—</span>
+                          return (
+                            <span className="flex items-center gap-2 min-w-0">
+                              <AccountIcon account={acc} size="sm" />
+                              <span className="truncate">{getAccountName(acc)}</span>
+                            </span>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell className="py-2.5 pr-5 text-right">
                         <span className={`text-sm font-semibold tabular-nums ${row.isIgnored ? 'text-gray-500' : row.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>

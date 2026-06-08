@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { getAccountName } from '@/lib/account-utils'
+import { AccountIcon } from '@/components/account-icon'
 import { currentMonth, monthRange, monthFromRange } from '@/lib/month-utils'
 import { MonthStepper } from '@/components/month-stepper'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -999,14 +1000,21 @@ export default function TransactionsPage() {
             )}
           </TableCell>
         )
-      case 'account':
+      case 'account': {
+        const acc = accountsList?.find((a) => a.id === tx.account_id)
         return (
           <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground`}>
-            {getAccountName(accountsList?.find((a) => a.id === tx.account_id) ?? { name: '', display_name: null }) || (
+            {acc ? (
+              <span className="flex items-center gap-2 min-w-0">
+                <AccountIcon account={acc} size="sm" />
+                <span className="truncate">{getAccountName(acc)}</span>
+              </span>
+            ) : (
               <span className="text-muted-foreground">—</span>
             )}
           </TableCell>
         )
+      }
       case 'amount':
         return (
           <TableCell key={col.id} style={widthStyle} className={`${baseClass} pr-5`}>

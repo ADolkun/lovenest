@@ -91,6 +91,7 @@ export interface BankConnection {
   provider: string
   institution_name: string
   display_name: string | null
+  logo_url: string | null
   external_id: string
   status: string
   settings: ConnectionSettings | null
@@ -110,6 +111,10 @@ export interface Account {
   external_id: string | null
   name: string
   display_name: string | null
+  // Denormalized bank identity from the linked connection (null for manual
+  // accounts). Used to render the institution logo next to the account.
+  institution_name: string | null
+  institution_logo_url: string | null
   type: string
   balance: number
   current_balance: number
