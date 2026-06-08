@@ -1,7 +1,7 @@
 """add collections (account groups for reporting/filtering)
 
-Revision ID: 055
-Revises: 054
+Revision ID: 056
+Revises: 055
 Create Date: 2026-06-05
 """
 
@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
-revision = "055"
-down_revision = "054"
+revision = "056"
+down_revision = "055"
 branch_labels = None
 depends_on = None
 
