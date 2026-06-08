@@ -49,6 +49,7 @@ import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { useCollectionFilter } from '@/contexts/collection-filter-context'
 
 type TransactionUpdatePayload = Partial<Transaction> & {
   apply_to_transfer_pair?: boolean
@@ -77,6 +78,7 @@ export default function TransactionsPage() {
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { activeAccountIds } = useCollectionFilter()
   const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
@@ -297,13 +299,26 @@ export default function TransactionsPage() {
     }
   }, [highlightId, searchQuery, filterPayee, filterCategoryIds, page])
 
+  // Merge the global active-collection filter with the page's own account
+  // filter (issue #105): an explicit on-page account selection wins; otherwise
+  // scope to the active collection's accounts. null collection = all accounts.
+  const effectiveAccountIds = filterAccountIds.length > 0
+    ? filterAccountIds
+    : (activeAccountIds ?? [])
+  // Wallet-only collection active (zero accounts) and no explicit on-page
+  // account filter → there are no matching transactions; show empty rather
+  // than falling back to all accounts.
+  const noAccounts = filterAccountIds.length === 0
+    && activeAccountIds !== null && activeAccountIds.length === 0
+
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
+    queryKey: ['transactions', page, effectiveAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
+    enabled: !noAccounts,
     queryFn: () =>
       transactions.list({
         page,
         limit: 20,
-        account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
+        account_ids: effectiveAccountIds.length > 0 ? effectiveAccountIds : undefined,
         category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
         payee_id: filterPayee || undefined,
         group_id: filterGroupId || undefined,
@@ -325,7 +340,7 @@ export default function TransactionsPage() {
   // entire history. Free-form blob — backend turns it into a primer.
   const ctxFilters = {
     search: searchQuery || undefined,
-    account_ids: filterAccountIds.length ? filterAccountIds : undefined,
+    account_ids: effectiveAccountIds.length ? effectiveAccountIds : undefined,
     category_ids: filterCategoryIds.length ? filterCategoryIds : undefined,
     payee_id: filterPayee || undefined,
     group_id: filterGroupId || undefined,
@@ -749,7 +764,7 @@ export default function TransactionsPage() {
         await transactions.export({ transaction_ids: Array.from(selectedIds) })
       } else {
         await transactions.export({
-          account_ids: filterAccountIds.length > 0 ? filterAccountIds : undefined,
+          account_ids: effectiveAccountIds.length > 0 ? effectiveAccountIds : undefined,
           category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
           uncategorized: filterUncategorized ? true : undefined,
           from: filterFrom || undefined,

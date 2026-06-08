@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { getConnectionName } from '@/lib/connection-utils'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -35,6 +35,7 @@ import {
   Plus,
   Settings,
   Archive,
+  Layers,
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { BankConnectDialog } from '@/components/bank-connect-dialog'
@@ -72,6 +73,7 @@ function getTypeConfig(type: string) {
 
 export default function AccountsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
@@ -225,18 +227,24 @@ export default function AccountsPage() {
         section={t('accounts.title')}
         title={t('accounts.title')}
         action={
-          canWrite ? (
-            <div className="flex gap-2">
-              <Button variant="outline" className="gap-1.5" onClick={() => setConnectorSelectOpen(true)}>
-                <Plus size={16} />
-                {t('accounts.connectBank')}
-              </Button>
-              <Button onClick={() => { setEditingAccount(null); setDialogOpen(true) }} className="gap-1.5">
-                <Plus size={16} />
-                {t('accounts.addManual')}
-              </Button>
-            </div>
-          ) : undefined
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-1.5" onClick={() => navigate('/collections')}>
+              <Layers size={16} />
+              {t('collections.title')}
+            </Button>
+            {canWrite && (
+              <>
+                <Button variant="outline" className="gap-1.5" onClick={() => setConnectorSelectOpen(true)}>
+                  <Plus size={16} />
+                  {t('accounts.connectBank')}
+                </Button>
+                <Button onClick={() => { setEditingAccount(null); setDialogOpen(true) }} className="gap-1.5">
+                  <Plus size={16} />
+                  {t('accounts.addManual')}
+                </Button>
+              </>
+            )}
+          </div>
         }
       />
 

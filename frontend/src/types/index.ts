@@ -139,6 +139,19 @@ export interface CreditCardBill {
   minimum_payment: number | null
 }
 
+export interface Collection {
+  id: string
+  user_id: string
+  name: string
+  icon: string
+  color: string
+  position: number
+  account_ids: string[]
+  account_count: number
+  wallet_ids: string[]
+  wallet_count: number
+}
+
 export interface AccountSummary {
   account_id: string
   current_balance: number
