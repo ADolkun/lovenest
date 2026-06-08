@@ -309,6 +309,7 @@
     "summaryIncome": "Ingresos",
     "summaryExpenses": "Gastos",
     "summaryNet": "Neto",
+    "summaryExcluded": "Excluido",
     "bulkCategorize": "Aplicar",
     "bulkSuccess": "{{count}} transacciones categorizadas",
     "selectCategory": "Seleccionar categoría...",

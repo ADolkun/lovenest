@@ -311,6 +311,7 @@
     "summaryIncome": "Income",
     "summaryExpenses": "Expenses",
     "summaryNet": "Net",
+    "summaryExcluded": "Excluded",
     "bulkCategorize": "Apply",
     "bulkSuccess": "{{count}} transactions categorized",
     "selectCategory": "Select category...",

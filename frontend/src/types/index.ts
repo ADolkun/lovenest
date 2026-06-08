@@ -607,6 +607,9 @@ export interface TransactionsSummary {
   income: number
   expense: number
   net: number
+  // Absolute total of everything excluded from income/expense for the same
+  // rows — transfers, treat_as_transfer categories and ignored items (#242).
+  excluded: number
   currency: string
 }
 
