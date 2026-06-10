@@ -454,6 +454,7 @@
     "accountName": "Nombre de la cuenta",
     "displayName": "Nombre para mostrar",
     "displayNameHint": "Sobrescribe el nombre del proveedor por defecto en toda la app.",
+    "typeOverrideHint": "Sobrescribe el tipo de cuenta informado por tu banco. La sincronización no lo revierte.",
     "accountType": "Tipo",
     "currency": "Moneda",
     "typeChecking": "Cuenta corriente",

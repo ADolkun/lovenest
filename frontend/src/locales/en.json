@@ -456,6 +456,7 @@
     "accountName": "Account name",
     "displayName": "Display name",
     "displayNameHint": "Overrides the default provider name everywhere in the app.",
+    "typeOverrideHint": "Overrides the account type reported by your bank. Syncs won't change it back.",
     "accountType": "Type",
     "currency": "Currency",
     "typeChecking": "Checking",

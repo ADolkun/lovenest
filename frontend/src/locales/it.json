@@ -429,6 +429,7 @@
     "accountName": "Nome del conto",
     "displayName": "Nome visualizzato",
     "displayNameHint": "Sostituisce il nome predefinito del provider ovunque nell'app.",
+    "typeOverrideHint": "Sostituisce il tipo di conto riportato dalla tua banca. La sincronizzazione non lo ripristina.",
     "accountType": "Tipo",
     "currency": "Valuta",
     "typeChecking": "Conto corrente",

@@ -483,6 +483,7 @@
     "accountName": "Nazwa konta",
     "displayName": "Nazwa wyświetlana",
     "displayNameHint": "Zastępuje domyślną nazwę dostawcy wszędzie w aplikacji.",
+    "typeOverrideHint": "Zastępuje typ konta zgłoszony przez bank. Synchronizacja go nie przywróci.",
     "accountType": "Typ",
     "currency": "Waluta",
     "typeChecking": "Bieżące",

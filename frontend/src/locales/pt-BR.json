@@ -456,6 +456,7 @@
     "accountName": "Nome da conta",
     "displayName": "Nome de exibição",
     "displayNameHint": "Substitui o nome padrão do provedor em todo o sistema.",
+    "typeOverrideHint": "Substitui o tipo de conta informado pelo seu banco. A sincronização não reverte.",
     "accountType": "Tipo",
     "currency": "Moeda",
     "typeChecking": "Conta Corrente",
