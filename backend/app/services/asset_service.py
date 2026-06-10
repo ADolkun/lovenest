@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.asset import Asset
+from app.models.asset_transaction import AssetTransaction
 from app.models.asset_value import AssetValue
 from app.models.user import User
 from app.providers.market_price import (
@@ -110,12 +111,27 @@ def _generate_growth_values(
     return values
 
 
-def _asset_to_read(asset: Asset, latest_value: Optional[AssetValue], value_count: int) -> AssetRead:
+def _asset_to_read(
+    asset: Asset,
+    latest_value: Optional[AssetValue],
+    value_count: int,
+    transaction_count: int = 0,
+) -> AssetRead:
     """Convert an Asset model + computed fields to AssetRead schema."""
     current_value = _compute_current_value(asset, latest_value)
     gain_loss = None
     if current_value is not None and asset.purchase_price is not None:
         gain_loss = current_value - float(asset.purchase_price)
+
+    # For ledger-backed holdings `purchase_price` caches the cost basis of the
+    # held units, so it doubles as `total_invested`. `average_price != None`
+    # is the signal that the holding is driven by the transactions ledger.
+    is_ledger = asset.average_price is not None
+    total_invested = (
+        float(asset.purchase_price)
+        if is_ledger and asset.purchase_price is not None
+        else None
+    )
 
     return AssetRead(
         id=asset.id,
@@ -148,6 +164,10 @@ def _asset_to_read(asset: Asset, latest_value: Optional[AssetValue], value_count
         last_price=float(asset.last_price) if asset.last_price is not None else None,
         last_price_at=asset.last_price_at,
         logo_url=asset.logo_url,
+        average_price=float(asset.average_price) if asset.average_price is not None else None,
+        total_invested=total_invested,
+        realized_gain=float(asset.realized_gain) if asset.realized_gain is not None else None,
+        transaction_count=transaction_count,
     )
 
 
@@ -244,6 +264,18 @@ async def _get_value_count(session: AsyncSession, asset_id: uuid.UUID) -> int:
     return result or 0
 
 
+async def _get_transaction_counts(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> dict[uuid.UUID, int]:
+    """Number of ledger transactions per asset in a workspace (one query)."""
+    result = await session.execute(
+        select(AssetTransaction.asset_id, func.count())
+        .where(AssetTransaction.workspace_id == workspace_id)
+        .group_by(AssetTransaction.asset_id)
+    )
+    return {row[0]: row[1] for row in result.all()}
+
+
 async def get_assets(
     session: AsyncSession, workspace_id: uuid.UUID, include_archived: bool = False
 ) -> list[AssetRead]:
@@ -256,11 +288,12 @@ async def get_assets(
     result = await session.execute(query)
     assets = list(result.scalars().all())
 
+    tx_counts = await _get_transaction_counts(session, workspace_id)
     reads = []
     for asset in assets:
         latest = await _get_latest_value(session, asset.id)
         count = await _get_value_count(session, asset.id)
-        reads.append(_asset_to_read(asset, latest, count))
+        reads.append(_asset_to_read(asset, latest, count, tx_counts.get(asset.id, 0)))
     return reads
 
 
@@ -276,7 +309,12 @@ async def get_asset(
         return None
     latest = await _get_latest_value(session, asset.id)
     count = await _get_value_count(session, asset.id)
-    return _asset_to_read(asset, latest, count)
+    tx_count = await session.scalar(
+        select(func.count())
+        .select_from(AssetTransaction)
+        .where(AssetTransaction.asset_id == asset.id)
+    )
+    return _asset_to_read(asset, latest, count, tx_count or 0)
 
 
 async def create_asset(
@@ -390,6 +428,34 @@ async def create_asset(
             for v in backfill:
                 session.add(v)
 
+    # Seed the opening buy so market-priced holdings are ledger-backed from
+    # the start (issue #235): units/average_price/cost basis are then derived
+    # from the transactions, consistently with later edits. `purchase_price`
+    # is the total paid, so per-share = purchase_price / units; absent that we
+    # fall back to the live quote (cost basis ≈ current value, gain ≈ 0).
+    if data.valuation_method == "market_price" and quote is not None and data.units and data.units > 0:
+        from app.services import asset_transaction_service
+
+        buy_price = (
+            Decimal(str(data.purchase_price)) / Decimal(str(data.units))
+            if data.purchase_price is not None
+            else Decimal(str(quote.price))
+        )
+        session.add(
+            AssetTransaction(
+                asset_id=asset.id,
+                workspace_id=workspace_id,
+                kind="buy",
+                quantity=Decimal(str(data.units)),
+                price=buy_price,
+                fee=Decimal("0"),
+                date=data.purchase_date or date.today(),
+                source="manual",
+            )
+        )
+        await session.flush()
+        await asset_transaction_service.recompute_and_cache(session, asset)
+
     # Stamp purchase_price_primary
     if asset.purchase_price is not None:
         await stamp_primary_amount(
@@ -404,7 +470,10 @@ async def create_asset(
     await session.refresh(asset)
     latest = await _get_latest_value(session, asset.id)
     count = await _get_value_count(session, asset.id)
-    return _asset_to_read(asset, latest, count)
+    tx_count = await session.scalar(
+        select(func.count()).select_from(AssetTransaction).where(AssetTransaction.asset_id == asset.id)
+    )
+    return _asset_to_read(asset, latest, count, tx_count or 0)
 
 
 async def update_asset(

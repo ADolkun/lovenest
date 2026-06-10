@@ -28,6 +28,7 @@ import type {
   WorkspaceRole,
   Asset,
   AssetGroup,
+  AssetTransaction,
   AssetValue,
   MarketSymbolMatch,
   MarketSymbolQuote,
@@ -925,6 +926,39 @@ export const assets = {
   },
   refreshPrice: async (id: string): Promise<Asset> => {
     const { data } = await api.post(`/assets/${id}/refresh-price`)
+    return data
+  },
+  // Transaction ledger (issue #235)
+  transactions: async (id: string): Promise<AssetTransaction[]> => {
+    const { data } = await api.get(`/assets/${id}/transactions`)
+    return data
+  },
+  allTransactions: async (params?: { ticker?: string; kind?: 'buy' | 'sell' }): Promise<AssetTransaction[]> => {
+    const { data } = await api.get('/assets/transactions', { params })
+    return data
+  },
+  addTransaction: async (
+    id: string,
+    tx: { kind: 'buy' | 'sell'; quantity: number; price: number; fee?: number; date: string; notes?: string },
+  ): Promise<Asset> => {
+    const { data } = await api.post(`/assets/${id}/transactions`, tx)
+    return data
+  },
+  updateTransaction: async (
+    txId: string,
+    tx: Partial<{ kind: 'buy' | 'sell'; quantity: number; price: number; fee: number; date: string; notes: string }>,
+  ): Promise<Asset> => {
+    const { data } = await api.patch(`/assets/transactions/${txId}`, tx)
+    return data
+  },
+  deleteTransaction: async (txId: string): Promise<Asset> => {
+    const { data } = await api.delete(`/assets/transactions/${txId}`)
+    return data
+  },
+  buy: async (
+    tx: { ticker: string; quantity: number; price: number; fee?: number; date: string; name?: string; group_id?: string | null; notes?: string },
+  ): Promise<Asset> => {
+    const { data } = await api.post('/assets/buy', tx)
     return data
   },
 }
