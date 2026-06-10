@@ -728,7 +728,7 @@ export const rules = {
     const { data } = await api.get('/rules')
     return data
   },
-  create: async (rule: Omit<Rule, 'id' | 'user_id'>): Promise<Rule> => {
+  create: async (rule: Omit<Rule, 'id' | 'user_id'>): Promise<Rule & { applied_count: number }> => {
     const { data } = await api.post('/rules', rule)
     return data
   },

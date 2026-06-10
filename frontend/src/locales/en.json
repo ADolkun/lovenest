@@ -710,6 +710,7 @@
     "reapplyAll": "Reapply all",
     "add": "Add",
     "created": "Rule created",
+    "createdAndApplied": "Rule created and applied to {{count}} transactions",
     "updated": "Rule updated",
     "deleted": "Rule deleted",
     "applied": "Rules applied to {{count}} transactions",

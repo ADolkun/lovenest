@@ -708,6 +708,7 @@
     "reapplyAll": "Reaplicar todo",
     "add": "Agregar",
     "created": "Regla creada",
+    "createdAndApplied": "Regla creada y aplicada a {{count}} transacciones",
     "updated": "Regla actualizada",
     "deleted": "Regla eliminada",
     "applied": "Reglas aplicadas a {{count}} transacciones",

@@ -761,6 +761,7 @@
     "reapplyAll": "Zastosuj ponownie wszystkie",
     "add": "Dodaj",
     "created": "Utworzono regułę",
+    "createdAndApplied": "Utworzono regułę i zastosowano do {{count}} transakcji",
     "updated": "Zaktualizowano regułę",
     "deleted": "Usunięto regułę",
     "applied_one": "Zastosowano reguły do {{count}} transakcji",

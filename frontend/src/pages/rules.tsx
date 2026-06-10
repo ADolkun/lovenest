@@ -160,11 +160,19 @@ export default function RulesPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: Omit<Rule, 'id' | 'user_id'>) => rulesApi.create(data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
       setDialogOpen(false)
-      toast.success(t('rules.created'))
+      // The rule was applied to existing transactions on creation; refresh
+      // financial views and report how many were affected for transparency.
+      const applied = result.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+        toast.success(t('rules.createdAndApplied', { count: applied }))
+      } else {
+        toast.success(t('rules.created'))
+      }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { status?: number } }
