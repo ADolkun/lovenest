@@ -117,6 +117,21 @@ export default function RulesPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [packsDialogOpen, setPacksDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Rule | null>(null)
+  // Bumped on every open so the dialog remounts with fresh state instead of
+  // retaining the previously entered rule (issue #306).
+  const [dialogInstance, setDialogInstance] = useState(0)
+
+  function openCreate() {
+    setEditing(null)
+    setDialogInstance((n) => n + 1)
+    setDialogOpen(true)
+  }
+
+  function openEdit(rule: Rule) {
+    setEditing(rule)
+    setDialogInstance((n) => n + 1)
+    setDialogOpen(true)
+  }
 
   const { data: rulesList } = useQuery({
     queryKey: ['rules'],
@@ -251,7 +266,7 @@ export default function RulesPage() {
                   <RefreshCw size={12} />
                   <span className="hidden sm:inline">{t('rules.reapplyAll')}</span>
                 </Button>
-                <Button size="sm" className="gap-1.5 h-8" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+                <Button size="sm" className="gap-1.5 h-8" onClick={openCreate}>
                   <Plus size={13} /> <span className="hidden sm:inline">{t('rules.add')}</span>
                 </Button>
               </div>
@@ -290,7 +305,7 @@ export default function RulesPage() {
                   'px-4 sm:px-5 py-3 hover:bg-muted transition-colors',
                   canWrite && 'cursor-pointer',
                 )}
-                onClick={() => { if (canWrite) { setEditing(rule); setDialogOpen(true) } }}
+                onClick={() => { if (canWrite) openEdit(rule) }}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -338,7 +353,7 @@ export default function RulesPage() {
       />
 
       <RuleDialog
-        key={editing?.id ?? 'new'}
+        key={dialogInstance}
         open={dialogOpen}
         onClose={() => { setDialogOpen(false); setEditing(null) }}
         rule={editing}
