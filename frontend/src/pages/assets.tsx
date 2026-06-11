@@ -175,6 +175,18 @@ const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 // Ativo · Quant. · Preço Médio · Preço Atual · Rentab. · Saldo · % · actions.
 const HOLDINGS_GRID = 'minmax(0,2.4fr) 0.7fr 1.1fr 1fr 0.9fr 1.3fr 0.6fr 4.5rem'
 
+// Surface the backend's actual error message (FastAPI puts it in
+// response.data.detail) instead of a generic toast. Makes failures
+// diagnosable — e.g. the oversell guard message, or a "Not Found" when a
+// transaction endpoint is missing because the backend is older than the
+// frontend (issue #315) — rather than a cryptic "Error".
+function assetErrorMessage(e: unknown, fallback: string): string {
+  const resp = (e as { response?: { data?: { detail?: unknown }; status?: number } })?.response
+  const detail = resp?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  return resp?.status ? `${fallback} (${resp.status})` : fallback
+}
+
 export default function AssetsPage() {
   const { t } = useTranslation()
   const locale = useDisplayLocale()
@@ -237,6 +249,11 @@ export default function AssetsPage() {
   const [tickerSearchLoading, setTickerSearchLoading] = useState(false)
   const [selectedQuote, setSelectedQuote] = useState<MarketSymbolQuote | null>(null)
   const [formUnits, setFormUnits] = useState('')
+  // Per-unit purchase price for the opening buy of a market-priced holding.
+  // Defaults to the live quote (buying at market now) and is the SAME input
+  // model as the buy/sell ledger — no total-purchase-price for tickers, so
+  // "Add asset" and "Add transaction" stay consistent.
+  const [formUnitPrice, setFormUnitPrice] = useState('')
   const [quoteLoading, setQuoteLoading] = useState(false)
 
   const { data: rawAssetsList, isLoading } = useQuery({
@@ -336,7 +353,7 @@ export default function AssetsPage() {
       setDialogOpen(false)
       toast.success(t('assets.created'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const updateMutation = useMutation({
@@ -348,7 +365,7 @@ export default function AssetsPage() {
       setEditingAsset(null)
       toast.success(t('assets.updated'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const deleteMutation = useMutation({
@@ -359,7 +376,7 @@ export default function AssetsPage() {
       if (expandedId === deletingId) setExpandedId(null)
       toast.success(t('assets.deleted'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const refreshPriceMutation = useMutation({
@@ -380,7 +397,7 @@ export default function AssetsPage() {
       refetchAssetViews()
       toast.success(t('assets.priceRefreshed'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const { data: rawWalletsList } = useQuery({
@@ -406,7 +423,7 @@ export default function AssetsPage() {
       }
       toast.success(t('assets.walletCreated'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const updateWalletMutation = useMutation({
@@ -418,7 +435,7 @@ export default function AssetsPage() {
       setEditingWallet(null)
       toast.success(t('assets.walletUpdated'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const deleteWalletMutation = useMutation({
@@ -430,7 +447,7 @@ export default function AssetsPage() {
       setDeletingWalletId(null)
       toast.success(t('assets.walletDeleted'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const moveAssetMutation = useMutation({
@@ -442,7 +459,7 @@ export default function AssetsPage() {
       setMovingAsset(null)
       toast.success(t('assets.moved'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   // Compute projected current value for growth_rule preview in the form
@@ -517,6 +534,10 @@ export default function AssetsPage() {
     try {
       const quote = await assets.marketQuote(match.symbol)
       setSelectedQuote(quote)
+      // Prefill the unit price with the live quote — "buying at market now"
+      // is the common case; the user overrides it with their real cost.
+      // Trim float noise to the DB's 6-decimal scale (39.41999… → 39.42).
+      setFormUnitPrice(String(Number(quote.price.toFixed(6))))
       // Auto-fill name/currency from the authoritative quote so the user
       // doesn't have to think about it — they can still edit name after.
       if (!formName || formName === (selectedQuote?.name ?? selectedQuote?.symbol ?? '')) {
@@ -544,6 +565,7 @@ export default function AssetsPage() {
     setTickerMatches([])
     setSelectedQuote(null)
     setFormUnits('')
+    setFormUnitPrice('')
     setQuoteLoading(false)
     setTickerSearchLoading(false)
   }
@@ -605,6 +627,7 @@ export default function AssetsPage() {
   }
 
   function buildPayload() {
+    const isMarket = formMethod === 'market_price'
     const payload: Record<string, unknown> = {
       name: formName,
       type: formType,
@@ -612,9 +635,12 @@ export default function AssetsPage() {
       group_id: formGroupId || null,
       valuation_method: formMethod,
       purchase_date: formPurchaseDate || null,
-      purchase_price: formPurchasePrice ? parseFloat(formPurchasePrice) : null,
-      sell_date: formSellDate || null,
-      sell_price: formSellPrice ? parseFloat(formSellPrice) : null,
+      // Tickers have no total purchase price — the cost basis is derived from
+      // the unit-price buy (and then the ledger). Only manual/growth assets
+      // carry a total purchase price.
+      purchase_price: isMarket ? null : (formPurchasePrice ? parseFloat(formPurchasePrice) : null),
+      sell_date: isMarket ? null : (formSellDate || null),
+      sell_price: isMarket ? null : (formSellPrice ? parseFloat(formSellPrice) : null),
     }
 
     if (formMethod === 'growth_rule') {
@@ -624,10 +650,15 @@ export default function AssetsPage() {
       payload.growth_start_date = formGrowthStartDate || null
     }
 
-    if (formMethod === 'market_price') {
+    if (isMarket) {
       payload.ticker = (selectedQuote?.symbol || formTickerQuery || '').toUpperCase()
       payload.ticker_exchange = selectedQuote?.exchange ?? null
       payload.units = formUnits ? parseFloat(formUnits) : null
+      // Opening buy price per unit (defaults to the live quote on the server
+      // when omitted). Only meaningful on create.
+      if (!editingAsset) {
+        payload.unit_price = formUnitPrice ? parseFloat(formUnitPrice) : null
+      }
     }
 
     if (!editingAsset && formCurrentValue) {
@@ -793,15 +824,19 @@ export default function AssetsPage() {
 
         {isExpanded && (
           isMarketPriced ? (
-            <HoldingLedger
-              asset={asset}
-              locale={locale}
-              dateLocale={dateLocale}
-              mask={mask}
-              canWrite={canWrite}
-              onAdd={() => openAddTransaction(asset.id)}
-              onChanged={refetchAssetViews}
-            />
+            <>
+              {/* Value-evolution chart on top, then the buy/sell ledger. */}
+              <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} chartOnly />
+              <HoldingLedger
+                asset={asset}
+                locale={locale}
+                dateLocale={dateLocale}
+                mask={mask}
+                canWrite={canWrite}
+                onAdd={() => openAddTransaction(asset.id)}
+                onChanged={refetchAssetViews}
+              />
+            </>
           ) : (
             <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} />
           )
@@ -1283,27 +1318,49 @@ export default function AssetsPage() {
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  <Label>{t('assets.quantity')}</Label>
-                  <Input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={formUnits}
-                    onChange={e => setFormUnits(e.target.value)}
-                    placeholder="10"
-                  />
-                </div>
+                {!editingAsset ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>{t('assets.quantity')}</Label>
+                      <Input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={formUnits}
+                        onChange={e => setFormUnits(e.target.value)}
+                        placeholder="10"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('assets.unitPrice')}</Label>
+                      <Input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={formUnitPrice}
+                        onChange={e => setFormUnitPrice(e.target.value)}
+                        placeholder={selectedQuote ? String(selectedQuote.price) : '0.00'}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t('assets.quantity')}</Label>
+                    <Input type="number" step="any" min="0" value={formUnits} onChange={e => setFormUnits(e.target.value)} placeholder="10" />
+                  </div>
+                )}
 
-                {selectedQuote && formUnits && parseFloat(formUnits) > 0 && (
+                {/* Buy total — same qty × unit price model as the ledger, so
+                    the value matches the Add-transaction dialog exactly. */}
+                {!editingAsset && formUnits && parseFloat(formUnits) > 0 && (selectedQuote || formUnitPrice) && (
                   <div className="flex items-center justify-between p-3 rounded-lg border border-primary/30 bg-primary/10">
                     <span className="text-xs font-medium text-primary/80">
-                      {t('assets.currentValue')}
+                      {t('assets.txTotal')}
                     </span>
                     <span className="text-lg font-bold tabular-nums text-primary">
                       {formatCurrency(
-                        selectedQuote.price * parseFloat(formUnits),
-                        selectedQuote.currency,
+                        (parseFloat(formUnitPrice) || selectedQuote?.price || 0) * parseFloat(formUnits),
+                        selectedQuote?.currency || formCurrency,
                         locale,
                       )}
                     </span>
@@ -1363,29 +1420,36 @@ export default function AssetsPage() {
               </div>
             )}
 
-            {/* Purchase Info */}
+            {/* Purchase Info. For tickers the cost comes from the unit-price
+                buy above, so we only ask for the purchase (buy) date here and
+                hide the total-price field. Manual assets keep both. */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t('assets.purchaseDate')}</Label>
                 <DatePickerInput value={formPurchaseDate} onChange={setFormPurchaseDate} />
               </div>
-              <div className="space-y-2">
-                <Label>{t('assets.purchasePrice')}</Label>
-                <Input type="number" step="0.01" value={formPurchasePrice} onChange={e => setFormPurchasePrice(e.target.value)} />
-              </div>
+              {formMethod !== 'market_price' && (
+                <div className="space-y-2">
+                  <Label>{t('assets.purchasePrice')}</Label>
+                  <Input type="number" step="0.01" value={formPurchasePrice} onChange={e => setFormPurchasePrice(e.target.value)} />
+                </div>
+              )}
             </div>
 
-            {/* Sell Info */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('assets.sellDate')}</Label>
-                <DatePickerInput value={formSellDate} onChange={setFormSellDate} />
+            {/* Sell Info — manual assets only. Tickers record sells through the
+                buy/sell ledger, not the create form. */}
+            {formMethod !== 'market_price' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t('assets.sellDate')}</Label>
+                  <DatePickerInput value={formSellDate} onChange={setFormSellDate} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('assets.sellPrice')}</Label>
+                  <Input type="number" step="0.01" value={formSellPrice} onChange={e => setFormSellPrice(e.target.value)} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>{t('assets.sellPrice')}</Label>
-                <Input type="number" step="0.01" value={formSellPrice} onChange={e => setFormSellPrice(e.target.value)} />
-              </div>
-            </div>
+            )}
 
             {/* Current Value — manual only */}
             {!editingAsset && formMethod === 'manual' && (
@@ -1838,11 +1902,32 @@ function PortfolioChart({ data, wallets, currency, locale: loc, dateLocale: date
   )
 }
 
-function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite }: {
+// Marker drawn on the value chart where a buy (green) or sell (red) happened.
+// Recharts calls this per data point; non-trade points render an empty group.
+function renderAssetTradeDot(props: {
+  cx?: number; cy?: number; index?: number; payload?: { trades?: AssetTransaction[] }
+}) {
+  const { cx, cy, index, payload } = props
+  const trades = payload?.trades
+  if (cx == null || cy == null || !trades || trades.length === 0) {
+    return <g key={`td-${index}`} />
+  }
+  const hasBuy = trades.some(t => t.kind === 'buy')
+  const hasSell = trades.some(t => t.kind === 'sell')
+  const color = hasSell && !hasBuy ? '#F43F5E' : hasBuy && !hasSell ? '#10B981' : '#6366F1'
+  return (
+    <circle key={`td-${index}`} cx={cx} cy={cy} r={4} fill={color} stroke="var(--card)" strokeWidth={1.5} />
+  )
+}
+
+function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite, chartOnly = false }: {
   assetId: string; currency: string; locale: string; dateLocale: string
   purchasePrice: number | null; purchaseDate: string | null
   valuationMethod: string
   canWrite: boolean
+  // When true, render only the value-evolution chart (used above the ledger
+  // for market-priced holdings) — no manual value form / value-history list.
+  chartOnly?: boolean
 }) {
   const { t } = useTranslation()
   const { mask } = usePrivacyMode()
@@ -1876,6 +1961,30 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     return result
   }, [trend, purchasePrice, purchaseDate])
 
+  // Buy/sell markers on the value chart (shares the ledger's query cache).
+  // Without these, a jump in the line could be either a price move or a
+  // quantity change — the markers label "you bought/sold here".
+  const { data: assetTrades } = useQuery({
+    queryKey: ['asset-transactions', assetId],
+    queryFn: () => assets.transactions(assetId),
+    enabled: valuationMethod === 'market_price',
+  })
+  const chartData = useMemo(() => {
+    const pts = trendWithPurchase.map(p => ({ ...p, trades: [] as AssetTransaction[] }))
+    if (!assetTrades || pts.length === 0) return pts
+    for (const tx of assetTrades) {
+      const txTime = new Date(tx.date + 'T00:00:00').getTime()
+      let best = 0
+      let bestDiff = Infinity
+      for (let i = 0; i < pts.length; i++) {
+        const diff = Math.abs(new Date(pts[i].date + 'T00:00:00').getTime() - txTime)
+        if (diff < bestDiff) { bestDiff = diff; best = i }
+      }
+      pts[best].trades.push(tx)
+    }
+    return pts
+  }, [trendWithPurchase, assetTrades])
+
   // Build value history with purchase as the initial entry
   const valuesWithPurchase = useMemo(() => {
     if (!values) return []
@@ -1904,7 +2013,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       setValueAmount('')
       toast.success(t('assets.valueAdded'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const deleteValueMutation = useMutation({
@@ -1917,7 +2026,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       queryClient.refetchQueries({ queryKey: ['dashboard'] })
       toast.success(t('assets.valueDeleted'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   // Determine chart color based on trend direction
@@ -1926,15 +2035,20 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     : true
   const chartColor = trendIsPositive ? '#10B981' : '#F43F5E'
 
+  const hasChart = trendWithPurchase.length > 1
+  // In chart-only mode (market-priced holdings, paired with the ledger) there's
+  // nothing to show until the value series has at least two points.
+  if (chartOnly && !hasChart) return null
+
   return (
     <div className="border-t border-border px-5 py-5 space-y-5 bg-muted/5">
       {/* Value Trend Chart */}
-      {trendWithPurchase.length > 1 && (
+      {hasChart && (
         <div>
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">{t('assets.valueTrend')}</p>
           <div className="h-44 -mx-1">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendWithPurchase} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id={`gradient-${assetId}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={chartColor} stopOpacity={0.2} />
@@ -1965,15 +2079,22 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
                   }}
                 />
                 <RechartsTooltip
-                  formatter={(value: number | undefined) => [mask(formatCurrency(value ?? 0, currency, loc)), t('assets.currentValue')]}
-                  labelFormatter={(label: unknown) => new Date(String(label) + 'T00:00:00').toLocaleDateString(dateLoc, { day: 'numeric', month: 'long', year: 'numeric' })}
-                  contentStyle={{
-                    background: 'var(--card)',
-                    color: 'var(--foreground)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '0.75rem',
-                    fontSize: '12px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null
+                    const pt = payload[0].payload as { amount?: number; trades?: AssetTransaction[] }
+                    return (
+                      <div style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: '0.75rem', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                        <p style={{ fontWeight: 600, marginBottom: 4 }}>
+                          {new Date(String(label) + 'T00:00:00').toLocaleDateString(dateLoc, { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </p>
+                        <div style={{ fontVariantNumeric: 'tabular-nums' }}>{mask(formatCurrency(pt.amount ?? 0, currency, loc))}</div>
+                        {pt.trades?.map((tx) => (
+                          <div key={tx.id} style={{ marginTop: 3, fontSize: 11, fontWeight: 500, color: tx.kind === 'buy' ? '#10B981' : '#F43F5E' }}>
+                            {tx.kind === 'buy' ? t('assets.txBuy') : t('assets.txSell')} {mask(`${tx.quantity}`)} × {mask(formatCurrency(tx.price, currency, loc))}
+                          </div>
+                        ))}
+                      </div>
+                    )
                   }}
                 />
                 <Area
@@ -1982,7 +2103,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
                   stroke={chartColor}
                   strokeWidth={2}
                   fill={`url(#gradient-${assetId})`}
-                  dot={false}
+                  dot={renderAssetTradeDot}
                   activeDot={{ r: 4, strokeWidth: 2, fill: 'var(--card)', stroke: chartColor }}
                 />
               </AreaChart>
@@ -1992,7 +2113,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       )}
 
       {/* Add Value Form — only for manual assets */}
-      {valuationMethod === 'manual' && canWrite && <div className="flex items-end gap-2">
+      {!chartOnly && valuationMethod === 'manual' && canWrite && <div className="flex items-end gap-2">
         <div className="flex-1">
           <Label className="text-[11px] text-muted-foreground">{t('assets.amount')}</Label>
           <Input
@@ -2028,7 +2149,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       </div>}
 
       {/* Value History */}
-      <div>
+      {!chartOnly && <div>
         <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{t('assets.valueHistory')}</p>
         {valuesLoading ? (
           <Skeleton className="h-20 w-full rounded-lg" />
@@ -2078,7 +2199,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
         ) : (
           <p className="text-xs text-muted-foreground py-3 text-center">{t('dashboard.noData')}</p>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
@@ -2174,7 +2295,7 @@ function AssetTransactionsTab({
       setEditingTx(null)
       toast.success(t('assets.txSaved'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const deleteMutation = useMutation({
@@ -2184,7 +2305,7 @@ function AssetTransactionsTab({
       setDeletingId(null)
       toast.success(t('assets.txDeleted'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   function openAdd() {
@@ -2526,7 +2647,7 @@ function HoldingLedger({
       onChanged()
       toast.success(t('assets.txDeleted'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   return (
@@ -2629,7 +2750,7 @@ function AddHoldingTransactionDialog({
       onClose()
       toast.success(t('assets.txSaved'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
   const cur = holding?.currency ?? 'USD'

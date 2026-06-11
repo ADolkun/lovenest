@@ -28,6 +28,10 @@ class AssetCreate(BaseModel):
     # fetches the live quote on create and seeds the first AssetValue.
     ticker: Optional[str] = None
     ticker_exchange: Optional[str] = None
+    # Per-unit price for the opening buy of a market-priced holding (preço
+    # médio model, consistent with the transaction ledger). When omitted, the
+    # service seeds the buy at the live quote ("bought at market now").
+    unit_price: Optional[Decimal] = None
 
 
 class AssetUpdate(BaseModel):
