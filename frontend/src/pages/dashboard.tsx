@@ -6,8 +6,9 @@ import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
-import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi } from '@/lib/api'
+import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
+import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -37,10 +38,11 @@ import { CategoryIcon } from '@/components/category-icon'
 import { AccountIcon } from '@/components/account-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
+import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import type { Transaction } from '@/types'
+import type { Rule, Transaction } from '@/types'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -49,6 +51,12 @@ function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
 
 function formatDate(dateStr: string, locale = 'pt-BR') {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString(locale)
+}
+
+function parseHashtags(notes: string | null): string[] {
+  if (!notes) return []
+  const matches = notes.match(/#[\w\u00C0-\u017E-]+/g)
+  return matches ?? []
 }
 
 
@@ -72,6 +80,8 @@ export default function DashboardPage() {
   const [drillDown, setDrillDown] = useState<DrillDownFilter | null>(null)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [createRuleOpen, setCreateRuleOpen] = useState(false)
+  const [createRuleInitialData, setCreateRuleInitialData] = useState<RuleDialogInitialData | undefined>(undefined)
   const queryClient = useQueryClient()
   const [headerCalOpen, setHeaderCalOpen] = useState(false)
   const [hoveredDay, setHoveredDay] = useState<number | null>(null)
@@ -162,6 +172,11 @@ export default function DashboardPage() {
     queryFn: () => accountsApi.list(),
   })
 
+  const { data: payeesList } = useQuery({
+    queryKey: ['payees'],
+    queryFn: payeesApi.list,
+  })
+
   const { data: goalsSummary } = useQuery({
     queryKey: ['goals', 'summary'],
     queryFn: () => goalsApi.summary(3),
@@ -194,6 +209,43 @@ export default function DashboardPage() {
       setEditingTx(null)
     },
   })
+
+  const createRuleMutation = useMutation({
+    mutationFn: (data: Omit<Rule, 'id' | 'user_id'>) => rulesApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      invalidateFinancialQueries(queryClient)
+      setCreateRuleOpen(false)
+      setCreateRuleInitialData(undefined)
+      toast.success(t('rules.created'))
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { status?: number } }
+      if (err?.response?.status === 409) {
+        toast.error(t('rules.duplicateName'))
+      } else {
+        toast.error(t('common.error'))
+      }
+    },
+  })
+
+  const handleCreateRuleFromTransaction = (tx: Transaction) => {
+    const conditions = [
+      { field: 'description', op: 'contains', value: tx.description },
+    ]
+    if (tx.payee_id) {
+      conditions.push({ field: 'payee_id', op: 'equals', value: tx.payee_id })
+    }
+    const actions = tx.category_id
+      ? [{ op: 'set_category', value: tx.category_id }]
+      : [{ op: 'set_category', value: '' }]
+    const tags = parseHashtags(tx.notes)
+    if (tags.length > 0) {
+      actions.push({ op: 'append_notes', value: tags.join(' ') })
+    }
+    setCreateRuleInitialData({ conditions, actions })
+    setCreateRuleOpen(true)
+  }
 
 
   const cumulativeData = useMemo(() => {
@@ -1098,9 +1150,28 @@ export default function DashboardPage() {
           if (editingTx) deleteMutation.mutate(editingTx.id)
         }}
         onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        onCreateRule={(tx) => {
+          setDialogOpen(false)
+          setEditingTx(null)
+          handleCreateRuleFromTransaction(tx)
+        }}
         loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : deleteMutation.error ? extractApiError(deleteMutation.error) : null}
         isSynced={!!editingTx?.external_id}
+      />
+
+      <RuleDialog
+        key={createRuleOpen ? 'rule-open' : 'rule-closed'}
+        open={createRuleOpen}
+        onClose={() => { setCreateRuleOpen(false); setCreateRuleInitialData(undefined) }}
+        rule={null}
+        categories={categoriesList ?? []}
+        categoryGroups={categoryGroupsList ?? []}
+        accounts={(accountsList ?? []).map((a: { id: string; name: string; display_name?: string | null }) => ({ id: a.id, name: getAccountName(a) }))}
+        payees={payeesList ?? []}
+        onSave={(data) => createRuleMutation.mutate(data as Omit<Rule, 'id' | 'user_id'>)}
+        loading={createRuleMutation.isPending}
+        initialData={createRuleInitialData}
       />
     </div>
   )
