@@ -15,6 +15,7 @@ from app.schemas.budget import BudgetCreate, BudgetUpdate, BudgetVsActual
 from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
+    reporting_date_col,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import _get_recurring_projections
@@ -257,9 +258,7 @@ async def get_budget_vs_actual(
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
     accounting_mode = await get_credit_card_accounting_mode(session)
-    report_date = (
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
-    )
+    report_date = reporting_date_col(accounting_mode)
 
     # Get actual spending by category for this month (exclude transfer pairs)
     # Use amount_primary for multi-currency support

@@ -523,6 +523,72 @@ class TestSpendingByCategory:
         assert accrual_map.get("Alimentação", 0) == 100.0
         assert accrual_map.get("Transporte", 0) == 0.0
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["cash", "accrual"])
+    async def test_category_breakdown_honors_effective_bill_date_override(
+        self, session, test_user, test_workspace, cc_account, test_categories, mode
+    ):
+        """Issue #232: when the user manually moves a credit-card purchase to
+        a different invoice via effective_bill_date, the dashboard category
+        panel must aggregate it under the invoice month — not the purchase
+        month — in BOTH cash and accrual modes. The override beats whichever
+        date column the mode would otherwise bucket by, matching the
+        transaction list and the bill view."""
+        food = test_categories[0]
+        # Purchased May 27. effective_date deliberately left in May (the stale
+        # purchase month) so the only thing that can move it to June is the
+        # override — proving the override wins over both report columns.
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id, date(2026, 5, 27),
+            Decimal("100"), effective_date=date(2026, 5, 27), category_id=food.id,
+        )
+        tx.effective_bill_date = date(2026, 6, 1)  # user moved it to the June invoice
+        await session.commit()
+
+        await _set_mode(session, mode)
+
+        # May must NOT include the purchase anymore.
+        may = await dashboard_service.get_spending_by_category(
+            session, test_workspace.id, test_user.id, month=date(2026, 5, 1)
+        )
+        may_map = {c.category_name: c.total for c in may}
+        assert may_map.get("Alimentação", 0) == 0.0, (
+            f"{mode}: override'd tx must leave its purchase month"
+        )
+
+        # June (the invoice month) must include it.
+        june = await dashboard_service.get_spending_by_category(
+            session, test_workspace.id, test_user.id, month=date(2026, 6, 1)
+        )
+        june_map = {c.category_name: c.total for c in june}
+        assert june_map.get("Alimentação", 0) == 100.0, (
+            f"{mode}: override'd tx must land in the invoice month"
+        )
+
+    @pytest.mark.asyncio
+    async def test_summary_honors_effective_bill_date_override_in_cash_mode(
+        self, session, test_user, test_workspace, cc_account, test_categories
+    ):
+        """Companion to the category test: the dashboard summary totals must
+        also follow the manual invoice override (issue #232)."""
+        food = test_categories[0]
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id, date(2026, 5, 27),
+            Decimal("100"), effective_date=date(2026, 5, 27), category_id=food.id,
+        )
+        tx.effective_bill_date = date(2026, 6, 1)
+        await session.commit()
+
+        await _set_mode(session, "cash")
+        may = await dashboard_service.get_summary(
+            session, test_workspace.id, test_user.id, month=date(2026, 5, 1)
+        )
+        june = await dashboard_service.get_summary(
+            session, test_workspace.id, test_user.id, month=date(2026, 6, 1)
+        )
+        assert may.monthly_expenses == 0.0
+        assert june.monthly_expenses == 100.0
+
 
 # ---------------------------------------------------------------------------
 # Budget vs actual.

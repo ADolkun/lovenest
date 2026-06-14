@@ -17,6 +17,7 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     owner_split_offset_pnl,
+    reporting_date_col,
     viewer_shared_pnl,
     viewer_shared_spending_by_category,
 )
@@ -117,9 +118,7 @@ async def get_summary(
     # cash-flow view.
     user = await session.get(User, user_id)
     accounting_mode = await get_credit_card_accounting_mode(session)
-    report_date = (
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
-    )
+    report_date = reporting_date_col(accounting_mode)
 
     # Compute the effective cutoff date for balance calculation
     if balance_date:
@@ -486,9 +485,7 @@ async def get_spending_by_category(
     user = await session.get(User, user_id)
     accounting_mode = await get_credit_card_accounting_mode(session)
     primary_currency = user.primary_currency if user else get_settings().default_currency
-    report_date = (
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
-    )
+    report_date = reporting_date_col(accounting_mode)
 
     # Real transactions grouped by category (exclude transfer-like movements
     # and closed accounts). Use amount_primary for multi-currency support.
@@ -650,9 +647,7 @@ async def get_monthly_trend(
     filtered = account_ids is not None
     acct_filter = [Transaction.account_id.in_(account_ids)] if filtered else []
     accounting_mode = await get_credit_card_accounting_mode(session)
-    report_date = (
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
-    )
+    report_date = reporting_date_col(accounting_mode)
     month_label = func.to_char(report_date, 'YYYY-MM').label('month')
     primary_amt = _primary_amount_expr()
     result = await session.execute(

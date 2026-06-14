@@ -21,7 +21,7 @@ from app.services import split_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
-from app.services._query_filters import counts_as_pnl
+from app.services._query_filters import counts_as_pnl, reporting_date_col
 
 
 def _apply_fx_override(transaction, amount, amount_primary=None, fx_rate_used=None):
@@ -93,11 +93,10 @@ async def get_transactions(
     # line up with the cash-flow view used by the dashboard and reports.
     # When the user has set a manual cycle override (effective_bill_date)
     # we honor it FIRST regardless of accounting mode — that's the whole
-    # point of the override (issue #92, LucasFidelis suggestion).
-    date_col = func.coalesce(
-        Transaction.effective_bill_date,
-        Transaction.effective_date if accounting_mode == "accrual" else Transaction.date,
-    )
+    # point of the override (issue #92, LucasFidelis suggestion). Shared
+    # with the dashboard/report/budget aggregations so a transaction lands
+    # in the same month everywhere (issue #232).
+    date_col = reporting_date_col(accounting_mode)
 
     # Group-scope visibility: when the caller filters by a group they
     # have access to (owner or linked member), bypass the user-owns-it
