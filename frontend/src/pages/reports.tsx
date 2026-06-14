@@ -21,11 +21,30 @@ import {
 import { HelpCircle } from 'lucide-react'
 import { reports } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { PageHeader } from '@/components/page-header'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import type { ReportResponse, CategoryTrendItem } from '@/types'
+
+// A small qualitative palette of well-separated hues for the composition
+// detail ring. Capped to a handful of slices, distinct colours make each
+// holding easy to match against its legend entry (which a same-hue ramp
+// across 15+ near-identical slices never could).
+const SLICE_COLORS = [
+  '#6366F1', // indigo
+  '#F59E0B', // amber
+  '#10B981', // emerald
+  '#EC4899', // pink
+  '#0EA5E9', // sky
+  '#8B5CF6', // violet
+  '#F97316', // orange
+  '#14B8A6', // teal
+  '#84CC16', // lime
+  '#D946EF', // fuchsia
+]
+const OTHER_SLICE_COLOR = '#9CA3AF'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -40,7 +59,7 @@ function formatCompact(value: number, currency = 'USD', locale = 'en-US') {
   }).format(value)
 }
 
-const COMPOSITION_TOP_N = 6
+
 
 type RangeOption = { key: string; months: number; period?: 'ytd' }
 
@@ -108,7 +127,7 @@ export default function ReportsPage() {
   const [rangeKey, setRangeKey] = useState('1y')
   const [interval, setInterval] = useState('monthly')
   const [activeTab, setActiveTab] = useState('net_worth')
-  const [compositionView, setCompositionView] = useState<string>('summary')
+  const [compositionView, setCompositionView] = useState<string>('netWorth')
   const [sparklineView, setSparklineView] = useState<'byExpenses' | 'byIncome'>('byExpenses')
   const [sparklinePage, setSparklinePage] = useState(0)
   const [cashFlowBaseline, setCashFlowBaseline] = useState(false)
@@ -133,7 +152,7 @@ export default function ReportsPage() {
 
   const handleSelectTab = (key: string) => {
     setActiveTab(key)
-    setCompositionView('summary')
+    setCompositionView(key === 'net_worth' ? 'netWorth' : 'net')
     setSparklinePage(0)
     // Clamp months/interval to options supported by the new tab
     const nextRanges = key === 'cash_flow' ? FORWARD_RANGE_OPTIONS : HISTORICAL_RANGE_OPTIONS
@@ -204,49 +223,98 @@ export default function ReportsPage() {
     fontSize: '12px',
   }
 
-  const tooltipItemStyle = { color: 'var(--foreground)' }
-
-  // Composition view options per report type
-  const compositionOptions = meta?.type === 'income_expenses' || meta?.type === 'cash_flow'
-    ? ['summary', 'byIncome', 'byExpenses'] as const
-    : ['summary', 'detailed'] as const
-
-  // Build donut data based on composition view
   const composition = data?.composition ?? []
 
-  const donutData = (() => {
-    if (compositionView === 'summary' || composition.length === 0) {
-      const excludedKeys = new Set(['netIncome', 'startingBalance', 'endingBalance'])
-      return breakdownData
-        .filter((b) => b.value > 0 && !excludedKeys.has(b.key))
-        .map((b) => ({
-          name: t(`reports.${b.key}`, { defaultValue: b.label }),
-          value: b.value,
-          color: b.color,
-        }))
+  // Composition toggle options per report type
+  const compositionOptions = activeTab === 'net_worth'
+    ? ['netWorth', 'assetsAndAccounts', 'liabilities'] as const
+    : activeTab === 'income_expenses' || activeTab === 'cash_flow'
+      ? ['net', 'byIncome', 'byExpenses'] as const
+      : ['summary', 'detailed'] as const
+
+  // Which breakdown groups are visible in each toggle state. null = show all.
+  const activeCompositionGroups: Set<string> | null = (() => {
+    if (compositionView === 'assetsAndAccounts') return new Set(['accounts', 'assets'])
+    if (compositionView === 'liabilities') return new Set(['liabilities'])
+    if (compositionView === 'byIncome') return new Set(['income'])
+    if (compositionView === 'byExpenses') return new Set(['expenses'])
+    return null
+  })()
+
+
+  // Normalize a breakdown key to its composition group. Cash flow exposes its
+  // income/expense breakdowns under projected* keys, but composition items are
+  // tagged with the plain group, so the two must be reconciled to line up.
+  const groupOf = (key: string) =>
+    key === 'projectedIncome' ? 'income'
+      : key === 'projectedExpenses' ? 'expenses'
+        : key
+
+  // Inner ring — summary view (high-level breakdown), filtered by toggle state for net_worth
+  const innerDonutData = (() => {
+    const excludedKeys = new Set(['netIncome', 'startingBalance', 'endingBalance'])
+    return breakdownData
+      .filter((b) => !excludedKeys.has(b.key) && (!activeCompositionGroups || activeCompositionGroups.has(groupOf(b.key))))
+      .map((b) => ({
+        name: t(`reports.${b.key}`, { defaultValue: b.label }),
+        value: b.value,
+        color: b.color,
+      }))
+  })()
+
+  // Full detail — every holding in the active group(s), largest first, labelled
+  // and coloured. The donut draws only the top slice of this; the legend popover
+  // lists all of it. Net worth items get a distinct palette (the long tail falls
+  // back to the neutral colour); income/expense items keep the user's category colour.
+  const compositionDetail = (() => {
+    if (composition.length === 0) return []
+
+    const excludedKeys = new Set(['netIncome', 'startingBalance', 'endingBalance'])
+    const activeGroups = new Set(
+      breakdownData
+        .filter((b) => !excludedKeys.has(b.key) && (!activeCompositionGroups || activeCompositionGroups.has(groupOf(b.key))))
+        .map((b) => groupOf(b.key))
+    )
+
+    const itemLabel = (c: { label: string; key: string; group: string }) => {
+      if (c.key === 'uncategorized') {
+        // Uncategorized income and uncategorized expenses are distinct buckets
+        // that share a label — qualify them by group so they don't look duplicated.
+        const g = c.group === 'income' ? t('reports.income')
+          : c.group === 'expenses' ? t('reports.expenses')
+          : null
+        return g ? `${t('reports.uncategorized')} · ${g}` : t('reports.uncategorized')
+      }
+      if (c.key === 'baseline') return t('reports.baseline')
+      return c.label
     }
 
-    let items = composition
-    if (compositionView === 'byIncome') {
-      items = composition.filter((c) => c.group === 'income')
-    } else if (compositionView === 'byExpenses') {
-      items = composition.filter((c) => c.group === 'expenses')
-    }
+    return composition
+      .filter((c) => activeGroups.has(c.group))
+      .sort((a, b) => b.value - a.value)
+      .map((c, i) => ({
+        name: itemLabel(c),
+        value: c.value,
+        color: activeTab === 'net_worth' ? (SLICE_COLORS[i] ?? OTHER_SLICE_COLOR) : c.color,
+      }))
+  })()
 
-    // Sort descending, take top N, bucket the rest into "Other"
-    const sorted = [...items].sort((a, b) => b.value - a.value)
-    const top = sorted.slice(0, COMPOSITION_TOP_N)
-    const rest = sorted.slice(COMPOSITION_TOP_N)
-    const otherValue = rest.reduce((sum, c) => sum + c.value, 0)
-
-    const result = top.map((c) => {
-      let name = c.label
-      if (c.key === 'uncategorized') name = t('reports.uncategorized')
-      else if (c.key === 'baseline') name = t('reports.baseline')
-      return { name, value: c.value, color: c.color }
-    })
-    if (otherValue > 0) {
-      result.push({ name: t('reports.other'), value: Math.round(otherValue * 100) / 100, color: '#6B7280' })
+  // Outer ring — the top slices individually, with the long tail folded into a
+  // single "Other". Capping the slice count is what keeps them tellable apart;
+  // the full breakdown stays one click away in the legend's "+N more" popover.
+  const outerDonutData = (() => {
+    if (compositionDetail.length === 0) return []
+    const LIMIT = SLICE_COLORS.length
+    const top = compositionDetail.slice(0, LIMIT)
+    const rest = compositionDetail.slice(LIMIT)
+    const result: { name: string; value: number; color: string }[] =
+      top.map((d) => ({ name: d.name, value: d.value, color: d.color }))
+    if (rest.length > 0) {
+      result.push({
+        name: t('reports.other'),
+        value: Math.round(rest.reduce((s, d) => s + d.value, 0) * 100) / 100,
+        color: OTHER_SLICE_COLOR,
+      })
     }
     return result
   })()
@@ -420,17 +488,26 @@ export default function ReportsPage() {
           </p>
           {meta && (
             <div className="flex items-center gap-3">
-              {meta.series_keys.map((key) => (
-                <div key={key} className="flex items-center gap-1.5">
-                  <div
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: colorMap[key] || '#6366F1' }}
-                  />
+              {meta.type === 'net_worth' ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#6366F1' }} />
                   <span className="text-[11px] text-muted-foreground">
-                    {t(`reports.${key}`, { defaultValue: key })}
+                    {t('reports.netWorth')}
                   </span>
                 </div>
-              ))}
+              ) : (
+                meta.series_keys.map((key) => (
+                  <div key={key} className="flex items-center gap-1.5">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: colorMap[key] || '#6366F1' }}
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      {t(`reports.${key}`, { defaultValue: key })}
+                    </span>
+                  </div>
+                ))
+              )}
               {meta.type === 'income_expenses' && (
                 <div className="flex items-center gap-1.5">
                   <div className="w-3 h-0 border-t-2 border-dashed" style={{ borderColor: '#6366F1' }} />
@@ -681,17 +758,18 @@ export default function ReportsPage() {
       </div>
 
       {/* Breakdown: Donut + Grouped Bar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Donut Chart — Current Composition */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        {/* Composition widget — summary ring + ranked, labelled detail bars */}
         <div className="bg-card rounded-xl border border-border shadow-sm">
-          <div className="px-5 pt-4 pb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold text-foreground">{t('reports.composition')}</p>
-            <div className="flex items-center rounded-lg border border-border bg-muted/30 overflow-hidden">
+          <div className="px-5 pt-4 pb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-foreground shrink-0">{t('reports.composition')}</p>
+            <div className="flex items-stretch rounded-lg border border-border bg-muted/30 overflow-hidden">
               {compositionOptions.map((opt) => (
                 <button
                   key={opt}
+                  type="button"
                   onClick={() => setCompositionView(opt)}
-                  className={`px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  className={`px-2 py-1 text-[11px] font-semibold text-center whitespace-nowrap transition-colors ${
                     compositionView === opt
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -704,90 +782,182 @@ export default function ReportsPage() {
           </div>
           <div className="px-1 pb-4">
             {isLoading ? (
-              <div className="px-4" style={{ height: 200 }}>
-                <Skeleton className="h-full w-full" />
-              </div>
-            ) : donutData.length > 0 ? (
-              (() => {
-                const donutTotal = donutData.reduce((s, d) => s + d.value, 0)
-                const centerLabel = compositionView === 'byIncome'
-                  ? t('reports.income')
-                  : compositionView === 'byExpenses'
-                    ? t('reports.expenses')
-                    : meta?.type === 'income_expenses'
-                      ? t('reports.netIncome')
-                      : meta?.type === 'cash_flow'
-                        ? t('reports.vsToday')
-                        : t(currentTab.labelKey)
-                const centerValue = compositionView === 'byIncome'
-                  ? (summary?.breakdowns.find((b) => b.key === 'income' || b.key === 'projectedIncome')?.value ?? 0)
-                  : compositionView === 'byExpenses'
-                    ? (summary?.breakdowns.find((b) => b.key === 'expenses' || b.key === 'projectedExpenses')?.value ?? 0)
-                    : meta?.type === 'cash_flow'
-                      ? (summary?.change_amount ?? 0)
-                      : (summary?.primary_value ?? 0)
-                return (
-                  <div className="flex flex-col items-center">
-                    <div className="relative" style={{ width: 200, height: 200 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={donutData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={55}
-                            outerRadius={85}
-                            paddingAngle={3}
-                            dataKey="value"
-                            strokeWidth={0}
-                          >
-                            {donutData.map((entry, idx) => (
-                              <Cell key={idx} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(value?: number, name?: string) => {
-                              const v = value ?? 0
-                              const pct = donutTotal > 0 ? ((v / donutTotal) * 100).toFixed(1) : '0'
-                              return [
-                                privacyMode ? MASK : `${formatCurrency(v, userCurrency, locale)} (${pct}%)`,
-                                name,
-                              ]
-                            }}
-                            contentStyle={{ ...tooltipStyle, zIndex: 10 }}
-                            itemStyle={tooltipItemStyle}
-                            wrapperStyle={{ zIndex: 10 }}
-                            offset={20}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      {/* Center label — positioned absolutely over the SVG */}
-                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ zIndex: 0 }}>
-                        <span className="text-[10px] text-muted-foreground">{centerLabel}</span>
-                        <span className="text-base font-bold text-foreground tabular-nums">
-                          {mask(formatCompact(centerValue, userCurrency, locale))}
-                        </span>
-                      </div>
+              <div className="flex flex-col items-center px-4 py-2">
+                <div className="relative" style={{ width: 200, height: 200 }}>
+                  <Skeleton className="w-full h-full rounded-full" />
+                  <div
+                    className="absolute flex flex-col items-center justify-center gap-1 rounded-full bg-card"
+                    style={{ width: 110, height: 110, top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+                  >
+                    <Skeleton className="h-2 w-12" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                </div>
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 mt-3">
+                  {Array.from({ length: activeTab === 'net_worth' ? 3 : 2 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <Skeleton className="w-2 h-2 rounded-full shrink-0" />
+                      <Skeleton className="h-2 w-14" />
                     </div>
-                    {/* Custom legend */}
-                    <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 px-3 mt-1">
-                      {donutData.map((d) => (
-                        <div key={d.name} className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                            {d.name}
+                  ))}
+                </div>
+              </div>
+            ) : innerDonutData.length > 0 ? (
+                (() => {
+                  const hasOuter = outerDonutData.length > 0
+                  const donutTotal = innerDonutData.reduce((s, d) => s + d.value, 0)
+                  return (
+                    <div className="flex flex-col items-center">
+                      <div className="relative" style={{ width: 200, height: 200 }}>
+                        <PieChart width={200} height={200}>
+                            <Pie
+                              data={innerDonutData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={55}
+                              outerRadius={hasOuter ? 63 : 85}
+                              paddingAngle={hasOuter ? 0 : 3}
+                              dataKey="value"
+                              stroke="var(--card)"
+                              strokeWidth={hasOuter ? 2 : 0}
+                            >
+                              {innerDonutData.map((entry, idx) => (
+                                <Cell key={idx} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            {hasOuter && (
+                              <Pie
+                                data={outerDonutData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={64}
+                                outerRadius={90}
+                                paddingAngle={0}
+                                dataKey="value"
+                                stroke="var(--card)"
+                                strokeWidth={2}
+                              >
+                                {outerDonutData.map((entry, idx) => (
+                                  <Cell key={idx} fill={entry.color} />
+                                ))}
+                              </Pie>
+                            )}
+                            <Tooltip
+                              content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null
+                                const entry = payload[0]
+                                const v = (entry.value as number) ?? 0
+                                const pct = donutTotal > 0 ? ((v / donutTotal) * 100).toFixed(1) : '0'
+                                const rawName = (entry.name as string) ?? ''
+                                const displayName = rawName.length > 50 ? rawName.slice(0, 47) + '…' : rawName
+                                return (
+                                  <div style={{ ...tooltipStyle, padding: '8px 12px', zIndex: 10 }}>
+                                    <p className="text-xs font-semibold mb-1">{displayName}</p>
+                                    <p className="text-xs">
+                                      {privacyMode ? MASK : `${formatCurrency(v, userCurrency, locale)} (${pct}%)`}
+                                    </p>
+                                  </div>
+                                )
+                              }}
+                              wrapperStyle={{ zIndex: 10 }}
+                              offset={20}
+                            />
+                        </PieChart>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none" style={{ zIndex: 0 }}>
+                          <span className="text-[10px] text-muted-foreground">
+                            {compositionView === 'assetsAndAccounts' ? t('reports.youOwn', { defaultValue: 'You Own' })
+                              : compositionView === 'liabilities' ? t('reports.youOwe', { defaultValue: 'You Owe' })
+                              : compositionView === 'byIncome' ? t('reports.income')
+                              : compositionView === 'byExpenses' ? t('reports.expenses')
+                              : meta?.type === 'income_expenses' ? t('reports.netIncome')
+                              : t(currentTab.labelKey)}
+                          </span>
+                          <span className="text-base font-bold text-foreground tabular-nums">
+                            {mask(formatCompact(
+                              compositionView === 'netWorth' || compositionView === 'net' || !compositionView
+                                ? meta?.type === 'cash_flow'
+                                  ? (summary?.change_amount ?? 0)
+                                  : (summary?.primary_value ?? 0)
+                                : innerDonutData.reduce((s, d) => s + d.value, 0),
+                              userCurrency, locale
+                            ))}
                           </span>
                         </div>
-                      ))}
+                      </div>
+                      <div key={compositionView} className="flex flex-col items-center gap-1 px-3 mt-1 w-full">
+                        {/* Inner-ring (summary) legend only when there is no detailed
+                            outer ring — otherwise the toggle + center label already
+                            name it, and the detailed legend below carries the colours. */}
+                        {!hasOuter && (
+                          <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
+                            {innerDonutData.map((d, i) => (
+                              <div key={`${i}-${d.name}`} className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                  {d.name.length > 30 ? d.name.slice(0, 27) + '…' : d.name}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {hasOuter && (() => {
+                          const visible = outerDonutData.slice(0, 6)
+                          const hiddenCount = compositionDetail.length - visible.length
+                          return (
+                            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 items-center">
+                              {visible.map((d, i) => (
+                                <div key={`${i}-${d.name}`} className="flex items-center gap-1.5">
+                                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                    {d.name.length > 30 ? d.name.slice(0, 27) + '…' : d.name}
+                                  </span>
+                                </div>
+                              ))}
+                              {hiddenCount > 0 && (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                                    >
+                                      +{hiddenCount} more
+                                    </button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="center" side="top" sideOffset={8} className="w-64 p-3">
+                                    <p className="text-xs font-semibold text-foreground mb-2">
+                                      {t('reports.composition')}
+                                    </p>
+                                    <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-2">
+                                      {compositionDetail.map((d, i) => {
+                                        const pct = donutTotal > 0 ? ((d.value / donutTotal) * 100).toFixed(1) : '0'
+                                        return (
+                                          <div key={`${i}-${d.name}`} className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                            <span className="text-[11px] text-muted-foreground flex-1 truncate">
+                                              {d.name.length > 25 ? d.name.slice(0, 22) + '…' : d.name}
+                                            </span>
+                                            <span className="text-[11px] tabular-nums text-foreground whitespace-nowrap">
+                                              {mask(formatCompact(d.value, userCurrency, locale))}
+                                              <span className="text-muted-foreground ml-1">({pct}%)</span>
+                                            </span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              )}
+                            </div>
+                          )
+                        })()}
+                      </div>
                     </div>
-                  </div>
-                )
-              })()
-            ) : (
-              <p className="text-muted-foreground text-sm text-center py-16">
-                {t('reports.noData')}
-              </p>
-            )}
+                  )
+                })()
+              ) : (
+                <p className="text-muted-foreground text-sm text-center py-16">{t('reports.noData')}</p>
+              )
+            }
           </div>
         </div>
 
