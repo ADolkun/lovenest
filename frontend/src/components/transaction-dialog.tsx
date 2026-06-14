@@ -28,6 +28,7 @@ import { CategorySelect } from '@/components/category-select'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import { TransactionSplitsSection } from '@/components/transaction-splits-section'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import type { Transaction, RecurringTransaction, TransactionSplitsInput, CategoryGroup, Category } from '@/types'
 import { toast } from 'sonner'
 
@@ -318,6 +319,7 @@ function TransactionForm({
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const { privacyMode, MASK } = usePrivacyMode()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const dateLocale = useDateLocale()
   const { data: supportedCurrencies } = useQuery({
@@ -377,6 +379,13 @@ function TransactionForm({
   })
   const isCreating = !transaction
   const showConversion = currency !== userCurrency && !isSynced
+  // Privacy mode hides monetary values across the app, but the edit modal
+  // surfaced the raw amount anyway (issue #323). Only existing transactions
+  // carry a value worth hiding — when creating, the user must see what they
+  // type. A reveal toggle keeps the field editable when needed.
+  const [revealAmounts, setRevealAmounts] = useState(false)
+  const canHideAmounts = privacyMode && !isCreating
+  const hideAmounts = canHideAmounts && !revealAmounts
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [pendingDragOver, setPendingDragOver] = useState(false)
   const pendingFileInputRef = useRef<HTMLInputElement>(null)
@@ -635,15 +644,38 @@ function TransactionForm({
       </div>
       <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-          <Label>{t('transactions.amount')}</Label>
-          <Input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => handleAmountChange(e.target.value)}
-            required
-            disabled={isSynced}
-          />
+          <div className="flex items-center justify-between min-h-5">
+            <Label>{t('transactions.amount')}</Label>
+            {canHideAmounts && (
+              <button
+                type="button"
+                onClick={() => setRevealAmounts((v) => !v)}
+                className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title={revealAmounts ? t('privacy.hide') : t('privacy.show')}
+                aria-label={revealAmounts ? t('privacy.hide') : t('privacy.show')}
+              >
+                {revealAmounts ? <EyeClosed size={14} /> : <Eye size={14} />}
+              </button>
+            )}
+          </div>
+          {hideAmounts ? (
+            <Input
+              type="text"
+              value={MASK}
+              readOnly
+              tabIndex={-1}
+              className="bg-muted/40 text-muted-foreground cursor-default select-none"
+            />
+          ) : (
+            <Input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              required
+              disabled={isSynced}
+            />
+          )}
         </div>
         <div className="space-y-2">
           <Label>{t('transactions.currency')}</Label>
@@ -683,13 +715,23 @@ function TransactionForm({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">{t('transactions.convertedAmount', { currency: userCurrency })}</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={convertedAmount}
-                onChange={(e) => handleConvertedAmountChange(e.target.value)}
-                placeholder={t('transactions.autoCalculated')}
-              />
+              {hideAmounts ? (
+                <Input
+                  type="text"
+                  value={MASK}
+                  readOnly
+                  tabIndex={-1}
+                  className="bg-muted/40 text-muted-foreground cursor-default select-none"
+                />
+              ) : (
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={convertedAmount}
+                  onChange={(e) => handleConvertedAmountChange(e.target.value)}
+                  placeholder={t('transactions.autoCalculated')}
+                />
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t('transactions.exchangeRate')}</Label>
