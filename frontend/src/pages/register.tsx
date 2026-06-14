@@ -12,6 +12,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { CurrencySelect } from '@/components/currency-select'
 import { ShellLogo } from '@/components/shell-logo'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { isServerUnreachable } from '@/lib/auth-errors'
 import type { AxiosError } from 'axios'
 
 export default function RegisterPage() {
@@ -59,7 +60,9 @@ export default function RegisterPage() {
       navigate('/')
     } catch (err) {
       const axiosErr = err as AxiosError
-      if (axiosErr?.response?.status === 429) {
+      if (isServerUnreachable(err)) {
+        setError(t('auth.serverError'))
+      } else if (axiosErr?.response?.status === 429) {
         setError(t('auth.tooManyAttempts'))
       } else {
         setError(t('auth.registrationError'))

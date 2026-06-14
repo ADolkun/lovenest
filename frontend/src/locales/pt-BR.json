@@ -160,6 +160,7 @@
     "forgotPassword": "Esqueceu a senha?",
     "loginDescription": "Entre para acessar sua conta",
     "invalidCredentials": "E-mail ou senha incorretos",
+    "serverError": "Não foi possível conectar ao servidor. Verifique sua conexão ou se o backend está em execução e tente novamente.",
     "noAccount": "Não tem uma conta?",
     "hasAccount": "Já tem uma conta?",
     "changePassword": "Alterar senha",

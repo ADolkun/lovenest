@@ -133,6 +133,7 @@
     "forgotPassword": "Password dimenticata?",
     "loginDescription": "Accedi per usare il tuo account",
     "invalidCredentials": "Email o password non validi",
+    "serverError": "Impossibile connettersi al server. Controlla la connessione o che il backend sia in esecuzione e riprova.",
     "noAccount": "Non hai un account?",
     "hasAccount": "Hai già un account?",
     "changePassword": "Cambia password",

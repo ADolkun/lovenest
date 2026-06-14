@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { ShellLogo } from '@/components/shell-logo'
 import type { AxiosError } from 'axios'
+import { isServerUnreachable } from '@/lib/auth-errors'
 import { useTheme } from 'next-themes'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
 
@@ -62,7 +63,9 @@ export default function LoginPage() {
       }
     } catch (err) {
       const axiosErr = err as AxiosError
-      if (axiosErr?.response?.status === 429) {
+      if (isServerUnreachable(err)) {
+        setError(t('auth.serverError'))
+      } else if (axiosErr?.response?.status === 429) {
         setError(t('auth.tooManyAttempts'))
       } else {
         setError(t('auth.invalidCredentials'))
@@ -85,7 +88,9 @@ export default function LoginPage() {
       navigate('/')
     } catch (err) {
       const axiosErr = err as AxiosError
-      if (axiosErr?.response?.status === 401) {
+      if (isServerUnreachable(err)) {
+        setError(t('auth.serverError'))
+      } else if (axiosErr?.response?.status === 401) {
         setError(t('auth.invalidCredentials'))
         // Token expired, go back to login
         setRequires2fa(false)

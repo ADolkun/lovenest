@@ -160,6 +160,7 @@
     "forgotPassword": "¿Olvidaste tu contraseña?",
     "loginDescription": "Inicia sesión para acceder a tu cuenta",
     "invalidCredentials": "Correo o contraseña inválidos",
+    "serverError": "No se pudo conectar con el servidor. Comprueba tu conexión o que el backend esté en ejecución e inténtalo de nuevo.",
     "noAccount": "¿No tienes una cuenta?",
     "hasAccount": "¿Ya tienes una cuenta?",
     "changePassword": "Cambiar contraseña",

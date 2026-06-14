@@ -160,6 +160,7 @@
     "forgotPassword": "Nie pamiętasz hasła?",
     "loginDescription": "Zaloguj się, aby uzyskać dostęp do konta",
     "invalidCredentials": "Nieprawidłowy e-mail lub hasło",
+    "serverError": "Nie można połączyć się z serwerem. Sprawdź połączenie lub czy backend działa, a następnie spróbuj ponownie.",
     "noAccount": "Nie masz konta?",
     "hasAccount": "Masz już konto?",
     "changePassword": "Zmień hasło",
