@@ -13,7 +13,7 @@ Thanks for your interest in contributing to Securo! This guide will help you get
 
 1. Create a branch from `main`: `git checkout -b feature/your-feature`
 2. Make your changes
-3. Run backend tests: `docker compose exec backend pytest`
+3. Run backend tests: `cd backend && pip install -e ".[dev]" && pytest` (Python 3.11+)
 4. Run frontend lint: `cd frontend && npm run lint`
 5. Commit with a clear message (see below)
 6. Push your branch and open a Pull Request
@@ -30,11 +30,13 @@ Use clear, descriptive commit messages:
 ## Running Tests
 
 ```bash
-# Backend tests
-docker compose exec backend pytest
+# Backend tests (run from backend/, needs Python 3.11+; same as CI)
+cd backend
+pip install -e ".[dev]"   # first time only — installs pytest and dev deps
+pytest
 
 # Backend tests with coverage
-docker compose exec backend pytest --cov=app --cov-report=term-missing
+pytest --cov=app --cov-report=term-missing
 
 # Frontend lint
 cd frontend && npm run lint

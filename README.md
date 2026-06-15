@@ -177,8 +177,10 @@ Parts of this codebase were built with help of AI. All code is human-reviewed an
 ## Development
 
 ```bash
-# Run backend tests
-docker compose exec backend pytest
+# Run backend tests (from backend/, needs Python 3.11+; same as CI)
+cd backend
+pip install -e ".[dev]"   # first time only — installs pytest and dev deps
+pytest
 
 # Rebuild after dependency changes
 docker compose up --build
