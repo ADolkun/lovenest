@@ -12,6 +12,15 @@
   <a href="https://usesecuro.com/">Website</a> · <a href="https://demo.usesecuro.com/">Try our Demo</a> · <a href="https://docs.usesecuro.com/">Read the Docs</a> · <a href="https://discord.gg/rUqTKtQ9S4">Discord</a>
 </p>
 
+<p align="center">
+  <a href="https://www.uneed.best/tool/securo">
+    <img src="https://www.uneed.best/EMBED3.png" alt="Securo on Uneed" width="250" />
+  </a>
+</p>
+<p align="center">
+  <strong>🚀 Securo launches on Uneed on June 16!</strong> If it's useful to you, an upvote means a lot.
+</p>
+
 <h3 align="center">Finance apps want your data. This one doesn't.</h3>
 
 <p align="center">
