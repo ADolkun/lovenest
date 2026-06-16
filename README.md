@@ -13,12 +13,12 @@
 </p>
 
 <p align="center">
-  <a href="https://www.uneed.best/tool/securo">
-    <img src="https://www.uneed.best/EMBED3.png" alt="Securo on Uneed" width="250" />
+  <a href="https://www.uneed.best/tool/securo" target="_blank">
+    <img src="https://www.uneed.best/EMBED2.png" alt="Featured on Uneed" width="250"/>
   </a>
 </p>
 <p align="center">
-  <strong>🚀 Securo launches on Uneed on June 16!</strong> If it's useful to you, an upvote means a lot.
+  <strong>🚀 Voting is live today, June 16!</strong> If you like the project, a vote on Uneed would help a lot 🙏
 </p>
 
 <h3 align="center">Finance apps want your data. This one doesn't.</h3>
