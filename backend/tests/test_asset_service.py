@@ -29,12 +29,17 @@ def test_build_market_value_series_reflects_quantity_over_time():
         (date(2026, 6, 11), Decimal("8330"), Decimal("41.65")),
     ]
     txs = [
-        (date(2025, 12, 1), "buy", Decimal("200")),
-        (date(2026, 5, 15), "buy", Decimal("50")),  # backdated, between the value points
+        (date(2025, 12, 1), "buy", Decimal("200"), Decimal("40")),
+        (date(2026, 5, 15), "buy", Decimal("50"), Decimal("46")),  # backdated, between value points
     ]
     out = dict(build_market_value_series(rows, txs))
-    assert round(out[date(2026, 5, 12)]) == round(200 * 46.43)   # before the buy → 200 units
-    assert round(out[date(2026, 5, 17)]) == round(250 * 45.47)   # after → 250 units
+    # The trade dates get their own points so the chart isn't a flat line until
+    # the first stored price. Before any market price, value at the trade price.
+    assert round(out[date(2025, 12, 1)]) == round(200 * 40)       # no market price yet → trade price
+    assert round(out[date(2026, 5, 12)]) == round(200 * 46.43)    # before the 05-15 buy → 200 units
+    # A trade between two stored prices carries the last known market price.
+    assert round(out[date(2026, 5, 15)]) == round(250 * 46.43)    # 250 units at the carried price
+    assert round(out[date(2026, 5, 17)]) == round(250 * 45.47)    # after → 250 units
     assert round(out[date(2026, 6, 11)]) == round(250 * 41.65)
 
 
@@ -45,13 +50,35 @@ def test_build_market_value_series_handles_sell_and_missing_price():
         (date(2026, 3, 1), Decimal("777"), None),             # no price → fall back to amount
     ]
     txs = [
-        (date(2026, 1, 1), "buy", Decimal("100")),
-        (date(2026, 1, 20), "sell", Decimal("40")),
+        (date(2026, 1, 1), "buy", Decimal("100"), Decimal("10")),
+        (date(2026, 1, 20), "sell", Decimal("40"), Decimal("11")),
     ]
     out = dict(build_market_value_series(rows, txs))
     assert out[date(2026, 1, 1)] == 1000.0   # 100 × 10
+    assert out[date(2026, 1, 20)] == 600.0   # mid-month sell point: 60 × 10 (carried price)
     assert out[date(2026, 2, 1)] == 720.0    # 60 × 12
     assert out[date(2026, 3, 1)] == 777.0    # fallback to stored amount
+
+
+def test_build_market_value_series_backdated_trades_predating_prices():
+    """The reported bug: trades years before price tracking each get a point.
+
+    A market-priced holding records prices only from when it was added (recent
+    dates), so every backdated buy must still produce a dated point — otherwise
+    the chart collapses them onto one anchor and draws a single interpolation.
+    """
+    rows = [(date(2026, 6, 15), Decimal("5335.56"), Decimal("296.42"))]
+    txs = [
+        (date(2021, 1, 15), "buy", Decimal("10"), Decimal("50")),
+        (date(2022, 2, 2), "buy", Decimal("5"), Decimal("80")),
+        (date(2022, 4, 11), "buy", Decimal("3"), Decimal("120")),
+    ]
+    out = dict(build_market_value_series(rows, txs))
+    assert round(out[date(2021, 1, 15)]) == round(10 * 50)            # 10 units @ trade price
+    assert round(out[date(2022, 2, 2)]) == round(15 * 80)             # 15 units @ trade price
+    assert round(out[date(2022, 4, 11)]) == round(18 * 120)           # 18 units @ trade price
+    assert round(out[date(2026, 6, 15)]) == round(18 * 296.42)        # 18 units @ market price
+    assert len(out) == 4  # a point per trade date plus the stored value
 
 
 def test_build_market_value_series_no_ledger_keeps_amounts():

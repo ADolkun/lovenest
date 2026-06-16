@@ -197,15 +197,25 @@ async def _get_value_as_of(
 
 def build_market_value_series(
     value_rows: list[tuple[date, Decimal, Optional[Decimal]]],
-    txs: list[tuple[date, str, Decimal]],
+    txs: list[tuple[date, str, Decimal, Optional[Decimal]]],
 ) -> list[tuple[date, float]]:
     """Rebuild a market-priced holding's value series from the ledger.
 
     value(date) = quantity_held_on(date) × price(date), where quantity is the
     cumulative buys − sells up to that date (from the ledger) and price is the
-    stored per-share price. This keeps the chart consistent with the ledger even
-    when past trades are entered after the fact. Falls back to the baked amount
-    when no per-share price is recorded. `value_rows` must be sorted by date.
+    most recent stored per-share price. This keeps the chart consistent with the
+    ledger even when past trades are entered after the fact. Falls back to the
+    trade's own price on dates that predate any recorded market price (backdated
+    trades entered before price tracking began), and to the baked amount when
+    neither a price nor a later market price exists.
+
+    A point is emitted at every stored-value date *and* every trade date, so a
+    quantity change shows up on the chart at the date it happened. Without the
+    trade-date points, a holding whose stored prices only start recently (the
+    common case — prices are recorded daily from when the holding was added)
+    collapses every backdated trade onto a single early anchor and renders one
+    long straight interpolation across the gap. `value_rows` must be sorted by
+    date.
 
     A holding with no ledger at all (e.g. a pre-ledger "no cost" position that
     still has a stored quantity) keeps its baked amounts — replaying an empty
@@ -214,17 +224,44 @@ def build_market_value_series(
     if not txs:
         return [(d, float(amount)) for d, amount, _ in value_rows]
 
-    txs_sorted = sorted(txs, key=lambda t: t[0])
+    # Net quantity change per trade date, plus a representative per-share price
+    # (the day's last trade) used to value points that predate any market price.
+    tx_delta: dict[date, Decimal] = {}
+    tx_price: dict[date, Decimal] = {}
+    for d, kind, q, p in sorted(txs, key=lambda t: t[0]):
+        tx_delta[d] = tx_delta.get(d, Decimal("0")) + (q if kind == "buy" else -q)
+        if p is not None:
+            tx_price[d] = p
+
+    # Stored value points by date (last write wins on duplicate dates).
+    value_by_date: dict[date, tuple[Decimal, Optional[Decimal]]] = {
+        d: (amount, price) for d, amount, price in value_rows
+    }
+
     out: list[tuple[date, float]] = []
     qty = Decimal("0")
-    i = 0
-    for d, amount, price in value_rows:
-        while i < len(txs_sorted) and txs_sorted[i][0] <= d:
-            _, kind, q = txs_sorted[i]
-            qty += q if kind == "buy" else -q
-            i += 1
+    last_price: Optional[Decimal] = None  # most recent known per-share price
+    seen_market = False  # has a stored market price been reached yet?
+    for d in sorted(set(value_by_date) | set(tx_delta)):
+        qty += tx_delta.get(d, Decimal("0"))
         held = qty if qty > 0 else Decimal("0")
-        out.append((d, float(Decimal(str(price)) * held) if price is not None else float(amount)))
+
+        amount, price = value_by_date.get(d, (None, None))
+        if price is not None:
+            last_price = price  # a recorded market price always wins
+            seen_market = True
+        elif not seen_market and d in tx_price:
+            # Before any market price is recorded, value each trade at its own
+            # price so backdated points aren't flattened onto a single anchor.
+            # Once market prices begin they take over and carry forward.
+            last_price = tx_price[d]
+
+        if d in value_by_date and price is None:
+            out.append((d, float(amount)))  # stored point with no per-share price
+        elif last_price is not None:
+            out.append((d, float(last_price * held)))
+        else:
+            out.append((d, float(amount) if amount is not None else 0.0))
     return out
 
 
@@ -264,12 +301,14 @@ async def _load_asset_native_values(
     if market_ids:
         tq = select(
             AssetTransaction.asset_id, AssetTransaction.date,
-            AssetTransaction.kind, AssetTransaction.quantity,
+            AssetTransaction.kind, AssetTransaction.quantity, AssetTransaction.price,
         ).where(AssetTransaction.asset_id.in_(market_ids))
         if up_to_date is not None:
             tq = tq.where(AssetTransaction.date <= up_to_date)
-        for aid, d, kind, qty in (await session.execute(tq)).all():
-            txs_by_aid.setdefault(str(aid), []).append((d, kind, Decimal(str(qty))))
+        for aid, d, kind, qty, price in (await session.execute(tq)).all():
+            txs_by_aid.setdefault(str(aid), []).append(
+                (d, kind, Decimal(str(qty)), Decimal(str(price)) if price is not None else None)
+            )
 
     values_map: dict[str, list[tuple[date, float]]] = {}
     for asset in assets:
@@ -721,13 +760,16 @@ async def get_asset_value_trend(
     if asset.valuation_method == "market_price":
         txs = (
             await session.execute(
-                select(AssetTransaction.date, AssetTransaction.kind, AssetTransaction.quantity)
+                select(
+                    AssetTransaction.date, AssetTransaction.kind,
+                    AssetTransaction.quantity, AssetTransaction.price,
+                )
                 .where(AssetTransaction.asset_id == asset_id)
             )
         ).all()
         series = build_market_value_series(
             [(d, a, p) for d, a, p in rows],
-            [(d, k, Decimal(str(q))) for d, k, q in txs],
+            [(d, k, Decimal(str(q)), Decimal(str(pr)) if pr is not None else None) for d, k, q, pr in txs],
         )
         return [{"date": d.isoformat(), "amount": v} for d, v in series]
 
