@@ -1087,7 +1087,16 @@
     "forecastBaseline": "Projeção com estimativa",
     "includeEstimate": "Incluir estimativa",
     "includeEstimateHelp": "Estima entradas e saídas futuras pela média do seu histórico (até 12 meses, ou todo o histórico disponível), em vez das transações recorrentes cadastradas",
-    "baseline": "Estimativa"
+    "baseline": "Estimativa",
+    "surplus": "Sobra",
+    "deficit": "Déficit",
+    "cashFlowNode": "Fluxo de Caixa",
+    "flowChartAria": "Diagrama de fluxo de caixa: receitas fluindo para as despesas",
+    "category": "Categoria",
+    "amount": "Valor",
+    "investments": "Investimentos",
+    "moneyMap": "Mapa do Dinheiro",
+    "range30d": "30D"
   },
   "payees": {
     "title": "Beneficiários",

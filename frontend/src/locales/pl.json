@@ -1156,7 +1156,16 @@
     "forecastBaseline": "Prognoza z szacunkiem",
     "includeEstimate": "Uwzględnij szacunek",
     "includeEstimateHelp": "Szacuje przyszłe wpływy i wypływy na podstawie średniej z historii (do 12 miesięcy lub wszystkich dostępnych danych), zamiast używać reguł cyklicznych",
-    "baseline": "Szacunek"
+    "baseline": "Szacunek",
+    "surplus": "Nadwyżka",
+    "deficit": "Deficyt",
+    "cashFlowNode": "Przepływ pieniędzy",
+    "flowChartAria": "Diagram przepływu pieniędzy: przychody przepływające do wydatków",
+    "category": "Kategoria",
+    "amount": "Kwota",
+    "investments": "Inwestycje",
+    "moneyMap": "Mapa Pieniędzy",
+    "range30d": "30D"
   },
   "payees": {
     "title": "Odbiorcy",

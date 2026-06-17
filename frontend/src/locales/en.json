@@ -1087,7 +1087,16 @@
     "forecastBaseline": "Forecast with estimate",
     "includeEstimate": "Include estimate",
     "includeEstimateHelp": "Estimates future inflows and outflows from your history average (up to 12 months, or all available data), instead of using your recurring rules",
-    "baseline": "Estimate"
+    "baseline": "Estimate",
+    "surplus": "Surplus",
+    "deficit": "Deficit",
+    "cashFlowNode": "Cash Flow",
+    "flowChartAria": "Cashflow diagram: income sources flowing through to expenses",
+    "category": "Category",
+    "amount": "Amount",
+    "investments": "Investments",
+    "moneyMap": "Money Map",
+    "range30d": "30D"
   },
   "payees": {
     "title": "Payees",

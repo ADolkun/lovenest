@@ -1085,7 +1085,16 @@
     "forecastBaseline": "Pronóstico con estimación",
     "includeEstimate": "Incluir estimación",
     "includeEstimateHelp": "Estima entradas y salidas futuras a partir del promedio de tu historial (hasta 12 meses, o todos los datos disponibles), en lugar de usar tus reglas recurrentes",
-    "baseline": "Estimación"
+    "baseline": "Estimación",
+    "surplus": "Superávit",
+    "deficit": "Déficit",
+    "cashFlowNode": "Flujo de caja",
+    "flowChartAria": "Diagrama de flujo de caja: ingresos que fluyen hacia los gastos",
+    "category": "Categoría",
+    "amount": "Importe",
+    "investments": "Inversiones",
+    "moneyMap": "Mapa del Dinero",
+    "range30d": "30D"
   },
   "payees": {
     "title": "Beneficiarios",

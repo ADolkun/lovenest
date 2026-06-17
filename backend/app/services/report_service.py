@@ -684,6 +684,49 @@ async def get_income_expenses_report(
             if comp_map[comp_key]["value"] <= 0:
                 comp_map.pop(comp_key)
 
+    # Investment-style outflows: transactions in `treat_as_transfer` categories
+    # are excluded from P&L by counts_as_user_pnl (an investment application's
+    # counterpart is an Asset/Holding, not spending). But for the cashflow Sankey
+    # we surface them as their own "investments" group — money set aside, distinct
+    # from spending and from leftover surplus (mirrors how Sure shows an
+    # "Investment Contributions" node). Paired account transfers stay excluded via
+    # the transfer_pair_id filter, so only one-sided movements (contributions)
+    # appear here.
+    inv_result = await session.execute(
+        select(
+            Category.id,
+            Category.name,
+            Category.color,
+            func.sum(amount_expr),
+        )
+        .select_from(Transaction)
+        .join(Account, Transaction.account_id == Account.id)
+        .join(Category, Transaction.category_id == Category.id)
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Account.is_closed == False,
+            report_date >= start,
+            report_date <= today,
+            Transaction.source != "opening_balance",
+            Transaction.type == "debit",
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.is_ignored.is_(False),
+            Category.treat_as_transfer.is_(True),
+            Category.is_ignored.is_(False),
+            *acct_filter,
+        )
+        .group_by(Category.id, Category.name, Category.color)
+    )
+    for cat_id, cat_name, cat_color, total_amount in inv_result.all():
+        amount = abs(float(total_amount or 0))
+        if amount <= 0:
+            continue
+        comp_map[(str(cat_id), "investments")] = {
+            "label": cat_name or "Investments",
+            "color": cat_color or "#0EA5E9",
+            "value": amount,
+        }
+
     # Build per-category trend (sparklines) for the full date range
     cat_trend_result = await session.execute(
         select(

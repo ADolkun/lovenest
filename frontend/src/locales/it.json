@@ -1059,7 +1059,16 @@
     "forecastBaseline": "Previsione con stima",
     "includeEstimate": "Includi stima",
     "includeEstimateHelp": "Stima entrate e uscite future dalla media della tua cronologia (fino a 12 mesi, o tutti i dati disponibili), invece di usare le tue regole ricorrenti",
-    "baseline": "Stima"
+    "baseline": "Stima",
+    "surplus": "Avanzo",
+    "deficit": "Disavanzo",
+    "cashFlowNode": "Flusso di cassa",
+    "flowChartAria": "Diagramma del flusso di cassa: entrate che confluiscono nelle spese",
+    "category": "Categoria",
+    "amount": "Importo",
+    "investments": "Investimenti",
+    "moneyMap": "Mappa del Denaro",
+    "range30d": "30D"
   },
   "payees": {
     "title": "Beneficiari",
