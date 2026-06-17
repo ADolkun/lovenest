@@ -22,6 +22,22 @@ export interface AdminUserList {
   total: number
 }
 
+export interface Passkey {
+  id: string
+  name: string
+  transports: string[] | null
+  aaguid: string | null
+  device_type: string | null
+  backed_up: boolean | null
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface PasskeyOptionsResponse {
+  challenge_id: string
+  options: Record<string, unknown>
+}
+
 export interface AppSetting {
   key: string
   value: string
