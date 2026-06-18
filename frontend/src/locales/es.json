@@ -279,6 +279,8 @@
   "transactions": {
     "title": "Transacciones",
     "section": "Financiero",
+    "monthPrevious": "Mes anterior",
+    "monthNext": "Mes siguiente",
     "description": "Descripción",
     "amount": "Importe",
     "status": "Estado",
