@@ -676,6 +676,7 @@ export interface ReportDataPoint {
   value: number
   breakdowns: Record<string, number>
   change: number | null
+  composition?: ReportCompositionItem[]
 }
 
 export interface ReportMeta {
