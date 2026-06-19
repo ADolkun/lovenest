@@ -356,6 +356,27 @@ export interface Rule {
   is_active: boolean
 }
 
+export interface RuleExportItem {
+  name: string
+  conditions_op: 'and' | 'or'
+  conditions: RuleCondition[]
+  actions: RuleAction[]
+  priority: number
+  is_active: boolean
+}
+
+export interface RuleExportPayload {
+  format: 'securo-categorization-rules'
+  version: number
+  rules: RuleExportItem[]
+}
+
+export interface RuleImportResponse {
+  imported: number
+  skipped: number
+  overwritten: number
+}
+
 export interface ImportLog {
   id: string
   user_id: string

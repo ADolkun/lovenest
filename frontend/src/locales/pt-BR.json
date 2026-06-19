@@ -789,7 +789,16 @@
     "sortLabel": "Ordenar por",
     "sortBy_priority": "Prioridade",
     "sortBy_name": "Nome",
-    "sortBy_category": "Categoria"
+    "sortBy_category": "Categoria",
+    "export": "Export",
+    "import": "Import",
+    "exported": "Rules export downloaded",
+    "imported": "Imported {{imported}} rules ({{skipped}} skipped)",
+    "invalidImportFile": "Invalid rules import file",
+    "importConfirmTitle": "Import categorization rules?",
+    "importConfirmDescription": "File {{file}} contains {{count}} rules.",
+    "importOverwriteWarning": "Importing will overwrite your current categorization rules. This cannot be undone.",
+    "confirmOverwriteImport": "Overwrite and import"
   },
   "categories": {
     "title": "Categorias",
