@@ -1242,7 +1242,7 @@ export const search = {
 
 // App-level feature flags (whether optional modules like agents are mounted)
 export interface AppInfo {
-  features: { agents: boolean }
+  features: { agents: boolean; tesouro_direto?: boolean }
 }
 
 export const info = {
