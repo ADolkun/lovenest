@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help us improve Securo
+about: Report a bug in lovenest
 title: "[Bug] "
 labels: bug
 assignees: ""
@@ -9,6 +9,10 @@ assignees: ""
 ## Description
 
 A clear description of what the bug is.
+
+> If this is a bug in upstream Securo and not in lovenest's additions (OIDC-primary login,
+> Google OIDC `at_hash`, SimpleFIN credit-card balance), please report it to
+> [securo-finance/securo](https://github.com/securo-finance/securo/issues) instead.
 
 ## Steps to Reproduce
 
@@ -24,15 +28,20 @@ What you expected to happen.
 
 What actually happened.
 
-## Environment
+## Version
 
-- Deployment: [Docker / Manual]
+- lovenest commit / tag:
+- Branch: [e.g. custom]
+
+## Deployment
+
+- How it's running: [docker compose build from source / other]
 - Browser: [e.g. Chrome 120]
 - OS: [e.g. macOS 14, Ubuntu 22.04]
 
-## Screenshots
+## Screenshots / Logs
 
-If applicable, add screenshots to help explain the problem.
+If applicable, add screenshots or relevant log output.
 
 ## Additional Context
 

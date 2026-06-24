@@ -1,158 +1,69 @@
+<h1 align="center">lovenest</h1>
 <p align="center">
-  <img src="docs/logo.svg" width="200" alt="Securo logo" />
-</p>
-<h1 align="center">Securo</h1>
-<p align="center">
-  <a href="https://github.com/securo-finance/securo/actions/workflows/ci.yml"><img src="https://github.com/securo-finance/securo/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/tassionoronha/ae627b744aaa2ba89d850ea541c311be/raw/coverage.json" alt="Coverage" />
-  <a href="https://github.com/securo-finance/securo/pkgs/container/securo-frontend"><img src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/tassionoronha/ae627b744aaa2ba89d850ea541c311be/raw/downloads.json" alt="Downloads" /></a>
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
-  <a href="https://discord.gg/rUqTKtQ9S4"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?logo=discord&logoColor=white" alt="Join our Discord" /></a>
-  <br />
-  <a href="https://usesecuro.com/">Website</a> · <a href="https://demo.usesecuro.com/">Try our Demo</a> · <a href="https://docs.usesecuro.com/">Read the Docs</a> · <a href="https://discord.gg/rUqTKtQ9S4">Discord</a>
+  <a href="https://github.com/securo-finance/securo"><img src="https://img.shields.io/badge/fork%20of-Securo-5865F2.svg" alt="Fork of Securo" /></a>
 </p>
-
-<h3 align="center">Finance apps want your data. This one doesn't.</h3>
 
 <p align="center">
-We believe personal finance should actually be <em>personal</em>. No corporation should sit between you and your financial data. Securo is an open-source finance manager that runs on your own infrastructure, giving you full visibility into your accounts, spending, and habits, without surrendering a single byte to third parties. Take back control.
+<strong>lovenest</strong> is a self-hosted personal and household finance hub — a friendly downstream fork of <a href="https://github.com/securo-finance/securo">Securo</a>. It runs entirely on your own infrastructure, giving you and your household full visibility into accounts, spending, and habits without surrendering your financial data to third parties. lovenest tracks upstream Securo closely and layers on a few deployment and login customizations on top.
 </p>
 
-## Quick Start
+## Attribution
 
-**Linux & macOS** (uses Docker or Podman; installs Docker if neither is present):
+**lovenest is built on [Securo](https://github.com/securo-finance/securo), licensed under [AGPL-3.0](LICENSE).**
+
+The core application — every feature listed below — is the work of the Securo project and its contributors. lovenest is a thin **customization and deployment layer** on top of that work: it does not reimplement the app, and it does not claim Securo's features as its own. Upstream copyright and the AGPL-3.0 license are preserved in full (see [LICENSE](LICENSE)).
+
+If you want the canonical project, its docs, demo, and community, go to **[Securo](https://github.com/securo-finance/securo)** ([website](https://usesecuro.com/) · [docs](https://docs.usesecuro.com/) · [demo](https://demo.usesecuro.com/)).
+
+## What lovenest adds
+
+On top of upstream Securo, this fork contributes:
+
+- **OIDC-primary login layout** — surfaces single-sign-on as the primary path on the login screen, suited to households running their own identity provider (Authentik, Pocket ID, etc.).
+- **Google OIDC `at_hash` sign-in fix** — accepts Google-issued `id_token`s that carry an `at_hash` claim, fixing a sign-in failure with Google as the OIDC provider. *(Contributed upstream as Securo PR #350.)*
+- **SimpleFIN credit-card balance-sign normalization** — normalizes the balance sign for credit-card accounts synced via SimpleFIN so balances read correctly. *(Contributed upstream as Securo PR #351.)*
+- **Built-from-source deployment** — runs the production stack built locally from this repository rather than from prebuilt upstream images (see [Quickstart](#quickstart)).
+
+The two sign-in / sync fixes above were submitted back to Securo as pull requests #350 and #351, so they may already be present in upstream releases.
+
+## Quickstart
+
+lovenest builds the production stack from source in this repository:
 
 ```bash
-curl -fsSL https://usesecuro.com/install.sh | bash
+docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
 ```
 
-**Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), then:
+Environment configuration lives in `.env` — copy `.env.example` to `.env` and fill in your values (`SECRET_KEY`, optional bank-sync and OIDC settings, etc.) before bringing the stack up.
 
-```bash
-git clone https://github.com/securo-finance/securo.git && cd securo
-docker compose up --build
-```
+## Branch model
 
-Open [http://localhost:3000](http://localhost:3000) and create an account. That's it.
+- **`main`** mirrors upstream Securo.
+- **`custom`** is the working and default branch, carrying the lovenest customizations described above.
 
-<p align="center">
-  <img src="docs/screenshot.png" width="800" alt="Securo dashboard" />
-</p>
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
-## Features
+## Features (Securo)
+
+The following is **Securo's feature set**, inherited unchanged by lovenest:
 
 - Multi-account management with running balances
 - Transaction management with search, filters, and CSV export
-- File import (OFX, QIF, CAMT, CSV)
-- Auto-categorization rules engine
-- Recurring transactions and budgets
-- Goals and savings targets with progress tracking
+- File import (OFX, QIF, CAMT, CSV) and an auto-categorization rules engine
+- Recurring transactions, budgets, and savings goals with progress tracking
 - Asset management with valuation tracking and growth rules
-- Reports: Net Worth and Income vs Expenses with category sparklines
-- Bank sync via providers (Pluggy for Brazilian banks, Enable Banking for ~2500 European PSD2 banks, SimpleFIN for US and international banks, extensible)
+- Reports: Net Worth, Income vs Expenses, and cashflow
+- Bank sync via providers: **Pluggy** (Brazilian banks), **Enable Banking** (~2500 European PSD2 banks), and **SimpleFIN** (US and international banks) — extensible
 - Multi-currency support with automatic FX conversion
-- Multi-user support with admin panel and registration controls
-- Two-factor authentication (TOTP) with brute-force protection
-- OIDC login support for Authentik, Pocket ID, and other standard providers
+- Multi-user support with an admin panel and registration controls
+- Two-factor authentication (TOTP) with brute-force protection, plus passkey support
+- OIDC login for Authentik, Pocket ID, and other standard providers
 - AI Agents (optional): self-hosted LLM chat with tool-use over your data, plus a per-agent RAG knowledge base
 
-## Bank Sync (Optional)
+For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exchange rates, and AI Agents, follow **[Securo's documentation](https://docs.usesecuro.com/)** — the underlying configuration keys are unchanged in this fork.
 
-Add credentials for any of the supported providers to `.env`, then restart with `docker compose up`. Configure one or both — each provider auto-registers when its credentials are present.
-
-### Pluggy — Brazilian banks
-
-Sign up at [pluggy.ai](https://pluggy.ai) and add:
-
-```
-PLUGGY_CLIENT_ID=your-client-id
-PLUGGY_CLIENT_SECRET=your-client-secret
-```
-
-### Enable Banking — European banks (PSD2)
-
-Sign up at [enablebanking.com](https://enablebanking.com), create a Production application, and download its PEM private key. Save the PEM to `./secrets/` (gitignored), then add:
-
-```
-ENABLE_BANKING_APP_ID=your-application-id
-ENABLE_BANKING_PRIVATE_KEY_FILE=/app/secrets/your-key.pem
-ENABLE_BANKING_OAUTH_REDIRECT_URI=https://your-host/oauth/callback
-```
-
-The redirect URI must match exactly one of the Allowed Redirect URLs in your EB application. Production EB requires HTTPS — for local development, expose your frontend via a tunnel (ngrok, cloudflared) or use the EB sandbox.
-
-> **Free tier — restricted mode.** Enable Banking's free plan requires you to pre-link the accounts you want to import inside the EB portal *before* connecting from Securo. If you skip that step, the connection returns no accounts and Securo will surface a banner with a link to the portal.
-
-### SimpleFIN — US and international banks
-
-[SimpleFIN](https://www.simplefin.org/) is a read-only open protocol. No API key needed — each connection brings its own credentials via a single-use Setup Token from the [SimpleFIN Bridge](https://bridge.simplefin.org/). Just enable the feature:
-
-```
-SIMPLEFIN_ENABLED=true
-SIMPLEFIN_API_URL=https://beta-bridge.simplefin.org   # sandbox; use bridge.simplefin.org for real banks
-```
-
-Then in Securo: **Accounts → Connect Bank → SimpleFIN**, and paste the token. The [developer page](https://beta-bridge.simplefin.org/info/developers) gives out free demo tokens if you want to try it without a real bank.
-
-## OIDC Login (Optional)
-
-Securo can delegate login to any standard OIDC provider, including Authentik and Pocket ID. Create a confidential/web application in your provider and register this redirect URI:
-
-```
-https://your-securo-host/api/auth/oidc/callback
-```
-
-Then add the provider settings to `.env` and restart:
-
-```
-OIDC_ENABLED=true
-OIDC_PROVIDER_NAME=Pocket ID
-OIDC_DISCOVERY_URL=https://id.example.com/.well-known/openid-configuration
-OIDC_CLIENT_ID=securo
-OIDC_CLIENT_SECRET=your-client-secret
-# Optional; defaults to ${FRONTEND_URL}/api/auth/oidc/callback
-OIDC_REDIRECT_URI=https://your-securo-host/api/auth/oidc/callback
-```
-
-New OIDC users are auto-provisioned by default (`OIDC_AUTO_REGISTER=true`) using verified email addresses. Set `OIDC_AUTO_REGISTER=false` to allow only existing Securo users whose email matches the provider claim.
-
-### Optional OIDC role sync
-
-Securo can also synchronize provider roles/groups into its built-in permissions when `OIDC_SYNC_ROLES=true`. The default claim is `groups`, which works well with Authentik group mappings and Pocket ID role/group assignments.
-
-```
-OIDC_SYNC_ROLES=true
-OIDC_ROLES_CLAIM=groups
-OIDC_ADMIN_ROLES=securo-admins
-OIDC_WORKSPACE_ROLE_MAP={"securo-owners":"owner","securo-editors":"editor","securo-viewers":"viewer"}
-```
-
-`OIDC_ADMIN_ROLES` grants or revokes Securo admin (`is_superuser`) on each OIDC login. `OIDC_WORKSPACE_ROLE_MAP` maps provider roles/groups to the user's Personal workspace role (`owner`, `editor`, or `viewer`); if multiple mapped roles are present, Securo applies the highest permission. Leave `OIDC_SYNC_ROLES=false` to keep all Securo roles managed locally.
-
-## Exchange Rates (Optional)
-
-For automatic currency conversion, add a free [Open Exchange Rates](https://openexchangerates.org/) key to `.env`:
-
-```
-OPENEXCHANGERATES_APP_ID=your-app-id
-```
-
-Rates are fetched on-demand when foreign-currency transactions are created. Without a key, cross-currency amounts default to a 1:1 fallback rate with a visual warning.
-
-## AI Agents (Optional)
-
-Self-hosted AI assistants over your Securo data — multi-provider (OpenAI, Anthropic, Ollama, OpenAI-compatible), tool-use via MCP, per-agent RAG knowledge base, ⌘J global chat panel.
-
-Add to `.env`:
-
-```
-AGENTS_ENABLED=true
-COMPOSE_PROFILES=agents
-```
-
-Then `docker compose up -d`. Settings → AI Agents to add a provider connection. Off by default; zero cost when off.
-
-## Tech Stack
+### Tech stack
 
 | Layer | Stack |
 |-------|-------|
@@ -161,28 +72,12 @@ Then `docker compose up -d`. Settings → AI Agents to add a provider connection
 | Database | PostgreSQL |
 | Queue | Redis + Celery |
 
-## AI-Assisted Development
-
-Parts of this codebase were built with help of AI. All code is human-reviewed and no data leaves your environment.
-
-## Development
-
-```bash
-# Run backend tests (from backend/, needs Python 3.11+; same as CI)
-cd backend
-pip install -e ".[dev]"   # first time only — installs pytest and dev deps
-pytest
-
-# Rebuild after dependency changes
-docker compose up --build
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+lovenest is licensed under the **[GNU Affero General Public License v3.0](LICENSE)**, the same license as upstream Securo.
 
-This means you can freely use, modify, and distribute this software, but any modifications — including when used as a network service (SaaS) — must also be released under the AGPL-3.0.
+- You may use, modify, and distribute this software freely.
+- **Network-use clause:** if you run a modified version as a network service, you must offer its complete source code to the users who interact with it over the network.
+- Any derivative work — including lovenest itself — must remain licensed under AGPL-3.0.
+
+Upstream Securo copyright and license notices are retained; this fork does not relicense their work. By contributing to lovenest, you agree your contributions are licensed under AGPL-3.0.
