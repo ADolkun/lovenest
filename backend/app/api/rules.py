@@ -15,6 +15,7 @@ from app.schemas.rule import (
     RuleCreateResponse,
     RuleImportRequest,
     RuleImportResponse,
+    RuleMutationResponse,
     RuleRead,
     RuleUpdate,
 )
@@ -22,6 +23,31 @@ from app.services import rule_service
 from app.services.rule_service import DuplicateRuleError
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
+
+
+def _normalize_conditions(conditions: list[dict]) -> list[dict]:
+    return [
+        {
+            "field": condition.get("field"),
+            "op": condition.get("op"),
+            "value": condition.get("value"),
+        }
+        for condition in conditions
+    ]
+
+
+def _rule_match_definition_changed(rule: RuleRead, data: RuleUpdate) -> bool:
+    update_data = data.model_dump(exclude_unset=True)
+    if (
+        "conditions_op" in update_data
+        and update_data["conditions_op"] != rule.conditions_op
+    ):
+        return True
+    if "conditions" not in update_data:
+        return False
+    return _normalize_conditions(update_data["conditions"] or []) != _normalize_conditions(
+        rule.conditions or []
+    )
 
 
 @router.get("", response_model=list[RuleRead])
@@ -88,13 +114,18 @@ async def import_rules(
         )
 
 
-@router.patch("/{rule_id}", response_model=RuleRead)
+@router.patch("/{rule_id}", response_model=RuleMutationResponse)
 async def update_rule(
     rule_id: uuid.UUID,
     data: RuleUpdate,
     ctx: WorkspaceContext = Depends(current_writable_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
+    current_rule = await rule_service.get_rule(session, rule_id, ctx.workspace.id)
+    if not current_rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    should_apply = _rule_match_definition_changed(current_rule, data)
+
     try:
         rule = await rule_service.update_rule(session, rule_id, ctx.workspace.id, data)
     except DuplicateRuleError:
@@ -104,7 +135,14 @@ async def update_rule(
         )
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
-    return rule
+    applied_count = (
+        await rule_service.apply_single_rule(session, ctx.workspace.id, rule)
+        if should_apply
+        else 0
+    )
+    response = RuleMutationResponse.model_validate(rule)
+    response.applied_count = applied_count
+    return response
 
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
