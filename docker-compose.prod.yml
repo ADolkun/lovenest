@@ -8,7 +8,7 @@ x-podman:
   in_pod: false
 
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/securo
+  DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/securo
   SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
   DEBUG: ${DEBUG:-false}
   FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
@@ -65,7 +65,11 @@ x-backend-env: &backend-env
   AGENTS_EMBEDDING_MODEL: ${AGENTS_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
 
 x-backend-base: &backend-base
-  image: ghcr.io/securo-finance/securo-backend:latest
+  # Built from ./backend on this branch — the oidc/simplefin fixes live in
+  # source here, not in the upstream-pinned image.
+  build:
+    context: ./backend
+  image: lovenest-backend:0.13.5-custom
   environment: *backend-env
   depends_on:
     db: { condition: service_healthy }
@@ -95,7 +99,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: securo
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -112,7 +116,13 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    image: ghcr.io/securo-finance/securo-frontend:latest
+    # Built from ./frontend on this branch — carries the OIDC-primary login
+    # overlay (a compiled bundle, so it can't be file-overlaid like the backend).
+    build:
+      context: ./frontend
+      args:
+        VITE_APP_VERSION: "0.13.5"
+    image: lovenest-frontend:0.13.5-custom
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     environment:
