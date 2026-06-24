@@ -127,7 +127,9 @@ async def _fetch_userinfo(discovery: dict[str, Any], access_token: str) -> dict[
         return response.json()
 
 
-async def _decode_id_token(discovery: dict[str, Any], id_token: str, nonce: str) -> dict[str, Any]:
+async def _decode_id_token(
+    discovery: dict[str, Any], id_token: str, nonce: str, access_token: str = ""
+) -> dict[str, Any]:
     settings = get_settings()
     jwks_uri = discovery.get("jwks_uri")
     issuer = discovery.get("issuer")
@@ -148,6 +150,7 @@ async def _decode_id_token(discovery: dict[str, Any], id_token: str, nonce: str)
             algorithms=[key.get("alg", "RS256")],
             audience=settings.oidc_client_id,
             issuer=issuer,
+            access_token=access_token,
         )
     except JWTError as exc:
         raise HTTPException(status_code=400, detail="Invalid OIDC id_token") from exc
@@ -376,7 +379,9 @@ async def oidc_callback(
     id_token = token_response.get("id_token")
     if not id_token:
         raise HTTPException(status_code=400, detail="OIDC provider did not return an id_token")
-    claims = await _decode_id_token(discovery, id_token, state_data["nonce"])
+    claims = await _decode_id_token(
+        discovery, id_token, state_data["nonce"], token_response.get("access_token", "")
+    )
     userinfo = await _fetch_userinfo(discovery, token_response.get("access_token", ""))
     user = await _get_or_create_oidc_user(claims, userinfo, discovery.get("issuer", ""), session, user_manager)
     if not user.is_active:
