@@ -1979,3 +1979,111 @@ async def test_sync_keeps_genuine_same_day_repeats(
         )
     )).scalars().all()
     assert len(rows) == 2, "identical-description same-day repeats must be kept"
+
+
+# ---------------------------------------------------------------------------
+# SimpleFIN credit-card balance-sign normalization on sync (UPDATE branch)
+# ---------------------------------------------------------------------------
+
+
+async def _make_simplefin_connection(
+    session: AsyncSession, user_id: uuid.UUID, name: str = "SimpleFIN Bank",
+) -> BankConnection:
+    conn = BankConnection(
+        id=uuid.uuid4(), user_id=user_id, provider="simplefin",
+        external_id=f"ext-sf-{uuid.uuid4().hex[:8]}",
+        institution_name=name, credentials={"token": "fake"},
+        status="active", last_sync_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(conn)
+    await session.commit()
+    await session.refresh(conn)
+    return conn
+
+
+@pytest.mark.asyncio
+async def test_sync_normalizes_simplefin_card_balance_to_positive_for_debt(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """SimpleFIN reports a card's debt as a NEGATIVE balance under a "checking"
+    label. Once the user has overridden the account type to credit_card, a
+    re-sync must store the balance positive-for-debt (Pluggy/Enable convention)
+    so the downstream negation yields the right sign instead of double-counting.
+    The UPDATE branch keys the normalization off the account's CURRENT type,
+    which carries the user override (sync never rewrites `type`)."""
+    from app.models.account import Account
+
+    conn = await _make_simplefin_connection(session, test_user.id)
+    # Pre-existing account the user already flipped to credit_card. Stored
+    # balance is already positive-for-debt from the prior edit.
+    account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
+        external_id="sf-cc-1", name="SimpleFIN Card", type="credit_card",
+        balance=Decimal("500.00"), currency="USD",
+    )
+    session.add(account)
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    # SimpleFIN provider parses every account as type="checking" and reports
+    # the raw negative debt balance.
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="sf-cc-1", name="SimpleFIN Card",
+            type="checking", balance=Decimal("-650.00"), currency="USD",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    await session.refresh(account)
+    # Incoming -650 (raw SimpleFIN) → stored +650 (positive-for-debt). The user
+    # override (type=credit_card) is preserved.
+    assert account.type == "credit_card"
+    assert account.balance == Decimal("650.00")
+
+
+@pytest.mark.asyncio
+async def test_sync_leaves_simplefin_checking_balance_unchanged(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """A SimpleFIN non-card account (no override) keeps the provider's balance
+    verbatim — the normalization only applies to credit_card."""
+    from app.models.account import Account
+
+    conn = await _make_simplefin_connection(session, test_user.id, "SF Checking")
+    account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
+        external_id="sf-chk-1", name="SimpleFIN Checking", type="checking",
+        balance=Decimal("0.00"), currency="USD",
+    )
+    session.add(account)
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="sf-chk-1", name="SimpleFIN Checking",
+            type="checking", balance=Decimal("1234.56"), currency="USD",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    await session.refresh(account)
+    assert account.balance == Decimal("1234.56")
