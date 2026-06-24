@@ -192,6 +192,7 @@
     "or": "ou",
     "loginWithProvider": "Continuar com {{provider}}",
     "loginWithPasskey": "Continuar com chave de acesso",
+    "useLocalAccount": "Entrar com senha",
     "passkeyLoginError": "Não foi possível entrar com essa chave de acesso",
     "passkeyCancelled": "A solicitação da chave de acesso foi cancelada",
     "passkeyMethod": "Chave de acesso",

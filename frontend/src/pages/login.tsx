@@ -27,6 +27,8 @@ export default function LoginPage() {
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
   const [oidcConfig, setOidcConfig] = useState<{ enabled: boolean; provider_name: string }>({ enabled: false, provider_name: 'OIDC' })
+  // When OIDC is on, the password form is collapsed behind a break-glass link.
+  const [showPasswordLogin, setShowPasswordLogin] = useState(false)
 
   // 2FA state
   const [requires2fa, setRequires2fa] = useState(false)
@@ -271,6 +273,8 @@ export default function LoginPage() {
     )
   }
 
+  const showPasswordForm = !oidcConfig.enabled || showPasswordLogin
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background px-4">
       <Card className="w-full max-w-[380px] shadow-sm">
@@ -288,40 +292,12 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm">{t('auth.password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4 px-8 pb-8 pt-2">
-            <Button type="submit" className="w-full" disabled={isLoading || isPasskeyLoading}>
-              {isLoading ? t('common.loading') : t('auth.login')}
-            </Button>
-            {(passkeySupported || oidcConfig.enabled) && (
-              <div className="flex items-center gap-3 w-full">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-xs text-muted-foreground">{t('auth.or')}</span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
+            {oidcConfig.enabled && (
+              <Button type="button" className="w-full" onClick={handleOIDCLogin}>
+                {t('auth.loginWithProvider', { provider: oidcConfig.provider_name })}
+              </Button>
             )}
-            {passkeySupported && (
+            {oidcConfig.enabled && passkeySupported && (
               <Button
                 type="button"
                 variant="outline"
@@ -332,12 +308,73 @@ export default function LoginPage() {
                 {isPasskeyLoading ? t('common.loading') : t('auth.loginWithPasskey')}
               </Button>
             )}
-            {oidcConfig.enabled && (
-              <Button type="button" variant="outline" className="w-full" onClick={handleOIDCLogin}>
-                {t('auth.loginWithProvider', { provider: oidcConfig.provider_name })}
+            {showPasswordForm && (
+              <>
+                {oidcConfig.enabled && (
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs text-muted-foreground">{t('auth.or')}</span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-sm">{t('auth.password')}</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+          <CardFooter className="flex flex-col gap-4 px-8 pb-8 pt-2">
+            {showPasswordForm && (
+              <Button type="submit" className="w-full" disabled={isLoading || isPasskeyLoading}>
+                {isLoading ? t('common.loading') : t('auth.login')}
               </Button>
             )}
-            {registrationEnabled && (
+            {!oidcConfig.enabled && passkeySupported && (
+              <>
+                <div className="flex items-center gap-3 w-full">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs text-muted-foreground">{t('auth.or')}</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handlePasskeyLogin}
+                  disabled={isLoading || isPasskeyLoading}
+                >
+                  {isPasskeyLoading ? t('common.loading') : t('auth.loginWithPasskey')}
+                </Button>
+              </>
+            )}
+            {oidcConfig.enabled && !showPasswordLogin && (
+              <button
+                type="button"
+                onClick={() => setShowPasswordLogin(true)}
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                {t('auth.useLocalAccount')}
+              </button>
+            )}
+            {registrationEnabled && showPasswordForm && (
               <p className="text-sm text-muted-foreground">
                 {t('auth.noAccount')}{' '}
                 <Link to="/register" className="text-primary font-medium hover:underline">

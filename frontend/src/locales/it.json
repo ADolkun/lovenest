@@ -165,6 +165,7 @@
     "or": "o",
     "loginWithProvider": "Continua con {{provider}}",
     "loginWithPasskey": "Continua con passkey",
+    "useLocalAccount": "Accedi con password",
     "passkeyLoginError": "Impossibile accedere con questa passkey",
     "passkeyCancelled": "La richiesta della passkey è stata annullata",
     "passkeyMethod": "Passkey",

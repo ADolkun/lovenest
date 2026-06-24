@@ -192,6 +192,7 @@
     "or": "lub",
     "loginWithProvider": "Kontynuuj z {{provider}}",
     "loginWithPasskey": "Kontynuuj z kluczem dostępu",
+    "useLocalAccount": "Zaloguj się hasłem",
     "passkeyLoginError": "Nie udało się zalogować tym kluczem dostępu",
     "passkeyCancelled": "Anulowano żądanie klucza dostępu",
     "passkeyMethod": "Klucz dostępu",

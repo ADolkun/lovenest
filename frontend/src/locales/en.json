@@ -192,6 +192,7 @@
     "or": "or",
     "loginWithProvider": "Continue with {{provider}}",
     "loginWithPasskey": "Continue with passkey",
+    "useLocalAccount": "Sign in with a password instead",
     "passkeyLoginError": "Could not sign in with that passkey",
     "passkeyCancelled": "Passkey prompt was cancelled",
     "passkeyMethod": "Passkey",
