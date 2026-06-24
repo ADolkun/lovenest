@@ -192,6 +192,7 @@
     "or": "o",
     "loginWithProvider": "Continuar con {{provider}}",
     "loginWithPasskey": "Continuar con llave de acceso",
+    "useLocalAccount": "Iniciar sesión con contraseña",
     "passkeyLoginError": "No se pudo iniciar sesión con esa llave de acceso",
     "passkeyCancelled": "Se canceló la solicitud de la llave de acceso",
     "passkeyMethod": "Llave de acceso",
