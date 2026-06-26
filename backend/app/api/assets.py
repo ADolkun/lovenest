@@ -51,7 +51,9 @@ router = APIRouter(prefix="/api/assets", tags=["assets"])
 @router.get("/market/search", response_model=list[MarketSymbolMatch])
 async def market_search(
     q: str = Query(..., min_length=1, max_length=64, description="Ticker or company name"),
-    limit: int = Query(15, ge=1, le=30),
+    # Upper bound is generous so the Tesouro Direto dropdown can list every
+    # open bond (~60 and growing); ticker autocomplete still requests ~15.
+    limit: int = Query(15, ge=1, le=300),
     _: User = Depends(current_active_user),
 ) -> list[MarketSymbolMatch]:
     """Autocomplete ticker symbols for the Add-Asset form.
@@ -95,6 +97,8 @@ async def market_quote(
     return quote
 
 
+
+
 @router.post("/{asset_id}/refresh-price", response_model=AssetRead)
 async def refresh_asset_price(
     asset_id: uuid.UUID,
@@ -122,7 +126,7 @@ async def refresh_asset_price(
     if asset.valuation_method != "market_price":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only market-priced assets can be refreshed via this endpoint",
+            detail="Only externally priced assets can be refreshed via this endpoint",
         )
 
     try:
@@ -135,7 +139,7 @@ async def refresh_asset_price(
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not refresh quote for {asset.ticker}",
+            detail="Could not refresh price for this asset",
         )
     await session.commit()
 

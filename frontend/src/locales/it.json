@@ -105,6 +105,7 @@
     "dashboard": "Dashboard",
     "transactions": "Transazioni",
     "accounts": "Conti",
+    "collections": "Collezioni",
     "import": "Importa",
     "rules": "Regole",
     "categories": "Categorie",
@@ -123,6 +124,32 @@
     "groupAgents": "IA",
     "agents": "Agenti",
     "aiAgents": "Agenti IA"
+  },
+  "collections": {
+    "title": "Collezioni",
+    "subtitle": "Raggruppa i tuoi conti in collezioni con nome (es. Azienda, Lungo termine, Quotidiano) per filtrare dashboard, report e transazioni.",
+    "allAccounts": "Tutti i conti",
+    "viewing": "Visualizzando",
+    "clearFilter": "Cancella",
+    "manage": "Gestisci collezioni",
+    "add": "Nuova collezione",
+    "edit": "Modifica collezione",
+    "empty": "Ancora nessuna collezione. Creane una per raggruppare i tuoi conti.",
+    "accountCount": "{{count}} conti",
+    "name": "Nome",
+    "namePlaceholder": "es. Azienda, Lungo termine, Fondo di emergenza",
+    "color": "Colore",
+    "accounts": "Conti",
+    "accountsHint": "{{count}} selezionati",
+    "wallets": "Portafogli",
+    "walletsHint": "{{count}} selezionati",
+    "walletCount": "{{count}} portafogli",
+    "noAccounts": "Ancora nessun conto.",
+    "created": "Collezione creata",
+    "updated": "Collezione aggiornata",
+    "deleted": "Collezione eliminata",
+    "confirmDeleteTitle": "Eliminare la collezione?",
+    "confirmDeleteDesc": "\"{{name}}\" verrà rimossa. I tuoi conti e dati non sono interessati."
   },
   "auth": {
     "login": "Accedi",
@@ -265,6 +292,17 @@
     "addManual": "Aggiungi transazione",
     "duplicate": "Duplica",
     "createRule": "Crea regola",
+    "ruleActions": "Azioni regola",
+    "addToExistingRule": "Aggiungi a regola esistente",
+    "addToExistingRuleTitle": "Aggiungi transazione a una regola",
+    "addToExistingRuleDescription": "Scegli una regola di categoria attiva e aggiungi la descrizione di questa transazione come futura corrispondenza.",
+    "existingRule": "Regola esistente",
+    "matchOperator": "Tipo di corrispondenza",
+    "matchText": "Corrispondenza descrizione",
+    "assignRule": "Aggiungi alla regola",
+    "noExistingRules": "Nessuna regola di categoria attiva disponibile",
+    "addedToExistingRule": "Regola aggiornata. Le prossime corrispondenze useranno questa categoria.",
+    "duplicateRuleCondition": "Questa regola include gia questa corrispondenza.",
     "saveAndNew": "Salva e nuova",
     "saveAndDuplicate": "Salva e duplica",
     "moreSaveOptions": "Altre opzioni di salvataggio",
@@ -434,7 +472,10 @@
         "last90": "Ultimi 90 giorni",
         "thisYear": "Quest'anno"
       }
-    }
+    },
+    "bulkAddTags": "Aggiungi tag",
+    "addTagsPlaceholder": "#tag…",
+    "clearOverride": "Rimuovi override"
   },
   "accounts": {
     "title": "Conti",
@@ -715,6 +756,7 @@
     "add": "Aggiungi",
     "created": "Regola creata",
     "createdAndApplied": "Regola creata e applicata a {{count}} transazioni",
+    "updatedAndApplied": "Regola aggiornata e applicata a {{count}} transazioni",
     "updated": "Regola aggiornata",
     "deleted": "Regola eliminata",
     "applied": "Regole applicate a {{count}} transazioni",
@@ -763,7 +805,16 @@
     "sortLabel": "Ordina per",
     "sortBy_priority": "Priorità",
     "sortBy_name": "Nome",
-    "sortBy_category": "Categoria"
+    "sortBy_category": "Categoria",
+    "export": "Export",
+    "import": "Import",
+    "exported": "Rules export downloaded",
+    "imported": "Imported {{imported}} rules ({{skipped}} skipped)",
+    "invalidImportFile": "Invalid rules import file",
+    "importConfirmTitle": "Import categorization rules?",
+    "importConfirmDescription": "File {{file}} contains {{count}} rules.",
+    "importOverwriteWarning": "Importing will overwrite your current categorization rules. This cannot be undone.",
+    "confirmOverwriteImport": "Overwrite and import"
   },
   "categories": {
     "title": "Categorie",
@@ -1026,6 +1077,7 @@
     "balance": "Saldo",
     "inflow": "Entrate",
     "outflow": "Uscite",
+    "change": "Variazione",
     "inflowOutflow": "Entrate vs Uscite",
     "startingBalance": "Saldo iniziale",
     "endingBalance": "Saldo previsto",
@@ -1035,6 +1087,7 @@
     "cashFlow": "Flusso di cassa",
     "comingSoon": "(prossimamente)",
     "composition": "Composizione",
+    "asOf": "al {{date}}",
     "evolution": "Evoluzione",
     "income": "Entrate",
     "expenses": "Spese",
@@ -1047,6 +1100,8 @@
     "assetsAndAccounts": "Attività e Conti",
     "youOwn": "Hai",
     "youOwe": "Devi",
+    "youOwned": "Avevi",
+    "youOwed": "Dovevi",
     "other": "Altro",
     "otherAccounts": "Altri Conti",
     "otherAssets": "Altre Attività",
@@ -1120,7 +1175,9 @@
     "noIconsFound": "Nessuna icona trovata",
     "primaryCurrency": "Valuta principale",
     "showLess": "Mostra meno",
-    "showMore": "+{{count}} altri"
+    "showMore": "+{{count}} altri",
+    "previous": "Precedente",
+    "next": "Successivo"
   },
   "splitGroups": {
     "title": "Gruppi",
@@ -1425,7 +1482,9 @@
       "manageConnections": "gestisci",
       "willUseConnectionDefault": "Userà il predefinito della connessione: {{model}}",
       "autoContext": "Inietta automaticamente il contesto del conto",
-      "autoContextHint": "Anteponi un breve riepilogo con il tuo nome, la valuta, la data odierna e l'elenco dei conti all'inizio di ogni conversazione. Evita all'agente di doverlo chiedere. Disattiva per agenti basati solo sulla knowledge base."
+      "autoContextHint": "Anteponi un breve riepilogo con il tuo nome, la valuta, la data odierna e l'elenco dei conti all'inizio di ogni conversazione. Evita all'agente di doverlo chiedere. Disattiva per agenti basati solo sulla knowledge base.",
+      "isDefault": "Agente predefinito",
+      "isDefaultHint": "Usato dalla chat globale a scomparsa (⌘J). Solo un agente può essere predefinito: attivando questa opzione viene disattivata sugli altri."
     },
     "detail": {
       "notFound": "Agente non trovato.",
@@ -1554,6 +1613,43 @@
       "empty": {
         "title": "Ancora nessuna connessione",
         "subtitle": "Aggiungi una connessione per puntare Securo al tuo Ollama locale, OpenAI, Anthropic o qualsiasi endpoint compatibile con OpenAI."
+      }
+    },
+    "newConversation": "Nuova conversazione",
+    "conversationsCount": "Conversazioni",
+    "knowledgeCount": "File di conoscenza",
+    "defaultBadge": "Predefinito",
+    "defaultLabel": "Predefinito",
+    "globalChat": {
+      "title": "Chat",
+      "openHint": "Apri chat",
+      "history": "Conversazioni recenti",
+      "selectAgent": "Seleziona agente",
+      "openSettings": "Impostazioni agente",
+      "empty": "Scegli un agente e avvia una conversazione con i tuoi dati finanziari.",
+      "openAgents": "Vai agli Agenti",
+      "noConversations": "Ancora nessuna conversazione."
+    },
+    "mcpExternal": {
+      "title": "Accesso MCP esterno",
+      "subtitle": "Collega un agente esterno (Claude Desktop, ChatGPT, n8n, un client personalizzato) al server MCP integrato di Securo. Il token qui sotto è limitato al tuo utente e scade tra {{days}} giorni.",
+      "copy": "Copia",
+      "copied": "Copiato",
+      "copyFailed": "Copia non riuscita",
+      "mint": "Genera token",
+      "minting": "Generazione…",
+      "mintFailed": "Impossibile generare il token",
+      "warning": "Copialo ora: Securo non memorizza il token, quindi non potremo più mostrarlo. Per revocarlo, ruota AGENTS_MCP_JWT_SECRET.",
+      "regenerate": "Genera un altro",
+      "snippets": {
+        "token": "Token",
+        "url": "Endpoint MCP",
+        "curl": "Esempio curl",
+        "clientConfig": "Integrazione client"
+      },
+      "clients": {
+        "claude": "Claude Desktop / Code / Cursor",
+        "openai": "OpenAI Responses API"
       }
     }
   }

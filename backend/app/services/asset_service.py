@@ -8,11 +8,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.models.asset import Asset
 from app.models.asset_transaction import AssetTransaction
 from app.models.asset_value import AssetValue
 from app.models.user import User
+from app.core.config import get_settings
 from app.providers.market_price import (
     MarketPriceProvider,
     MarketPriceRateLimitedError,
@@ -462,6 +462,7 @@ async def create_asset(
         growth_rate=data.growth_rate,
         growth_frequency=data.growth_frequency,
         growth_start_date=data.growth_start_date,
+        maturity_date=data.maturity_date,
         is_archived=data.is_archived,
         position=data.position,
         group_id=data.group_id,
@@ -470,7 +471,11 @@ async def create_asset(
         last_price=Decimal(str(quote.price)) if quote else None,
         last_price_at=datetime.now(timezone.utc) if quote else None,
         logo_url=quote.logo_url if quote else None,
-        source="yfinance" if data.valuation_method == "market_price" else "manual",
+        source=(
+            "tesouro_direto"
+            if quote and quote.exchange == "Tesouro Direto"
+            else ("yfinance" if data.valuation_method == "market_price" else "manual")
+        ),
     )
     session.add(asset)
     await session.flush()
@@ -488,6 +493,7 @@ async def create_asset(
                 source="sync",
             )
         )
+
 
     # Create initial value if provided
     if data.current_value is not None:
@@ -971,7 +977,7 @@ async def get_asset_values_at(
 
 
 async def _apply_price_to_asset(
-    session: AsyncSession, asset: Asset, new_price: Decimal
+    session: AsyncSession, asset: Asset, new_price: Decimal, *, value_date: date | None = None
 ) -> None:
     """Update the cached price and upsert today's AssetValue.
 
@@ -986,7 +992,7 @@ async def _apply_price_to_asset(
     if not asset.units or asset.units <= 0:
         return
 
-    today = date.today()
+    today = value_date or date.today()
     new_amount = new_price * Decimal(str(asset.units))
     existing = await session.execute(
         select(AssetValue)

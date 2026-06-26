@@ -23,6 +23,8 @@ import type {
   Budget,
   BudgetVsActual,
   Rule,
+  RuleExportPayload,
+  RuleImportResponse,
   ImportLog,
   ImportPreviewTransaction,
   Workspace,
@@ -792,7 +794,7 @@ export const rules = {
     const { data } = await api.post('/rules', rule)
     return data
   },
-  update: async (id: string, rule: Partial<Rule>): Promise<Rule> => {
+  update: async (id: string, rule: Partial<Rule>): Promise<Rule & { applied_count: number }> => {
     const { data } = await api.patch(`/rules/${id}`, rule)
     return data
   },
@@ -801,6 +803,22 @@ export const rules = {
   },
   applyAll: async (): Promise<{ applied: number }> => {
     const { data } = await api.post('/rules/apply-all')
+    return data
+  },
+  exportFile: async (): Promise<void> => {
+    const { data } = await api.get('/rules/export', { responseType: 'blob' })
+    const blob = new Blob([data], { type: 'application/json;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `securo-categorization-rules-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+  importFile: async (payload: RuleExportPayload, overwrite = false): Promise<RuleImportResponse> => {
+    const { data } = await api.post('/rules/import', { payload, overwrite })
     return data
   },
   packs: async (): Promise<{ code: string; name: string; flag: string; rule_count: number; installed: boolean }[]> => {
@@ -1224,7 +1242,7 @@ export const search = {
 
 // App-level feature flags (whether optional modules like agents are mounted)
 export interface AppInfo {
-  features: { agents: boolean }
+  features: { agents: boolean; tesouro_direto?: boolean }
 }
 
 export const info = {
