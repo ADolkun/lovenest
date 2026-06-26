@@ -192,6 +192,7 @@
     "or": "или",
     "loginWithProvider": "Продолжить через {{provider}}",
     "loginWithPasskey": "Продолжить с ключом доступа",
+    "useLocalAccount": "Войти с паролем вместо этого",
     "passkeyLoginError": "Не удалось войти с этим ключом доступа",
     "passkeyCancelled": "Запрос ключа доступа отменён",
     "passkeyMethod": "Ключ доступа",
