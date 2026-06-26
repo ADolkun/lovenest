@@ -570,6 +570,7 @@ export default function AssetsPage() {
     setTickerSearchLoading(false)
   }
 
+
   function openCreate() {
     setEditingAsset(null)
     setFormName('')
@@ -661,6 +662,7 @@ export default function AssetsPage() {
       }
     }
 
+
     if (!editingAsset && formCurrentValue) {
       payload.current_value = parseFloat(formCurrentValue)
     }
@@ -738,7 +740,7 @@ export default function AssetsPage() {
             <AssetIcon logoUrl={asset.logo_url} Icon={Icon} colorClass={config.color} bgClass={config.bg} size={16} tile="w-8 h-8" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-foreground truncate">{asset.ticker || asset.name}</span>
+                <span className="font-semibold text-foreground truncate">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.ticker : asset.name}</span>
                 {needsBuys && (
                   <Badge
                     variant="outline"
@@ -756,7 +758,7 @@ export default function AssetsPage() {
                   <Badge variant="outline" className="text-[9px] px-1 py-0 text-sky-600 border-sky-200">{t('assets.synced')}</Badge>
                 )}
               </div>
-              <span className="text-[11px] text-muted-foreground truncate block">{asset.ticker ? asset.name : t(`assets.type${asset.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`)}</span>
+              <span className="text-[11px] text-muted-foreground truncate block">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.name : (asset.ticker?.startsWith('TD:') ? 'Tesouro Direto' : t(`assets.type${asset.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`))}</span>
             </div>
           </div>
           {/* Quant. */}
@@ -1195,7 +1197,7 @@ export default function AssetsPage() {
             {/* Valuation Method — locked on edit */}
             <div className="space-y-2">
               <Label>{t('assets.valuationMethod')}</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid gap-2 grid-cols-3">
                 {VALUATION_METHODS.map(m => (
                   <button
                     key={m}
@@ -1240,7 +1242,11 @@ export default function AssetsPage() {
                     />
                     {tickerMatches.length > 0 && !editingAsset && (
                       <div className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
-                        {tickerMatches.map(match => (
+                        {tickerMatches.map(match => {
+                          // Tesouro bonds carry an internal TD:* symbol — show
+                          // the readable name instead of the hash for those.
+                          const isBond = match.symbol.startsWith('TD:')
+                          return (
                           <button
                             key={`${match.symbol}-${match.exchange ?? ''}`}
                             type="button"
@@ -1248,16 +1254,17 @@ export default function AssetsPage() {
                             className="flex flex-col w-full text-left px-3 py-2 hover:bg-muted transition-colors"
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-semibold text-sm">{match.symbol}</span>
+                              <span className="font-semibold text-sm truncate">{isBond ? (match.name ?? match.symbol) : match.symbol}</span>
                               {match.exchange && (
-                                <span className="text-xs text-muted-foreground">{match.exchange}</span>
+                                <span className="text-xs text-muted-foreground shrink-0">{match.exchange}</span>
                               )}
                             </div>
-                            {match.name && (
+                            {match.name && !isBond && (
                               <span className="text-xs text-muted-foreground truncate">{match.name}</span>
                             )}
                           </button>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                     {tickerSearchLoading && (
@@ -1272,8 +1279,8 @@ export default function AssetsPage() {
                   <div className="rounded-lg border border-border bg-card p-3 text-sm">
                     <div className="flex items-center justify-between">
                       <div className="flex flex-col min-w-0">
-                        <span className="font-semibold">{selectedQuote.symbol}</span>
-                        {selectedQuote.name && (
+                        <span className="font-semibold truncate">{selectedQuote.symbol.startsWith('TD:') ? (selectedQuote.name ?? selectedQuote.symbol) : selectedQuote.symbol}</span>
+                        {selectedQuote.name && !selectedQuote.symbol.startsWith('TD:') && (
                           <span className="text-xs text-muted-foreground truncate">{selectedQuote.name}</span>
                         )}
                         {/* Staleness hint — only meaningful when editing an
@@ -1372,6 +1379,7 @@ export default function AssetsPage() {
                 )}
               </div>
             )}
+
 
             {/* Growth Rule Settings */}
             {formMethod === 'growth_rule' && (

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -48,6 +49,37 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+async def _warm_tesouro_cache() -> None:
+    """Pre-load the Tesouro Direto price cache so the first bond search is
+    instant instead of waiting on the cold ~25s CSV download.
+
+    Gated to instances that actually serve Brazilian users (a workspace with
+    BRL as its default currency) so a non-Brazilian deployment never calls the
+    Brazilian government endpoint just because the feature ships on by default.
+    """
+    try:
+        if not get_settings().tesouro_direto_enabled:
+            return
+        from sqlalchemy import select
+
+        from app.core.database import async_session_maker
+        from app.models.workspace import Workspace
+
+        async with async_session_maker() as session:
+            has_brl = await session.scalar(
+                select(Workspace.id).where(Workspace.default_currency == "BRL").limit(1)
+            )
+        if not has_brl:
+            return
+
+        from app.providers.tesouro_direto import get_tesouro_direto_provider
+
+        await get_tesouro_direto_provider().get_available_bonds()
+        logger.info("Startup: warmed Tesouro Direto price cache")
+    except Exception:
+        logger.exception("Startup: Tesouro Direto cache warm failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: dispatch sync for all stale bank connections
@@ -58,6 +90,9 @@ async def lifespan(app: FastAPI):
         logger.info("Startup: dispatched sync_all_connections task to Celery")
     except Exception:
         logger.exception("Startup: failed to dispatch sync task")
+    # Background pre-warm of the Tesouro cache (non-blocking; gated to BRL
+    # instances inside the helper). Kept on app.state so it isn't GC'd.
+    app.state.tesouro_warm_task = asyncio.create_task(_warm_tesouro_cache())
     yield
     # Shutdown
     await close_redis()
