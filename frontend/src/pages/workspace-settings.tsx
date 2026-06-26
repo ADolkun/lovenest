@@ -401,6 +401,8 @@ export default function WorkspaceSettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">—</SelectItem>
+                  <SelectItem value="ru">Русский</SelectItem>
+                  <SelectItem value="uk">Українська</SelectItem>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="pt-BR">Português (BR)</SelectItem>
                   <SelectItem value="es">Español</SelectItem>

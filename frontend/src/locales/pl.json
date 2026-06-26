@@ -298,6 +298,17 @@
     "addManual": "Dodaj transakcję",
     "duplicate": "Duplikuj",
     "createRule": "Utwórz regułę",
+    "ruleActions": "Akcje reguły",
+    "addToExistingRule": "Dodaj do istniejącej reguły",
+    "addToExistingRuleTitle": "Dodaj transakcję do reguły",
+    "addToExistingRuleDescription": "Wybierz aktywną regułę kategorii i dodaj opis tej transakcji jako kolejne przyszłe dopasowanie.",
+    "existingRule": "Istniejąca reguła",
+    "matchOperator": "Typ dopasowania",
+    "matchText": "Dopasowanie opisu",
+    "assignRule": "Dodaj do reguły",
+    "noExistingRules": "Brak aktywnych reguł kategorii",
+    "addedToExistingRule": "Reguła zaktualizowana. Przyszłe dopasowania użyją tej kategorii.",
+    "duplicateRuleCondition": "Ta reguła już zawiera to dopasowanie.",
     "saveAndNew": "Zapisz i nowa",
     "saveAndDuplicate": "Zapisz i duplikuj",
     "moreSaveOptions": "Więcej opcji zapisu",
@@ -488,7 +499,10 @@
         "last90": "Ostatnie 90 dni",
         "thisYear": "Bieżący rok"
       }
-    }
+    },
+    "bulkAddTags": "Dodaj tagi",
+    "addTagsPlaceholder": "#tag…",
+    "clearOverride": "Wyczyść nadpisanie"
   },
   "accounts": {
     "title": "Konta",
@@ -793,6 +807,7 @@
     "add": "Dodaj",
     "created": "Utworzono regułę",
     "createdAndApplied": "Utworzono regułę i zastosowano do {{count}} transakcji",
+    "updatedAndApplied": "Zaktualizowano regułę i zastosowano do {{count}} transakcji",
     "updated": "Zaktualizowano regułę",
     "deleted": "Usunięto regułę",
     "applied_one": "Zastosowano reguły do {{count}} transakcji",
@@ -844,7 +859,16 @@
     "sortLabel": "Sortuj wg",
     "sortBy_priority": "Priorytet",
     "sortBy_name": "Nazwa",
-    "sortBy_category": "Kategoria"
+    "sortBy_category": "Kategoria",
+    "export": "Export",
+    "import": "Import",
+    "exported": "Rules export downloaded",
+    "imported": "Imported {{imported}} rules ({{skipped}} skipped)",
+    "invalidImportFile": "Invalid rules import file",
+    "importConfirmTitle": "Import categorization rules?",
+    "importConfirmDescription": "File {{file}} contains {{count}} rules.",
+    "importOverwriteWarning": "Importing will overwrite your current categorization rules. This cannot be undone.",
+    "confirmOverwriteImport": "Overwrite and import"
   },
   "categories": {
     "title": "Kategorie",
@@ -1132,6 +1156,7 @@
     "cashFlow": "Przepływy pieniężne",
     "comingSoon": "(wkrótce)",
     "composition": "Struktura",
+    "asOf": "na dzień {{date}}",
     "evolution": "Zmiana w czasie",
     "income": "Przychody",
     "expenses": "Wydatki",
@@ -1144,6 +1169,8 @@
     "assetsAndAccounts": "Aktywa i Konta",
     "youOwn": "Posiadasz",
     "youOwe": "Jesteś winien",
+    "youOwned": "Posiadałeś",
+    "youOwed": "Byłeś winien",
     "other": "Inne",
     "otherAccounts": "Inne Konta",
     "otherAssets": "Inne Aktywa",
@@ -1226,7 +1253,9 @@
     "showMore_one": "+{{count}} więcej",
     "showMore_few": "+{{count}} więcej",
     "showMore_many": "+{{count}} więcej",
-    "showMore_other": "+{{count}} więcej"
+    "showMore_other": "+{{count}} więcej",
+    "previous": "Poprzedni",
+    "next": "Następny"
   },
   "splitGroups": {
     "title": "Grupy",
@@ -1537,7 +1566,9 @@
       "manageConnections": "zarządzaj",
       "willUseConnectionDefault": "Zostanie użyty domyślny model połączenia: {{model}}",
       "autoContext": "Automatycznie dołączaj kontekst kont",
-      "autoContextHint": "Dołącza na początku każdej rozmowy krótkie wprowadzenie z Twoim imieniem, walutą, dzisiejszą datą i listą kont. Oszczędza agentowi konieczności dopytywania. Wyłącz dla agentów działających wyłącznie na bazie wiedzy."
+      "autoContextHint": "Dołącza na początku każdej rozmowy krótkie wprowadzenie z Twoim imieniem, walutą, dzisiejszą datą i listą kont. Oszczędza agentowi konieczności dopytywania. Wyłącz dla agentów działających wyłącznie na bazie wiedzy.",
+      "isDefault": "Domyślny agent",
+      "isDefaultHint": "Używany przez globalny czat wysuwany (⌘J). Tylko jeden agent może być domyślny — włączenie tej opcji wyłącza ją u pozostałych."
     },
     "detail": {
       "notFound": "Nie znaleziono agenta.",
@@ -1672,6 +1703,43 @@
       "empty": {
         "title": "Brak połączeń",
         "subtitle": "Dodaj połączenie, aby skierować Securo do swojego lokalnego Ollamy, OpenAI, Anthropic lub dowolnego endpointu zgodnego z OpenAI."
+      }
+    },
+    "newConversation": "Nowa rozmowa",
+    "conversationsCount": "Rozmowy",
+    "knowledgeCount": "Pliki wiedzy",
+    "defaultBadge": "Domyślny",
+    "defaultLabel": "Domyślny",
+    "globalChat": {
+      "title": "Czat",
+      "openHint": "Otwórz czat",
+      "history": "Ostatnie rozmowy",
+      "selectAgent": "Wybierz agenta",
+      "openSettings": "Ustawienia agenta",
+      "empty": "Wybierz agenta i rozpocznij rozmowę na podstawie swoich danych finansowych.",
+      "openAgents": "Przejdź do Agentów",
+      "noConversations": "Brak rozmów."
+    },
+    "mcpExternal": {
+      "title": "Zewnętrzny dostęp MCP",
+      "subtitle": "Podłącz zewnętrznego agenta (Claude Desktop, ChatGPT, n8n, własnego klienta) do wbudowanego serwera MCP Securo. Poniższy token jest przypisany do Twojego użytkownika i wygasa za {{days}} dni.",
+      "copy": "Kopiuj",
+      "copied": "Skopiowano",
+      "copyFailed": "Kopiowanie nie powiodło się",
+      "mint": "Generuj token",
+      "minting": "Generowanie…",
+      "mintFailed": "Nie udało się utworzyć tokenu",
+      "warning": "Skopiuj teraz — Securo nie przechowuje tokenu, więc nie możemy go ponownie wyświetlić. Aby unieważnić, zmień AGENTS_MCP_JWT_SECRET.",
+      "regenerate": "Generuj kolejny",
+      "snippets": {
+        "token": "Token",
+        "url": "Punkt końcowy MCP",
+        "curl": "Przykład curl",
+        "clientConfig": "Integracja klienta"
+      },
+      "clients": {
+        "claude": "Claude Desktop / Code / Cursor",
+        "openai": "OpenAI Responses API"
       }
     }
   }

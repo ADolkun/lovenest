@@ -12,6 +12,11 @@ from unittest.mock import AsyncMock, patch
 os.environ.setdefault("AGENTS_ENABLED", "true")
 os.environ.setdefault("AGENTS_MCP_JWT_SECRET", "test-secret-not-for-production")
 os.environ.setdefault("AGENTS_BUILTIN_MCP_URL", "http://test-mcp:8765/mcp")
+# Keep OIDC tests deterministic when a developer has local OIDC values in .env
+# or exported in the shell. Individual OIDC tests enable it via the settings
+# fixture below.
+os.environ["OIDC_ENABLED"] = "false"
+os.environ["OIDC_EXISTING_USER_LINK_MODE"] = "disabled"
 
 # pgvector's Vector type only compiles on PostgreSQL. Tests use SQLite, so
 # we shim it with JSON before any model module imports it. Production runs

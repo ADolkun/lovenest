@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -9,11 +10,44 @@ from app.core.workspace_context import (
     current_workspace,
     current_writable_workspace,
 )
-from app.schemas.rule import RuleCreate, RuleCreateResponse, RuleRead, RuleUpdate
+from app.schemas.rule import (
+    RuleCreate,
+    RuleCreateResponse,
+    RuleImportRequest,
+    RuleImportResponse,
+    RuleMutationResponse,
+    RuleRead,
+    RuleUpdate,
+)
 from app.services import rule_service
 from app.services.rule_service import DuplicateRuleError
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
+
+
+def _normalize_conditions(conditions: list[dict]) -> list[dict]:
+    return [
+        {
+            "field": condition.get("field"),
+            "op": condition.get("op"),
+            "value": condition.get("value"),
+        }
+        for condition in conditions
+    ]
+
+
+def _rule_match_definition_changed(rule: RuleRead, data: RuleUpdate) -> bool:
+    update_data = data.model_dump(exclude_unset=True)
+    if (
+        "conditions_op" in update_data
+        and update_data["conditions_op"] != rule.conditions_op
+    ):
+        return True
+    if "conditions" not in update_data:
+        return False
+    return _normalize_conditions(update_data["conditions"] or []) != _normalize_conditions(
+        rule.conditions or []
+    )
 
 
 @router.get("", response_model=list[RuleRead])
@@ -45,13 +79,53 @@ async def create_rule(
     return response
 
 
-@router.patch("/{rule_id}", response_model=RuleRead)
+@router.get("/export")
+async def export_rules(
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    payload = await rule_service.export_rules(session, ctx.workspace.id)
+    return JSONResponse(
+        content=payload.model_dump(mode="json"),
+        headers={
+            "Content-Disposition": 'attachment; filename="securo-categorization-rules.json"',
+        },
+    )
+
+
+@router.post("/import", response_model=RuleImportResponse)
+async def import_rules(
+    data: RuleImportRequest,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    try:
+        return await rule_service.import_rules(
+            session,
+            ctx.workspace.id,
+            ctx.user_id,
+            data.payload,
+            overwrite=data.overwrite,
+        )
+    except DuplicateRuleError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Import would overwrite existing rules. Confirm overwrite to continue.",
+        )
+
+
+@router.patch("/{rule_id}", response_model=RuleMutationResponse)
 async def update_rule(
     rule_id: uuid.UUID,
     data: RuleUpdate,
     ctx: WorkspaceContext = Depends(current_writable_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
+    current_rule = await rule_service.get_rule(session, rule_id, ctx.workspace.id)
+    if not current_rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    should_apply = _rule_match_definition_changed(current_rule, data)
+
     try:
         rule = await rule_service.update_rule(session, rule_id, ctx.workspace.id, data)
     except DuplicateRuleError:
@@ -61,7 +135,14 @@ async def update_rule(
         )
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
-    return rule
+    applied_count = (
+        await rule_service.apply_single_rule(session, ctx.workspace.id, rule)
+        if should_apply
+        else 0
+    )
+    response = RuleMutationResponse.model_validate(rule)
+    response.applied_count = applied_count
+    return response
 
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
