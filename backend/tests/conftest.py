@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # --- Agents test setup (must run BEFORE app.main is imported) ---------------
 # Force the optional agents feature on for the test process so the routes
@@ -23,6 +23,21 @@ os.environ["OIDC_EXISTING_USER_LINK_MODE"] = "disabled"
 # pgvector unchanged.
 import sqlalchemy.types  # noqa: E402
 import pgvector.sqlalchemy as _pgv  # noqa: E402
+import bcrypt as _bcrypt  # noqa: E402
+
+
+# bcrypt's production-safe default work factor is intentionally expensive.
+# Most tests only need a valid password hash for login/auth fixtures, not a
+# password hashing benchmark. Keep explicit rounds untouched, but make implicit
+# test salts cheap so API tests don't spend minutes doing CPU-bound bcrypt.
+_ORIGINAL_BCRYPT_GENSALT = _bcrypt.gensalt
+
+
+def _fast_test_gensalt(rounds: int = 4, prefix: bytes = b"2b") -> bytes:
+    return _ORIGINAL_BCRYPT_GENSALT(rounds=rounds, prefix=prefix)
+
+
+_bcrypt.gensalt = _fast_test_gensalt
 
 
 class _VectorJSON(sqlalchemy.types.JSON):
@@ -495,12 +510,14 @@ async def test_user_with_2fa(session: AsyncSession, clean_db) -> User:
 def _mock_redis():
     """Provide a no-op Redis mock so rate limiting never blocks tests."""
     mock = AsyncMock()
-    # Pipeline mock that always reports 0 prior requests (never rate-limits)
-    pipe_mock = AsyncMock()
-    pipe_mock.zremrangebyscore = AsyncMock()
-    pipe_mock.zcard = AsyncMock()
-    pipe_mock.zadd = AsyncMock()
-    pipe_mock.expire = AsyncMock()
+    # Pipeline commands are synchronous/chained on redis-py's pipeline; only
+    # execute() is awaited. Use MagicMock for the commands to avoid creating
+    # unawaited AsyncMock coroutine warnings on every rate-limited request.
+    pipe_mock = MagicMock()
+    pipe_mock.zremrangebyscore = MagicMock(return_value=pipe_mock)
+    pipe_mock.zcard = MagicMock(return_value=pipe_mock)
+    pipe_mock.zadd = MagicMock(return_value=pipe_mock)
+    pipe_mock.expire = MagicMock(return_value=pipe_mock)
     pipe_mock.execute = AsyncMock(return_value=[0, 0, True, True])
     mock.pipeline = lambda: pipe_mock
     # Key-value ops for 2FA temp tokens
