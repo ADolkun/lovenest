@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyotp
 import pytest
@@ -24,11 +24,11 @@ def _make_redis_mock_with_store():
     mock.delete = AsyncMock(side_effect=mock_delete)
 
     # Pipeline for rate limiter (always allow)
-    pipe_mock = AsyncMock()
-    pipe_mock.zremrangebyscore = AsyncMock()
-    pipe_mock.zcard = AsyncMock()
-    pipe_mock.zadd = AsyncMock()
-    pipe_mock.expire = AsyncMock()
+    pipe_mock = MagicMock()
+    pipe_mock.zremrangebyscore = MagicMock(return_value=pipe_mock)
+    pipe_mock.zcard = MagicMock(return_value=pipe_mock)
+    pipe_mock.zadd = MagicMock(return_value=pipe_mock)
+    pipe_mock.expire = MagicMock(return_value=pipe_mock)
     pipe_mock.execute = AsyncMock(return_value=[0, 0, True, True])
     mock.pipeline = lambda: pipe_mock
 
@@ -202,7 +202,11 @@ async def test_verify_2fa_with_valid_token(client: AsyncClient, test_user_with_2
     mock_r = AsyncMock()
     mock_r.get = AsyncMock(return_value=str(test_user_with_2fa.id))
     mock_r.delete = AsyncMock()
-    pipe = AsyncMock()
+    pipe = MagicMock()
+    pipe.zremrangebyscore = MagicMock(return_value=pipe)
+    pipe.zcard = MagicMock(return_value=pipe)
+    pipe.zadd = MagicMock(return_value=pipe)
+    pipe.expire = MagicMock(return_value=pipe)
     pipe.execute = AsyncMock(return_value=[0, 0, True, True])
     mock_r.pipeline = lambda: pipe
 

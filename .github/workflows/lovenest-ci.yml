@@ -33,7 +33,7 @@ jobs:
         run: ruff check .
 
       - name: Run tests
-        run: pytest
+        run: pytest -n auto
 
   frontend:
     name: Frontend (lint + build)
