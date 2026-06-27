@@ -15,7 +15,7 @@ Steps to verify the changes work:
 
 ## Checklist
 
-- [ ] This PR targets the **`custom`** branch (not `main`)
+- [ ] This PR targets the **`lovenest`** branch (not `main`)
 - [ ] PR title follows [Conventional Commits](https://www.conventionalcommits.org)
 - [ ] `ruff check .` is clean (run in `backend/`)
 - [ ] `pytest` passes (run in `backend/`)

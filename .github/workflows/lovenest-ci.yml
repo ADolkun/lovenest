@@ -2,9 +2,9 @@ name: lovenest CI
 
 on:
   pull_request:
-    branches: [custom, main]
+    branches: [lovenest, main]
   push:
-    branches: [custom]
+    branches: [lovenest]
 
 jobs:
   backend:

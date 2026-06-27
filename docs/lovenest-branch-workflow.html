@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lovenest fork workflow options</title>
+  <style>
+    :root {
+      --bg: #0f1720;
+      --panel: #151f2b;
+      --panel-2: #1c2836;
+      --ink: #eef4ff;
+      --muted: #9fb0c4;
+      --soft: #6f8198;
+      --line: #314357;
+      --green: #77d982;
+      --yellow: #f5c76b;
+      --blue: #80bfff;
+      --red: #ff8e8e;
+      --purple: #c6a7ff;
+      --cyan: #75e0dc;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(117, 224, 220, 0.12), transparent 34rem),
+        radial-gradient(circle at top right, rgba(198, 167, 255, 0.12), transparent 34rem),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+
+    main {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 48px 0 64px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 28px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 72px);
+      line-height: 0.96;
+      letter-spacing: -0.055em;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      font-size: clamp(26px, 3vw, 38px);
+      letter-spacing: -0.035em;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 18px;
+      letter-spacing: -0.012em;
+      margin-bottom: 8px;
+    }
+
+    p, li { color: var(--muted); }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: rgba(255,255,255,0.06);
+      color: #d7eaff;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 0.92em;
+    }
+
+    .eyebrow {
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+
+    .hero-card,
+    .card,
+    .option,
+    .workflow {
+      background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018)), var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      padding: 24px;
+    }
+
+    .verdict {
+      border: 1px solid rgba(117, 224, 220, 0.28);
+      background: rgba(117, 224, 220, 0.08);
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .verdict strong { color: var(--ink); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 22px 0 32px;
+    }
+
+    .card {
+      padding: 20px;
+    }
+
+    .score {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(119, 217, 130, 0.12);
+    }
+
+    .dot.yellow { background: var(--yellow); box-shadow: 0 0 0 4px rgba(245, 199, 107, 0.12); }
+    .dot.blue { background: var(--blue); box-shadow: 0 0 0 4px rgba(128, 191, 255, 0.12); }
+
+    .section {
+      margin-top: 44px;
+    }
+
+    .options {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+
+    .option {
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 270px 1fr;
+      min-height: 240px;
+    }
+
+    .option-side {
+      padding: 22px;
+      background: rgba(255,255,255,0.03);
+      border-right: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .option-body {
+      padding: 22px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.07);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+
+    .badge.best { background: rgba(119, 217, 130, 0.13); color: #b9ffc0; }
+    .badge.ok { background: rgba(128, 191, 255, 0.13); color: #c9e4ff; }
+    .badge.avoid { background: rgba(255, 142, 142, 0.13); color: #ffd0d0; }
+
+    .branches {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .branch {
+      position: relative;
+      padding: 12px 14px 12px 42px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(0,0,0,0.16);
+    }
+
+    .branch::before {
+      content: "";
+      position: absolute;
+      left: 15px;
+      top: 18px;
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: var(--blue);
+      box-shadow: 0 0 0 5px rgba(128,191,255,0.12);
+    }
+
+    .branch.mirror::before { background: var(--yellow); box-shadow: 0 0 0 5px rgba(245,199,107,0.12); }
+    .branch.product::before { background: var(--green); box-shadow: 0 0 0 5px rgba(119,217,130,0.12); }
+    .branch.contrib::before { background: var(--purple); box-shadow: 0 0 0 5px rgba(198,167,255,0.12); }
+
+    .branch strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 3px;
+    }
+
+    .branch span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .proscons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .listbox {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.035);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .listbox ul {
+      padding-left: 18px;
+      margin: 0;
+    }
+
+    .listbox li { margin: 6px 0; }
+
+    .label-good { color: #b9ffc0; font-weight: 800; }
+    .label-bad { color: #ffd0d0; font-weight: 800; }
+
+    .workflow {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .flow {
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 18px;
+      background: rgba(0,0,0,0.16);
+    }
+
+    .flow-title {
+      font-weight: 900;
+      color: var(--ink);
+      margin-bottom: 16px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+
+    .num {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: rgba(117, 224, 220, 0.12);
+      color: var(--cyan);
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 8px 0 0;
+      padding: 14px;
+      border-radius: 14px;
+      background: #0a1119;
+      color: #d6e8ff;
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .decision {
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(119, 217, 130, 0.25);
+      background: rgba(119, 217, 130, 0.08);
+    }
+
+    .tiny {
+      color: var(--soft);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      header,
+      .grid,
+      .workflow,
+      .option,
+      .option-body,
+      .proscons {
+        grid-template-columns: 1fr;
+      }
+
+      .option-side {
+        border-right: 0;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+      }
+    }
+
+    @media print {
+      body { background: white; color: #111827; }
+      main { width: auto; padding: 20px; }
+      .hero-card, .card, .option, .workflow { box-shadow: none; break-inside: avoid; }
+      pre { white-space: pre-wrap; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <section>
+        <div class="eyebrow">Lovenest fork strategy</div>
+        <h1>Which branch model should we use?</h1>
+        <p>
+          You are maintaining a product fork of <code>securo-finance/securo</code>. The goal is to keep taking upstream fixes while continuing Lovenest-specific work without accidentally mixing the two.
+        </p>
+      </section>
+      <aside class="hero-card">
+        <div class="verdict">
+          <h3>My recommendation</h3>
+          <p><strong>Keep <code>main</code> as the clean Securo mirror, but rename <code>custom</code> to <code>lovenest</code>.</strong></p>
+          <p class="tiny">This keeps upstream syncing clean while making the real product branch obvious.</p>
+        </div>
+      </aside>
+    </header>
+
+    <section class="grid" aria-label="Quick summary">
+      <div class="card">
+        <div class="score"><span class="dot"></span> Best compromise</div>
+        <h3><code>main</code> + <code>lovenest</code></h3>
+        <p>Preserves a clean upstream mirror and gives your product branch a meaningful name.</p>
+      </div>
+      <div class="card">
+        <div class="score"><span class="dot yellow"></span> Current is okay</div>
+        <h3><code>main</code> + <code>custom</code></h3>
+        <p>Technically sound, but <code>custom</code> is vague and harder for contributors to understand.</p>
+      </div>
+      <div class="card">
+        <div class="score"><span class="dot blue"></span> Modern product default</div>
+        <h3><code>main</code> = Lovenest</h3>
+        <p>Cleanest for a standalone product, but gives up GitHub fork-sync assumptions.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Options compared</h2>
+      <div class="options">
+        <article class="option">
+          <div class="option-side">
+            <span class="badge best">Recommended compromise</span>
+            <h3>Option A: rename <code>custom</code> to <code>lovenest</code></h3>
+            <p>Best fit if Lovenest is a product fork but you still care about clean upstream syncs.</p>
+            <div class="branches">
+              <div class="branch mirror"><strong>main</strong><span>Exact mirror of Securo main</span></div>
+              <div class="branch product"><strong>lovenest</strong><span>Your real product branch and GitHub default</span></div>
+              <div class="branch"><strong>feature/*</strong><span>Lovenest work branches</span></div>
+              <div class="branch contrib"><strong>upstream-fix/*</strong><span>Branches for PRs to Securo</span></div>
+            </div>
+          </div>
+          <div class="option-body">
+            <div class="listbox">
+              <div class="label-good">Why it works</div>
+              <ul>
+                <li><code>main</code> stays clean for upstream syncing.</li>
+                <li>The product branch has a self-explanatory name.</li>
+                <li>Default branch can be <code>lovenest</code>, so visitors see the real project.</li>
+                <li>Upstream PRs can still branch from clean <code>main</code>.</li>
+              </ul>
+            </div>
+            <div class="listbox">
+              <div class="label-bad">Cost</div>
+              <ul>
+                <li>One-time branch rename and settings update.</li>
+                <li>You still use explicit CLI sync, not blindly relying on GitHub's sync button.</li>
+                <li>Need to be careful when opening PRs to upstream.</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option-side">
+            <span class="badge ok">Acceptable current setup</span>
+            <h3>Option B: keep <code>custom</code></h3>
+            <p>This is basically what you have now.</p>
+            <div class="branches">
+              <div class="branch mirror"><strong>main</strong><span>Exact mirror of Securo main</span></div>
+              <div class="branch product"><strong>custom</strong><span>Lovenest product branch</span></div>
+              <div class="branch"><strong>feature/*</strong><span>Lovenest work branches</span></div>
+              <div class="branch contrib"><strong>upstream-fix/*</strong><span>Branches for PRs to Securo</span></div>
+            </div>
+          </div>
+          <div class="option-body">
+            <div class="listbox">
+              <div class="label-good">Why it works</div>
+              <ul>
+                <li>Very clear technical separation from upstream.</li>
+                <li>Low disruption because it is already configured.</li>
+                <li>Good if the repo remains mostly a fork-maintenance workspace.</li>
+              </ul>
+            </div>
+            <div class="listbox">
+              <div class="label-bad">Cost</div>
+              <ul>
+                <li><code>custom</code> is not a modern/conventional branch name.</li>
+                <li>New contributors may not understand which branch matters.</li>
+                <li>The repo looks less like a real product project.</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option-side">
+            <span class="badge ok">Best for standalone product</span>
+            <h3>Option C: make <code>main</code> Lovenest</h3>
+            <p>Most modern if Lovenest is no longer primarily a fork-sync project.</p>
+            <div class="branches">
+              <div class="branch product"><strong>main</strong><span>Lovenest product branch</span></div>
+              <div class="branch mirror"><strong>upstream-main</strong><span>Optional mirror of Securo main</span></div>
+              <div class="branch"><strong>feature/*</strong><span>Lovenest work branches</span></div>
+              <div class="branch contrib"><strong>upstream-fix/*</strong><span>Based from upstream/main</span></div>
+            </div>
+          </div>
+          <div class="option-body">
+            <div class="listbox">
+              <div class="label-good">Why it works</div>
+              <ul>
+                <li>Matches modern GitHub convention: default <code>main</code> is the product.</li>
+                <li>Simple for deployment, docs, and contributors.</li>
+                <li>No confusing long-lived <code>custom</code> or <code>dev</code> branch.</li>
+              </ul>
+            </div>
+            <div class="listbox">
+              <div class="label-bad">Cost</div>
+              <ul>
+                <li>Your fork's <code>main</code> no longer mirrors Securo.</li>
+                <li>GitHub's fork sync feature becomes less useful.</li>
+                <li>Upstream PR branches must be created from <code>upstream/main</code>, not product <code>main</code>.</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+
+        <article class="option">
+          <div class="option-side">
+            <span class="badge avoid">I would avoid</span>
+            <h3>Option D: use <code>dev</code></h3>
+            <p>This is older Git Flow style. It adds a branch without solving the fork problem.</p>
+            <div class="branches">
+              <div class="branch mirror"><strong>main</strong><span>Could be upstream mirror or stable release</span></div>
+              <div class="branch product"><strong>dev</strong><span>Actual work branch</span></div>
+              <div class="branch"><strong>feature/*</strong><span>Work branches</span></div>
+            </div>
+          </div>
+          <div class="option-body">
+            <div class="listbox">
+              <div class="label-good">When it makes sense</div>
+              <ul>
+                <li>You have formal release trains.</li>
+                <li>You need separate staging and production stabilization branches.</li>
+              </ul>
+            </div>
+            <div class="listbox">
+              <div class="label-bad">Why not here</div>
+              <ul>
+                <li><code>dev</code> becomes the real product branch anyway.</li>
+                <li>Less modern for small/fast-moving projects.</li>
+                <li>Does not make upstream syncing clearer than <code>lovenest</code>.</li>
+              </ul>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>The recommended day-to-day workflow</h2>
+      <div class="workflow">
+        <div class="flow">
+          <div class="flow-title">1. Sync Securo into the clean mirror</div>
+          <div class="step"><div class="num">1</div><div><strong>Switch to mirror branch</strong><pre>git switch main</pre></div></div>
+          <div class="step"><div class="num">2</div><div><strong>Fetch upstream Securo</strong><pre>git fetch upstream</pre></div></div>
+          <div class="step"><div class="num">3</div><div><strong>Fast-forward only</strong><pre>git merge --ff-only upstream/main</pre></div></div>
+          <div class="step"><div class="num">4</div><div><strong>Push clean mirror</strong><pre>git push origin main</pre></div></div>
+        </div>
+
+        <div class="flow">
+          <div class="flow-title">2. Bring Securo updates into Lovenest</div>
+          <div class="step"><div class="num">1</div><div><strong>Branch from product branch</strong><pre>git switch lovenest
+git pull --ff-only origin lovenest
+git switch -c sync-main-into-lovenest-YYYYMMDD</pre></div></div>
+          <div class="step"><div class="num">2</div><div><strong>Merge upstream mirror with ancestry</strong><pre>git merge origin/main</pre></div></div>
+          <div class="step"><div class="num">3</div><div><strong>Open PR into product branch</strong><pre>gh pr create --repo ADolkun/lovenest --base lovenest</pre></div></div>
+          <div class="step"><div class="num">4</div><div><strong>Merge with merge commit</strong><pre>Do not squash upstream-sync PRs.</pre></div></div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <h3>Decision rule</h3>
+        <p>
+          If Lovenest is mainly a product people use, prefer <code>lovenest</code> as the default branch and keep <code>main</code> as the upstream mirror. If Lovenest eventually becomes fully independent, consider making product <code>main</code> later.
+        </p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
