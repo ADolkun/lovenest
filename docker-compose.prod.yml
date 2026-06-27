@@ -70,7 +70,7 @@ x-backend-base: &backend-base
   # source here, not in the upstream-pinned image.
   build:
     context: ./backend
-  image: lovenest-backend:0.13.5-custom
+  image: lovenest-backend:0.13.5-lovenest
   environment: *backend-env
   depends_on:
     db: { condition: service_healthy }
@@ -123,7 +123,7 @@ services:
       context: ./frontend
       args:
         VITE_APP_VERSION: "0.13.5"
-    image: lovenest-frontend:0.13.5-custom
+    image: lovenest-frontend:0.13.5-lovenest
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     environment:
