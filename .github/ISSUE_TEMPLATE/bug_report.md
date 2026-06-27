@@ -31,7 +31,7 @@ What actually happened.
 ## Version
 
 - lovenest commit / tag:
-- Branch: [e.g. custom]
+- Branch: [e.g. lovenest]
 
 ## Deployment
 

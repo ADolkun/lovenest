@@ -33,28 +33,28 @@ This fork has a strict two-branch model. Read this before you open a PR.
             │  git fetch upstream && git merge upstream/main
             ▼
           main ───────────────► (clean mirror of upstream; fast-forward only)
-            │  maintainer merges main → custom
+            │  maintainer merges main → lovenest
             ▼
-         custom ◄────── PR ────── your-fork/feature-branch   ← ALL contributions land here
+       lovenest ◄────── PR ────── your-fork/feature-branch   ← ALL contributions land here
          (default branch + working branch)
 ```
 
 - **`main`** is a clean mirror of upstream `securo-finance/securo` `main`. **Nobody commits to or
   opens PRs against `main`.** It only ever fast-forwards from upstream during a sync.
-- **`custom`** is lovenest's working branch and the GitHub **default branch**. **All contributions
-  target `custom`.**
+- **`lovenest`** is lovenest's working branch and the GitHub **default branch**. **All contributions
+  target `lovenest`.**
 
 ### Contributor flow
 
 1. Fork lovenest on GitHub.
-2. Clone your fork and branch off `custom`:
+2. Clone your fork and branch off `lovenest`:
    ```bash
    git clone https://github.com/your-username/lovenest.git
    cd lovenest
-   git checkout custom
+   git checkout lovenest
    git checkout -b feature/your-feature
    ```
-3. Make your changes, run the checks below, and open a PR **into `custom`**.
+3. Make your changes, run the checks below, and open a PR **into `lovenest`**.
 
 ## Development environment (build from source)
 
@@ -109,7 +109,7 @@ PR titles follow the same convention.
 
 ## Pull request guidelines
 
-- Open PRs against **`custom`** (never `main`).
+- Open PRs against **`lovenest`** (never `main`).
 - Keep PRs focused — one feature or fix each.
 - Make sure both CI jobs pass: `ruff check` + `pytest` clean, frontend lint + build green.
 - Add tests for new backend functionality.
@@ -123,7 +123,7 @@ Only the maintainer syncs upstream. The flow is:
 ```bash
 git fetch upstream
 git checkout main && git merge upstream/main     # fast-forward the mirror
-git checkout custom && git merge main            # bring upstream changes into custom
+git checkout lovenest && git merge main          # bring upstream changes into lovenest
 docker compose -f docker-compose.prod.yml build  # rebuild images
 ```
 
@@ -133,7 +133,7 @@ Some changes belong upstream, not just in lovenest — bug fixes and broadly use
 aren't specific to this fork's OIDC-first focus (the `at_hash` and SimpleFIN fixes are good
 examples, submitted upstream as #350/#351). **If your change makes sense for Securo generally, flag
 it in your PR** so the maintainer can offer it to
-[securo-finance/securo](https://github.com/securo-finance/securo). Land it in lovenest's `custom`
+[securo-finance/securo](https://github.com/securo-finance/securo). Land it in lovenest's `lovenest`
 first; upstreaming happens separately against Securo's own contribution process.
 
 ## Code of conduct

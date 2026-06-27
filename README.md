@@ -40,7 +40,7 @@ Environment configuration lives in `.env` — copy `.env.example` to `.env` and 
 ## Branch model
 
 - **`main`** mirrors upstream Securo.
-- **`custom`** is the working and default branch, carrying the lovenest customizations described above.
+- **`lovenest`** is the working and default branch, carrying the lovenest customizations described above.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
