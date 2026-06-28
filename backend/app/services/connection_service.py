@@ -42,6 +42,8 @@ from app.services.payee_service import get_or_create_payee
 
 logger = logging.getLogger(__name__)
 
+LOCAL_IMPORT_SOURCES = {"import", "csv", "ofx", "qif", "camt"}
+
 settings = get_settings()
 
 
@@ -797,12 +799,36 @@ async def _fuzzy_match_manual(
     return None
 
 
+def _merge_sync_metadata(
+    transaction: Transaction,
+    txn_data,
+    *,
+    replace_external_id: bool = False,
+) -> None:
+    if transaction.source in LOCAL_IMPORT_SOURCES:
+        transaction.import_id = None
+        replace_external_id = True
+    if txn_data.external_id and (replace_external_id or not transaction.external_id):
+        transaction.external_id = txn_data.external_id
+    if txn_data.raw_data:
+        if replace_external_id and transaction.source == "sync":
+            transaction.raw_data = txn_data.raw_data
+        elif not transaction.raw_data:
+            transaction.raw_data = txn_data.raw_data
+        elif isinstance(transaction.raw_data, dict) and isinstance(txn_data.raw_data, dict):
+            merged = {**txn_data.raw_data, **transaction.raw_data}
+            if merged != transaction.raw_data:
+                transaction.raw_data = merged
+    if txn_data.payee and not transaction.payee:
+        transaction.payee = txn_data.payee
+
+
 async def _find_synced_duplicate(
     session: AsyncSession,
     account_id: uuid.UUID,
     txn_data,
 ) -> Optional[Transaction]:
-    """Find an existing synced row that the incoming `txn_data` is a twin of.
+    """Find an existing row that the incoming `txn_data` is a twin of.
 
     The `(account_id, external_id)` lookup only catches the case where a
     provider keeps the same id while a row's `status` flips pending→posted.
@@ -818,8 +844,8 @@ async def _find_synced_duplicate(
        `(purchase_date, number, total, amount, type)`.
 
     Returns the existing Transaction the caller should reuse; the caller
-    decides whether to upgrade its status (pending→posted + swap external_id)
-    or skip the incoming insert. Synthetic bill-charge rows
+    decides whether to upgrade its status (pending→posted + swap external_id),
+    enrich an imported row, or skip the incoming insert. Synthetic bill-charge rows
     (`bill_charge:*`) are excluded — they have their own idempotency keys.
     """
     # Path 1: installment fingerprint. Highly specific, so we don't require a
@@ -900,7 +926,19 @@ async def _find_synced_duplicate(
             ):
                 return candidate
 
-    return None
+    # Local import history from before the account was connected. Exact field
+    # match only; category/source/date/amount stay user/import-owned.
+    result = await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.source.in_(LOCAL_IMPORT_SOURCES),
+            Transaction.date == txn_data.date,
+            Transaction.amount == txn_data.amount,
+            Transaction.type == txn_data.type,
+            Transaction.description == txn_data.description,
+        )
+    )
+    return result.scalars().first()
 
 
 async def _cleanup_phantom_duplicates(
@@ -1355,6 +1393,7 @@ async def sync_connection(
                     # a re-sync can't revive a transaction the user hid.
                     if existing_tx.is_ignored:
                         continue
+                    _merge_sync_metadata(existing_tx, txn_data)
                     if existing_tx.status == "pending" and txn_data.status == "posted":
                         existing_tx.status = "posted"
                     # Self-heal bill linkage: a tx that pre-dates the bills
@@ -1384,11 +1423,8 @@ async def sync_connection(
                 if fuzzy_match:
                     if fuzzy_match.is_ignored:
                         continue
-                    fuzzy_match.external_id = txn_data.external_id
+                    _merge_sync_metadata(fuzzy_match, txn_data)
                     fuzzy_match.source = "sync"
-                    fuzzy_match.raw_data = txn_data.raw_data
-                    if not fuzzy_match.payee and txn_data.payee:
-                        fuzzy_match.payee = txn_data.payee
                     merged_count += 1
                     continue
 
@@ -1405,8 +1441,11 @@ async def sync_connection(
                         # Posted truth wins: swap in the new id so subsequent
                         # syncs match by external_id and update raw_data.
                         synced_dup.status = "posted"
-                        synced_dup.external_id = txn_data.external_id
-                        synced_dup.raw_data = txn_data.raw_data
+                        _merge_sync_metadata(
+                            synced_dup,
+                            txn_data,
+                            replace_external_id=synced_dup.source == "sync",
+                        )
                         if (
                             txn_data.bill_external_id
                             and synced_dup.effective_bill_date is None
@@ -1421,10 +1460,11 @@ async def sync_connection(
                         # Same logical posted row re-keyed by a provider such
                         # as SimpleFIN. Keep the user's row and move its
                         # idempotency key forward instead of inserting a twin.
-                        synced_dup.external_id = txn_data.external_id
-                        synced_dup.raw_data = txn_data.raw_data
-                        if not synced_dup.payee and txn_data.payee:
-                            synced_dup.payee = txn_data.payee
+                        _merge_sync_metadata(
+                            synced_dup,
+                            txn_data,
+                            replace_external_id=synced_dup.source == "sync",
+                        )
                     continue
 
                 category_id = await _match_pluggy_category(
