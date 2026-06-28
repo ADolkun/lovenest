@@ -21,6 +21,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.providers import get_provider
 from app.providers.base import (
+    AccountData,
     HoldingData,
     ProviderRateLimited,
     ProviderUserActionRequired,
@@ -597,6 +598,11 @@ async def handle_oauth_callback(
                             apply_effective_date(
                                 synced_dup, account, bill_due_date=bill.due_date
                             )
+                elif synced_dup.external_id != txn_data.external_id:
+                    synced_dup.external_id = txn_data.external_id
+                    synced_dup.raw_data = txn_data.raw_data
+                    if not synced_dup.payee and txn_data.payee:
+                        synced_dup.payee = txn_data.payee
                 continue
 
             category_id = await _match_pluggy_category(
@@ -687,6 +693,71 @@ def _description_similarity(a: str | None, b: str | None) -> float:
         return 0.0
     intersection = tokens_a & tokens_b
     return len(intersection) / max(len(tokens_a), len(tokens_b))
+
+
+def _normalized_account_name(name: str | None) -> str:
+    """Normalize provider account names for fallback matching.
+
+    Some SimpleFIN bridges re-key account ids, but the display name / masked
+    suffix stays stable (e.g. "High Yield Savings Account (9402)").
+    """
+    return " ".join((name or "").casefold().split())
+
+
+async def _find_existing_connected_account(
+    session: AsyncSession,
+    connection: BankConnection,
+    acc_data: AccountData,
+) -> Optional[Account]:
+    """Find an existing account for incoming provider account data.
+
+    Primary identity is provider external_id. For SimpleFIN only, fall back to
+    stable account name + currency because some bridges emit fresh UUID-like
+    account ids on each pull; when that happens, blindly keying by id creates a
+    new app account on every sync.
+    """
+    result = await session.execute(
+        select(Account).where(
+            Account.connection_id == connection.id,
+            Account.external_id == acc_data.external_id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if account or connection.provider != "simplefin":
+        return account
+
+    normalized_name = _normalized_account_name(acc_data.name)
+    if not normalized_name:
+        return None
+
+    candidates_result = await session.execute(
+        select(Account).where(
+            Account.connection_id == connection.id,
+            Account.currency == acc_data.currency,
+        )
+    )
+    candidates = [
+        candidate
+        for candidate in candidates_result.scalars().all()
+        if not candidate.is_closed
+        and _normalized_account_name(candidate.name) == normalized_name
+    ]
+    if not candidates:
+        return None
+
+    # Prefer the user's established/customized account over a freshly-created
+    # duplicate: it usually has a display name, corrected type, and history.
+    candidates.sort(
+        key=lambda candidate: (
+            candidate.display_name is not None,
+            candidate.type != acc_data.type,
+            candidate.external_id is not None,
+        ),
+        reverse=True,
+    )
+    account = candidates[0]
+    account.external_id = acc_data.external_id
+    return account
 
 
 async def _fuzzy_match_manual(
@@ -797,6 +868,37 @@ async def _find_synced_duplicate(
             continue
         if _description_similarity(candidate.description, txn_data.description) >= 0.7:
             return candidate
+
+    # Path 3: exact posted/transacted timestamp fingerprint. Some SimpleFIN
+    # bridges re-key already-posted rows on later pulls, so status does not
+    # differ. The raw bank timestamps plus same account/date/amount/type and a
+    # near-identical description are specific enough to collapse the re-keyed
+    # row while avoiding broad same-day/same-amount merchant dedupe.
+    raw = txn_data.raw_data if isinstance(txn_data.raw_data, dict) else {}
+    posted = raw.get("posted")
+    transacted_at = raw.get("transacted_at")
+    if posted is not None or transacted_at is not None:
+        result = await session.execute(
+            select(Transaction).where(
+                Transaction.account_id == account_id,
+                Transaction.source == "sync",
+                Transaction.date == txn_data.date,
+                Transaction.amount == txn_data.amount,
+                Transaction.type == txn_data.type,
+                Transaction.status == txn_data.status,
+                Transaction.external_id != txn_data.external_id,
+            )
+        )
+        for candidate in result.scalars():
+            if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
+                continue
+            candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
+            if (
+                candidate_raw.get("posted") == posted
+                and candidate_raw.get("transacted_at") == transacted_at
+                and _description_similarity(candidate.description, txn_data.description) >= 0.9
+            ):
+                return candidate
 
     return None
 
@@ -1152,13 +1254,9 @@ async def sync_connection(
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
         for acc_data in accounts_data:
-            result = await session.execute(
-                select(Account).where(
-                    Account.connection_id == connection.id,
-                    Account.external_id == acc_data.external_id,
-                )
+            account = await _find_existing_connected_account(
+                session, connection, acc_data
             )
-            account = result.scalar_one_or_none()
 
             # Honor user intent: a closed connected account stays closed and is
             # not touched by sync. The row is left alone (no balance/name
@@ -1203,6 +1301,7 @@ async def sync_connection(
                 is_cc = acc_data.type == "credit_card"
                 account = Account(
                     user_id=user_id,
+                    workspace_id=workspace_id,
                     connection_id=connection.id,
                     external_id=acc_data.external_id,
                     name=acc_data.name,
@@ -1318,6 +1417,14 @@ async def sync_connection(
                                 apply_effective_date(
                                     synced_dup, account, bill_due_date=bill.due_date
                                 )
+                    elif synced_dup.external_id != txn_data.external_id:
+                        # Same logical posted row re-keyed by a provider such
+                        # as SimpleFIN. Keep the user's row and move its
+                        # idempotency key forward instead of inserting a twin.
+                        synced_dup.external_id = txn_data.external_id
+                        synced_dup.raw_data = txn_data.raw_data
+                        if not synced_dup.payee and txn_data.payee:
+                            synced_dup.payee = txn_data.payee
                     continue
 
                 category_id = await _match_pluggy_category(
@@ -1337,6 +1444,7 @@ async def sync_connection(
                 )
                 transaction = Transaction(
                     user_id=user_id,
+                    workspace_id=workspace_id,
                     account_id=account.id,
                     external_id=txn_data.external_id,
                     description=txn_data.description,
@@ -1398,7 +1506,17 @@ async def sync_connection(
         await _sync_holdings(session, user_id, connection, credentials)
 
         connection.last_sync_at = datetime.now(timezone.utc)
-        connection.status = "active"
+        action_required_warnings = getattr(provider, "action_required_warnings", None)
+        if isinstance(action_required_warnings, list) and action_required_warnings:
+            logger.warning(
+                "Provider %s synced with %d user-action warning(s) for connection %s",
+                connection.provider,
+                len(action_required_warnings),
+                connection.id,
+            )
+            connection.status = "error"
+        else:
+            connection.status = "active"
         await session.commit()
         await session.refresh(connection)
         return connection, merged_count
