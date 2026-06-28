@@ -173,6 +173,15 @@ async def sync_connection(
         )
         result = BankConnectionRead.model_validate(connection)
         return {**result.model_dump(mode="json"), "merged_count": merged_count}
+    except ProviderUserActionRequired as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(e),
+                "code": e.code,
+                "help_url": e.help_url,
+            },
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:

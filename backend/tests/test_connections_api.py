@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
 from app.models.user import User
+from app.providers.base import ProviderUserActionRequired
 
 
 @pytest.mark.asyncio
@@ -191,6 +192,27 @@ async def test_sync_connection_not_found(client: AsyncClient, auth_headers):
         f"/api/connections/{uuid.uuid4()}/sync", headers=auth_headers,
     )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_user_action_required_returns_conflict(client: AsyncClient, auth_headers):
+    with patch("app.api.connections.connection_service.sync_connection", new_callable=AsyncMock) as mock_sync:
+        mock_sync.side_effect = ProviderUserActionRequired(
+            "Apple Card auth required",
+            code="credentials_invalid",
+            help_url="https://bridge.simplefin.org/",
+        )
+
+        resp = await client.post(
+            f"/api/connections/{uuid.uuid4()}/sync", headers=auth_headers,
+        )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {
+        "message": "Apple Card auth required",
+        "code": "credentials_invalid",
+        "help_url": "https://bridge.simplefin.org/",
+    }
 
 
 @pytest.mark.asyncio
