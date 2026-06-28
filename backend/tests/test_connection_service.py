@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
+from app.models.import_log import ImportLog
 from app.models.transaction import Transaction
 from app.providers.base import AccountData, BillData, ConnectionData, ConnectTokenData, TransactionData
 from app.services.connection_service import (
@@ -648,6 +649,110 @@ async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
     assert len(sync_txs) == 1
     assert sync_txs[0].id == existing.id
     assert sync_txs[0].external_id == "new-tx-id"
+
+
+@pytest.mark.asyncio
+async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "Imported History Bank")
+    account_id = uuid.uuid4()
+    category_id = uuid.uuid4()
+    import_log_id = uuid.uuid4()
+    imported_id = uuid.uuid4()
+    category = Category(
+        id=category_id,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Already Categorized",
+        icon="tag",
+        color="#000000",
+        is_system=False,
+    )
+    account = Account(
+        id=account_id,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        external_id="import-acc-1",
+        name="Checking",
+        type="checking",
+        balance=Decimal("-42.00"),
+        currency="BRL",
+    )
+    import_log = ImportLog(
+        id=import_log_id,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=account_id,
+        filename="history.csv",
+        format="csv",
+        transaction_count=1,
+        total_debit=Decimal("42.00"),
+    )
+    imported = Transaction(
+        id=imported_id,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=account_id,
+        external_id="csv-row-1",
+        description="GROCERY STORE",
+        amount=Decimal("42.00"),
+        date=date(2026, 6, 20),
+        type="debit",
+        currency="BRL",
+        source="import",
+        import_id=import_log_id,
+        category_id=category_id,
+    )
+    session.add_all([category, account, import_log, imported])
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "refreshed"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="import-acc-1",
+            name="Checking",
+            type="checking",
+            balance=Decimal("-42.00"),
+            currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="provider-tx-1",
+            description="GROCERY STORE",
+            amount=Decimal("42.00"),
+            date=date(2026, 6, 20),
+            type="debit",
+            currency="BRL",
+            payee="Grocery Store",
+            raw_data={"posted": 1781913600},
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock) as apply_rules:
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].id == imported_id
+    assert rows[0].source == "import"
+    assert rows[0].import_id is None
+    assert rows[0].category_id == category_id
+    assert rows[0].external_id == "provider-tx-1"
+    assert rows[0].payee == "Grocery Store"
+    assert rows[0].raw_data == {"posted": 1781913600}
+    apply_rules.assert_not_called()
 
 
 @pytest.mark.asyncio
