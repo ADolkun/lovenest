@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.transaction import Transaction
@@ -519,6 +520,134 @@ async def test_sync_connection_new_transactions(session: AsyncSession, test_user
 
     assert result_conn.status == "active"
     assert merged == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_partial_user_action_warning_marks_connection_error(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "Partial SimpleFIN")
+    mock_provider = AsyncMock()
+    mock_provider.action_required_warnings = [
+        {"code": "credentials_invalid", "message": "Apple Card auth required"}
+    ]
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "refreshed"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="partial-acc-1", name="Checking",
+            type="checking", balance=Decimal("2000"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="partial-tx-1", description="GROCERY",
+            amount=Decimal("80"), date=date.today(), type="debit", currency="BRL",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, merged = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    assert result_conn.status == "error"
+    assert merged == 0
+    synced_tx = (await session.execute(
+        select(Transaction).where(Transaction.external_id == "partial-tx-1")
+    )).scalar_one()
+    assert synced_tx.description == "GROCERY"
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN Bank")
+    conn.provider = "simplefin"
+
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        external_id="old-account-id",
+        name="High Yield Savings Account (9402)",
+        display_name="Albert · Amex HYSA",
+        type="savings",
+        balance=Decimal("100.00"),
+        currency="USD",
+    )
+    session.add(account)
+    existing = Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=account.id,
+        external_id="old-tx-id",
+        description="ROBINHOOD FUNDS",
+        amount=Decimal("3086.00"),
+        date=date(2026, 6, 16),
+        type="credit",
+        currency="USD",
+        source="sync",
+        status="posted",
+        raw_data={"posted": 1781618248, "transacted_at": 1781611200},
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(existing)
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "refreshed"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="new-account-id",
+            name="High Yield Savings Account (9402)",
+            type="checking",
+            balance=Decimal("100.00"),
+            currency="USD",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="new-tx-id",
+            description="ROBINHOOD FUNDS",
+            amount=Decimal("3086.00"),
+            date=date(2026, 6, 16),
+            type="credit",
+            currency="USD",
+            status="posted",
+            payee="Robinhood",
+            raw_data={"posted": 1781618248, "transacted_at": 1781611200},
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, merged = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    assert result_conn.status == "active"
+    assert merged == 0
+
+    accounts = (await session.execute(
+        select(Account).where(Account.connection_id == conn.id)
+    )).scalars().all()
+    assert len(accounts) == 1
+    assert accounts[0].id == account.id
+    assert accounts[0].external_id == "new-account-id"
+    assert accounts[0].display_name == "Albert · Amex HYSA"
+    assert accounts[0].type == "savings"
+
+    txs = (await session.execute(
+        select(Transaction).where(Transaction.account_id == account.id)
+    )).scalars().all()
+    sync_txs = [tx for tx in txs if tx.source == "sync"]
+    assert len(sync_txs) == 1
+    assert sync_txs[0].id == existing.id
+    assert sync_txs[0].external_id == "new-tx-id"
 
 
 @pytest.mark.asyncio
