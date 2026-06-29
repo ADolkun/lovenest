@@ -38,16 +38,21 @@ def _normalize_conditions(conditions: list[dict]) -> list[dict]:
 
 def _rule_match_definition_changed(rule: RuleRead, data: RuleUpdate) -> bool:
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("is_active") is True and not rule.is_active:
+        return True
     if (
         "conditions_op" in update_data
         and update_data["conditions_op"] != rule.conditions_op
     ):
         return True
-    if "conditions" not in update_data:
-        return False
-    return _normalize_conditions(update_data["conditions"] or []) != _normalize_conditions(
-        rule.conditions or []
-    )
+    if "conditions" in update_data:
+        if _normalize_conditions(update_data["conditions"] or []) != _normalize_conditions(
+            rule.conditions or []
+        ):
+            return True
+    if "actions" in update_data:
+        return [a.model_dump() for a in data.actions or []] != (rule.actions or [])
+    return False
 
 
 @router.get("", response_model=list[RuleRead])
@@ -162,7 +167,9 @@ async def list_rule_packs(
     session: AsyncSession = Depends(get_async_session),
 ):
     """List available country-specific rule packs with installed status."""
-    installed_map = await rule_service.get_installed_packs(session, ctx.user_id)
+    installed_map = await rule_service.get_installed_packs(
+        session, ctx.workspace.id, ctx.user_id
+    )
     packs = []
     for code, pack in rule_service.RULE_PACKS.items():
         packs.append({
@@ -192,6 +199,7 @@ async def install_rule_pack(
     lang = (ctx.user.preferences or {}).get("language", "pt-BR")
     result = await rule_service.install_rule_pack(
         session,
+        ctx.workspace.id,
         ctx.user_id,
         pack_code,
         lang,

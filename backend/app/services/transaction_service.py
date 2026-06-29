@@ -24,6 +24,40 @@ from app.services.fx_rate_service import stamp_primary_amount, convert as fx_con
 from app.services._query_filters import counts_as_pnl, reporting_date_col
 
 
+async def _ensure_category_in_workspace(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    category_id: Optional[uuid.UUID],
+) -> None:
+    if category_id is None:
+        return
+    result = await session.execute(
+        select(Category.id).where(
+            Category.id == category_id,
+            Category.workspace_id == workspace_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise ValueError("Category not found")
+
+
+async def _ensure_payee_in_workspace(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    payee_id: Optional[uuid.UUID],
+) -> None:
+    if payee_id is None:
+        return
+    result = await session.execute(
+        select(Payee.id).where(
+            Payee.id == payee_id,
+            Payee.workspace_id == workspace_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise ValueError("Payee not found")
+
+
 def _apply_fx_override(transaction, amount, amount_primary=None, fx_rate_used=None):
     """Apply manual FX override values to a transaction.
 
@@ -623,6 +657,8 @@ async def get_transaction(
         )
         transaction.attachment_count = count_result.scalar_one()
         transaction.payee_name = transaction.payee_entity.name if transaction.payee_entity else None
+        if not transaction.is_ignored and transaction.category and transaction.category.is_ignored:
+            transaction.is_ignored = True
     return transaction
 
 
@@ -647,6 +683,9 @@ async def create_transaction(
     account = account_result.scalar_one_or_none()
     if not account:
         raise ValueError("Account not found")
+
+    await _ensure_category_in_workspace(session, workspace_id, data.category_id)
+    await _ensure_payee_in_workspace(session, workspace_id, data.payee_id)
 
     # Resolve currency: explicit value > account currency
     currency = data.currency or account.currency
@@ -1121,6 +1160,11 @@ async def update_transaction(
             if paired_tx and paired_tx.account_id == new_account_id:
                 raise ValueError("Cannot move transfer to the same account as its paired transaction")
 
+    if "category_id" in update_data:
+        await _ensure_category_in_workspace(session, workspace_id, update_data["category_id"])
+    if "payee_id" in update_data:
+        await _ensure_payee_in_workspace(session, workspace_id, update_data["payee_id"])
+
     # Pop FX override fields before generic setattr loop
     override_amount_primary = update_data.pop("amount_primary", None)
     override_fx_rate = update_data.pop("fx_rate_used", None)
@@ -1196,6 +1240,7 @@ async def bulk_update_category(
     transaction_ids: list[uuid.UUID],
     category_id: Optional[uuid.UUID] = None,
 ) -> int:
+    await _ensure_category_in_workspace(session, workspace_id, category_id)
     result = await session.execute(
         update(Transaction)
         .where(
@@ -1335,6 +1380,7 @@ async def bulk_add_to_group(
     group_result = await session.execute(
         select(Group).where(
             Group.id == group_id,
+            Group.workspace_id == workspace_id,
             or_(Group.user_id == user_id, Group.id.in_(linked_group_ids)),
         )
     )

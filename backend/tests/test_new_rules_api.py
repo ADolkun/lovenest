@@ -221,6 +221,37 @@ async def test_update_rule_applies_to_existing_transactions(
 
 
 @pytest.mark.asyncio
+async def test_update_rule_inactive_to_active_applies_to_existing_transactions(
+    client: AsyncClient, auth_headers, test_transactions, test_categories,
+):
+    cat_food = str(test_categories[0].id)
+    create_payload = {
+        "name": "Inactive Netflix",
+        "conditions_op": "and",
+        "conditions": [{"field": "description", "op": "contains", "value": "NETFLIX"}],
+        "actions": [{"op": "set_category", "value": cat_food}],
+        "priority": 5,
+        "is_active": False,
+    }
+    create_response = await client.post("/api/rules", json=create_payload, headers=auth_headers)
+    assert create_response.status_code == 201
+    assert create_response.json()["applied_count"] == 0
+
+    update_response = await client.patch(
+        f"/api/rules/{create_response.json()['id']}",
+        json={"is_active": True},
+        headers=auth_headers,
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["applied_count"] >= 1
+
+    items = (await client.get("/api/transactions", headers=auth_headers)).json()["items"]
+    netflix = {t["description"]: t for t in items}.get("NETFLIX")
+    assert netflix is not None
+    assert netflix["category_id"] == cat_food
+
+
+@pytest.mark.asyncio
 async def test_delete_rule(client: AsyncClient, auth_headers, test_rules):
     rule_id = str(test_rules[0].id)
     response = await client.delete(f"/api/rules/{rule_id}", headers=auth_headers)
@@ -475,6 +506,40 @@ async def test_rule_user_isolation(
     items = response.json()["items"]
     # Verify user1 still has transactions
     assert len(items) >= 5
+
+
+@pytest.mark.asyncio
+async def test_rule_pack_install_is_scoped_to_selected_workspace(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+):
+    from app.services.workspace_service import create_workspace
+
+    second = await create_workspace(
+        session,
+        name="Second",
+        creator=test_user,
+        self_membership=True,
+        seed_defaults=True,
+    )
+    second_headers = {**auth_headers, "X-Workspace-Id": str(second.id)}
+
+    response = await client.post("/api/rules/packs/BR/install", headers=second_headers)
+    assert response.status_code == 200
+    assert response.json()["installed"] > 0
+
+    second_packs = (await client.get("/api/rules/packs", headers=second_headers)).json()
+    assert next(p for p in second_packs if p["code"] == "BR")["installed"] is True
+
+    default_packs = (await client.get("/api/rules/packs", headers=auth_headers)).json()
+    assert next(p for p in default_packs if p["code"] == "BR")["installed"] is False
+
+    default_rules = (await client.get("/api/rules", headers=auth_headers)).json()
+    second_rules = (await client.get("/api/rules", headers=second_headers)).json()
+    assert "iFood / Rappi" not in {rule["name"] for rule in default_rules}
+    assert "iFood / Rappi" in {rule["name"] for rule in second_rules}
 
 
 @pytest.mark.asyncio
