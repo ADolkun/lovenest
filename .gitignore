@@ -5,6 +5,7 @@ secrets/
 .playwright-mcp/
 .claude
 .mcp.json
+.gitnexus/
 docs/plans/
 tmp/
 docker-compose.override.yml
