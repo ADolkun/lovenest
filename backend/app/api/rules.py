@@ -76,6 +76,8 @@ async def create_rule(
             status_code=status.HTTP_409_CONFLICT,
             detail="A rule with this name already exists",
         )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     # Apply the new rule to existing transactions so it takes effect on history
     # immediately, and report how many were touched for a transparent toast.
     applied_count = await rule_service.apply_single_rule(session, ctx.workspace.id, rule)
@@ -117,6 +119,8 @@ async def import_rules(
             status_code=status.HTTP_409_CONFLICT,
             detail="Import would overwrite existing rules. Confirm overwrite to continue.",
         )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.patch("/{rule_id}", response_model=RuleMutationResponse)
@@ -138,6 +142,8 @@ async def update_rule(
             status_code=status.HTTP_409_CONFLICT,
             detail="A rule with this name already exists",
         )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
     applied_count = (

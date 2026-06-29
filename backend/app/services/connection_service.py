@@ -635,7 +635,9 @@ async def handle_oauth_callback(
             # Resolve payee entity from raw payee text
             payee_id = None
             if txn_data.payee:
-                payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
+                payee_entity = await get_or_create_payee(
+                    session, user_id, txn_data.payee, workspace_id=workspace_id
+                )
                 payee_id = payee_entity.id
 
             bill = (
@@ -1014,6 +1016,7 @@ async def _sync_bill_finance_charges(
         else:
             tx = Transaction(
                 user_id=user_id,
+                workspace_id=account.workspace_id,
                 account_id=account.id,
                 external_id=external_id,
                 description=description,
@@ -1389,7 +1392,9 @@ async def sync_connection(
                 # Resolve payee entity from raw payee text
                 sync_payee_id = None
                 if txn_data.payee:
-                    sync_payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
+                    sync_payee_entity = await get_or_create_payee(
+                        session, user_id, txn_data.payee, workspace_id=workspace_id
+                    )
                     sync_payee_id = sync_payee_entity.id
 
                 # No placeholder existed: if this charge fulfills an active bill's
