@@ -501,6 +501,20 @@ export default function TransactionsPage() {
     },
   })
 
+  const bulkRemoveTagsMutation = useMutation({
+    mutationFn: ({ ids, tags }: { ids: string[]; tags: string[] }) =>
+      transactions.bulkRemoveTags(ids, tags),
+    onSuccess: (result) => {
+      invalidateAfterTxMutation()
+      setSelectedIds(new Set())
+      setBulkTagInput('')
+      toast.success(t('transactions.bulkSuccess', { count: result.updated }))
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+
   const bulkAddToGroupMutation = useMutation({
     mutationFn: ({ ids, payload }: { ids: string[]; payload: BulkAddToGroupSubmission }) =>
       transactions.bulkAddToGroup(ids, payload.groupId, {
@@ -1538,6 +1552,20 @@ export default function TransactionsPage() {
                 title={t('transactions.bulkAddTags', 'Add tags')}
               >
                 <Check size={15} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!bulkTagInput.trim() || bulkRemoveTagsMutation.isPending}
+                onClick={() => {
+                  const tagList = bulkTagInput.trim().split(/[\s,]+/).filter(Boolean)
+                  if (tagList.length === 0) return
+                  bulkRemoveTagsMutation.mutate({ ids: Array.from(selectedIds), tags: tagList })
+                }}
+                className="h-8 w-8 px-0 shrink-0"
+                title={t('transactions.bulkRemoveTags', 'Remove tags')}
+              >
+                <X size={15} />
               </Button>
             </div>
 
