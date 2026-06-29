@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.rule import Rule
 from app.models.category import Category
+from app.models.payee import Payee
 from app.models.transaction import Transaction
 from app.schemas.rule import RuleCreate, RuleExportPayload, RuleImportResponse, RuleUpdate
 from app.services.rule_engine import evaluate_conditions, apply_rule_actions
@@ -16,6 +17,65 @@ from app.services.category_service import DEFAULT_CATEGORIES_I18N
 class DuplicateRuleError(Exception):
     """Raised when a rule with the same name already exists for a user."""
     pass
+
+
+_ALLOWED_CONDITION_FIELDS = {
+    "description", "notes", "amount", "type", "account_id", "payee_id", "date",
+}
+_ALLOWED_CONDITION_OPS = {
+    "contains", "not_contains", "equals", "not_equals", "starts_with",
+    "ends_with", "regex", "gt", "gte", "lt", "lte",
+}
+_ALLOWED_ACTION_OPS = {"set_category", "set_payee", "append_notes", "ignore"}
+
+
+def _rule_item_value(item, key: str):
+    return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
+async def _validate_rule_definition(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    conditions: list,
+    actions: list,
+) -> None:
+    for condition in conditions or []:
+        field = _rule_item_value(condition, "field")
+        op = _rule_item_value(condition, "op")
+        if field not in _ALLOWED_CONDITION_FIELDS or op not in _ALLOWED_CONDITION_OPS:
+            raise ValueError("Invalid rule condition")
+
+    for action in actions or []:
+        op = _rule_item_value(action, "op")
+        value = _rule_item_value(action, "value")
+        if op not in _ALLOWED_ACTION_OPS:
+            raise ValueError("Invalid rule action")
+        if op == "set_category":
+            try:
+                category_id = uuid.UUID(str(value))
+            except (TypeError, ValueError):
+                raise ValueError("Category not found")
+            exists_result = await session.execute(
+                select(Category.id).where(
+                    Category.id == category_id,
+                    Category.workspace_id == workspace_id,
+                )
+            )
+            if exists_result.scalar_one_or_none() is None:
+                raise ValueError("Category not found")
+        elif op == "set_payee":
+            try:
+                payee_id = uuid.UUID(str(value))
+            except (TypeError, ValueError):
+                raise ValueError("Payee not found")
+            exists_result = await session.execute(
+                select(Payee.id).where(
+                    Payee.id == payee_id,
+                    Payee.workspace_id == workspace_id,
+                )
+            )
+            if exists_result.scalar_one_or_none() is None:
+                raise ValueError("Payee not found")
 
 
 # ─── Universal rules (work for any language/country) ───
@@ -870,6 +930,16 @@ async def import_rules(
             if action_data["op"] == "set_category":
                 category_id = categories_by_name.get(str(action_data["value"]))
                 if not category_id:
+                    try:
+                        raw_category_id = uuid.UUID(str(action_data["value"]))
+                    except (TypeError, ValueError):
+                        raw_category_id = None
+                    if raw_category_id is not None:
+                        category_exists = await session.execute(
+                            select(Category.id).where(Category.id == raw_category_id)
+                        )
+                        if category_exists.scalar_one_or_none() is not None:
+                            raise ValueError("Category not found")
                     missing_required_reference = True
                     break
                 action_data["value"] = category_id
@@ -877,6 +947,12 @@ async def import_rules(
         if missing_required_reference:
             skipped += 1
             continue
+        await _validate_rule_definition(
+            session,
+            workspace_id,
+            [condition.model_dump() for condition in incoming.conditions],
+            resolved_actions,
+        )
         rules_to_create.append(Rule(
             user_id=user_id,
             workspace_id=workspace_id,
@@ -918,6 +994,8 @@ async def create_rule(
     if data.name in existing_names:
         raise DuplicateRuleError(f"A rule named '{data.name}' already exists")
 
+    await _validate_rule_definition(session, workspace_id, data.conditions, data.actions)
+
     rule = Rule(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -952,6 +1030,13 @@ async def update_rule(
         update_data["conditions"] = [c.model_dump() for c in data.conditions]
     if "actions" in update_data and update_data["actions"] is not None:
         update_data["actions"] = [a.model_dump() for a in data.actions]
+
+    await _validate_rule_definition(
+        session,
+        workspace_id,
+        update_data.get("conditions", rule.conditions or []),
+        update_data.get("actions", rule.actions or []),
+    )
 
     for key, value in update_data.items():
         setattr(rule, key, value)
