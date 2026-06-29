@@ -578,11 +578,13 @@ export const transactions = {
     account_ids?: string[]
     category_id?: string
     category_ids?: string[]
+    payee_id?: string
     uncategorized?: boolean
     type?: string
     from?: string
     to?: string
     q?: string
+    tags?: string[]
     transaction_ids?: string[]
   }): Promise<void> => {
     const { data } = await api.get('/transactions/export', {
