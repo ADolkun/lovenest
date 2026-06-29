@@ -620,7 +620,9 @@ async def import_transactions(
         import_payee_id = None
         import_payee_raw = getattr(txn_data, "payee_raw", None)
         if import_payee_raw:
-            import_payee_entity = await get_or_create_payee(session, user_id, import_payee_raw)
+            import_payee_entity = await get_or_create_payee(
+                session, user_id, import_payee_raw, workspace_id=workspace_id
+            )
             import_payee_id = import_payee_entity.id
 
         user_category_id = txn_data.category_id
