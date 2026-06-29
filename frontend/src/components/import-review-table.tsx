@@ -15,6 +15,13 @@ import { CategorySelect } from '@/components/category-select'
 import { CategoryFilterDropdown } from '@/components/category-filter-dropdown'
 
 const PAGE_SIZE = 50
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+function formatLocalDate(date: string, locale: string) {
+  const match = ISO_DATE_RE.exec(date)
+  if (!match) return new Date(date).toLocaleDateString(locale)
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).toLocaleDateString(locale)
+}
 
 interface ImportReviewTableProps {
   transactions: ImportReviewTransaction[]
@@ -158,7 +165,7 @@ export function ImportReviewTable({
                     />
                   </TableCell>
                   <TableCell className="py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(tx.date).toLocaleDateString(dateLocale)}
+                    {formatLocalDate(tx.date, dateLocale)}
                   </TableCell>
                   <TableCell className={`py-2.5 text-sm ${tx.excluded ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
                     {tx.description}
