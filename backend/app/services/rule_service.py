@@ -594,6 +594,7 @@ def _required_internal_keys(pack: dict) -> set[str]:
 
 async def _ensure_categories_for_keys(
     session: AsyncSession,
+    workspace_id: Optional[uuid.UUID],
     user_id: uuid.UUID,
     internal_keys: set[str],
     lang: str,
@@ -619,7 +620,11 @@ async def _ensure_categories_for_keys(
     existing_cats = list(
         (
             await session.execute(
-                select(Category).where(Category.user_id == user_id)
+                select(Category).where(
+                    Category.workspace_id == workspace_id
+                    if workspace_id is not None
+                    else Category.user_id == user_id
+                )
             )
         ).scalars().all()
     )
@@ -637,7 +642,11 @@ async def _ensure_categories_for_keys(
     existing_groups = list(
         (
             await session.execute(
-                select(CategoryGroup).where(CategoryGroup.user_id == user_id)
+                select(CategoryGroup).where(
+                    CategoryGroup.workspace_id == workspace_id
+                    if workspace_id is not None
+                    else CategoryGroup.user_id == user_id
+                )
             )
         ).scalars().all()
     )
@@ -658,6 +667,7 @@ async def _ensure_categories_for_keys(
             continue
         group = CategoryGroup(
             user_id=user_id,
+            workspace_id=workspace_id,
             name=gdata.get(lang, gdata["en"]),
             icon=gdata["icon"],
             color=gdata["color"],
@@ -673,6 +683,7 @@ async def _ensure_categories_for_keys(
         target_group = groups_by_key.get(CATEGORY_TO_GROUP.get(key))
         cat = Category(
             user_id=user_id,
+            workspace_id=workspace_id,
             name=data.get(lang, data["en"]),
             icon=data["icon"],
             color=data["color"],
@@ -687,8 +698,9 @@ async def _ensure_categories_for_keys(
 
 async def install_rule_pack(
     session: AsyncSession,
-    user_id: uuid.UUID,
-    pack_code: str,
+    workspace_id_or_user_id: uuid.UUID,
+    user_id_or_pack_code: uuid.UUID | str,
+    pack_code: Optional[str] = None,
     lang: str = "pt-BR",
     create_missing_categories: bool = False,
 ) -> RulePackInstallResult:
@@ -700,6 +712,14 @@ async def install_rule_pack(
     "install pack, fill in what's needed". `lang` controls the names of
     any newly-created categories.
     """
+    if pack_code is None:
+        workspace_id = None
+        user_id = workspace_id_or_user_id
+        pack_code = str(user_id_or_pack_code)
+    else:
+        workspace_id = workspace_id_or_user_id
+        user_id = user_id_or_pack_code
+
     pack = RULE_PACKS.get(pack_code)
     if not pack:
         return RulePackInstallResult([], 0)
@@ -707,16 +727,26 @@ async def install_rule_pack(
     categories_created = 0
     if create_missing_categories:
         categories_created = await _ensure_categories_for_keys(
-            session, user_id, _required_internal_keys(pack), lang
+            session, workspace_id, user_id, _required_internal_keys(pack), lang
         )
 
-    result = await session.execute(select(Category).where(Category.user_id == user_id))
+    result = await session.execute(
+        select(Category).where(
+            Category.workspace_id == workspace_id
+            if workspace_id is not None
+            else Category.user_id == user_id
+        )
+    )
     categories = {cat.name: str(cat.id) for cat in result.scalars().all()}
     key_to_id = _resolve_categories_by_internal_key(categories)
 
     resolved, unresolved = _build_rules_from_templates(pack["rules"], key_to_id)
 
-    existing_names = await _get_existing_rule_names(session, user_id)
+    existing_names = (
+        await _get_existing_rule_names_for_workspace(session, workspace_id)
+        if workspace_id is not None
+        else await _get_existing_rule_names(session, user_id)
+    )
 
     rules: list[Rule] = []
     for rule_data in resolved:
@@ -724,6 +754,7 @@ async def install_rule_pack(
             continue
         rule = Rule(
             user_id=user_id,
+            workspace_id=workspace_id,
             name=rule_data["name"],
             conditions_op=rule_data["conditions_op"],
             conditions=rule_data["conditions"],
@@ -738,9 +769,15 @@ async def install_rule_pack(
     return RulePackInstallResult(rules, unresolved, categories_created)
 
 
-async def get_installed_packs(session: AsyncSession, user_id: uuid.UUID) -> dict[str, bool]:
+async def get_installed_packs(
+    session: AsyncSession, workspace_id: uuid.UUID, user_id: Optional[uuid.UUID] = None
+) -> dict[str, bool]:
     """Check which rule packs are fully installed for a user."""
-    existing_names = await _get_existing_rule_names(session, user_id)
+    existing_names = (
+        await _get_existing_rule_names_for_workspace(session, workspace_id)
+        if user_id is not None
+        else await _get_existing_rule_names(session, workspace_id)
+    )
     result = {}
     for code, pack in RULE_PACKS.items():
         pack_names = {r["name"] for r in pack["rules"]}
