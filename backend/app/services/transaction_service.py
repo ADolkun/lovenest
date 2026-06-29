@@ -703,7 +703,10 @@ async def create_transaction(
         type=data.type,
         source="manual",
         notes=data.notes,
+        effective_bill_date=data.effective_bill_date,
     )
+    if data.effective_bill_date is not None:
+        await _resync_bill_link_from_override(session, transaction, account)
     apply_effective_date(transaction, account)
     session.add(transaction)
     await session.flush()  # get ID without committing
@@ -1230,7 +1233,7 @@ async def update_transaction(
         await split_service.replace_splits(session, transaction, splits_payload, user_id)
 
     await session.commit()
-    await session.refresh(transaction, ["splits"])
+    await session.refresh(transaction, ["category", "payee_entity", "splits"])
     return transaction
 
 

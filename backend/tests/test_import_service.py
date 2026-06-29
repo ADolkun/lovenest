@@ -1066,6 +1066,35 @@ class TestImportTransactionsFx:
         mock_provider.fetch_historical.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_import_raw_payee_uses_workspace(self, session: AsyncSession, test_user: User, test_workspace, test_account: Account):
+        from app.models.payee import Payee
+        from app.models.transaction import Transaction
+        from app.schemas.transaction import TransactionImport
+        from sqlalchemy import select
+
+        txns = [
+            TransactionImport(
+                description="Cafe memo",
+                amount=Decimal("12.00"),
+                date=date(2026, 1, 15),
+                type="debit",
+                currency=test_account.currency,
+                payee_raw="Cafe",
+            ),
+        ]
+
+        imported, skipped, _, _ = await import_transactions(
+            session, test_workspace.id, test_user.id, test_account.id, txns, "ofx",
+        )
+
+        assert imported == 1
+        assert skipped == 0
+        payee = (await session.execute(select(Payee).where(Payee.name == "Cafe"))).scalar_one()
+        tx = (await session.execute(select(Transaction).where(Transaction.payee_id == payee.id))).scalar_one()
+        assert payee.workspace_id == test_workspace.id
+        assert tx.workspace_id == test_workspace.id
+
+    @pytest.mark.asyncio
     @patch("app.services.fx_rate_service._provider")
     async def test_import_foreign_currency_without_fx_rate_auto_converts(
         self, mock_provider, session: AsyncSession, test_user: User, test_workspace, test_account: Account,
