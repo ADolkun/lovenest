@@ -28,7 +28,10 @@ from app.providers.base import (
 )
 from app.services import oauth_state
 from app.services import admin_service
-from app.services.account_service import sync_opening_balance_for_connected_account
+from app.services.account_service import (
+    _simplefin_to_internal_balance,
+    sync_opening_balance_for_connected_account,
+)
 from app.services.asset_group_service import ensure_group_for_connection
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
@@ -1166,7 +1169,15 @@ async def sync_connection(
                 continue
 
             if account:
-                account.balance = acc_data.balance
+                # Normalize the provider sign using the account's CURRENT type,
+                # which reflects any user override (sync never rewrites `type`).
+                # SimpleFIN reports card debt as negative under a "checking"
+                # label; once the user overrides the type to credit_card the
+                # downstream sites negate it, so store positive-for-debt to keep
+                # them provider-agnostic and avoid double-counting.
+                account.balance = _simplefin_to_internal_balance(
+                    connection.provider, account.type, acc_data.balance
+                )
                 account.name = acc_data.name
                 if acc_data.type == "credit_card":
                     # Preserve existing CC metadata when the provider doesn't
