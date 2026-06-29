@@ -70,7 +70,7 @@ async def _sync_one(session_maker, connection_id: uuid.UUID, user_id: uuid.UUID)
             logger.warning("Connection %s has no workspace; skipping sync", connection_id)
             return
         await connection_service.sync_connection(
-            session, connection_id, workspace_id, user_id
+            session, connection_id, workspace_id, user_id, trigger_provider_refresh=True
         )
 
 
