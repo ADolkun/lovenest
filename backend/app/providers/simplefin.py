@@ -25,6 +25,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 
@@ -82,9 +83,33 @@ def _epoch_to_date(value: Any) -> Optional[date]:
     if value is None or value == "":
         return None
     try:
-        return datetime.fromtimestamp(int(value), tz=timezone.utc).date()
+        seconds = int(value)
+        if seconds <= 0:
+            return None
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).date()
     except (ValueError, TypeError, OSError):
         return None
+
+
+def _accounts_url_and_auth(access_url: str) -> tuple[str, Optional[tuple[str, str]]]:
+    parsed = urlsplit(access_url.rstrip("/"))
+    if parsed.username is None:
+        return f"{access_url.rstrip('/')}/accounts", None
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    url = urlunsplit((parsed.scheme, host, f"{parsed.path}/accounts", parsed.query, ""))
+    return url, (unquote(parsed.username), unquote(parsed.password or ""))
+
+
+def _redact_userinfo(url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.username is None:
+        return url
+    host = parsed.hostname or ""
+    if parsed.port:
+        host = f"{host}:{parsed.port}"
+    return urlunsplit((parsed.scheme, f"***:***@{host}", parsed.path, parsed.query, parsed.fragment))
 
 
 def _to_decimal(value: Any) -> Optional[Decimal]:
@@ -187,8 +212,9 @@ class SimpleFinProvider(BankProvider):
             ).timestamp()))
         if account_id:
             params["account"] = account_id
+        url, auth = _accounts_url_and_auth(access_url)
         async with await self._client(credentials) as client:
-            resp = await client.get(f"{access_url}/accounts", params=params)
+            resp = await client.get(url, params=params, auth=auth)
         if resp.status_code in (401, 403):
             raise ProviderUserActionRequired(
                 f"SimpleFIN refused the request ({resp.status_code})",
@@ -219,8 +245,9 @@ class SimpleFinProvider(BankProvider):
                     claim_url, headers={"Content-Length": "0"}
                 )
             except httpx.HTTPError as exc:
+                message = str(exc).replace(claim_url, _redact_userinfo(claim_url))
                 raise RuntimeError(
-                    f"SimpleFIN claim request failed: {exc}"
+                    f"SimpleFIN claim request failed: {message}"
                 ) from exc
         if claim_resp.status_code == 403:
             # The bridge returns 403 when a setup token is reused.
