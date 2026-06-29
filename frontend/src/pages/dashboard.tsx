@@ -1257,7 +1257,7 @@ export default function DashboardPage() {
         }}
         loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : deleteMutation.error ? extractApiError(deleteMutation.error) : null}
-        isSynced={!!editingTx?.external_id}
+        isSynced={editingTx?.source === 'sync'}
       />
 
       <RuleDialog
