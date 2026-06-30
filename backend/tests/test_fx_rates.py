@@ -1257,6 +1257,43 @@ class TestManualFxOverride:
         assert data["fx_rate_used"] == 5.5
 
     @pytest.mark.asyncio
+    async def test_update_clear_fx_override_restamps(
+        self,
+        client: AsyncClient,
+        auth_headers,
+        test_user: User,
+        session: AsyncSession,
+        fx_rates,
+    ):
+        usd_account = await _make_account(session, test_user, currency="USD")
+        resp = await client.post(
+            "/api/transactions",
+            headers=auth_headers,
+            json={
+                "account_id": str(usd_account.id),
+                "description": "Clear override",
+                "amount": "100.00",
+                "date": date.today().isoformat(),
+                "type": "debit",
+                "currency": "USD",
+                "amount_primary": "550.00",
+                "fx_rate_used": "5.5",
+            },
+        )
+        assert resp.status_code == 201
+        txn_id = resp.json()["id"]
+
+        resp2 = await client.patch(
+            f"/api/transactions/{txn_id}",
+            headers=auth_headers,
+            json={"amount_primary": None, "fx_rate_used": None},
+        )
+        assert resp2.status_code == 200
+        data = resp2.json()
+        assert data["amount_primary"] == 500.0
+        assert data["fx_rate_used"] == 5.0
+
+    @pytest.mark.asyncio
     async def test_update_without_fx_override_auto_stamps(
         self,
         client: AsyncClient,
