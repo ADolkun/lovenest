@@ -80,7 +80,16 @@ async def create_rule(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     # Apply the new rule to existing transactions so it takes effect on history
     # immediately, and report how many were touched for a transparent toast.
-    applied_count = await rule_service.apply_single_rule(session, ctx.workspace.id, rule)
+    applied_count = (
+        await rule_service.apply_single_rule(
+            session,
+            ctx.workspace.id,
+            rule,
+            overwrite_existing_categories=data.overwrite_existing_categories,
+        )
+        if data.apply_to_existing
+        else 0
+    )
     response = RuleCreateResponse.model_validate(rule)
     response.applied_count = applied_count
     return response
@@ -133,7 +142,10 @@ async def update_rule(
     current_rule = await rule_service.get_rule(session, rule_id, ctx.workspace.id)
     if not current_rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
-    should_apply = _rule_match_definition_changed(current_rule, data)
+    if data.apply_to_existing is None:
+        should_apply = _rule_match_definition_changed(current_rule, data)
+    else:
+        should_apply = data.apply_to_existing
 
     try:
         rule = await rule_service.update_rule(session, rule_id, ctx.workspace.id, data)
@@ -147,7 +159,12 @@ async def update_rule(
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
     applied_count = (
-        await rule_service.apply_single_rule(session, ctx.workspace.id, rule)
+        await rule_service.apply_single_rule(
+            session,
+            ctx.workspace.id,
+            rule,
+            overwrite_existing_categories=data.overwrite_existing_categories,
+        )
         if should_apply
         else 0
     )
