@@ -14,6 +14,11 @@ from app.services import connection_service
 logger = logging.getLogger(__name__)
 
 STALE_THRESHOLD = timedelta(hours=4)
+PROVIDER_REFRESH_THRESHOLD = timedelta(hours=20)
+
+
+def _should_trigger_provider_refresh(last_sync, now: datetime) -> bool:
+    return last_sync is None or now - last_sync >= PROVIDER_REFRESH_THRESHOLD
 
 
 def _make_session_maker():
@@ -50,7 +55,14 @@ async def _sync_all() -> int:
         for conn_id, user_id, last_sync in connections:
             try:
                 logger.info("Syncing connection %s (last_sync=%s)", conn_id, last_sync)
-                await _sync_one(session_maker, conn_id, user_id)
+                await _sync_one(
+                    session_maker,
+                    conn_id,
+                    user_id,
+                    trigger_provider_refresh=_should_trigger_provider_refresh(
+                        last_sync, datetime.now(timezone.utc)
+                    ),
+                )
                 synced += 1
             except Exception:
                 logger.exception("Background sync failed for connection %s", conn_id)
@@ -60,7 +72,13 @@ async def _sync_all() -> int:
         await engine.dispose()
 
 
-async def _sync_one(session_maker, connection_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def _sync_one(
+    session_maker,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    trigger_provider_refresh: bool = False,
+) -> None:
     """Sync a single connection. Error status is set by sync_connection itself."""
     async with session_maker() as session:
         workspace_id = await session.scalar(
@@ -70,7 +88,11 @@ async def _sync_one(session_maker, connection_id: uuid.UUID, user_id: uuid.UUID)
             logger.warning("Connection %s has no workspace; skipping sync", connection_id)
             return
         await connection_service.sync_connection(
-            session, connection_id, workspace_id, user_id, trigger_provider_refresh=True
+            session,
+            connection_id,
+            workspace_id,
+            user_id,
+            trigger_provider_refresh=trigger_provider_refresh,
         )
 
 

@@ -89,6 +89,7 @@ def test_merge_sync_metadata_repairs_invalid_epoch_date():
         description="Pending",
         amount=Decimal("5"),
         date=date(1970, 1, 1),
+        effective_date=date(1970, 1, 1),
         type="debit",
         source="sync",
         status="pending",
@@ -104,6 +105,7 @@ def test_merge_sync_metadata_repairs_invalid_epoch_date():
     _merge_sync_metadata(tx, txn_data)
 
     assert tx.date == date(2026, 6, 27)
+    assert tx.effective_date == date(2026, 6, 27)
 
 
 def test_description_similarity_none():
