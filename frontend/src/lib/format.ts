@@ -57,6 +57,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   IDR: 'id-ID',
   DOP: 'es-DO',
   RUB: 'ru-RU',
+  GTQ: 'es-GT',
 }
 
 /**
