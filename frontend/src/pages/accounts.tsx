@@ -373,9 +373,9 @@ export default function AccountsPage() {
                             size="sm"
                             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                             onClick={() => syncMutation.mutate(conn.id)}
-                            disabled={syncMutation.isPending}
+                            disabled={syncMutation.isPending && syncMutation.variables === conn.id}
                           >
-                            <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
+                            <RefreshCw size={14} className={syncMutation.isPending && syncMutation.variables === conn.id ? 'animate-spin' : ''} />
                           </Button>
                           <Button
                             variant="ghost"
