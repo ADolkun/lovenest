@@ -703,7 +703,11 @@
     "viewAll": "View all goals",
     "dashboardTitle": "Goals Progress",
     "noTargetDate": "No deadline",
-    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!"
+    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!",
+    "trackingWallet": "Wallet",
+    "wallet": "Wallet",
+    "selectWallet": "Select wallet",
+    "walletHint": "Track this goal with the combined value of all assets in the selected wallet."
   },
   "recurring": {
     "title": "Recurring Transactions",

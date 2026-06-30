@@ -622,9 +622,10 @@ export interface Goal {
   target_amount_primary: number | null
   current_amount_primary: number | null
   target_date: string | null
-  tracking_type: 'manual' | 'account' | 'asset' | 'net_worth'
+  tracking_type: 'manual' | 'account' | 'asset' | 'asset_group' | 'net_worth'
   account_id: string | null
   asset_id: string | null
+  asset_group_id: string | null
   status: 'active' | 'completed' | 'paused' | 'archived'
   icon: string | null
   color: string | null
@@ -637,6 +638,7 @@ export interface Goal {
   on_track: 'ahead' | 'on_track' | 'behind' | 'overdue' | 'achieved' | null
   account_name: string | null
   asset_name: string | null
+  asset_group_name: string | null
 }
 
 export interface GoalSummary {
