@@ -807,6 +807,10 @@ def _merge_sync_metadata(
     *,
     replace_external_id: bool = False,
 ) -> None:
+    if transaction.source == "sync" and transaction.date.year <= 1970:
+        transaction.date = txn_data.date
+        if transaction.effective_date.year <= 1970:
+            transaction.effective_date = txn_data.date
     if transaction.source in LOCAL_IMPORT_SOURCES:
         transaction.import_id = None
         replace_external_id = True
