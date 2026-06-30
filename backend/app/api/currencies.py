@@ -33,6 +33,7 @@ CURRENCY_META = {
     "DOP": {"symbol": "RD$", "name": "Peso Dominicano", "flag": "\U0001F1E9\U0001F1F4"},
     "RUB": {"symbol": "₽", "name": "Russian Ruble", "flag": "\U0001F1F7\U0001F1FA"},
     "GTQ": {"symbol": "Q", "name": "Guatemalan Quetzal", "flag": "\U0001F1EC\U0001F1F9"},
+    "PHP": {"symbol": "₱", "name": "Philippine Peso", "flag": "\U0001F1F5\U0001F1ED"},
 }
 
 

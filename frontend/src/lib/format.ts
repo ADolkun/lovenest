@@ -58,6 +58,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   DOP: 'es-DO',
   RUB: 'ru-RU',
   GTQ: 'es-GT',
+  PHP: 'en-PH',
 }
 
 /**

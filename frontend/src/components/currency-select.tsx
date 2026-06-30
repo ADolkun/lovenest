@@ -31,6 +31,7 @@ export const CURRENCIES = [
   { code: 'DOP', flag: '\u{1F1E9}\u{1F1F4}', symbol: 'RD$' },
   { code: 'RUB', flag: '\u{1F1F7}\u{1F1FA}', symbol: '₽' },
   { code: 'GTQ', flag: '\u{1F1EC}\u{1F1F9}', symbol: 'Q' },
+  { code: 'PHP', flag: '\u{1F1F5}\u{1F1ED}', symbol: '₱' },
 ] as const
 
 interface CurrencySelectProps {
