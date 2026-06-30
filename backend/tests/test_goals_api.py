@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
 from app.models.fx_rate import FxRate
 from app.models.user import User
 
@@ -238,7 +239,7 @@ async def test_update_goal_tracking_type(client: AsyncClient, auth_headers: dict
     )
     goal_id = resp.json()["id"]
 
-    for tracking_type in ("manual", "account", "asset", "net_worth"):
+    for tracking_type in ("manual", "account", "asset", "asset_group", "net_worth"):
         response = await client.patch(
             f"/api/goals/{goal_id}",
             json={"tracking_type": tracking_type},
@@ -474,6 +475,72 @@ async def test_goal_net_worth_tracking(
     assert data["tracking_type"] == "net_worth"
     # current_amount should reflect total balance (at least test_account balance)
     assert float(data["current_amount"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_goal_asset_group_tracking(
+    client: AsyncClient, auth_headers: dict, test_user: User, test_workspace, session: AsyncSession
+):
+    """Goal with tracking_type=asset_group should track combined wallet asset value."""
+    group = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Reserva de emergência",
+        icon="wallet",
+        color="#0EA5E9",
+    )
+    session.add(group)
+    asset_one = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Cofrinho depósito 1",
+        type="investment",
+        currency="BRL",
+        purchase_price=Decimal("1200.00"),
+        group_id=group.id,
+    )
+    asset_two = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Cofrinho depósito 2",
+        type="investment",
+        currency="BRL",
+        purchase_price=Decimal("800.00"),
+        group_id=group.id,
+    )
+    outside_asset = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Other asset",
+        type="investment",
+        currency="BRL",
+        purchase_price=Decimal("999.00"),
+    )
+    session.add_all([asset_one, asset_two, outside_asset])
+    await session.commit()
+
+    response = await client.post(
+        "/api/goals",
+        json={
+            "name": "Emergency Reserve",
+            "target_amount": "5000.00",
+            "currency": "BRL",
+            "tracking_type": "asset_group",
+            "asset_group_id": str(group.id),
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["tracking_type"] == "asset_group"
+    assert data["asset_group_id"] == str(group.id)
+    assert data["asset_group_name"] == "Reserva de emergência"
+    assert float(data["current_amount"]) == 2000.00
+    assert data["percentage"] == 40.0
 
 
 @pytest.mark.asyncio

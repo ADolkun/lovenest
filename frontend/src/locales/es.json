@@ -703,7 +703,11 @@
     "viewAll": "Ver todos los objetivos",
     "dashboardTitle": "Progreso de objetivos",
     "noTargetDate": "Sin fecha límite",
-    "dashboardEmpty": "Aún no hay objetivos. Define una meta y empieza a seguir tu progreso."
+    "dashboardEmpty": "Aún no hay objetivos. Define una meta y empieza a seguir tu progreso.",
+    "trackingWallet": "Cartera",
+    "wallet": "Cartera",
+    "selectWallet": "Seleccionar cartera",
+    "walletHint": "Sigue este objetivo con el valor combinado de todos los activos en la cartera seleccionada."
   },
   "recurring": {
     "title": "Transacciones recurrentes",

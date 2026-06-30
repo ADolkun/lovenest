@@ -745,7 +745,11 @@
     "viewAll": "Zobacz wszystkie cele",
     "dashboardTitle": "Postęp celów",
     "noTargetDate": "Brak terminu",
-    "dashboardEmpty": "Brak celów. Ustaw cel i zacznij śledzić swój postęp!"
+    "dashboardEmpty": "Brak celów. Ustaw cel i zacznij śledzić swój postęp!",
+    "trackingWallet": "Portfel",
+    "wallet": "Portfel",
+    "selectWallet": "Wybierz portfel",
+    "walletHint": "Śledź ten cel według łącznej wartości wszystkich aktywów w wybranym portfelu."
   },
   "recurring": {
     "title": "Transakcje cykliczne",

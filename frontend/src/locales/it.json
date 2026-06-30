@@ -703,7 +703,11 @@
     "viewAll": "Visualizza tutti gli obiettivi",
     "dashboardTitle": "Progresso obiettivi",
     "noTargetDate": "Nessuna scadenza",
-    "dashboardEmpty": "Ancora nessun obiettivo. Imposta un traguardo e inizia a tracciare i tuoi progressi!"
+    "dashboardEmpty": "Ancora nessun obiettivo. Imposta un traguardo e inizia a tracciare i tuoi progressi!",
+    "trackingWallet": "Portafoglio",
+    "wallet": "Portafoglio",
+    "selectWallet": "Seleziona portafoglio",
+    "walletHint": "Monitora questo obiettivo con il valore combinato di tutti gli asset nel portafoglio selezionato."
   },
   "recurring": {
     "title": "Transazioni ricorrenti",
