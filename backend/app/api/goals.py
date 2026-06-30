@@ -65,7 +65,10 @@ async def update_goal(
     ctx: WorkspaceContext = Depends(current_writable_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
-    goal = await goal_service.update_goal(session, goal_id, ctx.workspace.id, ctx.user_id, data)
+    try:
+        goal = await goal_service.update_goal(session, goal_id, ctx.workspace.id, ctx.user_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not goal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Goal not found")
     return goal

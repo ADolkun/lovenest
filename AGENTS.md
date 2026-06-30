@@ -57,4 +57,4 @@ docker compose -f docker-compose.prod.yml config --quiet
 - Do not commit secrets, `.env`, backups, local credentials, or ignored handoff files.
 - `HANDOFF.md` and `CONTINUE-HERE.md` are local operational docs and intentionally gitignored.
 - Keep `docker-compose.prod.yml` project name as `securo` unless explicitly migrating Docker volumes/networks.
-- Local image tags: `lovenest-backend:0.13.5-lovenest`, `lovenest-frontend:0.13.5-lovenest`.
+- Local image tags: `lovenest-backend:0.13.7-lovenest`, `lovenest-frontend:0.13.7-lovenest`.

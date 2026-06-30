@@ -289,6 +289,8 @@
     "category": "Category",
     "account": "Account",
     "noCategory": "No category",
+    "searchCategory": "Search category...",
+    "noCategoryFound": "No category found.",
     "addManual": "Add Transaction",
     "duplicate": "Duplicate",
     "createRule": "Create Rule",
@@ -704,7 +706,11 @@
     "viewAll": "View all goals",
     "dashboardTitle": "Goals Progress",
     "noTargetDate": "No deadline",
-    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!"
+    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!",
+    "trackingWallet": "Wallet",
+    "wallet": "Wallet",
+    "selectWallet": "Select wallet",
+    "walletHint": "Track this goal with the combined value of all assets in the selected wallet."
   },
   "recurring": {
     "title": "Recurring Transactions",
@@ -1160,7 +1166,10 @@
     "merged": "Payees merged ({{count}} transactions reassigned)",
     "typeMerchant": "Merchant",
     "typePerson": "Person",
-    "typeCompany": "Company"
+    "typeCompany": "Company",
+    "allTypes": "All Types",
+    "filterByType": "Filter by Type",
+    "favoritesOnly": "Favorites Only"
   },
   "common": {
     "save": "Save",
