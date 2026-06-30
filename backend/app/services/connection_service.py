@@ -1281,8 +1281,9 @@ async def sync_connection(
                 # reading stale data the user knows is stale.
                 connection.status = "error"
                 await session.commit()
-                raise RuntimeError(
-                    "Provider needs the user to reconnect before fetching fresh data"
+                raise ProviderUserActionRequired(
+                    "Provider needs the user to reconnect before fetching fresh data",
+                    code="credentials_invalid",
                 )
             # "refreshed", "skipped", or "failed" all fall through to a read.
             # On "failed" we read whatever cached copy the provider has —
