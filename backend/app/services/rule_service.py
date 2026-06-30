@@ -1019,7 +1019,10 @@ async def update_rule(
     if not rule:
         return None
 
-    update_data = data.model_dump(exclude_unset=True)
+    update_data = data.model_dump(
+        exclude_unset=True,
+        exclude={"apply_to_existing", "overwrite_existing_categories"},
+    )
 
     if "name" in update_data and update_data["name"] != rule.name:
         existing_names = await _get_existing_rule_names_for_workspace(session, workspace_id)
@@ -1096,17 +1099,20 @@ async def apply_rules_to_transaction(
 
 
 async def apply_single_rule(
-    session: AsyncSession, workspace_id: uuid.UUID, rule: Rule
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    rule: Rule,
+    overwrite_existing_categories: bool = False,
 ) -> int:
     """Apply one rule to all existing workspace transactions. Returns the number
     of transactions actually modified.
 
     Used right after a rule is created so it takes effect on history without the
     user having to hit "Reapply all". Unlike `apply_all_rules` this is
-    non-destructive: a transaction that already has a category keeps it (same
-    semantics used when new transactions arrive), so creating a rule never
-    silently overwrites manual categorizations. Payee/notes/ignore actions still
-    apply on a match. Only transactions whose fields actually change are counted.
+    non-destructive by default: a transaction that already has a category keeps
+    it unless the caller explicitly opts into replacing existing categories.
+    Payee/notes/ignore actions still apply on a match. Only transactions whose
+    fields actually change are counted.
     """
     if not rule.is_active:
         return 0
@@ -1127,7 +1133,12 @@ async def apply_single_rule(
         if not evaluate_conditions(rule.conditions_op, conditions, tx):
             continue
         before = (tx.category_id, tx.payee_id, tx.notes, tx.is_ignored)
-        apply_rule_actions(actions, tx, category_already_set=tx.category_id is not None)
+        apply_rule_actions(
+            actions,
+            tx,
+            category_already_set=tx.category_id is not None
+            and not overwrite_existing_categories,
+        )
         if before != (tx.category_id, tx.payee_id, tx.notes, tx.is_ignored):
             count += 1
 
