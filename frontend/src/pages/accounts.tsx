@@ -66,6 +66,28 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+function syncErrorMessage(error: unknown, fallback: string) {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'response' in error &&
+    error.response &&
+    typeof error.response === 'object' &&
+    'data' in error.response
+  ) {
+    const data = (error.response as { data?: unknown }).data
+    if (data && typeof data === 'object' && 'detail' in data) {
+      const detail = (data as { detail?: unknown }).detail
+      if (typeof detail === 'string') return detail
+      if (detail && typeof detail === 'object' && 'message' in detail) {
+        const message = (detail as { message?: unknown }).message
+        if (typeof message === 'string') return message
+      }
+    }
+  }
+  return fallback
+}
+
 export default function AccountsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -143,7 +165,10 @@ export default function AccountsPage() {
         toast.info(t('accounts.mergedCount', { count: merged }))
       }
     },
-    onError: () => toast.error(t('accounts.syncError')),
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: ['connections'] })
+      toast.error(syncErrorMessage(error, t('accounts.syncError')))
+    },
   })
 
   const disconnectMutation = useMutation({
