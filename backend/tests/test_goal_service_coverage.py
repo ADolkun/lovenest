@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
 from app.models.fx_rate import FxRate
 from app.models.goal import Goal
@@ -64,16 +65,27 @@ async def _add_txn(session, user_id, account_id, workspace_id, amount, typ, dt, 
     await session.commit()
 
 
-async def _make_asset(session, user_id, workspace_id, *, currency="BRL", price="0.00"):
+async def _make_asset(session, user_id, workspace_id, *, currency="BRL", price="0.00", group_id=None):
     asset = Asset(
         id=uuid.uuid4(), user_id=user_id, workspace_id=workspace_id,
         name="Goal Asset", type="investment", currency=currency,
-        purchase_price=Decimal(price),
+        purchase_price=Decimal(price), group_id=group_id,
     )
     session.add(asset)
     await session.commit()
     await session.refresh(asset)
     return asset
+
+
+async def _make_asset_group(session, user_id, workspace_id, *, name="Emergency Wallet"):
+    group = AssetGroup(
+        id=uuid.uuid4(), user_id=user_id, workspace_id=workspace_id,
+        name=name, icon="wallet", color="#0EA5E9",
+    )
+    session.add(group)
+    await session.commit()
+    await session.refresh(group)
+    return group
 
 
 async def _make_goal(session, user_id, workspace_id, **kwargs):
@@ -361,6 +373,55 @@ async def test_resolve_asset_missing_fallback(session, test_user, test_workspace
     assert val == Decimal("55")
 
 
+@pytest.mark.asyncio
+async def test_resolve_asset_group_same_currency(session, test_user, test_workspace):
+    group = await _make_asset_group(session, test_user.id, test_workspace.id)
+    await _make_asset(
+        session, test_user.id, test_workspace.id,
+        currency="BRL", price="1250", group_id=group.id,
+    )
+    await _make_asset(
+        session, test_user.id, test_workspace.id,
+        currency="BRL", price="750", group_id=group.id,
+    )
+    await _make_asset(session, test_user.id, test_workspace.id, currency="BRL", price="999")
+    goal = await _make_goal(
+        session, test_user.id, test_workspace.id,
+        tracking_type="asset_group", asset_group_id=group.id, currency="BRL",
+    )
+    val = await _resolve_current_amount(session, goal, test_user.id)
+    assert val == pytest.approx(Decimal("2000"))
+
+
+@pytest.mark.asyncio
+async def test_resolve_asset_group_cross_currency(session, test_user, test_workspace):
+    today = date.today()
+    session.add(FxRate(base_currency="USD", quote_currency="BRL", date=today,
+                       rate=Decimal("5.0"), source="test"))
+    group = await _make_asset_group(session, test_user.id, test_workspace.id)
+    await _make_asset(
+        session, test_user.id, test_workspace.id,
+        currency="USD", price="100", group_id=group.id,
+    )
+    await session.commit()
+    goal = await _make_goal(
+        session, test_user.id, test_workspace.id,
+        tracking_type="asset_group", asset_group_id=group.id, currency="BRL",
+    )
+    val = await _resolve_current_amount(session, goal, test_user.id)
+    assert float(val) == pytest.approx(500.0, abs=1.0)
+
+
+@pytest.mark.asyncio
+async def test_resolve_asset_group_missing_fallback(session, test_user, test_workspace):
+    goal = await _make_goal(
+        session, test_user.id, test_workspace.id,
+        tracking_type="asset_group", asset_group_id=uuid.uuid4(), current_amount=Decimal("88"),
+    )
+    val = await _resolve_current_amount(session, goal, test_user.id)
+    assert val == Decimal("88")
+
+
 # ---------------------------------------------------------------------------
 # _resolve_current_amount — net_worth
 # ---------------------------------------------------------------------------
@@ -415,16 +476,18 @@ async def test_resolve_net_worth_cross_currency(session, test_user, test_workspa
 
 
 @pytest.mark.asyncio
-async def test_enrich_goal_account_and_asset_names(session, test_user, test_workspace):
+async def test_enrich_goal_linked_names(session, test_user, test_workspace):
     acc = await _make_account(session, test_user.id, test_workspace.id, currency="BRL")
     asset = await _make_asset(session, test_user.id, test_workspace.id, currency="BRL", price="0")
+    group = await _make_asset_group(session, test_user.id, test_workspace.id, name="Reserva de emergência")
     goal = await _make_goal(
         session, test_user.id, test_workspace.id,
-        tracking_type="manual", account_id=acc.id, asset_id=asset.id,
+        tracking_type="manual", account_id=acc.id, asset_id=asset.id, asset_group_id=group.id,
     )
     enriched = await _enrich_goal(session, goal, test_user.id)
     assert enriched.account_name is not None
     assert enriched.asset_name == "Goal Asset"
+    assert enriched.asset_group_name == "Reserva de emergência"
 
 
 @pytest.mark.asyncio
