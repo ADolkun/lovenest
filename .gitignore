@@ -6,6 +6,7 @@ secrets/
 .claude
 .mcp.json
 .gitnexus/
+CLAUDE.md
 docs/plans/
 tmp/
 docker-compose.override.yml

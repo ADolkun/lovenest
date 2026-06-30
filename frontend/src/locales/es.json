@@ -289,6 +289,8 @@
     "category": "Categoría",
     "account": "Cuenta",
     "noCategory": "Sin categoría",
+    "searchCategory": "Buscar categoría...",
+    "noCategoryFound": "No se encontraron categorías.",
     "addManual": "Agregar transacción",
     "duplicate": "Duplicar",
     "createRule": "Crear regla",
@@ -704,7 +706,11 @@
     "viewAll": "Ver todos los objetivos",
     "dashboardTitle": "Progreso de objetivos",
     "noTargetDate": "Sin fecha límite",
-    "dashboardEmpty": "Aún no hay objetivos. Define una meta y empieza a seguir tu progreso."
+    "dashboardEmpty": "Aún no hay objetivos. Define una meta y empieza a seguir tu progreso.",
+    "trackingWallet": "Cartera",
+    "wallet": "Cartera",
+    "selectWallet": "Seleccionar cartera",
+    "walletHint": "Sigue este objetivo con el valor combinado de todos los activos en la cartera seleccionada."
   },
   "recurring": {
     "title": "Transacciones recurrentes",
@@ -1160,7 +1166,10 @@
     "merged": "Beneficiarios fusionados ({{count}} transacciones reasignadas)",
     "typeMerchant": "Comerciante",
     "typePerson": "Persona",
-    "typeCompany": "Empresa"
+    "typeCompany": "Empresa",
+    "allTypes": "Todos los tipos",
+    "filterByType": "Filtrar por tipo",
+    "favoritesOnly": "Solo favoritos"
   },
   "common": {
     "save": "Guardar",
