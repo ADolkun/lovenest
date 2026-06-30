@@ -589,6 +589,60 @@ async def test_get_recurring_projections(session, test_user, test_workspace):
 
 
 @pytest.mark.asyncio
+async def test_get_recurring_projections_excludes_ignored_categories(
+    session, test_user, test_workspace
+):
+    month_start = date.today().replace(day=1)
+    month_end = (
+        date(month_start.year + 1, 1, 1)
+        if month_start.month == 12
+        else date(month_start.year, month_start.month + 1, 1)
+    )
+    ignored = Category(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Ignored",
+        is_ignored=True,
+    )
+    transfer_like = Category(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Transfer",
+        treat_as_transfer=True,
+    )
+    session.add_all([ignored, transfer_like])
+    await session.commit()
+
+    for description, amount, category_id in (
+        ("Counted", "100", None),
+        ("Ignored", "200", ignored.id),
+        ("Transfer-like", "300", transfer_like.id),
+    ):
+        session.add(RecurringTransaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            description=description,
+            amount=Decimal(amount),
+            type="debit",
+            frequency="monthly",
+            start_date=month_start,
+            next_occurrence=month_start,
+            currency="BRL",
+            category_id=category_id,
+        ))
+    await session.commit()
+
+    projections = await _get_recurring_projections(
+        session, test_workspace.id, month_start, month_end
+    )
+
+    assert [p["amount"] for p in projections] == [100.0]
+
+
+@pytest.mark.asyncio
 async def test_balance_history_basic(session, test_user, test_workspace):
     acct = Account(
         id=uuid.uuid4(), user_id=test_user.id, name="BH",
@@ -758,5 +812,4 @@ async def test_balance_at_multi_currency(session, test_user, test_workspace):
 # ---------------------------------------------------------------------------
 # _total_balance_by_currency
 # ---------------------------------------------------------------------------
-
 
