@@ -26,7 +26,16 @@ import { useAutoUpdateCheck } from '@/hooks/use-auto-update-check'
 import { useLatestRelease } from '@/hooks/use-latest-release'
 import { isUpdateAvailable } from '@/lib/semver'
 
-const UPGRADE_COMMAND = 'git pull && docker compose up -d --build'
+// Real upstream-sync recipe for this build-from-source fork (see HANDOFF §9).
+// A plain `git pull` pulls origin/lovenest, not upstream, so it never fetches
+// the Securo release this banner nags about; the frontend restart re-resolves
+// nginx → backend after the recreate, else /api/* returns 502.
+const UPGRADE_COMMAND = `bash scripts/backup.sh
+git fetch upstream
+git checkout main && git merge --ff-only upstream/main
+git checkout lovenest && git merge main
+docker compose -f docker-compose.prod.yml --profile agents up -d --build
+docker compose -f docker-compose.prod.yml restart frontend`
 
 interface UpdateAvailableDialogProps {
   open: boolean
@@ -147,12 +156,9 @@ export function UpdateAvailableDialog({
                 <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   {t('update.commandLabel')}
                 </div>
-                <code className="block rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-xs text-foreground break-all">
-                  <span className="select-none text-muted-foreground mr-2">
-                    $
-                  </span>
+                <pre className="block overflow-x-auto rounded-md border bg-muted/50 px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground whitespace-pre">
                   {UPGRADE_COMMAND}
-                </code>
+                </pre>
               </div>
             </>
           )}
