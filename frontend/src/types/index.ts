@@ -194,6 +194,7 @@ export interface Transaction {
   amount: number
   currency: string
   date: string
+  effective_date: string
   type: 'debit' | 'credit'
   source: string
   status: 'posted' | 'pending'

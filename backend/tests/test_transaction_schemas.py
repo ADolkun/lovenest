@@ -81,6 +81,7 @@ class TestTransactionReadInstallmentFields:
             "description": "AMAZON PARCELADO",
             "amount": "120.50",
             "date": "2026-04-10",
+            "effective_date": "2026-04-10",
             "type": "debit",
             "source": "pluggy",
         }
