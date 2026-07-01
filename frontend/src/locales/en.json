@@ -524,6 +524,7 @@
     "nextCycle": "Next cycle",
     "cycleBillTotal": "Bill total",
     "dueDate": "Due date",
+    "dueLabel": "Due {{date}}",
     "minimumPayment": "Minimum",
     "noChargesYet": "No charges yet this cycle",
     "currentTag": "now",
