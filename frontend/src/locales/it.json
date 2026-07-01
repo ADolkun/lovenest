@@ -524,6 +524,7 @@
     "nextCycle": "Ciclo successivo",
     "cycleBillTotal": "Totale estratto conto",
     "dueDate": "Data di scadenza",
+    "dueLabel": "Scade {{date}}",
     "minimumPayment": "Minimo",
     "noChargesYet": "Ancora nessun addebito in questo ciclo",
     "currentTag": "ora",

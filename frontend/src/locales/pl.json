@@ -551,6 +551,7 @@
     "nextCycle": "Następny cykl",
     "cycleBillTotal": "Suma rachunku",
     "dueDate": "Termin płatności",
+    "dueLabel": "Termin {{date}}",
     "minimumPayment": "Minimalna",
     "noChargesYet": "Brak obciążeń w tym cyklu",
     "currentTag": "teraz",

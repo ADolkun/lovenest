@@ -159,6 +159,10 @@ function billDueLabel(dueDate: string, i18nLanguage: string, includeYear = true)
   })
 }
 
+function formatDueLabel(t: ReturnType<typeof useTranslation>['t'], dateLabel: string) {
+  return t('accounts.dueLabel', { date: dateLabel })
+}
+
 /** Return the [start, end] dates of the billing cycle that CONTAINS `reference`.
  * Brazilian convention: a transaction ON the close day belongs to the NEXT
  * cycle, so the cycle boundaries are [previous close day, next close day − 1].
@@ -889,8 +893,10 @@ export default function AccountDetailPage() {
                     className="inline-flex items-center justify-center gap-2 min-w-[140px] border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer capitalize"
                   >
                     {activeBill
-                      ? billDueLabel(activeBill.due_date, i18n.resolvedLanguage ?? i18n.language)
-                      : creditCardCycleLabel(filterTo, account?.payment_due_day, i18n.language)}
+                      ? formatDueLabel(t, billDueLabel(activeBill.due_date, i18n.resolvedLanguage ?? i18n.language))
+                      : account?.payment_due_day
+                        ? formatDueLabel(t, creditCardCycleLabel(filterTo, account.payment_due_day, i18n.language))
+                        : creditCardCycleLabel(filterTo, account?.payment_due_day, i18n.language)}
                   </button>
                 </PopoverTrigger>
                 <PopoverContent align="center" className="w-auto p-3 space-y-3">
@@ -1026,8 +1032,10 @@ export default function AccountDetailPage() {
                 // When a bill anchors this cycle, label by the bill's actual due date.
                 // Otherwise fall back to cycle math to derive the due date.
                 const label = c.bill
-                  ? billDueLabel(c.bill.due_date, i18n.resolvedLanguage ?? i18n.language, false)
-                  : creditCardCycleLabel(c.end, account.payment_due_day, i18n.language, false)
+                  ? formatDueLabel(t, billDueLabel(c.bill.due_date, i18n.resolvedLanguage ?? i18n.language, false))
+                  : account.payment_due_day
+                    ? formatDueLabel(t, creditCardCycleLabel(c.end, account.payment_due_day, i18n.language, false))
+                    : creditCardCycleLabel(c.end, account.payment_due_day, i18n.language, false)
                 return (
                   <button
                     key={i}
@@ -1120,9 +1128,11 @@ export default function AccountDetailPage() {
         const showComparison = (prevLabelBill || previousCycle) && prevTotal > 0
         const deltaPct = showComparison ? ((billTotal - prevTotal) / prevTotal) * 100 : null
         const prevCycleLabel = prevLabelBill
-          ? billDueLabel(prevLabelBill.due_date, i18n.resolvedLanguage ?? i18n.language)
+          ? formatDueLabel(t, billDueLabel(prevLabelBill.due_date, i18n.resolvedLanguage ?? i18n.language))
           : previousCycle
-            ? creditCardCycleLabel(previousCycle.end, account.payment_due_day, i18n.language)
+            ? account.payment_due_day
+              ? formatDueLabel(t, creditCardCycleLabel(previousCycle.end, account.payment_due_day, i18n.language))
+              : creditCardCycleLabel(previousCycle.end, account.payment_due_day, i18n.language)
             : null
         return (
           <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
