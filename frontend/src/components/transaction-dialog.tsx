@@ -586,6 +586,8 @@ function TransactionForm({
       setFxRate('')
     }
   }
+  const selectedAccount = accounts.find(a => a.id === accountId)
+  const selectedAccountName = selectedAccount ? getAccountName(selectedAccount) : t('accounts.noAccount')
 
   return (
     <form
@@ -609,8 +611,7 @@ function TransactionForm({
         // (sent both for synced and manual edits since the user can hand-
         // correct the bucketing on either; null clears the override back to
         // auto bucketing).
-        const selectedAcc = accounts.find(a => a.id === accountId)
-        const isCcSelected = selectedAcc?.type === 'credit_card'
+        const isCcSelected = selectedAccount?.type === 'credit_card'
         const overridePayload: Partial<Transaction> = isCcSelected
           ? { effective_bill_date: effectiveBillDate || null }
           : {}
@@ -853,7 +854,7 @@ function TransactionForm({
           />
         </div>
       </div>
-      <div className={cn("grid gap-4", isSynced ? "grid-cols-1" : "grid-cols-2")}>
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{t('payees.payee')}</Label>
           <select
@@ -870,7 +871,12 @@ function TransactionForm({
             <p className="text-xs text-muted-foreground">{t('payees.rawPayee')}: {transaction.payee}</p>
           )}
         </div>
-        {!isSynced && (
+        {isSynced ? (
+          <div className="space-y-2">
+            <Label>{t('transactions.account')}</Label>
+            <Input value={selectedAccountName} disabled />
+          </div>
+        ) : (
           <div className="space-y-2">
             <Label>{t('transactions.account')}</Label>
             <select
@@ -903,8 +909,7 @@ function TransactionForm({
           math otherwise). Setting the date forces this tx into the bill
           whose due_date matches. */}
       {(() => {
-        const selectedAcc = accounts.find(a => a.id === accountId)
-        if (selectedAcc?.type !== 'credit_card') return null
+        if (selectedAccount?.type !== 'credit_card') return null
         return (
           <div className="space-y-2">
             <Label>

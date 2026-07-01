@@ -32,6 +32,7 @@ export function CategorySelect({
 }: CategorySelectProps) {
   const [open, setOpen] = useState(false)
   const { t } = useTranslation()
+  const { className: contentClassName, style: contentStyle, ...popoverContentProps } = contentProps ?? {}
 
   const resolvedPlaceholder = placeholder ?? t('transactions.selectCategory', 'Select category')
 
@@ -86,8 +87,12 @@ export function CategorySelect({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
-        {...contentProps}
+        className={cn(
+          "w-[var(--radix-popover-trigger-width)] max-h-[var(--radix-popover-content-available-height)] p-0 overflow-hidden",
+          contentClassName
+        )}
+        style={contentStyle}
+        {...popoverContentProps}
       >
         <Command
           filter={(itemValue, search) => {
@@ -95,7 +100,7 @@ export function CategorySelect({
           }}
         >
           <CommandInput placeholder={t('transactions.searchCategory')} />
-          <CommandList>
+          <CommandList className="max-h-[min(300px,calc(var(--radix-popover-content-available-height)_-_2.25rem))]">
             <CommandEmpty>{t('transactions.noCategoryFound')}</CommandEmpty>
             {allowNone && (
               <CommandGroup>
