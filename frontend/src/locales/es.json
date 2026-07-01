@@ -59,7 +59,7 @@
     "archiveConfirmDescription": "El espacio de trabajo \"{{name}}\" se eliminará de tu lista. Los datos se conservan y un administrador puede restaurarlo más tarde."
   },
   "app": {
-    "name": "Securo",
+    "name": "Lovenest",
     "versionAriaLabel": "Ejecutando la versión {{version}}",
     "versionLabel": "Versión {{version}}",
     "updateAvailable": "Actualización disponible",
@@ -1309,7 +1309,7 @@
     "show": "Mostrar valores"
   },
   "setup": {
-    "title": "Bienvenido a Securo",
+    "title": "Bienvenido a Lovenest",
     "description": "Crea tu cuenta de administrador para comenzar.",
     "confirmPassword": "Confirmar contraseña",
     "createAdmin": "Crear cuenta de administrador",

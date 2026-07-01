@@ -59,7 +59,7 @@
     "archiveConfirmDescription": "Obszar roboczy „{{name}}” zostanie usunięty z listy. Dane zostają zachowane, a administrator może go później przywrócić."
   },
   "app": {
-    "name": "Securo",
+    "name": "Lovenest",
     "versionAriaLabel": "Działa wersja {{version}}",
     "versionLabel": "Wersja {{version}}",
     "updateAvailable": "Dostępna aktualizacja",
@@ -1393,7 +1393,7 @@
     "show": "Pokaż wartości"
   },
   "setup": {
-    "title": "Witaj w Securo",
+    "title": "Witaj w Lovenest",
     "description": "Utwórz konto administratora, aby rozpocząć.",
     "confirmPassword": "Potwierdź hasło",
     "createAdmin": "Utwórz konto administratora",
