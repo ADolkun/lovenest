@@ -126,18 +126,17 @@ function dueDateForCycle(cycleEnd: string, dueDay: number | null | undefined): s
   return format(bill, 'yyyy-MM-dd')
 }
 
-/** Build a "Maio 2026"-style label for a credit card cycle.
- * Brazilian convention: the bill is named after the month it's due, which is
- * the next occurrence of payment_due_day strictly after the cycle close. */
+/** Build a due-date label for a credit card cycle. */
 function creditCardCycleLabel(
   filterTo: string,
   dueDay: number | null | undefined,
   i18nLanguage: string,
+  includeYear = true,
 ): string {
   const dateFnsLocale = resolveDateFnsLocale(i18nLanguage)
   const to = parseISO(filterTo + 'T00:00:00')
   if (!dueDay) {
-    return format(to, 'MMM yyyy', { locale: dateFnsLocale })
+    return format(to, includeYear ? 'MMM yyyy' : 'MMM', { locale: dateFnsLocale })
   }
   const y = to.getFullYear()
   const m = to.getMonth()
@@ -151,7 +150,13 @@ function creditCardCycleLabel(
     const nm = m === 11 ? 0 : m + 1
     bill = new Date(ny, nm, clamp(ny, nm))
   }
-  return format(bill, 'MMM yyyy', { locale: dateFnsLocale })
+  return format(bill, includeYear ? 'MMM d, yyyy' : 'MMM d', { locale: dateFnsLocale })
+}
+
+function billDueLabel(dueDate: string, i18nLanguage: string, includeYear = true): string {
+  return format(parseISO(dueDate + 'T00:00:00'), includeYear ? 'MMM d, yyyy' : 'MMM d', {
+    locale: resolveDateFnsLocale(i18nLanguage),
+  })
 }
 
 /** Return the [start, end] dates of the billing cycle that CONTAINS `reference`.
@@ -884,9 +889,7 @@ export default function AccountDetailPage() {
                     className="inline-flex items-center justify-center gap-2 min-w-[140px] border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer capitalize"
                   >
                     {activeBill
-                      ? format(parseISO(activeBill.due_date + 'T00:00:00'), 'MMM yyyy', {
-                          locale: resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language),
-                        })
+                      ? billDueLabel(activeBill.due_date, i18n.resolvedLanguage ?? i18n.language)
                       : creditCardCycleLabel(filterTo, account?.payment_due_day, i18n.language)}
                   </button>
                 </PopoverTrigger>
@@ -1000,7 +1003,6 @@ export default function AccountDetailPage() {
 
       {/* Bill timeline (last 6 cycles) — only for CC with cycle metadata */}
       {isCreditCard && timelineCycles.length > 0 && (() => {
-        const dfLocale = resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language)
         const totals = timelineQueries.map((q, i) => {
           const c = timelineCycles[i]
           // Single source of truth: live debit sum from the summary endpoint,
@@ -1021,12 +1023,11 @@ export default function AccountDetailPage() {
               {totals.map((c, i) => {
                 const isCurrent = c.start === filterFrom && c.end === filterTo
                 const heightPct = c.total > 0 ? Math.max(8, (c.total / max) * 100) : 4
-                // When a bill anchors this cycle, label by the bill's actual
-                // month (handles dynamic close days). Otherwise fall back to
-                // the cycle-math label that maps close → due → month.
+                // When a bill anchors this cycle, label by the bill's actual due date.
+                // Otherwise fall back to cycle math to derive the due date.
                 const label = c.bill
-                  ? format(parseISO(c.bill.due_date + 'T00:00:00'), 'MMM yyyy', { locale: dfLocale })
-                  : creditCardCycleLabel(c.end, account.payment_due_day, i18n.language)
+                  ? billDueLabel(c.bill.due_date, i18n.resolvedLanguage ?? i18n.language, false)
+                  : creditCardCycleLabel(c.end, account.payment_due_day, i18n.language, false)
                 return (
                   <button
                     key={i}
@@ -1048,7 +1049,7 @@ export default function AccountDetailPage() {
                         />
                       )}
                     </div>
-                    <p className={`text-[10px] sm:text-xs font-medium capitalize ${isCurrent ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                    <p className={`text-[10px] sm:text-xs font-medium capitalize whitespace-nowrap ${isCurrent ? 'text-rose-700 dark:text-rose-400' : 'text-muted-foreground'}`}>
                       {label}
                     </p>
                     <p className={`text-[10px] sm:text-xs font-semibold tabular-nums ${isCurrent ? 'text-foreground' : 'text-muted-foreground'}`}>
@@ -1119,9 +1120,7 @@ export default function AccountDetailPage() {
         const showComparison = (prevLabelBill || previousCycle) && prevTotal > 0
         const deltaPct = showComparison ? ((billTotal - prevTotal) / prevTotal) * 100 : null
         const prevCycleLabel = prevLabelBill
-          ? format(parseISO(prevLabelBill.due_date + 'T00:00:00'), 'MMM yyyy', {
-              locale: resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language),
-            })
+          ? billDueLabel(prevLabelBill.due_date, i18n.resolvedLanguage ?? i18n.language)
           : previousCycle
             ? creditCardCycleLabel(previousCycle.end, account.payment_due_day, i18n.language)
             : null
