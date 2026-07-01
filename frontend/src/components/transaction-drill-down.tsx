@@ -7,6 +7,7 @@ import { AlertTriangle, Info, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { transactionOrderDate } from '@/lib/transaction-order-date'
 import type { Transaction } from '@/types'
 
 export type DrillDownFilter = {
@@ -25,6 +26,7 @@ type DisplayItem = {
   key: string
   description: string
   date: string
+  orderDate: string
   type: 'debit' | 'credit'
   amount: number
   amountPrimary: number | null
@@ -71,6 +73,8 @@ export function TransactionDrillDown({
         to: filter?.to,
         limit: 200,
         user_pnl_only: true,
+        sort_by: 'date',
+        sort_dir: 'desc',
       }),
     enabled: !!filter,
   })
@@ -100,6 +104,7 @@ export function TransactionDrillDown({
         key: tx.id,
         description: tx.description,
         date: tx.date,
+        orderDate: transactionOrderDate(tx, isAccrual),
         type: tx.type as 'debit' | 'credit',
         amount: Number(tx.amount),
         amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
@@ -125,6 +130,7 @@ export function TransactionDrillDown({
         key: `proj-${pt.recurring_id}-${pt.date}`,
         description: pt.description,
         date: pt.date,
+        orderDate: transactionOrderDate(pt, isAccrual),
         type: pt.type,
         amount: pt.amount,
         amountPrimary: pt.amount_primary ?? null,
@@ -138,9 +144,9 @@ export function TransactionDrillDown({
       })
     }
 
-    items.sort((a, b) => a.date.localeCompare(b.date))
+    items.sort((a, b) => b.orderDate.localeCompare(a.orderDate))
     return items
-  }, [data, projectedTxs, filter])
+  }, [data, projectedTxs, filter, isAccrual])
 
   // Close on Escape
   useEffect(() => {
