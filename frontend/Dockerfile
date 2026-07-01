@@ -15,6 +15,7 @@ RUN npm run build
 FROM nginxinc/nginx-unprivileged:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY docker-entrypoint.d/ /docker-entrypoint.d/
 COPY default.conf.template /etc/nginx/templates/default.conf.template
 
 EXPOSE 8080
