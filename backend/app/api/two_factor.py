@@ -18,6 +18,11 @@ from app.schemas.two_factor import (
 )
 
 router = APIRouter()
+TOTP_VALID_WINDOW = 1
+
+
+def _verify_totp(secret: str, code: str) -> bool:
+    return pyotp.TOTP(secret).verify(code, valid_window=TOTP_VALID_WINDOW)
 
 
 def _parse_temp_token_payload(raw: str | bytes) -> dict[str, object] | None:
@@ -58,8 +63,7 @@ async def enable_2fa(
     if not user.totp_secret:
         raise HTTPException(status_code=400, detail="Call /2fa/setup first")
 
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(body.code):
+    if not _verify_totp(user.totp_secret, body.code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
 
     user.is_2fa_enabled = True
@@ -91,8 +95,7 @@ async def disable_2fa(
     if not user.totp_secret:
         raise HTTPException(status_code=400, detail="2FA is not set up")
 
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(body.code):
+    if not _verify_totp(user.totp_secret, body.code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
 
     user.totp_secret = None
@@ -126,8 +129,7 @@ async def verify_2fa(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     # Verify TOTP
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(body.code):
+    if not _verify_totp(user.totp_secret, body.code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
 
     # Delete temp token
