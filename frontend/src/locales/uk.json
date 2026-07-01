@@ -59,7 +59,7 @@
     "archiveConfirmDescription": "Робочий простір «{{name}}» буде видалено з вашого списку. Дані зберігаються, адміністратор зможе відновити його пізніше."
   },
   "app": {
-    "name": "Securo",
+    "name": "Lovenest",
     "versionAriaLabel": "Запущено версію {{version}}",
     "versionLabel": "Версія {{version}}",
     "updateAvailable": "Доступне оновлення",
@@ -1309,7 +1309,7 @@
     "show": "Показати суми"
   },
   "setup": {
-    "title": "Ласкаво просимо до Securo",
+    "title": "Ласкаво просимо до Lovenest",
     "description": "Створіть обліковий запис адміністратора, щоб почати.",
     "confirmPassword": "Підтвердьте пароль",
     "createAdmin": "Створити обліковий запис адміністратора",

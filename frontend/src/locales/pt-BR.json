@@ -59,7 +59,7 @@
     "archiveConfirmDescription": "O workspace \"{{name}}\" será removido da sua lista. Os dados ficam preservados e um admin pode restaurar mais tarde."
   },
   "app": {
-    "name": "Securo",
+    "name": "Lovenest",
     "versionAriaLabel": "Versão em execução {{version}}",
     "versionLabel": "Versão {{version}}",
     "updateAvailable": "Atualização disponível",
@@ -1309,7 +1309,7 @@
     "show": "Mostrar valores"
   },
   "setup": {
-    "title": "Bem-vindo ao Securo",
+    "title": "Bem-vindo ao Lovenest",
     "description": "Crie sua conta de administrador para começar.",
     "confirmPassword": "Confirmar senha",
     "createAdmin": "Criar Conta Admin",
