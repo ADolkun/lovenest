@@ -524,6 +524,7 @@
     "nextCycle": "Наступний цикл",
     "cycleBillTotal": "Усього за рахунком",
     "dueDate": "Дата платежу",
+    "dueLabel": "Оплата {{date}}",
     "minimumPayment": "Мінімум",
     "noChargesYet": "У цьому циклі поки немає нарахувань",
     "currentTag": "зараз",

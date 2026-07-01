@@ -524,6 +524,7 @@
     "nextCycle": "Próximo ciclo",
     "cycleBillTotal": "Total da fatura",
     "dueDate": "Vencimento",
+    "dueLabel": "Vence {{date}}",
     "minimumPayment": "Mínimo",
     "noChargesYet": "Nenhuma compra ainda neste ciclo",
     "currentTag": "agora",
