@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
+import { dashboard, transactions, budgets, categories as categoriesApi, categoryGroups as categoryGroupsApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi, payees as payeesApi, rules as rulesApi, admin } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -42,6 +42,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
+import { transactionOrderDate } from '@/lib/transaction-order-date'
 import type { Rule, Transaction } from '@/types'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
@@ -134,6 +135,13 @@ export default function DashboardPage() {
     }),
     enabled: !noAccounts,
   })
+
+  const { data: accountingModeData } = useQuery({
+    queryKey: ['admin', 'accounting-mode'],
+    queryFn: () => admin.accountingMode(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const isAccrual = accountingModeData?.mode === 'accrual'
 
   // Resolve group_id → name for the badge on split transactions.
   const { data: allGroups } = useQuery({
@@ -344,6 +352,7 @@ export default function DashboardPage() {
     key: string
     description: string
     date: string
+    orderDate: string
     type: 'debit' | 'credit'
     amount: number
     amountPrimary: number | null
@@ -387,6 +396,7 @@ export default function DashboardPage() {
         key: tx.id,
         description: tx.description,
         date: tx.date,
+        orderDate: transactionOrderDate(tx, isAccrual),
         type: tx.type,
         amount: displayAmount,
         amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
@@ -411,6 +421,7 @@ export default function DashboardPage() {
         key: `proj-${pt.recurring_id}-${pt.date}`,
         description: pt.description,
         date: pt.date,
+        orderDate: transactionOrderDate(pt, isAccrual),
         type: pt.type,
         amount: pt.amount,
         amountPrimary: pt.amount_primary ?? null,
@@ -430,9 +441,9 @@ export default function DashboardPage() {
         isIgnored: pt.is_ignored
       })
     }
-    rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
+    rows.sort((a, b) => txSortDesc ? b.orderDate.localeCompare(a.orderDate) : a.orderDate.localeCompare(b.orderDate))
     return rows
-  }, [currentMonthTxs, projectedTxs, txSortDesc, groupNameById])
+  }, [currentMonthTxs, projectedTxs, txSortDesc, groupNameById, isAccrual])
 
   const txTotalPages = Math.ceil(allDisplayRows.length / TX_PER_PAGE)
   const pagedRows = allDisplayRows.slice((txPage - 1) * TX_PER_PAGE, txPage * TX_PER_PAGE)
