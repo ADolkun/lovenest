@@ -5,15 +5,16 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addMonths, parseISO } from 'date-fns'
-import { accounts, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
+import { accounts, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
-import type { CreditCardBill, Transaction } from '@/types'
+import type { CreditCardBill, Rule, RuleAction, RuleCondition, Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, ArrowLeftRight, CalendarClock, ChevronLeft, ChevronRight, Clock, EyeClosed, HelpCircle, Paperclip, Pencil, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
+import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -44,6 +45,12 @@ function defaultTo() {
 
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate()
+}
+
+function parseHashtags(notes: string | null): string[] {
+  if (!notes) return []
+  const matches = notes.match(/#[\w\u00C0-\u017E-]+/g)
+  return matches ?? []
 }
 
 /** Return the default cycle for a credit card: the cycle whose bill is *next due*.
@@ -275,6 +282,8 @@ export default function AccountDetailPage() {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
+  const [createRuleOpen, setCreateRuleOpen] = useState(false)
+  const [createRuleInitialData, setCreateRuleInitialData] = useState<RuleDialogInitialData | undefined>(undefined)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [filterFrom, setFilterFrom] = useState(defaultFrom)
   const [filterTo, setFilterTo] = useState(defaultTo)
@@ -533,6 +542,11 @@ export default function AccountDetailPage() {
     queryFn: categoryGroupsApi.list,
   })
 
+  const { data: payeesList } = useQuery({
+    queryKey: ['payees'],
+    queryFn: payeesApi.list,
+  })
+
   const updateMutation = useMutation({
     mutationFn: ({ id: txId, ...data }: Partial<Transaction> & { id: string }) =>
       transactions.update(txId, data),
@@ -613,6 +627,45 @@ export default function AccountDetailPage() {
       toast.error(extractApiError(error))
     },
   })
+
+  const createRuleMutation = useMutation({
+    mutationFn: (data: Omit<Rule, 'id' | 'user_id'>) => rulesApi.create(data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      setCreateRuleOpen(false)
+      setCreateRuleInitialData(undefined)
+      const applied = result.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+        queryClient.invalidateQueries({ queryKey: ['payees'] })
+        toast.success(t('rules.createdAndApplied', { count: applied }))
+      } else {
+        toast.success(t('rules.created'))
+      }
+    },
+    onError: (error: unknown) => {
+      const err = error as { response?: { status?: number } }
+      toast.error(err?.response?.status === 409 ? t('rules.duplicateName') : t('common.error'))
+    },
+  })
+
+  const handleCreateRuleFromTransaction = (tx: Transaction) => {
+    const conditions: RuleCondition[] = [
+      { field: 'description', op: 'contains', value: tx.description },
+    ]
+    if (tx.payee_id) {
+      conditions.push({ field: 'payee_id', op: 'equals', value: tx.payee_id })
+    }
+    const actions: RuleAction[] = tx.category_id
+      ? [{ op: 'set_category', value: tx.category_id }]
+      : [{ op: 'set_category', value: '' }]
+    const tags = parseHashtags(tx.notes)
+    if (tags.length > 0) {
+      actions.push({ op: 'append_notes', value: tags.join(' ') })
+    }
+    setCreateRuleInitialData({ conditions, actions })
+    setCreateRuleOpen(true)
+  }
 
   // Whether to use primary currency amounts (for foreign-currency accounts with toggle, or domestic accounts with foreign txs)
   const isCreditCard = account?.type === 'credit_card'
@@ -1477,9 +1530,28 @@ export default function AccountDetailPage() {
         }}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
         onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        onCreateRule={(tx) => {
+          setDialogOpen(false)
+          setEditingTx(null)
+          handleCreateRuleFromTransaction(tx)
+        }}
         loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
+      />
+
+      <RuleDialog
+        key={createRuleOpen ? 'rule-open' : 'rule-closed'}
+        open={createRuleOpen}
+        onClose={() => { setCreateRuleOpen(false); setCreateRuleInitialData(undefined) }}
+        rule={null}
+        categories={categoriesList ?? []}
+        categoryGroups={categoryGroupsList ?? []}
+        accounts={accountsList ?? []}
+        payees={payeesList ?? []}
+        onSave={(data) => createRuleMutation.mutate(data as Omit<Rule, 'id' | 'user_id'>)}
+        loading={createRuleMutation.isPending}
+        initialData={createRuleInitialData}
       />
 
       <TransferDialog

@@ -47,7 +47,7 @@ export function AuthBrandPanel() {
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
           <ShellLogo size={20} className="text-white" />
         </div>
-        <span className="text-lg font-semibold tracking-tight">Securo</span>
+        <span className="text-lg font-semibold tracking-tight">{t('app.name')}</span>
       </div>
 
       {/* Tagline */}
