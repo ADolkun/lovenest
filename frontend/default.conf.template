@@ -3,6 +3,22 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    set $canonical_url "${FRONTEND_CANONICAL_URL}";
+    set $canonical_host "${FRONTEND_CANONICAL_HOST}";
+    set $canonical_redirect "";
+
+    if ($canonical_url != "") {
+        set $canonical_redirect "1";
+    }
+
+    if ($host = $canonical_host) {
+        set $canonical_redirect "";
+    }
+
+    if ($canonical_redirect = "1") {
+        return 308 $canonical_url$request_uri;
+    }
+
     # API proxy to backend.
     # Resolve the backend hostname at request time via Docker's embedded DNS
     # instead of caching the IP at startup. Without this, Nginx pins the

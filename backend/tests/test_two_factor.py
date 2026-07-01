@@ -4,6 +4,8 @@ import pyotp
 import pytest
 from httpx import AsyncClient
 
+from app.api.two_factor import _verify_totp
+
 
 def _make_redis_mock_with_store():
     """Create a Redis mock that actually stores and retrieves key-value pairs."""
@@ -87,6 +89,18 @@ async def test_enable_2fa_invalid_code(client: AsyncClient, auth_headers: dict, 
         headers=auth_headers,
     )
     assert response.status_code == 400
+
+
+def test_verify_totp_allows_adjacent_time_window():
+    with patch("app.api.two_factor.pyotp.TOTP") as totp_cls:
+        totp = MagicMock()
+        totp.verify.return_value = True
+        totp_cls.return_value = totp
+
+        assert _verify_totp("secret", "123456")
+
+    totp_cls.assert_called_once_with("secret")
+    totp.verify.assert_called_once_with("123456", valid_window=1)
 
 
 async def test_login_with_2fa(client: AsyncClient, test_user_with_2fa):

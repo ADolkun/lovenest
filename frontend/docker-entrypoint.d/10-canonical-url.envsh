@@ -1,0 +1,14 @@
+url="${FRONTEND_URL:-}"
+
+case "$url" in
+  ""|http://localhost:*|http://127.*|http://0.0.0.0:*)
+    export FRONTEND_CANONICAL_URL=""
+    export FRONTEND_CANONICAL_HOST=""
+    ;;
+  *)
+    url="${url%/}"
+    host="$(printf '%s\n' "$url" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://([^/:]+).*#\1#')"
+    export FRONTEND_CANONICAL_URL="$url"
+    export FRONTEND_CANONICAL_HOST="$host"
+    ;;
+esac
