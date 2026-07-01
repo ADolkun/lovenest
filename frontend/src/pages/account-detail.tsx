@@ -746,7 +746,7 @@ export default function AccountDetailPage() {
       // Computed oldest → newest, then reversed (not re-sorted) so
       // same-day rows read monotonically top-down.
       const ascending = [...txData.items].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+        (a, b) => a.date.localeCompare(b.date),
       )
       let running = 0
       const withBalance = ascending.map((tx) => {
@@ -769,7 +769,7 @@ export default function AccountDetailPage() {
           ? balanceHistory[balanceHistory.length - 1].balance
           : summary.current_balance)
     const sorted = [...txData.items].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      (a, b) => b.date.localeCompare(a.date)
     )
     let running = endBalance
     return sorted.map((tx) => {
