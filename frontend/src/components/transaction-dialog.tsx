@@ -369,6 +369,9 @@ function TransactionForm({
   const [fxRate, setFxRate] = useState(
     seed?.fx_rate_used != null ? seed.fx_rate_used.toString() : ''
   )
+  const [hadInitialFx] = useState(
+    !!transaction && (seed?.amount_primary != null || seed?.fx_rate_used != null)
+  )
   const [isRecurring, setIsRecurring] = useState(false)
   const [frequency, setFrequency] = useState<'monthly' | 'weekly' | 'yearly'>('monthly')
   const [endDate, setEndDate] = useState('')
@@ -597,6 +600,10 @@ function TransactionForm({
         }
         if (showConversion && fxRate) {
           fxFields.fx_rate_used = parseFloat(fxRate)
+        }
+        if (showConversion && hadInitialFx && !convertedAmount && !fxRate) {
+          fxFields.amount_primary = null
+          fxFields.fx_rate_used = null
         }
         // Active CC account ⇒ surface effective_bill_date in the payload
         // (sent both for synced and manual edits since the user can hand-
