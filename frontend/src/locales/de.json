@@ -631,7 +631,12 @@
     "payeePaymentData": "Zahler-/Empfängername",
     "payeeDescription": "Transaktionsbeschreibung",
     "payeeNone": "Keinen Zahlungsempfänger festlegen",
-    "importPending": "Ausstehende Transaktionen importieren"
+    "importPending": "Ausstehende Transaktionen importieren",
+    "syncAssets": "Investment-Assets importieren",
+    "syncAssetsHint": "Wenn deaktiviert, synchronisiert diese Verbindung Konten und Transaktionen, lässt aber Investment-Bestände des Anbieters unverändert.",
+    "initialSyncSettings": "Synchronisierungsoptionen",
+    "initialSyncSettingsDesc": "Wähle aus, was Securo importieren soll, bevor der Connector geöffnet wird.",
+    "continueToConnector": "Weiter zum Connector"
   },
   "settings": {
     "rules": "Regeln",

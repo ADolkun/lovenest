@@ -118,6 +118,7 @@ export interface BankConnection {
 export interface ConnectionSettings {
   payee_source?: 'auto' | 'merchant' | 'payment_data' | 'description' | 'none'
   import_pending?: boolean
+  sync_assets?: boolean
 }
 
 export interface Account {

@@ -631,7 +631,12 @@
     "payeePaymentData": "Nombre del pagador/receptor",
     "payeeDescription": "Descripción de la transacción",
     "payeeNone": "No asignar beneficiario",
-    "importPending": "Importar transacciones pendientes"
+    "importPending": "Importar transacciones pendientes",
+    "syncAssets": "Importar activos de inversión",
+    "syncAssetsHint": "Cuando está desactivado, esta conexión sincroniza cuentas y transacciones, pero deja intactas las inversiones del proveedor.",
+    "initialSyncSettings": "Opciones de sincronización",
+    "initialSyncSettingsDesc": "Elige qué debe importar Securo antes de abrir el conector.",
+    "continueToConnector": "Continuar al conector"
   },
   "settings": {
     "rules": "Reglas",

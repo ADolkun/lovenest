@@ -631,7 +631,12 @@
     "payeePaymentData": "Nome pagante/ricevente",
     "payeeDescription": "Descrizione transazione",
     "payeeNone": "Non impostare il beneficiario",
-    "importPending": "Importa transazioni in sospeso"
+    "importPending": "Importa transazioni in sospeso",
+    "syncAssets": "Importa asset di investimento",
+    "syncAssetsHint": "Se disattivato, questa connessione sincronizza conti e transazioni ma lascia invariati gli investimenti del provider.",
+    "initialSyncSettings": "Opzioni di sincronizzazione",
+    "initialSyncSettingsDesc": "Scegli cosa deve importare Securo prima di aprire il connettore.",
+    "continueToConnector": "Continua al connettore"
   },
   "settings": {
     "rules": "Regole",

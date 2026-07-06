@@ -667,7 +667,12 @@
     "payeePaymentData": "Nazwa płatnika/odbiorcy",
     "payeeDescription": "Opis transakcji",
     "payeeNone": "Nie ustawiaj odbiorcy",
-    "importPending": "Importuj transakcje oczekujące"
+    "importPending": "Importuj transakcje oczekujące",
+    "syncAssets": "Importuj aktywa inwestycyjne",
+    "syncAssetsHint": "Gdy wyłączone, to połączenie synchronizuje konta i transakcje, ale nie zmienia inwestycji dostawcy.",
+    "initialSyncSettings": "Opcje synchronizacji",
+    "initialSyncSettingsDesc": "Wybierz, co Securo ma zaimportować przed otwarciem konektora.",
+    "continueToConnector": "Przejdź do konektora"
   },
   "settings": {
     "rules": "Reguły",
