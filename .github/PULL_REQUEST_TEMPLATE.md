@@ -13,6 +13,10 @@ Steps to verify the changes work:
 1. ...
 2. ...
 
+## Related Issue
+
+Closes #___ (or link the issue this addresses).
+
 ## Checklist
 
 - [ ] This PR targets the **`lovenest`** branch (not `main`)
@@ -22,6 +26,7 @@ Steps to verify the changes work:
 - [ ] Frontend builds (`npm run build` in `frontend/`)
 - [ ] Translations updated (if user-facing strings changed)
 - [ ] I agree my contribution is licensed under **AGPL-3.0**
+- [ ] For a large or core change, I discussed it first (issue or Discord) so we could align before the code (see [CONTRIBUTING](../CONTRIBUTING.md#before-large-or-core-changes))
 
 ## Could this also benefit upstream Securo? (y/n)
 
