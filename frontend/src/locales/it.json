@@ -1193,7 +1193,8 @@
     "showLess": "Mostra meno",
     "showMore": "+{{count}} altri",
     "previous": "Precedente",
-    "next": "Successivo"
+    "next": "Successivo",
+    "rowsPerPage": "Righe per pagina"
   },
   "splitGroups": {
     "title": "Gruppi",
