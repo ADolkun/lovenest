@@ -319,6 +319,10 @@
     "confirmDelete": "Czy na pewno usunąć tę transakcję?",
     "makeRecurring": "Ustaw jako cykliczną",
     "recurringBadge": "Cykliczna",
+    "recurringLinkedTooltip": "Powiązana z cyklicznym rachunkiem",
+    "recurringLinkedInfo": "Ta transakcja jest powiązana z cyklicznym rachunkiem.",
+    "recurringUnlinkAction": "Odłącz",
+    "recurringUnlinkSuccess": "Transakcja odłączona od cyklicznego rachunku",
     "transfer": "Transfer",
     "pending": "Oczekująca",
     "recurringInfo": "Transakcja cykliczna ({{frequency}}). Następna: {{next}}",
@@ -787,6 +791,8 @@
     "generated_many": "Wygenerowano {{count}} transakcji",
     "generated_other": "Wygenerowano {{count}} transakcji",
     "generatePending": "Generuj oczekujące",
+    "autoGenerate": "Automatycznie generuj transakcje",
+    "autoGenerateHelp": "Tworzy transakcję za każdym razem, gdy ten rachunek jest wymagalny. Wyłącz, aby poczekać na rzeczywiste obciążenie (np. z synchronizacji bankowej) i do tego czasu pokazywać je tylko jako nadchodzące.",
     "fxEstimate": "Szacunek na podstawie najnowszego kursu wymiany ({{rate}}). Ostateczna kwota może się zmienić."
   },
   "rules": {

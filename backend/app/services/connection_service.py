@@ -28,6 +28,7 @@ from app.providers.base import (
 )
 from app.services import oauth_state
 from app.services import admin_service
+from app.services import recurring_match_service
 from app.services.account_service import (
     _simplefin_to_internal_balance,
     sync_opening_balance_for_connected_account,
@@ -1320,6 +1321,31 @@ async def sync_connection(
                                 )
                     continue
 
+                # Pass 4: recurring bill placeholder. If generate_pending
+                # already materialized this bill's occurrence, merge the incoming
+                # charge into that placeholder instead of duplicating (issue
+                # #116). The recurring link is preserved by upgrading in place.
+                incoming_currency = txn_data.currency or acc_data.currency or user_currency
+                placeholder = await recurring_match_service.find_placeholder_for_incoming(
+                    session, account.id, txn_data.amount, incoming_currency,
+                    txn_data.type, txn_data.date, txn_data.description,
+                )
+                if placeholder:
+                    if placeholder.is_ignored:
+                        continue
+                    placeholder.external_id = txn_data.external_id
+                    placeholder.source = "sync"
+                    placeholder.status = txn_data.status
+                    placeholder.raw_data = txn_data.raw_data
+                    if txn_data.payee:
+                        if not placeholder.payee:
+                            placeholder.payee = txn_data.payee
+                        placeholder.payee_id = (
+                            await get_or_create_payee(session, user_id, txn_data.payee)
+                        ).id
+                    merged_count += 1
+                    continue
+
                 category_id = await _match_pluggy_category(
                     session, workspace_id, txn_data.pluggy_category, enabled=use_provider_cats
                 )
@@ -1329,6 +1355,14 @@ async def sync_connection(
                 if txn_data.payee:
                     sync_payee_entity = await get_or_create_payee(session, user_id, txn_data.payee)
                     sync_payee_id = sync_payee_entity.id
+
+                # No placeholder existed: if this charge fulfills an active bill's
+                # next occurrence, link it and advance the bill so a later
+                # generate_pending won't create a duplicate placeholder.
+                recurring_link = await recurring_match_service.find_bill_for_incoming(
+                    session, user_id, account.id, txn_data.amount, incoming_currency,
+                    txn_data.type, txn_data.date, txn_data.description,
+                )
 
                 bill = (
                     bills_by_external_id.get(txn_data.bill_external_id)
@@ -1355,12 +1389,15 @@ async def sync_connection(
                     installment_total_amount=txn_data.installment_total_amount,
                     installment_purchase_date=txn_data.installment_purchase_date,
                     bill_id=bill.id if bill else None,
+                    recurring_transaction_id=recurring_link.id if recurring_link else None,
                 )
                 apply_effective_date(
                     transaction, account, bill_due_date=bill.due_date if bill else None
                 )
                 session.add(transaction)
                 await session.flush()
+                if recurring_link is not None:
+                    recurring_match_service.advance_past(recurring_link, txn_data.date)
                 new_tx_ids.append(transaction.id)
                 if not category_id:
                     await apply_rules_to_transaction(session, user_id, transaction)

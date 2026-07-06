@@ -313,6 +313,10 @@
     "confirmDelete": "¿Estás seguro de que quieres eliminar esta transacción?",
     "makeRecurring": "Hacer recurrente",
     "recurringBadge": "Recurrente",
+    "recurringLinkedTooltip": "Vinculada a una factura recurrente",
+    "recurringLinkedInfo": "Esta transacción está vinculada a una factura recurrente.",
+    "recurringUnlinkAction": "Desvincular",
+    "recurringUnlinkSuccess": "Transacción desvinculada de la factura recurrente",
     "transfer": "Transferencia",
     "pending": "Pendiente",
     "recurringInfo": "Transacción recurrente ({{frequency}}). Próxima: {{next}}",
@@ -742,6 +746,8 @@
     "deleted": "Transacción recurrente eliminada",
     "generated": "{{count}} transacciones generadas",
     "generatePending": "Generar pendientes",
+    "autoGenerate": "Generar transacciones automáticamente",
+    "autoGenerateHelp": "Crea una transacción cada vez que vence esta factura. Desactívalo para esperar el cargo real (por ejemplo, de la sincronización bancaria) y mostrarla solo como próxima hasta entonces.",
     "fxEstimate": "Estimación basada en el último tipo de cambio ({{rate}}). El importe final puede cambiar."
   },
   "rules": {

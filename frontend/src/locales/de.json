@@ -313,6 +313,10 @@
     "confirmDelete": "Möchtest du diese Transaktion wirklich löschen?",
     "makeRecurring": "Als wiederkehrend einrichten",
     "recurringBadge": "Wiederkehrend",
+    "recurringLinkedTooltip": "Mit einer wiederkehrenden Rechnung verknüpft",
+    "recurringLinkedInfo": "Diese Transaktion ist mit einer wiederkehrenden Rechnung verknüpft.",
+    "recurringUnlinkAction": "Verknüpfung aufheben",
+    "recurringUnlinkSuccess": "Transaktion von der wiederkehrenden Rechnung getrennt",
     "transfer": "Umbuchung",
     "pending": "Ausstehend",
     "recurringInfo": "Wiederkehrende Transaktion ({{frequency}}). Nächste: {{next}}",
@@ -742,6 +746,8 @@
     "deleted": "Wiederkehrende Transaktion gelöscht",
     "generated": "{{count}} Transaktionen erstellt",
     "generatePending": "Ausstehende erstellen",
+    "autoGenerate": "Transaktionen automatisch erstellen",
+    "autoGenerateHelp": "Erstellt bei jeder Fälligkeit dieser Rechnung eine Transaktion. Deaktivieren, um auf die tatsächliche Belastung (z. B. aus der Banksynchronisierung) zu warten und sie bis dahin nur als anstehend anzuzeigen.",
     "fxEstimate": "Schätzung basierend auf dem aktuellsten Wechselkurs ({{rate}}). Der endgültige Betrag kann abweichen."
   },
   "rules": {

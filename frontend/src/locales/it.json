@@ -313,6 +313,10 @@
     "confirmDelete": "Sei sicuro di voler eliminare questa transazione?",
     "makeRecurring": "Rendi ricorrente",
     "recurringBadge": "Ricorrente",
+    "recurringLinkedTooltip": "Collegata a una spesa ricorrente",
+    "recurringLinkedInfo": "Questa transazione è collegata a una spesa ricorrente.",
+    "recurringUnlinkAction": "Scollega",
+    "recurringUnlinkSuccess": "Transazione scollegata dalla spesa ricorrente",
     "transfer": "Trasferimento",
     "pending": "In sospeso",
     "recurringInfo": "Transazione ricorrente ({{frequency}}). Prossima: {{next}}",
@@ -742,6 +746,8 @@
     "deleted": "Transazione ricorrente eliminata",
     "generated": "{{count}} transazioni generate",
     "generatePending": "Genera in sospeso",
+    "autoGenerate": "Genera transazioni automaticamente",
+    "autoGenerateHelp": "Crea una transazione ogni volta che questa spesa è in scadenza. Disattiva per attendere l'addebito reale (ad es. dalla sincronizzazione bancaria) e mostrarla solo come in arrivo fino ad allora.",
     "fxEstimate": "Stima basata sull'ultimo tasso di cambio ({{rate}}). L'importo finale può variare."
   },
   "rules": {

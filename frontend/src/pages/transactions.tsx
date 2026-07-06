@@ -933,8 +933,12 @@ export default function TransactionsPage() {
               </span>
                             )
             }
-            {recurringList?.some(r => r.description === tx.description && r.type === tx.type) && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">
+            {(tx.recurring_transaction_id != null ||
+              recurringList?.some(r => r.description === tx.description && r.type === tx.type)) && (
+              <span
+                className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full"
+                title={tx.recurring_transaction_id != null ? t('transactions.recurringLinkedTooltip') : undefined}
+              >
                 {t('transactions.recurringBadge')}
               </span>
             )}

@@ -427,6 +427,8 @@ function TransactionForm({
   }, [description, isSynced])
   const [isIgnored, setIsIgnored] = useState(seed?.is_ignored ?? false)
   const [togglingIgnore, setTogglingIgnore] = useState(false)
+  const [recurringLinked, setRecurringLinked] = useState(seed?.recurring_transaction_id != null)
+  const [unlinkingRecurring, setUnlinkingRecurring] = useState(false)
   const [addToRuleOpen, setAddToRuleOpen] = useState(false)
 
   const { data: rulesList, isLoading: rulesLoading } = useQuery({
@@ -499,6 +501,21 @@ function TransactionForm({
       toast.error(t('common.error'))
     } finally {
       setTogglingIgnore(false)
+    }
+  }
+
+  const handleUnlinkRecurring = async () => {
+    if (!seed?.id || unlinkingRecurring) return
+    setUnlinkingRecurring(true)
+    try {
+      await transactionsApi.unlinkRecurring(seed.id)
+      setRecurringLinked(false)
+      toast.success(t('transactions.recurringUnlinkSuccess'))
+      onIgnoreChanged?.()
+    } catch {
+      toast.error(t('common.error'))
+    } finally {
+      setUnlinkingRecurring(false)
     }
   }
 
@@ -702,6 +719,22 @@ function TransactionForm({
             frequency: t(`recurring.${recurringMatch.frequency}`),
             next: new Date(recurringMatch.next_occurrence).toLocaleDateString(dateLocale),
           })}</span>
+        </div>
+      )}
+      {recurringLinked && !isCreating && (
+        <div className="flex items-center justify-between gap-2 p-3 text-sm bg-muted/50 border border-border rounded-md">
+          <span className="text-muted-foreground">{t('transactions.recurringLinkedInfo')}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 shrink-0"
+            onClick={handleUnlinkRecurring}
+            disabled={unlinkingRecurring}
+          >
+            <Unlink size={14} />
+            {t('transactions.recurringUnlinkAction')}
+          </Button>
         </div>
       )}
       <div className="space-y-2">
