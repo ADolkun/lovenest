@@ -1382,6 +1382,7 @@ export const agents = {
       default_similarity_threshold: number
       extra_mcp_servers_configured: boolean
       mcp_external_ttl_days: number
+      external_mcp_url: string
     }
   },
   mcpTokens: {
