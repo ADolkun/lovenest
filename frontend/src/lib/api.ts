@@ -332,11 +332,13 @@ export const connections = {
     provider: string,
     state?: string,
     settings?: Pick<ConnectionSettings, 'sync_assets'>,
+    reconnectConnectionId?: string,
   ): Promise<BankConnection> => {
     const { data } = await api.post('/connections/oauth/callback', {
       code,
       provider,
       state,
+      reconnect_connection_id: reconnectConnectionId,
       ...settings,
     })
     return data
