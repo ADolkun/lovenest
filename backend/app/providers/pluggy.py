@@ -266,7 +266,7 @@ class PluggyProvider(BankProvider):
                 f"{PLUGGY_API_BASE}/auth",
                 json={
                     "clientId": settings.pluggy_client_id,
-                    "clientSecret": settings.pluggy_client_secret,
+                    "clientSecret": settings.pluggy_client_secret.get_secret_value(),
                 },
             )
             resp.raise_for_status()

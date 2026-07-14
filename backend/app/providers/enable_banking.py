@@ -203,7 +203,7 @@ class EnableBankingProvider(BankProvider):
         if key_file:
             cls._cached_private_key = Path(key_file).read_text(encoding="utf-8")
             return cls._cached_private_key
-        raw = settings.enable_banking_private_key or ""
+        raw = settings.enable_banking_private_key.get_secret_value() or ""
         if "\\n" in raw and "\n" not in raw:
             raw = raw.replace("\\n", "\n")
         cls._cached_private_key = raw
