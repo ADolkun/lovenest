@@ -108,6 +108,19 @@ export function ImportReviewTable({
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const safePage = Math.min(currentPage, totalPages)
   const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const renderCategorySelect = (tx: ImportReviewTransaction) => (
+    <CategorySelect
+      value={tx.selected_category_id !== undefined
+        ? (tx.selected_category_id ?? '')
+        : (tx.suggested_category_id ?? '')}
+      onChange={(v) => onChangeCategory(tx._id, v || null)}
+      categories={categories}
+      groups={groups}
+      placeholder={t('import.noCategory')}
+      allowNone
+      className="w-full border border-border rounded-md px-2 py-1 text-xs bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+    />
+  )
 
   return (
     <div>
@@ -141,25 +154,25 @@ export function ImportReviewTable({
 
       {/* Table */}
       <div className="max-h-[480px] overflow-auto">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-transparent bg-transparent border-b border-border">
               <TableHead className="text-xs font-medium text-muted-foreground py-3 pl-4 w-[40px]">
                 <span className="sr-only">Toggle</span>
               </TableHead>
-              <TableHead className="text-xs font-medium text-muted-foreground py-3 w-[100px]">
+              <TableHead className="hidden w-[100px] py-3 text-xs font-medium text-muted-foreground sm:table-cell">
                 {t('transactions.date')}
               </TableHead>
               <TableHead className="text-xs font-medium text-muted-foreground py-3">
                 {t('transactions.description')}
               </TableHead>
-              <TableHead className="text-xs font-medium text-muted-foreground py-3 text-right w-[120px]">
+              <TableHead className="w-24 py-3 text-right text-xs font-medium text-muted-foreground sm:w-[120px]">
                 {t('transactions.amount')}
               </TableHead>
-              <TableHead className="text-xs font-medium text-muted-foreground py-3 w-[160px]">
+              <TableHead className="hidden w-[160px] py-3 text-xs font-medium text-muted-foreground sm:table-cell">
                 {t('import.category')}
               </TableHead>
-              <TableHead className="text-xs font-medium text-muted-foreground py-3 pr-4 w-[90px]">
+              <TableHead className="hidden w-[90px] py-3 pr-4 text-xs font-medium text-muted-foreground sm:table-cell">
                 {t('transactions.status')}
               </TableHead>
             </TableRow>
@@ -179,29 +192,23 @@ export function ImportReviewTable({
                       className="rounded border-border text-primary focus:ring-primary"
                     />
                   </TableCell>
-                  <TableCell className="py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                  <TableCell className="hidden py-2.5 text-xs text-muted-foreground sm:table-cell">
                     {formatLocalDate(tx.date, dateLocale)}
                   </TableCell>
-                  <TableCell className={`py-2.5 text-sm ${tx.excluded ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                    {tx.description}
+                  <TableCell className={`max-w-0 overflow-hidden py-2.5 text-sm ${tx.excluded ? 'text-muted-foreground' : 'text-foreground'}`}>
+                    <span className={`block truncate ${tx.excluded ? 'line-through' : ''}`} title={tx.description}>{tx.description}</span>
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground sm:hidden">{formatLocalDate(tx.date, dateLocale)}</span>
+                    <div className="mt-1.5 sm:hidden" onClick={(e) => e.stopPropagation()}>
+                      {renderCategorySelect(tx)}
+                    </div>
                   </TableCell>
                   <TableCell className={`py-2.5 text-right text-sm font-bold tabular-nums ${tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                     {tx.type === 'credit' ? '+' : '−'}{formatCurrency(Math.abs(Number(tx.amount)), userCurrency, locale)}
                   </TableCell>
-                  <TableCell className="py-2.5">
-                    <CategorySelect
-                      value={tx.selected_category_id !== undefined
-                        ? (tx.selected_category_id ?? '')
-                        : (tx.suggested_category_id ?? '')}
-                      onChange={(v) => onChangeCategory(tx._id, v || null)}
-                      categories={categories}
-                      groups={groups}
-                      placeholder={t('import.noCategory')}
-                      allowNone
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
-                    />
+                  <TableCell className="hidden py-2.5 sm:table-cell">
+                    {renderCategorySelect(tx)}
                   </TableCell>
-                  <TableCell className="py-2.5 pr-4">
+                  <TableCell className="hidden py-2.5 pr-4 sm:table-cell">
                     {tx.excluded ? (
                       <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
                         {t('import.excluded')}

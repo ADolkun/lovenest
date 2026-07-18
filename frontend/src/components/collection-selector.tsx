@@ -87,15 +87,15 @@ export function CollectionSelector({ variant = 'sidebar' }: { variant?: 'sidebar
   // color and gains a one-click clear, so the filtered state is impossible to
   // miss. Idle ("All accounts") it stays quiet.
   return (
-    <div className="sticky top-0 z-30 -mx-6 mb-6 border-b border-border/60 bg-background/80 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/65 lg:-mx-6">
-      <div className="flex h-12 max-w-7xl items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70">
+    <div className="sticky top-0 z-30 -mx-3 mb-6 border-b border-border/60 bg-background/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/65 sm:-mx-6 sm:px-6">
+      <div className="flex h-12 min-w-0 items-center gap-2">
+        <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground/70">
           {t('collections.viewing')}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
-              className="group inline-flex items-center gap-2 rounded-full border border-border/60 px-3 py-1.5 text-[13px] transition-colors hover:bg-muted/50"
+              className="group inline-flex min-w-0 items-center gap-2 rounded-full border border-border/60 px-3 py-1.5 text-[13px] transition-colors hover:bg-muted/50"
               style={
                 activeCollection
                   ? { borderColor: `${activeCollection.color}55`, backgroundColor: `${activeCollection.color}14` }
@@ -110,8 +110,8 @@ export function CollectionSelector({ variant = 'sidebar' }: { variant?: 'sidebar
               <span
                 className={
                   activeCollection
-                    ? 'font-medium text-foreground'
-                    : 'text-muted-foreground group-hover:text-foreground'
+                    ? 'min-w-0 truncate font-medium text-foreground'
+                    : 'min-w-0 truncate text-muted-foreground group-hover:text-foreground'
                 }
               >
                 {activeCollection?.name ?? t('collections.allAccounts')}

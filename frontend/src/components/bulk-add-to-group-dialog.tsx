@@ -279,7 +279,7 @@ function BulkAddToGroupForm({
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label className="text-xs">{t('splitGroups.group')}</Label>

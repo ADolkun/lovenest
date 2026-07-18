@@ -1123,7 +1123,7 @@ export default function AssetsPage() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingAsset ? t('assets.editAsset') : t('assets.addAsset')}</DialogTitle>
           </DialogHeader>
@@ -1165,7 +1165,7 @@ export default function AssetsPage() {
             </div>
 
             {/* Type + Currency */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('assets.type')}</Label>
                 <select
@@ -1327,7 +1327,7 @@ export default function AssetsPage() {
                 )}
 
                 {!editingAsset ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label>{t('assets.quantity')}</Label>
                       <Input
@@ -1385,7 +1385,7 @@ export default function AssetsPage() {
             {/* Growth Rule Settings */}
             {formMethod === 'growth_rule' && (
               <div className="space-y-3 p-3.5 rounded-xl border border-primary/20 bg-primary/5">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t('assets.growthType')}</Label>
                     <select
@@ -1408,7 +1408,7 @@ export default function AssetsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t('assets.growthFrequency')}</Label>
                     <select
@@ -1432,7 +1432,7 @@ export default function AssetsPage() {
             {/* Purchase Info. For tickers the cost comes from the unit-price
                 buy above, so we only ask for the purchase (buy) date here and
                 hide the total-price field. Manual assets keep both. */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('assets.purchaseDate')}</Label>
                 <DatePickerInput value={formPurchaseDate} onChange={setFormPurchaseDate} />
@@ -1448,7 +1448,7 @@ export default function AssetsPage() {
             {/* Sell Info — manual assets only. Tickers record sells through the
                 buy/sell ledger, not the create form. */}
             {formMethod !== 'market_price' && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t('assets.sellDate')}</Label>
                   <DatePickerInput value={formSellDate} onChange={setFormSellDate} />
@@ -2542,7 +2542,7 @@ function AssetTransactionsTab({
             )}
 
             {isNewTicker && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t('assets.ticker')}</Label>
                   <Input
@@ -2586,7 +2586,7 @@ function AssetTransactionsTab({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('assets.quantity')}</Label>
                 <Input type="number" step="any" min="0" value={formQuantity} onChange={(e) => setFormQuantity(e.target.value)} />
@@ -2597,7 +2597,7 @@ function AssetTransactionsTab({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('assets.fee')}</Label>
                 <Input type="number" step="any" min="0" value={formFee} onChange={(e) => setFormFee(e.target.value)} placeholder="0" />
@@ -2824,7 +2824,7 @@ function AddHoldingTransactionDialog({
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t('assets.quantity')}</Label>
               <Input type="number" step="any" min="0" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
@@ -2834,7 +2834,7 @@ function AddHoldingTransactionDialog({
               <Input type="number" step="any" min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t('assets.fee')}</Label>
               <Input type="number" step="any" min="0" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0" />
