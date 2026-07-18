@@ -462,7 +462,7 @@ export default function ReportsPage() {
         section={t('reports.section')}
         title={t(currentTab.labelKey)}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isCashFlow && (
               <div
                 className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
@@ -534,13 +534,13 @@ export default function ReportsPage() {
       />
 
       {/* Tab Bar */}
-      <div className="flex items-center gap-1 mb-5 border-b border-border">
+      <div className="mb-5 flex items-center gap-1 overflow-x-auto border-b border-border">
         {REPORT_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => { if (tab.enabled) handleSelectTab(tab.key) }}
             disabled={!tab.enabled}
-            className={`relative px-4 py-2.5 text-sm font-medium transition-colors ${
+            className={`relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'text-foreground'
                 : tab.enabled

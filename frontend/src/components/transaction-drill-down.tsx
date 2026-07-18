@@ -258,7 +258,7 @@ export function TransactionDrillDown({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{item.description}</p>
+                      <p className="text-sm font-medium text-foreground truncate" title={item.description}>{item.description}</p>
                       {item.isProjected && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                           {t('transactions.recurringBadge')}

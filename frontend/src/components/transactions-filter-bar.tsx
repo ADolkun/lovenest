@@ -391,7 +391,7 @@ export function TransactionsFilterBar({
                     <Wallet size={14} className="text-muted-foreground" />
                     <span className="flex-1">{t('transactions.account')}</span>
                     {accountSummary && (
-                      <span className="max-w-[90px] truncate text-[11px] text-muted-foreground">
+                      <span className="max-w-[90px] truncate text-[11px] text-muted-foreground" title={accountSummary}>
                         {accountSummary}
                       </span>
                     )}
@@ -419,7 +419,7 @@ export function TransactionsFilterBar({
                             }}
                             className="gap-2 rounded-sm py-1.5 text-[13px]"
                           >
-                            <span className="min-w-0 flex-1 truncate text-left">
+                            <span className="min-w-0 flex-1 truncate text-left" title={getAccountName(a)}>
                               {getAccountName(a)}
                             </span>
                             {a.currency && (

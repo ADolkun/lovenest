@@ -643,7 +643,7 @@ export default function AdminSettingsPage() {
                 <Label className="text-[13px]">{t('auth.password')}</Label>
                 <Input type="password" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} required minLength={8} className="h-10 rounded-lg" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label className="text-[13px]">{t('setup.language')}</Label>
                   <select

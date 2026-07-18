@@ -41,7 +41,7 @@ import {
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/page-header'
 import { calculateRangeSelection } from '@/lib/selection-utils'
-import { Search, Star, Merge, Trash2, ArrowRight, ListFilter, X, Check } from 'lucide-react'
+import { Search, Star, Merge, Trash2, ArrowRight, ListFilter, X, Check, Pencil } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -460,7 +460,7 @@ export default function PayeesPage() {
             ))}
           </div>
         ) : (
-          <Table>
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow className="border-b border-border hover:bg-transparent">
                  {canWrite && (
@@ -477,7 +477,7 @@ export default function PayeesPage() {
                 <TableHead className="text-xs font-medium text-muted-foreground py-3 w-[32px]" />
                 <TableHead className="text-xs font-medium text-muted-foreground py-3">{t('payees.name')}</TableHead>
                 <TableHead className="hidden md:table-cell text-xs font-medium text-muted-foreground py-3 w-[120px]">{t('payees.type')}</TableHead>
-                <TableHead className="text-xs font-medium text-muted-foreground py-3 text-right w-[120px]">{t('payees.transactionCount')}</TableHead>
+                <TableHead className="hidden w-[120px] py-3 text-right text-xs font-medium text-muted-foreground sm:table-cell">{t('payees.transactionCount')}</TableHead>
                 {canWrite && <TableHead className="w-[60px]" />}
               </TableRow>
             </TableHeader>
@@ -528,26 +528,31 @@ export default function PayeesPage() {
                       />
                     )}
                   </TableCell>
-                  <TableCell className="py-2.5">
-                    <span className="text-sm font-semibold text-foreground">{payee.name}</span>
+                  <TableCell className="max-w-0 overflow-hidden py-2.5">
+                    <span className="block truncate text-sm font-semibold text-foreground" title={payee.name}>{payee.name}</span>
                     {payee.notes && (
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[300px]">{payee.notes}</p>
+                      <p className="mt-0.5 max-w-[300px] truncate text-xs text-muted-foreground" title={payee.notes}>{payee.notes}</p>
                     )}
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground sm:hidden">
+                      {payee.transaction_count} {t('payees.transactionCount')}
+                    </p>
                   </TableCell>
                   <TableCell className="hidden md:table-cell py-2.5">
                     <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full capitalize">{typeLabels[payee.type] ?? payee.type}</span>
                   </TableCell>
-                  <TableCell className="py-2.5 text-right">
+                  <TableCell className="hidden py-2.5 text-right sm:table-cell">
                     <span className="text-sm tabular-nums text-muted-foreground">{payee.transaction_count}</span>
                   </TableCell>
                   {canWrite && (
                     <TableCell className="py-2.5 pr-4">
                       <Button
                         variant="ghost"
-                        size="sm"
+                        size="icon"
                         onClick={(e) => { e.stopPropagation(); openEdit(payee) }}
+                        title={t('common.edit')}
+                        aria-label={t('common.edit')}
                       >
-                        {t('common.edit')}
+                        <Pencil size={14} />
                       </Button>
                     </TableCell>
                   )}
@@ -573,7 +578,7 @@ export default function PayeesPage() {
           ) : summaryData ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold">{summaryData.payee.name}</h3>
+                <h3 className="min-w-0 flex-1 truncate text-lg font-bold" title={summaryData.payee.name}>{summaryData.payee.name}</h3>
                 <Button variant="ghost" size="sm" onClick={() => setSummaryPayee(null)}>
                   &times;
                 </Button>
@@ -618,7 +623,7 @@ export default function PayeesPage() {
                     {recentTxData.items.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-3 py-2 bg-background text-sm">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
+                          <p className="text-sm font-medium text-foreground truncate" title={tx.description}>{tx.description}</p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                             {tx.category?.name && <> · {tx.category.name}</>}

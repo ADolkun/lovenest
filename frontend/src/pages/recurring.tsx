@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Dialog,
   DialogContent,
@@ -30,8 +31,6 @@ import { useWorkspace } from '@/contexts/workspace-context'
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
-
-const TH = 'text-xs font-medium text-muted-foreground py-3'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
@@ -167,22 +166,28 @@ function RecurringTab() {
           }
         />
         {recurringList && recurringList.length > 0 ? (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className={`${TH} pl-4 sm:pl-5 text-left`}>{t('recurring.description')}</th>
-                <th className={`${TH} text-left w-36`}>{t('recurring.amount')}</th>
-                <th className={`${TH} text-left w-28 hidden md:table-cell`}>{t('recurring.frequency')}</th>
-                <th className={`${TH} text-left w-32 hidden md:table-cell`}>{t('recurring.nextOccurrence')}</th>
-                <th className={`${TH} text-left w-24 hidden sm:table-cell`}>{t('recurring.status')}</th>
-                {canWrite && <th className={`${TH} pr-4 sm:pr-5 text-right w-24`}>{t('recurring.actions')}</th>}
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow className="border-b border-border hover:bg-transparent">
+                <TableHead className="py-3 pl-4 text-xs font-medium text-muted-foreground sm:pl-5">{t('recurring.description')}</TableHead>
+                <TableHead className="w-32 py-3 text-left text-xs font-medium text-muted-foreground sm:w-36">{t('recurring.amount')}</TableHead>
+                <TableHead className="hidden w-28 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">{t('recurring.frequency')}</TableHead>
+                <TableHead className="hidden w-32 py-3 text-left text-xs font-medium text-muted-foreground md:table-cell">{t('recurring.nextOccurrence')}</TableHead>
+                <TableHead className="hidden w-24 py-3 text-left text-xs font-medium text-muted-foreground sm:table-cell">{t('recurring.status')}</TableHead>
+                {canWrite && <TableHead className="w-20 py-3 pr-4 text-right text-xs font-medium text-muted-foreground sm:w-24 sm:pr-5">{t('recurring.actions')}</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {recurringList.map((rt) => (
-                <tr key={rt.id} className="border-b border-border last:border-0 hover:bg-muted transition-colors">
-                  <td className="py-3 pl-4 sm:pl-5 text-sm font-medium text-foreground">{rt.description}</td>
-                  <td className={`py-3 text-xs sm:text-sm font-bold tabular-nums ${rt.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                <TableRow key={rt.id} className="border-b border-border last:border-0 hover:bg-muted transition-colors">
+                  <TableCell className="max-w-0 overflow-hidden py-3 pl-4 sm:pl-5">
+                    <p className="truncate text-sm font-medium text-foreground" title={rt.description}>{rt.description}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground md:hidden">
+                      {frequencyLabel(rt.frequency)} · {new Date(rt.next_occurrence + 'T00:00:00').toLocaleDateString(dateLocale)}
+                      <span className="sm:hidden"> · {rt.is_active ? t('recurring.active') : t('recurring.inactive')}</span>
+                    </p>
+                  </TableCell>
+                  <TableCell className={`py-3 text-xs font-bold tabular-nums sm:text-sm ${rt.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                     {mask(`${rt.type === 'credit' ? '+' : '−'}${formatCurrency(rt.amount, rt.currency, locale)}`)}
                     {rt.currency !== userCurrency && rt.amount_primary != null && (
                       <div className="flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
@@ -192,16 +197,16 @@ function RecurringTab() {
                         </span>
                       </div>
                     )}
-                  </td>
-                  <td className="py-3 hidden md:table-cell">
+                  </TableCell>
+                  <TableCell className="hidden py-3 md:table-cell">
                     <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">
                       {frequencyLabel(rt.frequency)}
                     </span>
-                  </td>
-                  <td className="py-3 text-xs text-muted-foreground tabular-nums hidden md:table-cell">
+                  </TableCell>
+                  <TableCell className="hidden py-3 text-xs text-muted-foreground tabular-nums md:table-cell">
                     {new Date(rt.next_occurrence + 'T00:00:00').toLocaleDateString(dateLocale)}
-                  </td>
-                  <td className="py-3 hidden sm:table-cell">
+                  </TableCell>
+                  <TableCell className="hidden py-3 sm:table-cell">
                     <span className={cn(
                       'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
                       rt.is_active
@@ -210,9 +215,9 @@ function RecurringTab() {
                     )}>
                       {rt.is_active ? t('recurring.active') : t('recurring.inactive')}
                     </span>
-                  </td>
+                  </TableCell>
                   {canWrite && (
-                    <td className="py-3 pr-4 sm:pr-5">
+                    <TableCell className="py-3 pr-4 sm:pr-5">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
@@ -230,12 +235,12 @@ function RecurringTab() {
                           <Trash2 size={13} />
                         </button>
                       </div>
-                    </td>
+                    </TableCell>
                   )}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         ) : (
           <p className="text-sm text-muted-foreground text-center py-10">{t('recurring.empty')}</p>
         )}
@@ -333,7 +338,7 @@ function RecurringForm({
         <Label>{t('recurring.description')}</Label>
         <Input value={description} onChange={(e) => setDescription(e.target.value)} required />
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="space-y-2">
           <Label>{t('recurring.amount')}</Label>
           <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} required />
@@ -354,7 +359,7 @@ function RecurringForm({
           </select>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t('recurring.frequency')}</Label>
           <select className={selectClass} value={frequency} onChange={(e) => setFrequency(e.target.value as 'monthly' | 'weekly' | 'yearly')}>
@@ -370,7 +375,7 @@ function RecurringForm({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t('recurring.startDate')}</Label>
           <DatePickerInput value={startDate} onChange={setStartDate} className="w-full justify-start" />
@@ -380,7 +385,7 @@ function RecurringForm({
           <DatePickerInput value={endDate} onChange={setEndDate} placeholder={t('recurring.endDate')} className="w-full justify-start" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t('recurring.category')}</Label>
           <CategorySelect

@@ -17,6 +17,7 @@ import { ImportSummaryBar } from '@/components/import-summary-bar'
 import { ImportReviewTable } from '@/components/import-review-table'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const TYPE_LABELS: Record<string, string> = {
   checking: 'accounts.typeChecking',
@@ -581,40 +582,49 @@ export default function ImportPage() {
           </div>
         ) : (
           <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left px-3 sm:px-4 py-3 font-medium text-muted-foreground">{t('import.historyDate')}</th>
-                  <th className="text-left px-3 sm:px-4 py-3 font-medium text-muted-foreground">{t('import.historyFile')}</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">{t('import.historyFormat')}</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">{t('import.historyAccount')}</th>
-                  <th className="text-right px-3 sm:px-4 py-3 font-medium text-muted-foreground">{t('import.historyCount')}</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyCredit')}</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyDebit')}</th>
-                  <th className="px-3 sm:px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow className="border-b border-border hover:bg-transparent">
+                  <TableHead className="hidden w-36 px-3 py-3 font-medium text-muted-foreground sm:table-cell sm:px-4">{t('import.historyDate')}</TableHead>
+                  <TableHead className="px-3 py-3 font-medium text-muted-foreground sm:px-4">{t('import.historyFile')}</TableHead>
+                  <TableHead className="hidden w-24 px-4 py-3 font-medium text-muted-foreground 2xl:table-cell">{t('import.historyFormat')}</TableHead>
+                  <TableHead className="hidden w-48 px-4 py-3 font-medium text-muted-foreground xl:table-cell">{t('import.historyAccount')}</TableHead>
+                  <TableHead className="w-16 px-3 py-3 text-right font-medium text-muted-foreground sm:w-20 sm:px-4">{t('import.historyCount')}</TableHead>
+                  <TableHead className="hidden w-32 px-4 py-3 text-right font-medium text-muted-foreground md:table-cell">{t('import.historyCredit')}</TableHead>
+                  <TableHead className="hidden w-32 px-4 py-3 text-right font-medium text-muted-foreground md:table-cell">{t('import.historyDebit')}</TableHead>
+                  <TableHead className="w-12 px-3 py-3 sm:px-4" />
+                </TableRow>
+              </TableHeader>
+              <TableBody className="divide-y divide-border">
                 {importHistory.map((log) => (
-                  <tr key={log.id} className="hover:bg-muted">
-                    <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+                  <TableRow key={log.id} className="hover:bg-muted">
+                    <TableCell className="hidden px-3 py-3 text-xs text-muted-foreground sm:table-cell sm:px-4 sm:text-sm">
                       {new Date(log.created_at).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}
-                    </td>
-                    <td className="px-3 sm:px-4 py-3 font-mono text-xs text-foreground max-w-[120px] sm:max-w-none truncate">{log.filename || '—'}</td>
-                    <td className="px-4 py-3 hidden lg:table-cell">
+                    </TableCell>
+                    <TableCell className="max-w-0 overflow-hidden px-3 py-3 sm:px-4">
+                      <p className="truncate font-mono text-xs text-foreground" title={log.filename || undefined}>{log.filename || '—'}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground sm:hidden">
+                        {new Date(log.created_at).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}
+                      </p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground xl:hidden" title={log.account_name || undefined}>{log.account_name || '—'}</p>
+                      <p className="mt-0.5 truncate font-mono text-[11px] uppercase text-muted-foreground 2xl:hidden">{log.format || '—'}</p>
+                    </TableCell>
+                    <TableCell className="hidden px-4 py-3 2xl:table-cell">
                       <span className="bg-muted text-muted-foreground text-xs px-2 py-0.5 rounded font-mono uppercase">
                         {log.format || '—'}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{log.account_name || '—'}</td>
-                    <td className="px-3 sm:px-4 py-3 text-right text-foreground">{log.transaction_count}</td>
-                    <td className="px-4 py-3 text-right text-emerald-600 font-medium hidden sm:table-cell">
+                    </TableCell>
+                    <TableCell className="hidden max-w-0 overflow-hidden px-4 py-3 text-muted-foreground xl:table-cell">
+                      <span className="block truncate" title={log.account_name || undefined}>{log.account_name || '—'}</span>
+                    </TableCell>
+                    <TableCell className="px-3 py-3 text-right text-foreground sm:px-4">{log.transaction_count}</TableCell>
+                    <TableCell className="hidden px-4 py-3 text-right font-medium text-emerald-600 md:table-cell">
                       {formatCurrency(log.total_credit, userCurrency, locale)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-rose-600 font-medium hidden sm:table-cell">
+                    </TableCell>
+                    <TableCell className="hidden px-4 py-3 text-right font-medium text-rose-600 md:table-cell">
                       {formatCurrency(log.total_debit, userCurrency, locale)}
-                    </td>
-                    <td className="px-3 sm:px-4 py-3 text-right">
+                    </TableCell>
+                    <TableCell className="px-3 py-3 text-right sm:px-4">
                       {canWrite && (
                         <button
                           onClick={() => setDeleteTarget(log)}
@@ -624,11 +634,11 @@ export default function ImportPage() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

@@ -254,7 +254,7 @@ export default function AccountsPage() {
         section={t('accounts.title')}
         title={t('accounts.title')}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="gap-1.5" onClick={() => navigate('/collections')}>
               <Layers size={16} />
               {t('collections.title')}
@@ -305,7 +305,7 @@ export default function AccountsPage() {
                       <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                         <AccountIcon account={acc} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground truncate">{getAccountName(acc)}</p>
+                          <p className="text-sm font-medium text-foreground truncate" title={getAccountName(acc)}>{getAccountName(acc)}</p>
                           <p className="text-xs text-muted-foreground">
                             {t(cfg.label)}
                             {accountMask && <> · <span className="tabular-nums">{accountMask}</span></>}
@@ -465,7 +465,7 @@ export default function AccountsPage() {
                               <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
                                 <AccountIcon account={acc} />
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-foreground truncate">{getAccountName(acc)}</p>
+                                  <p className="text-sm font-medium text-foreground truncate" title={getAccountName(acc)}>{getAccountName(acc)}</p>
                                   <p className="text-xs text-muted-foreground">
                                     {t(cfg.label)}
                                     {accountMask && <> · <span className="tabular-nums">{accountMask}</span></>}
@@ -536,7 +536,7 @@ export default function AccountsPage() {
                     <div key={acc.id} className="flex items-center px-5 py-3">
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <AccountIcon account={acc} />
-                        <p className="text-sm font-medium text-muted-foreground truncate">{getAccountLabel(acc)}</p>
+                        <p className="truncate text-sm font-medium text-muted-foreground" title={getAccountLabel(acc)}>{getAccountLabel(acc)}</p>
                       </div>
                       {canWrite && (
                         <Button
@@ -831,7 +831,7 @@ function AccountDialog({
           )}
           {!account?.connection_id && (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t('accounts.accountType')}</Label>
                   <select
@@ -857,7 +857,7 @@ function AccountDialog({
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>
                     {type === 'credit_card'
@@ -901,7 +901,7 @@ function AccountDialog({
                   placeholder="0.00"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t('accounts.statementCloseDay')}</Label>
                   <Input

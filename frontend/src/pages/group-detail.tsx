@@ -867,7 +867,7 @@ export default function GroupDetailPage() {
                   size="md"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
+                  <p className="text-sm font-medium text-foreground truncate" title={tx.description}>
                     {tx.description}
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -996,7 +996,7 @@ export default function GroupDetailPage() {
 
       {/* Settle dialog */}
       <Dialog open={settleOpen} onOpenChange={setSettleOpen}>
-        <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('splitGroups.recordSettlement')}</DialogTitle>
           </DialogHeader>
@@ -1117,7 +1117,7 @@ export default function GroupDetailPage() {
                                   picked ? 'bg-primary/10' : 'hover:bg-muted/50'
                                 }`}
                               >
-                                <span className="min-w-0 truncate">
+                                <span className="min-w-0 truncate" title={tx.description}>
                                   <span className="text-muted-foreground">{tx.date}</span> ·{' '}
                                   {tx.description}
                                 </span>
@@ -1130,7 +1130,7 @@ export default function GroupDetailPage() {
                         )}
                       </div>
                       {settlePickedTx && (
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground truncate" title={settlePickedTx.description}>
                           {t('splitGroups.selectedTransaction')}: {settlePickedTx.date} ·{' '}
                           {settlePickedTx.description}
                         </p>
@@ -1139,8 +1139,8 @@ export default function GroupDetailPage() {
                   )}
                 </div>
             )}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-2 col-span-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-2 sm:col-span-2">
                 <Label>{t('splitGroups.amount')}</Label>
                 <Input
                   type="number"
