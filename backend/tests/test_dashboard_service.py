@@ -22,6 +22,7 @@ from app.services.dashboard_service import (
     get_spending_by_category,
     get_projected_transactions,
 )
+from app.services.transaction_service import get_transactions
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +194,9 @@ async def test_account_balance_at_credit_card_connected(session: AsyncSession, t
 # ---------------------------------------------------------------------------
 
 
+
+
+
 @pytest.mark.asyncio
 async def test_total_balance_by_currency(session: AsyncSession, test_user, test_workspace):
     """Total balance groups by currency."""
@@ -227,6 +231,42 @@ async def test_get_summary_basic(session: AsyncSession, test_user, test_workspac
     assert summary.monthly_income == pytest.approx(100.0)
     assert summary.monthly_expenses == pytest.approx(200.0)
     assert summary.accounts_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_summary_matches_drilldown_and_excludes_closed_accounts(
+    session: AsyncSession, test_user, test_workspace
+):
+    month = (date.today().replace(day=1) - timedelta(days=1)).replace(day=1)
+    month_start, month_end = _month_range(month)
+    open_account = await _make_account(session, test_user.id, "Open")
+    closed_account = await _make_account(
+        session, test_user.id, "Closed", is_closed=True
+    )
+
+    await _add_txn(session, test_user.id, open_account.id, 100, "credit", month_start)
+    await _add_txn(session, test_user.id, open_account.id, 40, "debit", month_start)
+    await _add_txn(session, test_user.id, closed_account.id, 900, "credit", month_start)
+    await _add_txn(session, test_user.id, closed_account.id, 800, "debit", month_start)
+
+    summary = await get_summary(session, test_workspace.id, test_user.id, month=month)
+    rows, _, _ = await get_transactions(
+        session,
+        test_workspace.id,
+        test_user.id,
+        from_date=month_start,
+        to_date=month_end - timedelta(days=1),
+        skip_pagination=True,
+        user_pnl_only=True,
+    )
+
+    assert {row.account_id for row in rows} == {open_account.id}
+    assert summary.monthly_income == pytest.approx(
+        sum(float(row.amount) for row in rows if row.type == "credit")
+    )
+    assert summary.monthly_expenses == pytest.approx(
+        sum(float(row.amount) for row in rows if row.type == "debit")
+    )
 
 
 @pytest.mark.asyncio
@@ -812,4 +852,3 @@ async def test_balance_at_multi_currency(session, test_user, test_workspace):
 # ---------------------------------------------------------------------------
 # _total_balance_by_currency
 # ---------------------------------------------------------------------------
-

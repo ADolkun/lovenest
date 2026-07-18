@@ -62,4 +62,3 @@ class ProjectedTransaction(BaseModel):
     category_name: Optional[str]
     category_icon: Optional[str]
     category_color: Optional[str] = None
-    is_ignored: bool = False

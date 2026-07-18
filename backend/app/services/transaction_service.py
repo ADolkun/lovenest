@@ -216,7 +216,7 @@ async def get_transactions(
     if exclude_transfers:
         base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if user_pnl_only:
-        base_query = base_query.where(counts_as_user_pnl())
+        base_query = base_query.where(Account.is_closed == False, counts_as_user_pnl())
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
     if currency:

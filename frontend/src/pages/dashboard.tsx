@@ -421,7 +421,7 @@ export default function DashboardPage() {
         groupId: null,
         parentOwnerName: null,
         groupName: null,
-        isIgnored: pt.is_ignored
+        isIgnored: false
       })
     }
     rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))

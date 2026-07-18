@@ -444,7 +444,6 @@ export interface ProjectedTransaction {
   category_name: string | null
   category_icon: string | null
   category_color: string | null
-  is_ignored: boolean
 }
 
 export interface DashboardSummary {
