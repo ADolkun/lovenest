@@ -608,7 +608,10 @@
       "simplefin": {
         "title": "Connect via SimpleFIN",
         "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
-      }
+      },
+      "reconnectTitle": "Reconnect with a fresh token",
+      "reconnectDescription": "Paste a new setup token to refresh this connection in place. Existing accounts, transactions, categories, and rules are preserved.",
+      "reconnect": "Reconnect"
     },
     "providers": {
       "pluggy": {
@@ -620,7 +623,8 @@
       "simplefin": {
         "description": "US and international banks via SimpleFIN Bridge"
       }
-    }
+    },
+    "reconnected": "Bank reconnected successfully"
   },
   "connections": {
     "settings": "Connection settings",
@@ -1071,6 +1075,10 @@
     "syncedFromHint": "Originally synced from {{source}} — you can rename freely, sync matching uses the connection ID.",
     "chartByWallet": "By Wallet",
     "chartByAsset": "By Asset",
+    "chartGroupMode": "Chart grouping",
+    "chartDrawMode": "Chart drawing",
+    "chartStacked": "Stacked",
+    "chartLines": "Lines",
     "portfolioValue": "Portfolio Value",
     "total": "Total",
     "confirmRegenerateTitle": "Regenerate values?",
@@ -1151,6 +1159,8 @@
     "range30d": "30D"
   },
   "payees": {
+    "addFavorite": "Add to favorites",
+    "removeFavorite": "Remove from favorites",
     "title": "Payees",
     "section": "Setup",
     "payee": "Payee",
@@ -1186,6 +1196,7 @@
     "favoritesOnly": "Favorites Only"
   },
   "common": {
+    "view": "View",
     "save": "Save",
     "cancel": "Cancel",
     "close": "Close",
@@ -1302,6 +1313,8 @@
     "date": "Date",
     "splitTransaction": "Split this transaction",
     "splitNoGroups": "Create a group first to split a transaction.",
+    "splitNoGroupsLinkPrefix": "You don't have a group yet. You can ",
+    "splitNoGroupsLinkSuffix": "create one here",
     "splitNoMembers": "Add members to the group first.",
     "group": "Group",
     "shareType": "Split by",
