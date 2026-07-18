@@ -117,6 +117,35 @@ def test_merge_sync_metadata_repairs_invalid_epoch_date():
     assert tx.effective_date == date(2026, 6, 27)
 
 
+def test_merge_sync_metadata_rekey_preserves_old_raw_fields():
+    tx = Transaction(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        account_id=uuid.uuid4(),
+        external_id="old-id",
+        description="Coffee",
+        amount=Decimal("5"),
+        date=date(2026, 6, 27),
+        type="debit",
+        source="sync",
+        status="posted",
+        raw_data={"posted": 1, "old_only": True},
+    )
+    txn_data = TransactionData(
+        external_id="new-id",
+        description="Coffee",
+        amount=Decimal("5"),
+        date=date(2026, 6, 27),
+        type="debit",
+        raw_data={"posted": 2, "new_only": True},
+    )
+
+    _merge_sync_metadata(tx, txn_data, replace_external_id=True)
+
+    assert tx.external_id == "new-id"
+    assert tx.raw_data == {"posted": 2, "old_only": True, "new_only": True}
+
+
 def test_description_similarity_none():
     assert _description_similarity(None, "hello") == 0.0
     assert _description_similarity("hello", None) == 0.0
@@ -2500,12 +2529,14 @@ async def test_sync_keeps_genuine_same_day_repeats(
             description="UBER TRIP",
             amount=Decimal("25.00"), date=date(2026, 4, 20),
             type="debit", currency="BRL", status="posted",
+            raw_data={"posted": 1776643200},
         ),
         TransactionData(
             external_id="uber-2",
             description="UBER TRIP",
             amount=Decimal("25.00"), date=date(2026, 4, 20),
             type="debit", currency="BRL", status="posted",
+            raw_data={"posted": 1776643200},
         ),
     ])
 
@@ -2521,7 +2552,7 @@ async def test_sync_keeps_genuine_same_day_repeats(
             Transaction.source == "sync",
         )
     )).scalars().all()
-    assert len(rows) == 2, "identical-description same-day repeats must be kept"
+    assert {row.external_id for row in rows} == {"uber-1", "uber-2"}
 
 
 # ---------------------------------------------------------------------------

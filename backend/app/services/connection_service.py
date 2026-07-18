@@ -609,17 +609,23 @@ async def handle_oauth_callback(
         transactions_data = await provider.get_transactions(
             connection_data.credentials, acc_data.external_id, None
         )
+        incoming_external_ids = {txn.external_id for txn in transactions_data}
         for txn_data in transactions_data:
             # Pending↔posted twin (and the credit-card installment variant).
             # When the same logical operation comes back under a new external
             # id with a different status, fingerprint match prevents the
             # second copy from landing.
-            synced_dup = await _find_synced_duplicate(session, account.id, txn_data)
+            synced_dup = await _find_synced_duplicate(
+                session, account.id, txn_data, incoming_external_ids
+            )
             if synced_dup:
                 if synced_dup.status == "pending" and txn_data.status == "posted":
                     synced_dup.status = "posted"
-                    synced_dup.external_id = txn_data.external_id
-                    synced_dup.raw_data = txn_data.raw_data
+                    _merge_sync_metadata(
+                        synced_dup,
+                        txn_data,
+                        replace_external_id=synced_dup.source == "sync",
+                    )
                     if (
                         txn_data.bill_external_id
                         and synced_dup.effective_bill_date is None
@@ -631,10 +637,11 @@ async def handle_oauth_callback(
                                 synced_dup, account, bill_due_date=bill.due_date
                             )
                 elif synced_dup.external_id != txn_data.external_id:
-                    synced_dup.external_id = txn_data.external_id
-                    synced_dup.raw_data = txn_data.raw_data
-                    if not synced_dup.payee and txn_data.payee:
-                        synced_dup.payee = txn_data.payee
+                    _merge_sync_metadata(
+                        synced_dup,
+                        txn_data,
+                        replace_external_id=synced_dup.source == "sync",
+                    )
                 continue
 
             category_id = await _match_pluggy_category(
@@ -846,12 +853,10 @@ def _merge_sync_metadata(
     if txn_data.external_id and (replace_external_id or not transaction.external_id):
         transaction.external_id = txn_data.external_id
     if txn_data.raw_data:
-        if replace_external_id and transaction.source == "sync":
-            transaction.raw_data = txn_data.raw_data
-        elif not transaction.raw_data:
+        if not transaction.raw_data:
             transaction.raw_data = txn_data.raw_data
         elif isinstance(transaction.raw_data, dict) and isinstance(txn_data.raw_data, dict):
-            merged = {**txn_data.raw_data, **transaction.raw_data}
+            merged = {**transaction.raw_data, **txn_data.raw_data}
             if merged != transaction.raw_data:
                 transaction.raw_data = merged
     if txn_data.payee and not transaction.payee:
@@ -862,6 +867,7 @@ async def _find_synced_duplicate(
     session: AsyncSession,
     account_id: uuid.UUID,
     txn_data,
+    incoming_external_ids: set[str],
 ) -> Optional[Transaction]:
     """Find an existing row that the incoming `txn_data` is a twin of.
 
@@ -952,6 +958,8 @@ async def _find_synced_duplicate(
         )
         for candidate in result.scalars():
             if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
+                continue
+            if candidate.external_id in incoming_external_ids:
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
             if (
@@ -1422,6 +1430,7 @@ async def sync_connection(
             if not import_pending:
                 transactions_data = [t for t in transactions_data if t.status != "pending"]
 
+            incoming_external_ids = {txn.external_id for txn in transactions_data}
             for txn_data in transactions_data:
                 existing = await session.execute(
                     select(Transaction).where(
@@ -1476,7 +1485,7 @@ async def sync_connection(
                 # status, fingerprint match collapses it instead of letting
                 # both rows land.
                 synced_dup = await _find_synced_duplicate(
-                    session, account.id, txn_data
+                    session, account.id, txn_data, incoming_external_ids
                 )
                 if synced_dup:
                     if synced_dup.status == "pending" and txn_data.status == "posted":
