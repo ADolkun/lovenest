@@ -72,6 +72,50 @@ For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exch
 | Database | PostgreSQL |
 | Queue | Redis + Celery |
 
+## AI-Assisted Development
+
+Parts of this codebase were built with help of AI. All code is human-reviewed and no data leaves your environment.
+
+## Development
+
+```bash
+# Run backend tests (from backend/, needs Python 3.11+; same as CI)
+cd backend
+pip install -e ".[dev]"   # first time only — installs pytest and dev deps
+pytest
+
+# Rebuild after dependency changes
+docker compose up --build
+```
+
+If you've [mise](https://mise.jdx.dev/) installed, you can install backend/frontend directly with it:
+
+```
+# Install the Python version specified in .python-version,
+# and create a project virtual environment using that Python.
+# Install all tools and dependencies (include Python with dedicated venv)
+mise //...:install
+
+# Install only backend tools/deps
+mise backend:install
+
+# Run backend tests
+mise backend:test
+
+# Install frontend dependencies
+mise frontend:install
+
+# Run frontend linting
+mise frontend:lint
+
+# Run frontend build
+mise frontend:build
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
 lovenest is licensed under the **[GNU Affero General Public License v3.0](LICENSE)**, the same license as upstream Securo.

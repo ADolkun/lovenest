@@ -47,6 +47,7 @@ x-backend-env: &backend-env
   # agents up` after enabling.
   AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
   AGENTS_BUILTIN_MCP_URL: ${AGENTS_BUILTIN_MCP_URL:-http://mcp-server:8765/mcp}
+  AGENTS_EXTERNAL_MCP_URL: ${AGENTS_EXTERNAL_MCP_URL:-}
   AGENTS_EXTRA_MCP_SERVERS: ${AGENTS_EXTRA_MCP_SERVERS:-}
   AGENTS_MCP_JWT_SECRET: ${AGENTS_MCP_JWT_SECRET:-dev-mcp-secret-change-in-production}
   # TTL for tokens minted from /agents/connections → "External MCP access".
@@ -67,11 +68,10 @@ x-backend-env: &backend-env
   AGENTS_EMBEDDING_MODEL: ${AGENTS_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
 
 x-backend-base: &backend-base
-  # Built from ./backend on this branch — the oidc/simplefin fixes live in
-  # source here, not in the upstream-pinned image.
+  # Built from this branch so the image includes Lovenest customizations.
   build:
     context: ./backend
-  image: lovenest-backend:0.13.7-lovenest
+  image: lovenest-backend:0.13.9-lovenest
   environment: *backend-env
   depends_on:
     db: { condition: service_healthy }
@@ -118,13 +118,12 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
 
   frontend:
-    # Built from ./frontend on this branch — carries the OIDC-primary login
-    # overlay (a compiled bundle, so it can't be file-overlaid like the backend).
+    # Built from this branch so the image includes Lovenest customizations.
     build:
       context: ./frontend
       args:
-        VITE_APP_VERSION: "0.13.7"
-    image: lovenest-frontend:0.13.7-lovenest
+        VITE_APP_VERSION: "0.13.9"
+    image: lovenest-frontend:0.13.9-lovenest
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     environment:
