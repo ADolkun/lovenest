@@ -2292,9 +2292,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     ])
     pending = TransactionData(
         external_id="provider-pending",
-        description="PIX AGENDADO - DOCTO: 11111",
-        amount=Decimal("100.00"), date=date(2026, 4, 20),
+        description="UEP*YGF MALATANG ARTESIA",
+        amount=Decimal("108.04"), date=date(2026, 4, 20),
         type="debit", currency="BRL", status="pending",
+        raw_data={"posted": 0, "transacted_at": 1776643200},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending])
 
@@ -2309,9 +2310,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # scheduled row immediately).
     posted = TransactionData(
         external_id="provider-posted",
-        description="PIX AGENDADO - DOCTO: 22222",
-        amount=Decimal("100.00"), date=date(2026, 4, 20),
+        description="UEP*YGF MALATANG ARTESIA",
+        amount=Decimal("120.04"), date=date(2026, 4, 22),
         type="debit", currency="BRL", status="posted",
+        raw_data={"posted": 1776816000, "transacted_at": 1776643200},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending, posted])
 
@@ -2332,6 +2334,29 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # so subsequent syncs match by id.
     assert rows[0].status == "posted"
     assert rows[0].external_id == "provider-posted"
+    assert rows[0].amount == Decimal("120.04")
+    assert rows[0].date == date(2026, 4, 22)
+    assert rows[0].effective_date == date(2026, 4, 22)
+    assert rows[0].raw_data == posted.raw_data
+
+    # A stale pending row may remain in later provider responses. Posted truth
+    # must keep its final id and values regardless of feed order.
+    mock_provider.get_transactions = AsyncMock(return_value=[pending, posted])
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source == "sync",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].external_id == "provider-posted"
+    assert rows[0].amount == Decimal("120.04")
 
 
 @pytest.mark.asyncio

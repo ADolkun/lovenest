@@ -55,7 +55,7 @@ export function CategorySelect({
   }, [categories, value])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover modal open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"

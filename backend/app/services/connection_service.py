@@ -1,7 +1,7 @@
 import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Optional
 
 from sqlalchemy import delete, exists, or_, select, update
@@ -18,6 +18,7 @@ from app.models.category import Category
 from app.models.credit_card_bill import CreditCardBill
 from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
+from app.models.transaction_split import TransactionSplit
 from app.models.user import User
 from app.providers import get_provider
 from app.providers.base import (
@@ -616,17 +617,25 @@ async def handle_oauth_callback(
             # second copy from landing.
             synced_dup = await _find_synced_duplicate(session, account.id, txn_data)
             if synced_dup:
+                if synced_dup.status == "posted" and txn_data.status == "pending":
+                    continue
                 if synced_dup.status == "pending" and txn_data.status == "posted":
-                    synced_dup.status = "posted"
-                    synced_dup.external_id = txn_data.external_id
-                    synced_dup.raw_data = txn_data.raw_data
+                    await _promote_synced_transaction(
+                        session, user_id, synced_dup, txn_data,
+                        account=account,
+                        account_currency=acc_data.currency or user_currency,
+                        user_currency=user_currency,
+                        replace_external_id=True,
+                    )
+                    new_tx_ids.append(synced_dup.id)
                     if (
                         txn_data.bill_external_id
                         and synced_dup.effective_bill_date is None
                     ):
                         bill = bills_by_external_id.get(txn_data.bill_external_id)
-                        if bill is not None and synced_dup.bill_id != bill.id:
-                            synced_dup.bill_id = bill.id
+                        if bill is not None:
+                            if synced_dup.bill_id != bill.id:
+                                synced_dup.bill_id = bill.id
                             apply_effective_date(
                                 synced_dup, account, bill_due_date=bill.due_date
                             )
@@ -684,18 +693,11 @@ async def handle_oauth_callback(
             if not category_id:
                 await apply_rules_to_transaction(session, user_id, transaction)
 
-            # Prefer bank-provided conversion for international transactions
-            acct_currency = acc_data.currency or user_currency
-            if (
-                txn_data.amount_in_account_currency is not None
-                and txn_data.amount
-                and acct_currency == user_currency
-                and txn_data.currency != acct_currency
-            ):
-                transaction.amount_primary = txn_data.amount_in_account_currency
-                transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
-            else:
-                await stamp_primary_amount(session, user_id, transaction)
+            await _stamp_synced_amount(
+                session, user_id, transaction, txn_data,
+                account_currency=acc_data.currency or user_currency,
+                user_currency=user_currency,
+            )
 
         # After importing the initial batch, reconcile the opening balance so
         # that SUM(all transactions) matches the provider-reported balance. Any
@@ -860,6 +862,85 @@ def _merge_sync_metadata(
         transaction.payee = txn_data.payee
 
 
+async def _stamp_synced_amount(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction: Transaction,
+    txn_data,
+    *,
+    account_currency: str,
+    user_currency: str,
+) -> None:
+    if (
+        txn_data.amount_in_account_currency is not None
+        and txn_data.amount
+        and account_currency == user_currency
+        and txn_data.currency != account_currency
+    ):
+        transaction.amount_primary = txn_data.amount_in_account_currency
+        transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
+    else:
+        if transaction.fx_rate_used is not None:
+            transaction.amount_primary = (
+                Decimal(txn_data.amount) * Decimal(transaction.fx_rate_used)
+            ).quantize(Decimal("0.01"))
+        await stamp_primary_amount(session, user_id, transaction)
+
+
+async def _promote_synced_transaction(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    transaction: Transaction,
+    txn_data,
+    *,
+    account: Account,
+    account_currency: str,
+    user_currency: str,
+    replace_external_id: bool,
+) -> None:
+    old_amount = Decimal(transaction.amount)
+    pair_id = transaction.transfer_pair_id
+
+    _merge_sync_metadata(
+        transaction, txn_data, replace_external_id=replace_external_id
+    )
+    transaction.amount = txn_data.amount
+    transaction.date = txn_data.date
+    transaction.status = "posted"
+    apply_effective_date(transaction, account)
+
+    if old_amount != txn_data.amount:
+        splits = (await session.execute(
+            select(TransactionSplit)
+            .where(TransactionSplit.transaction_id == transaction.id)
+            .order_by(TransactionSplit.created_at, TransactionSplit.id)
+        )).scalars().all()
+        if splits:
+            new_total = abs(Decimal(txn_data.amount)).quantize(Decimal("0.01"))
+            old_total = sum((split.share_amount for split in splits), Decimal("0"))
+            allocated = Decimal("0")
+            for split in splits[:-1]:
+                split.share_amount = (
+                    split.share_amount * new_total / old_total
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                allocated += split.share_amount
+            splits[-1].share_amount = new_total - allocated
+
+        if pair_id is not None:
+            await session.execute(
+                update(Transaction)
+                .where(Transaction.transfer_pair_id == pair_id)
+                .values(transfer_pair_id=None)
+            )
+            transaction.transfer_pair_id = None
+
+    await _stamp_synced_amount(
+        session, user_id, transaction, txn_data,
+        account_currency=account_currency,
+        user_currency=user_currency,
+    )
+
+
 async def _find_synced_duplicate(
     session: AsyncSession,
     account_id: uuid.UUID,
@@ -932,14 +1013,40 @@ async def _find_synced_duplicate(
         if _description_similarity(candidate.description, txn_data.description) >= 0.7:
             return candidate
 
-    # Path 3: exact posted/transacted timestamp fingerprint. Some SimpleFIN
+    # Path 3: exact transaction timestamp fingerprint. Some SimpleFIN
+    # bridges finalize pending card charges with a new id, amount, or posted
+    # date. The original bank transaction timestamp is the stable identity.
+    raw = txn_data.raw_data if isinstance(txn_data.raw_data, dict) else {}
+    transacted_at = raw.get("transacted_at")
+    if transacted_at is not None:
+        result = await session.execute(
+            select(Transaction).where(
+                Transaction.account_id == account_id,
+                Transaction.source == "sync",
+                Transaction.type == txn_data.type,
+                Transaction.status != txn_data.status,
+                Transaction.external_id != txn_data.external_id,
+            )
+        )
+        for candidate in result.scalars():
+            if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
+                continue
+            candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
+            if (
+                candidate_raw.get("transacted_at") == transacted_at
+                and _description_similarity(
+                    candidate_raw.get("description") or candidate.description,
+                    txn_data.description,
+                ) >= 0.9
+            ):
+                return candidate
+
+    # Path 4: exact posted/transacted timestamp fingerprint. Some SimpleFIN
     # bridges re-key already-posted rows on later pulls, so status does not
     # differ. The raw bank timestamps plus same account/date/amount/type and a
     # near-identical description are specific enough to collapse the re-keyed
     # row while avoiding broad same-day/same-amount merchant dedupe.
-    raw = txn_data.raw_data if isinstance(txn_data.raw_data, dict) else {}
     posted = raw.get("posted")
-    transacted_at = raw.get("transacted_at")
     if posted is not None or transacted_at is not None:
         result = await session.execute(
             select(Transaction).where(
@@ -963,7 +1070,7 @@ async def _find_synced_duplicate(
             ):
                 return candidate
 
-    # Local import history from before the account was connected. Exact field
+    # Path 5: local import history from before the account was connected. Exact field
     # match only; category/source/date/amount stay user/import-owned.
     result = await session.execute(
         select(Transaction).where(
@@ -1438,9 +1545,17 @@ async def sync_connection(
                     # a re-sync can't revive a transaction the user hid.
                     if existing_tx.is_ignored:
                         continue
-                    _merge_sync_metadata(existing_tx, txn_data)
                     if existing_tx.status == "pending" and txn_data.status == "posted":
-                        existing_tx.status = "posted"
+                        await _promote_synced_transaction(
+                            session, user_id, existing_tx, txn_data,
+                            account=account,
+                            account_currency=acc_data.currency or user_currency,
+                            user_currency=user_currency,
+                            replace_external_id=True,
+                        )
+                        new_tx_ids.append(existing_tx.id)
+                    else:
+                        _merge_sync_metadata(existing_tx, txn_data)
                     # Self-heal bill linkage: a tx that pre-dates the bills
                     # feature (or whose bill we hadn't ingested last time)
                     # picks up bill_id + bank-truth effective_date on the
@@ -1456,8 +1571,9 @@ async def sync_connection(
                         and existing_tx.effective_bill_date is None
                     ):
                         bill = bills_by_external_id.get(txn_data.bill_external_id)
-                        if bill is not None and existing_tx.bill_id != bill.id:
-                            existing_tx.bill_id = bill.id
+                        if bill is not None:
+                            if existing_tx.bill_id != bill.id:
+                                existing_tx.bill_id = bill.id
                             apply_effective_date(
                                 existing_tx, account, bill_due_date=bill.due_date
                             )
@@ -1482,22 +1598,27 @@ async def sync_connection(
                     session, account.id, txn_data
                 )
                 if synced_dup:
+                    if synced_dup.status == "posted" and txn_data.status == "pending":
+                        continue
                     if synced_dup.status == "pending" and txn_data.status == "posted":
                         # Posted truth wins: swap in the new id so subsequent
                         # syncs match by external_id and update raw_data.
-                        synced_dup.status = "posted"
-                        _merge_sync_metadata(
-                            synced_dup,
-                            txn_data,
+                        await _promote_synced_transaction(
+                            session, user_id, synced_dup, txn_data,
+                            account=account,
+                            account_currency=acc_data.currency or user_currency,
+                            user_currency=user_currency,
                             replace_external_id=synced_dup.source == "sync",
                         )
+                        new_tx_ids.append(synced_dup.id)
                         if (
                             txn_data.bill_external_id
                             and synced_dup.effective_bill_date is None
                         ):
                             bill = bills_by_external_id.get(txn_data.bill_external_id)
-                            if bill is not None and synced_dup.bill_id != bill.id:
-                                synced_dup.bill_id = bill.id
+                            if bill is not None:
+                                if synced_dup.bill_id != bill.id:
+                                    synced_dup.bill_id = bill.id
                                 apply_effective_date(
                                     synced_dup, account, bill_due_date=bill.due_date
                                 )
@@ -1598,18 +1719,11 @@ async def sync_connection(
                 if not category_id:
                     await apply_rules_to_transaction(session, user_id, transaction)
 
-                # Prefer bank-provided conversion for international transactions
-                acct_currency = acc_data.currency or user_currency
-                if (
-                    txn_data.amount_in_account_currency is not None
-                    and txn_data.amount
-                    and acct_currency == user_currency
-                    and txn_data.currency != acct_currency
-                ):
-                    transaction.amount_primary = txn_data.amount_in_account_currency
-                    transaction.fx_rate_used = txn_data.amount_in_account_currency / txn_data.amount
-                else:
-                    await stamp_primary_amount(session, user_id, transaction)
+                await _stamp_synced_amount(
+                    session, user_id, transaction, txn_data,
+                    account_currency=acc_data.currency or user_currency,
+                    user_currency=user_currency,
+                )
 
             # Reconcile the opening balance after any new transactions land so
             # SUM(all txs) keeps matching account.balance from the provider.
