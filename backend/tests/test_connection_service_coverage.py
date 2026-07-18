@@ -20,9 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.bank_connection import BankConnection
+from app.models.credit_card_bill import CreditCardBill
+from app.models.group import Group, GroupMember
 from app.models.transaction import Transaction
+from app.models.transaction_split import TransactionSplit
 from app.providers.base import (
     AccountData,
+    BillData,
     ConnectionData,
     HoldingData,
     InstitutionData,
@@ -440,18 +444,54 @@ async def test_sync_updates_existing_pending_to_posted(
     conn = await _make_connection(session, test_user.id, "PendingPostedBank")
     account = Account(
         id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
-        external_id="pp-acc-1", name="Checking", type="checking",
+        external_id="pp-acc-1", name="Card", type="credit_card",
         balance=Decimal("0"), currency="BRL",
+        statement_close_day=13, payment_due_day=23,
     )
     session.add(account)
     await session.flush()
-    session.add(Transaction(
+    bill = CreditCardBill(
         id=uuid.uuid4(), user_id=test_user.id, account_id=account.id,
-        external_id="pp-tx-1", description="PENDING CHARGE",
+        external_id="bill-existing", due_date=date(2026, 6, 5),
+        total_amount=Decimal("72"), currency="USD",
+    )
+    session.add(bill)
+    await session.flush()
+    pending_tx = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=account.id,
+        external_id="pp-tx-1", description="Coffee with a friend",
         amount=Decimal("60"), date=date(2026, 4, 12), type="debit",
-        currency="BRL", source="sync", status="pending",
+        currency="USD", source="sync", status="pending",
+        amount_primary=Decimal("300"), fx_rate_used=Decimal("5"),
+        effective_date=bill.due_date, bill_id=bill.id,
+        raw_data={"description": "PENDING CHARGE", "pending": True},
         created_at=datetime.now(timezone.utc),
-    ))
+    )
+    session.add(pending_tx)
+    group = Group(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Coffee", default_currency="USD",
+    )
+    session.add(group)
+    await session.flush()
+    members = [
+        GroupMember(
+            id=uuid.uuid4(), group_id=group.id, workspace_id=test_workspace.id,
+            name=name,
+        )
+        for name in ("A", "B")
+    ]
+    session.add_all(members)
+    await session.flush()
+    session.add_all([
+        TransactionSplit(
+            transaction_id=pending_tx.id, workspace_id=test_workspace.id,
+            group_member_id=member.id, share_amount=Decimal("30"),
+            share_type="equal",
+        )
+        for member in members
+    ])
     await session.commit()
 
     mock_provider = AsyncMock()
@@ -463,20 +503,42 @@ async def test_sync_updates_existing_pending_to_posted(
     mock_provider.get_transactions = AsyncMock(return_value=[
         TransactionData(
             external_id="pp-tx-1", description="PENDING CHARGE",
-            amount=Decimal("60"), date=date(2026, 4, 12), type="debit",
-            currency="BRL", status="posted",
+            amount=Decimal("72"), date=date(2026, 4, 13), type="debit",
+            currency="USD", status="posted",
+            bill_external_id=bill.external_id,
+            raw_data={"description": "PENDING CHARGE", "posted": 1},
+        ),
+    ])
+    mock_provider.get_bills = AsyncMock(return_value=[
+        BillData(
+            external_id=bill.external_id, due_date=bill.due_date,
+            total_amount=Decimal("72"), currency="USD",
         ),
     ])
 
-    p1, p2, p3 = _patch_helpers()
     with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
-         p1, p2, p3:
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     row = (await session.execute(
         select(Transaction).where(Transaction.external_id == "pp-tx-1")
     )).scalar_one()
     assert row.status == "posted"
+    assert row.description == "Coffee with a friend"
+    assert row.amount == Decimal("72")
+    assert row.amount_primary == Decimal("360")
+    assert row.fx_rate_used == Decimal("5")
+    assert row.date == date(2026, 4, 13)
+    assert row.bill_id == bill.id
+    assert row.effective_date == bill.due_date
+    assert row.raw_data == {"description": "PENDING CHARGE", "posted": 1}
+    splits = (await session.execute(
+        select(TransactionSplit)
+        .where(TransactionSplit.transaction_id == row.id)
+        .order_by(TransactionSplit.created_at, TransactionSplit.id)
+    )).scalars().all()
+    assert [split.share_amount for split in splits] == [Decimal("36"), Decimal("36")]
 
 
 @pytest.mark.asyncio
