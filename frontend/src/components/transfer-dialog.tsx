@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAccountName } from '@/lib/account-utils'
+import { getAccountLabel } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
 import { localDateString } from '@/lib/date-utils'
 import { Button } from '@/components/ui/button'
@@ -138,7 +138,7 @@ export function TransferDialog({
                 <option value="" disabled>{t('transactions.account')}</option>
                 {accounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
-                    {getAccountName(acc)} ({acc.currency})
+                    {getAccountLabel(acc)} ({acc.currency})
                   </option>
                 ))}
               </select>
@@ -161,7 +161,7 @@ export function TransferDialog({
                 <option value="" disabled>{t('transactions.account')}</option>
                 {availableToAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
-                    {getAccountName(acc)} ({acc.currency})
+                    {getAccountLabel(acc)} ({acc.currency})
                   </option>
                 ))}
               </select>
