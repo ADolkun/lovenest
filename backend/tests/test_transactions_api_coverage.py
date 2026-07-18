@@ -9,11 +9,13 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.category import Category
 from app.models.group import Group, GroupMember
+from app.models.transaction import Transaction
 from app.services.workspace_service import create_workspace
 
 
@@ -131,7 +133,7 @@ async def test_get_transaction(client: AsyncClient, auth_headers, test_transacti
 
 
 @pytest.mark.asyncio
-async def test_get_transaction_reflects_category_is_ignored(
+async def test_editing_transaction_does_not_persist_ignored_category_state(
     client: AsyncClient, auth_headers, session: AsyncSession, test_user, test_workspace, test_account
 ):
     ignored = Category(
@@ -141,7 +143,13 @@ async def test_get_transaction_reflects_category_is_ignored(
         name="Ignored",
         is_ignored=True,
     )
-    session.add(ignored)
+    normal = Category(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Normal",
+    )
+    session.add_all([ignored, normal])
     await session.commit()
 
     resp = await client.post(
@@ -157,9 +165,28 @@ async def test_get_transaction_reflects_category_is_ignored(
     )
     assert resp.status_code == 201, resp.text
 
-    detail = await client.get(f"/api/transactions/{resp.json()['id']}", headers=auth_headers)
-    assert detail.status_code == 200
-    assert detail.json()["is_ignored"] is True
+    transaction_id = resp.json()["id"]
+    edit = await client.patch(
+        f"/api/transactions/{transaction_id}", headers=auth_headers, json={"notes": "edited"}
+    )
+    assert edit.status_code == 200
+    assert edit.json()["is_ignored"] is True
+    persisted = await session.scalar(
+        select(Transaction.is_ignored).where(Transaction.id == uuid.UUID(transaction_id))
+    )
+    assert persisted is False
+
+    moved = await client.patch(
+        f"/api/transactions/{transaction_id}",
+        headers=auth_headers,
+        json={"category_id": str(normal.id)},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["is_ignored"] is False
+    persisted = await session.scalar(
+        select(Transaction.is_ignored).where(Transaction.id == uuid.UUID(transaction_id))
+    )
+    assert persisted is False
 
 
 @pytest.mark.asyncio

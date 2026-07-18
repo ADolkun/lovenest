@@ -492,8 +492,6 @@ async def get_transactions(
         for tx in transactions:
             tx.attachment_count = counts.get(tx.id, 0)
             tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
-            if not tx.is_ignored and tx.category and tx.category.is_ignored:
-                tx.is_ignored = True
         # Tag shared rows with the viewer's share + the source group.
         # Owned rows stay as-is. We pre-compute the viewer's linked
         # member ids → group ids once, then look up each transaction's
@@ -657,8 +655,6 @@ async def get_transaction(
         )
         transaction.attachment_count = count_result.scalar_one()
         transaction.payee_name = transaction.payee_entity.name if transaction.payee_entity else None
-        if not transaction.is_ignored and transaction.category and transaction.category.is_ignored:
-            transaction.is_ignored = True
     return transaction
 
 

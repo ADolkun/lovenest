@@ -930,16 +930,6 @@ async def import_rules(
             if action_data["op"] == "set_category":
                 category_id = categories_by_name.get(str(action_data["value"]))
                 if not category_id:
-                    try:
-                        raw_category_id = uuid.UUID(str(action_data["value"]))
-                    except (TypeError, ValueError):
-                        raw_category_id = None
-                    if raw_category_id is not None:
-                        category_exists = await session.execute(
-                            select(Category.id).where(Category.id == raw_category_id)
-                        )
-                        if category_exists.scalar_one_or_none() is not None:
-                            raise ValueError("Category not found")
                     missing_required_reference = True
                     break
                 action_data["value"] = category_id
@@ -947,12 +937,16 @@ async def import_rules(
         if missing_required_reference:
             skipped += 1
             continue
-        await _validate_rule_definition(
-            session,
-            workspace_id,
-            [condition.model_dump() for condition in incoming.conditions],
-            resolved_actions,
-        )
+        try:
+            await _validate_rule_definition(
+                session,
+                workspace_id,
+                [condition.model_dump() for condition in incoming.conditions],
+                resolved_actions,
+            )
+        except ValueError:
+            skipped += 1
+            continue
         rules_to_create.append(Rule(
             user_id=user_id,
             workspace_id=workspace_id,
