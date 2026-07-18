@@ -608,7 +608,10 @@
       "simplefin": {
         "title": "Collega tramite SimpleFIN",
         "description": "SimpleFIN è un protocollo di dati bancari in sola lettura. Vai su SimpleFIN Bridge, scegli la tua banca e copia qui il token di configurazione."
-      }
+      },
+      "reconnectTitle": "Riconnetti con un nuovo token",
+      "reconnectDescription": "Incolla un nuovo token di configurazione per aggiornare questa connessione senza sostituirla. Account, transazioni, categorie e regole esistenti vengono conservati.",
+      "reconnect": "Riconnetti"
     },
     "providers": {
       "pluggy": {
@@ -620,7 +623,8 @@
       "simplefin": {
         "description": "Banche statunitensi e internazionali tramite SimpleFIN Bridge"
       }
-    }
+    },
+    "reconnected": "Banca riconnessa correttamente"
   },
   "connections": {
     "settings": "Impostazioni connessione",
@@ -1071,6 +1075,10 @@
     "syncedFromHint": "Originariamente sincronizzato da {{source}} — puoi rinominarlo liberamente, la corrispondenza di sincronizzazione usa l'ID della connessione.",
     "chartByWallet": "Per portafoglio",
     "chartByAsset": "Per bene",
+    "chartGroupMode": "Raggruppamento grafico",
+    "chartDrawMode": "Visualizzazione grafico",
+    "chartStacked": "Impilato",
+    "chartLines": "Linee",
     "portfolioValue": "Valore del portafoglio",
     "total": "Totale",
     "confirmRegenerateTitle": "Rigenerare i valori?",
@@ -1151,6 +1159,8 @@
     "range30d": "30D"
   },
   "payees": {
+    "addFavorite": "Aggiungi ai preferiti",
+    "removeFavorite": "Rimuovi dai preferiti",
     "title": "Beneficiari",
     "section": "Configurazione",
     "payee": "Beneficiario",
@@ -1186,6 +1196,7 @@
     "favoritesOnly": "Solo preferiti"
   },
   "common": {
+    "view": "Visualizza",
     "save": "Salva",
     "cancel": "Annulla",
     "close": "Chiudi",
@@ -1302,6 +1313,8 @@
     "date": "Data",
     "splitTransaction": "Dividi questa transazione",
     "splitNoGroups": "Crea prima un gruppo per dividere una transazione.",
+    "splitNoGroupsLinkPrefix": "Non hai ancora un gruppo. Puoi ",
+    "splitNoGroupsLinkSuffix": "crearne uno qui",
     "splitNoMembers": "Aggiungi prima dei membri al gruppo.",
     "group": "Gruppo",
     "shareType": "Dividi per",
