@@ -508,6 +508,7 @@
       }
     },
     "bulkAddTags": "Dodaj tagi",
+    "bulkRemoveTags": "Usuń tagi",
     "addTagsPlaceholder": "#tag…",
     "clearOverride": "Wyczyść nadpisanie"
   },
@@ -826,6 +827,7 @@
     "duplicateName": "Reguła o tej nazwie już istnieje",
     "sectionTitle": "Reguły kategoryzacji",
     "reapplyAll": "Zastosuj ponownie wszystkie",
+    "confirmReapplyAll": "Zastosować ponownie wszystkie reguły do wszystkich transakcji? Może to zmienić istniejące pola transakcji.",
     "add": "Dodaj",
     "created": "Utworzono regułę",
     "createdAndApplied": "Utworzono regułę i zastosowano do {{count}} transakcji",

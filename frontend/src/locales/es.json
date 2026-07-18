@@ -481,6 +481,7 @@
       }
     },
     "bulkAddTags": "Añadir etiquetas",
+    "bulkRemoveTags": "Eliminar etiquetas",
     "addTagsPlaceholder": "#etiqueta…",
     "clearOverride": "Borrar anulación"
   },
@@ -775,6 +776,7 @@
     "duplicateName": "Ya existe una regla con este nombre",
     "sectionTitle": "Reglas de categorización",
     "reapplyAll": "Reaplicar todo",
+    "confirmReapplyAll": "¿Reaplicar todas las reglas a todas las transacciones? Esto puede cambiar los campos existentes de las transacciones.",
     "add": "Agregar",
     "created": "Regla creada",
     "createdAndApplied": "Regla creada y aplicada a {{count}} transacciones",
