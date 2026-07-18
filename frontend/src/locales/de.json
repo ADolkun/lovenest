@@ -191,6 +191,7 @@
     "twoFactorDisabled": "Zwei-Faktor-Authentifizierung deaktiviert",
     "or": "oder",
     "loginWithProvider": "Weiter mit {{provider}}",
+    "useLocalAccount": "Stattdessen mit Passwort anmelden",
     "loginWithPasskey": "Weiter mit Passkey",
     "passkeyLoginError": "Anmeldung mit diesem Passkey fehlgeschlagen",
     "passkeyCancelled": "Passkey-Eingabeaufforderung wurde abgebrochen",
@@ -529,6 +530,7 @@
     "nextCycle": "Nächster Zeitraum",
     "cycleBillTotal": "Abrechnungssumme",
     "dueDate": "Fällig am",
+    "dueLabel": "Fällig {{date}}",
     "minimumPayment": "Mindestbetrag",
     "noChargesYet": "Noch keine Umsätze in diesem Abrechnungszeitraum",
     "currentTag": "jetzt",
@@ -606,7 +608,10 @@
       "simplefin": {
         "title": "Verbindung über SimpleFIN",
         "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
-      }
+      },
+      "reconnectTitle": "Mit einem neuen Token erneut verbinden",
+      "reconnectDescription": "Füge ein neues Setup-Token ein, um diese Verbindung direkt zu aktualisieren. Bestehende Konten, Transaktionen, Kategorien und Regeln bleiben erhalten.",
+      "reconnect": "Erneut verbinden"
     },
     "providers": {
       "pluggy": {
@@ -618,7 +623,8 @@
       "simplefin": {
         "description": "US-amerikanische und internationale Banken via SimpleFIN Bridge"
       }
-    }
+    },
+    "reconnected": "Bank erfolgreich erneut verbunden"
   },
   "connections": {
     "settings": "Verbindungseinstellungen",
@@ -771,6 +777,8 @@
     "duplicateName": "Eine Regel mit diesem Namen existiert bereits",
     "sectionTitle": "Kategorisierungsregeln",
     "reapplyAll": "Alle neu anwenden",
+    "resetAndReapplyAll": "Zurücksetzen und neu anwenden",
+    "confirmResetAndReapplyAll": "Kategorien und Notizen übereinstimmender Transaktionen zurücksetzen und anschließend alle aktiven Regeln erneut anwenden?",
     "add": "Hinzufügen",
     "created": "Regel erstellt",
     "createdAndApplied": "Regel erstellt und auf {{count}} Transaktionen angewendet",
@@ -799,6 +807,8 @@
     "selectCategory": "Kategorie auswählen...",
     "selectAccount": "Konto auswählen...",
     "ruleActive": "Regel aktiv",
+    "applyToExisting": "Übereinstimmende Aktionen auf bestehende Transaktionen anwenden",
+    "overwriteExistingCategories": "Auch bestehende Kategorien ersetzen",
     "noConditions": "(keine Bedingungen)",
     "noActions": "(keine Aktionen)",
     "fieldDescription": "Beschreibung",
@@ -1065,6 +1075,10 @@
     "syncedFromHint": "Ursprünglich synchronisiert aus {{source}} — du kannst den Namen frei anpassen, die Synchronisierung verwendet die Verbindungs-ID.",
     "chartByWallet": "Nach Portfolio",
     "chartByAsset": "Nach Vermögenswert",
+    "chartGroupMode": "Diagrammgruppierung",
+    "chartDrawMode": "Diagrammdarstellung",
+    "chartStacked": "Gestapelt",
+    "chartLines": "Linien",
     "portfolioValue": "Portfoliowert",
     "total": "Gesamt",
     "confirmRegenerateTitle": "Werte neu generieren?",
@@ -1145,6 +1159,8 @@
     "range30d": "30T"
   },
   "payees": {
+    "addFavorite": "Zu Favoriten hinzufügen",
+    "removeFavorite": "Aus Favoriten entfernen",
     "title": "Zahlungsempfänger",
     "section": "Einrichtung",
     "payee": "Zahlungsempfänger",
@@ -1180,6 +1196,7 @@
     "favoritesOnly": "Nur Favoriten"
   },
   "common": {
+    "view": "Ansehen",
     "save": "Speichern",
     "cancel": "Abbrechen",
     "close": "Schließen",
@@ -1296,6 +1313,8 @@
     "date": "Datum",
     "splitTransaction": "Diese Transaktion aufteilen",
     "splitNoGroups": "Erstelle zuerst eine Gruppe, um eine Transaktion aufzuteilen.",
+    "splitNoGroupsLinkPrefix": "Du hast noch keine Gruppe. Du kannst ",
+    "splitNoGroupsLinkSuffix": "hier eine erstellen",
     "splitNoMembers": "Füge zuerst Mitglieder zur Gruppe hinzu.",
     "group": "Gruppe",
     "shareType": "Aufteilen nach",
