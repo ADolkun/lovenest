@@ -215,7 +215,7 @@ export function AppLayout() {
           title={t('nav.dashboard')}
         >
           <ShellLogo size={22} className="text-primary shrink-0" />
-          <span className="font-bold text-sidebar-foreground">
+          <span className="hidden font-bold text-sidebar-foreground sm:inline">
             {t('app.name')}
           </span>
         </Link>
@@ -465,7 +465,7 @@ export function AppLayout() {
                         className="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
                       >
                         <div className="truncate min-w-0">
-                          <span className="block truncate font-medium">{getAccountName(acc)}</span>
+                          <span className="block truncate font-medium" title={getAccountName(acc)}>{getAccountName(acc)}</span>
                           <span className="block text-[10px] text-sidebar-muted/60">
                             {t(`accounts.type${typeKey}`)}
                           </span>
@@ -546,7 +546,7 @@ export function AppLayout() {
 
         {/* Main content */}
         <main className="flex-1 min-h-screen overflow-x-hidden lg:ml-60">
-          <div className="p-6 max-w-7xl mx-auto">
+          <div className="p-3 sm:p-6">
             {/* Active-collection filter (issue #105): sticky bar above the
                 content so the scope is visible right where the data is. */}
             <CollectionSelector variant="header" />

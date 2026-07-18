@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Dialog,
   DialogContent,
@@ -34,8 +35,6 @@ function currentMonth() {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
-
-const TH = 'text-xs font-medium text-muted-foreground py-3'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
@@ -117,11 +116,11 @@ export default function BudgetsPage() {
 
   const getCategoryDisplay = (categoryId: string) => {
     const cat = categoriesList?.find((c) => c.id === categoryId)
-    if (!cat) return <span>{categoryId}</span>
+    if (!cat) return <span className="block truncate" title={categoryId}>{categoryId}</span>
     return (
-      <span className="flex items-center gap-2">
+      <span className="flex min-w-0 items-center gap-2">
         <CategoryIcon icon={cat.icon} color={cat.color} size="sm" />
-        <span>{cat.name}</span>
+        <span className="truncate" title={cat.name}>{cat.name}</span>
       </span>
     )
   }
@@ -189,19 +188,19 @@ export default function BudgetsPage() {
           }
         />
         {budgetsList && budgetsList.length > 0 ? (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className={`${TH} pl-4 sm:pl-5 text-left`}>{t('budgets.category')}</th>
-                <th className={`${TH} text-left w-36`}>{t('budgets.amount')}</th>
-                {canWrite && <th className={`${TH} pr-4 sm:pr-5 text-right w-24`}>{t('budgets.actions')}</th>}
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow className="border-b border-border hover:bg-transparent">
+                <TableHead className="py-3 pl-4 text-xs font-medium text-muted-foreground sm:pl-5">{t('budgets.category')}</TableHead>
+                <TableHead className="hidden w-36 py-3 text-left text-xs font-medium text-muted-foreground sm:table-cell">{t('budgets.amount')}</TableHead>
+                {canWrite && <TableHead className="w-20 py-3 pr-4 text-right text-xs font-medium text-muted-foreground sm:w-24 sm:pr-5">{t('budgets.actions')}</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {budgetsList.map((budget) => (
-                <tr key={budget.id} className="border-b border-border last:border-0 hover:bg-muted transition-colors">
-                  <td className="py-3 pl-4 sm:pl-5 text-sm font-medium text-foreground">
-                    <span className="flex items-center gap-1.5">
+                <TableRow key={budget.id} className="border-b border-border last:border-0 hover:bg-muted transition-colors">
+                  <TableCell className="max-w-0 overflow-hidden py-3 pl-4 text-sm font-medium text-foreground sm:pl-5">
+                    <span className="flex min-w-0 items-center gap-1.5">
                       {getCategoryDisplay(budget.category_id)}
                       {budget.is_recurring && (
                         <span title={t('budgets.recurringLabel')} className="text-muted-foreground">
@@ -209,10 +208,13 @@ export default function BudgetsPage() {
                         </span>
                       )}
                     </span>
-                  </td>
-                  <td className="py-3 text-sm font-semibold tabular-nums text-foreground">{mask(formatCurrency(budget.amount, userCurrency, locale))}</td>
+                    <span className="mt-0.5 block text-xs font-semibold tabular-nums text-muted-foreground sm:hidden">
+                      {mask(formatCurrency(budget.amount, userCurrency, locale))}
+                    </span>
+                  </TableCell>
+                  <TableCell className="hidden py-3 text-sm font-semibold tabular-nums text-foreground sm:table-cell">{mask(formatCurrency(budget.amount, userCurrency, locale))}</TableCell>
                   {canWrite && (
-                    <td className="py-3 pr-4 sm:pr-5">
+                    <TableCell className="py-3 pr-4 sm:pr-5">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
@@ -230,12 +232,12 @@ export default function BudgetsPage() {
                           <Trash2 size={13} />
                         </button>
                       </div>
-                    </td>
+                    </TableCell>
                   )}
-                </tr>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         ) : (
           <p className="text-sm text-muted-foreground text-center py-10">{t('budgets.empty')}</p>
         )}

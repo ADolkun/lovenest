@@ -121,7 +121,7 @@ export function TransferDialog({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-[1fr,auto,1fr] items-end gap-2">
+          <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_auto_1fr]">
             <div className="space-y-2">
               <Label>{t('transactions.transferFromAccount')}</Label>
               <select
@@ -143,8 +143,8 @@ export function TransferDialog({
                 ))}
               </select>
             </div>
-            <div className="pb-2">
-              <ArrowRight size={18} className="text-muted-foreground" />
+            <div className="flex justify-center sm:pb-2">
+              <ArrowRight size={18} className="rotate-90 text-muted-foreground sm:rotate-0" />
             </div>
             <div className="space-y-2">
               <Label>{t('transactions.transferToAccount')}</Label>
@@ -181,7 +181,7 @@ export function TransferDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>
                 {t('transactions.transferAmount')}
@@ -212,7 +212,7 @@ export function TransferDialog({
                 {t('transactions.conversion')}{' '}
                 <span className="font-normal">({t('transactions.conversionHint')})</span>
               </p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="text-xs">
                     {t('transactions.convertedAmount', { currency: toAccount?.currency })}

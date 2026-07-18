@@ -42,7 +42,7 @@ function CounterpartCard({ label, description, account, date, amount, currency, 
       <p className="text-sm font-semibold text-foreground truncate" title={description}>
         {description}
       </p>
-      <p className="text-xs text-muted-foreground truncate">{account}</p>
+      <p className="text-xs text-muted-foreground truncate" title={account}>{account}</p>
       <p className="text-xs text-muted-foreground mt-1">
         {new Date(date + 'T00:00:00').toLocaleDateString(dateLocale)}{/* date order from setting, words from app language */}
       </p>
@@ -166,7 +166,7 @@ export function LinkTransferDialog({
 
     return (
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-xl overflow-hidden">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{t('transactions.linkTransferPickerTitle')}</DialogTitle>
           </DialogHeader>
@@ -230,7 +230,7 @@ export function LinkTransferDialog({
                         >
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 min-w-0">
-                              <p className="text-sm font-semibold text-foreground truncate min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-foreground truncate min-w-0 flex-1" title={c.description}>
                                 {c.description}
                               </p>
                               {isBest && (
@@ -240,7 +240,7 @@ export function LinkTransferDialog({
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground truncate">
+                            <p className="text-xs text-muted-foreground truncate" title={account ? getAccountName(account) : '—'}>
                               {account ? getAccountName(account) : '—'} · {new Date(c.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                             </p>
                           </div>
@@ -264,7 +264,7 @@ export function LinkTransferDialog({
                 <p className="text-xs text-muted-foreground mb-2">
                   {t('transactions.createCounterpartDescription')}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <select
                     value={counterpartAccountId}
                     onChange={(e) => setCounterpartAccountId(e.target.value)}
@@ -323,7 +323,7 @@ export function LinkTransferDialog({
             {t('transactions.linkTransferDescription')}
           </p>
 
-          <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-3">
+          <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
             <CounterpartCard
               label={t('transactions.linkTransferFrom')}
               description={effectiveDebit.description}
@@ -335,8 +335,8 @@ export function LinkTransferDialog({
               locale={locale}
               dateLocale={dateLocale}
             />
-            <div className="flex items-center">
-              <ArrowRight size={18} className="text-muted-foreground" />
+            <div className="flex items-center justify-center">
+              <ArrowRight size={18} className="rotate-90 text-muted-foreground sm:rotate-0" />
             </div>
             <CounterpartCard
               label={t('transactions.linkTransferTo')}

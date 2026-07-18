@@ -20,6 +20,7 @@ import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -821,7 +822,7 @@ export default function AccountDetailPage() {
         {/* Title row */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight truncate">
+            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl" title={getAccountName(account)}>
               {getAccountName(account)}
             </h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1408,25 +1409,24 @@ export default function AccountDetailPage() {
           ) : txWithRunningBalance.length === 0 ? (
             <p className="p-6 text-center text-muted-foreground">{t('accounts.noTransactions')}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-3 sm:px-4 py-3 text-left font-medium">{t('transactions.date')}</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-medium">{t('transactions.description')}</th>
-                    <th className="px-4 py-3 text-left font-medium hidden md:table-cell">{t('transactions.category')}</th>
-                    <th className="px-3 sm:px-4 py-3 text-right font-medium">{t('transactions.amount')}</th>
-                    <th className="px-4 py-3 text-right font-medium hidden sm:table-cell">{t('accounts.runningBalance')}</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow className="border-b hover:bg-transparent">
+                    <TableHead className="hidden w-28 px-3 py-3 font-medium sm:table-cell sm:px-4">{t('transactions.date')}</TableHead>
+                    <TableHead className="px-3 py-3 font-medium sm:px-4">{t('transactions.description')}</TableHead>
+                    <TableHead className="hidden w-40 px-4 py-3 font-medium md:table-cell">{t('transactions.category')}</TableHead>
+                    <TableHead className="w-28 px-3 py-3 text-right font-medium sm:px-4">{t('transactions.amount')}</TableHead>
+                    <TableHead className="hidden w-36 px-4 py-3 text-right font-medium sm:table-cell">{t('accounts.runningBalance')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {txWithRunningBalance.map((tx) => {
                     const isOpening = tx.source === 'opening_balance'
                     const isTransfer = !!tx.transfer_pair_id
                     const isPending = tx.status === 'pending'
                     const isIgnored = tx.is_ignored
                     return (
-                      <tr
+                      <TableRow
                         key={tx.id}
                         className={`border-b last:border-0 transition-colors ${isOpening ? 'bg-muted/60' : isPending ? 'opacity-60' : canWrite ? 'hover:bg-muted cursor-pointer' : ''}`}
                         onClick={() => {
@@ -1436,12 +1436,12 @@ export default function AccountDetailPage() {
                           }
                         }}
                       >
-                        <td className="px-3 sm:px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                        <TableCell className="hidden px-3 py-3 text-xs text-muted-foreground sm:table-cell sm:px-4">
                           {formatDateStr(tx.date, dateLocale)}
-                        </td>
-                        <td className="px-3 sm:px-4 py-3">
-                          <div>
-                            <span className="font-semibold text-foreground text-sm">{tx.description}</span>
+                        </TableCell>
+                        <TableCell className="max-w-0 overflow-hidden px-3 py-3 sm:px-4">
+                          <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={tx.description}>{tx.description}</span>
                             {isOpening && (
                               <span className="ml-2 text-xs text-muted-foreground font-normal border border-border rounded px-1.5 py-0.5">
                                 {t('accounts.openingBalance')}
@@ -1490,37 +1490,39 @@ export default function AccountDetailPage() {
                               <Paperclip size={12} className="ml-2 inline text-muted-foreground" />
                             )}
                           </div>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground sm:hidden">
+                            {formatDateStr(tx.date, dateLocale)}
+                          </p>
                           {(tx.payee_name || tx.payee) && (tx.payee_name || tx.payee) !== tx.description && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{tx.payee_name || tx.payee}</p>
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={tx.payee_name || tx.payee || undefined}>{tx.payee_name || tx.payee}</p>
                           )}
-                        </td>
-                        <td className="px-4 py-3 hidden md:table-cell">
+                        </TableCell>
+                        <TableCell className="hidden max-w-0 overflow-hidden px-4 py-3 md:table-cell">
                           {tx.category ? (
-                            <span className="flex items-center gap-1.5">
+                            <span className="flex min-w-0 items-center gap-1.5">
                               <CategoryIcon icon={tx.category.icon} color={tx.category.color} size="sm" />
-                              <span className="text-sm text-muted-foreground">{tx.category.name}</span>
+                              <span className="truncate text-sm text-muted-foreground" title={tx.category.name}>{tx.category.name}</span>
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
-                        </td>
-                        <td className={`px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-semibold tabular-nums ${tx.is_ignored ? 'text-gray-500' : tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        </TableCell>
+                        <TableCell className={`px-3 py-3 text-right text-xs font-semibold tabular-nums sm:px-4 sm:text-sm ${tx.is_ignored ? 'text-gray-500' : tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                           {mask(`${tx.is_ignored ? ' ' : tx.type === 'credit' ? '+' : '-'}${formatCurrency(Math.abs(Number(tx.amount)), tx.currency, locale)}`)}
                           {tx.currency !== userCurrency && tx.amount_primary != null && (
                             <span className="block text-[10px] text-muted-foreground tabular-nums">
                               {mask(formatCurrency(Math.abs(tx.amount_primary), userCurrency, locale))}
                             </span>
                           )}
-                        </td>
-                        <td className={`px-4 py-3 text-right tabular-nums text-sm hidden sm:table-cell ${(account.type === 'credit_card' ? tx.runningBalance > 0 : tx.runningBalance < 0) ? 'text-rose-500' : 'text-muted-foreground'}`}>
+                        </TableCell>
+                        <TableCell className={`hidden px-4 py-3 text-right text-sm tabular-nums sm:table-cell ${(account.type === 'credit_card' ? tx.runningBalance > 0 : tx.runningBalance < 0) ? 'text-rose-500' : 'text-muted-foreground'}`}>
                           {mask(formatCurrency(tx.runningBalance, displayCurrency, locale))}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )
                   })}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
           )}
         </div>
       </div>
@@ -1648,7 +1650,7 @@ function CreditCardSettingsDialog({
               placeholder="0.00"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t('accounts.statementCloseDay')}</Label>
               <Input

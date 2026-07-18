@@ -152,14 +152,15 @@ export function RuleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
-        <DialogHeader>
+      <DialogContent className="flex flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{rule ? t('rules.editRule') : t('rules.newRule')}</DialogTitle>
         </DialogHeader>
-        <form key={rule?.id ?? 'new'} onSubmit={handleSubmit} className="space-y-5">
+        <form key={rule?.id ?? 'new'} onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
           {/* Name + Priority */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2 space-y-1.5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label>{t('rules.name')}</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} required placeholder="Ex: Uber" />
             </div>
@@ -171,7 +172,7 @@ export function RuleDialog({
 
           {/* Conditions */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>{t('rules.conditions')}</Label>
               <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
                 {(['and', 'or'] as const).map(op => (
@@ -191,9 +192,9 @@ export function RuleDialog({
             </div>
             <div className="space-y-2">
               {conditions.map((cond, i) => (
-                <div key={i} className="flex items-center gap-2 min-w-0">
+                <div key={i} className="relative grid min-w-0 grid-cols-2 items-center gap-2 pr-12 sm:flex sm:pr-0">
                   <select
-                    className={`${selectClass} w-32 shrink-0`}
+                    className={`${selectClass} w-full min-w-0 sm:w-32 sm:shrink-0`}
                     value={cond.field}
                     onChange={(e) => updateCondition(i, 'field', e.target.value)}
                   >
@@ -202,7 +203,7 @@ export function RuleDialog({
                     ))}
                   </select>
                   <select
-                    className={`${selectClass} w-32 shrink-0`}
+                    className={`${selectClass} w-full min-w-0 sm:w-32 sm:shrink-0`}
                     value={cond.op}
                     onChange={(e) => updateCondition(i, 'op', e.target.value)}
                   >
@@ -212,7 +213,7 @@ export function RuleDialog({
                   </select>
                   {cond.field === 'type' ? (
                     <select
-                      className={`${selectClass} w-0 flex-1 min-w-0`}
+                      className={`${selectClass} col-span-2 w-full min-w-0 sm:w-0 sm:flex-1`}
                       value={String(cond.value)}
                       onChange={(e) => updateCondition(i, 'value', e.target.value)}
                     >
@@ -221,7 +222,7 @@ export function RuleDialog({
                     </select>
                   ) : cond.field === 'account_id' ? (
                     <select
-                      className={`${selectClass} w-0 flex-1 min-w-0`}
+                      className={`${selectClass} col-span-2 w-full min-w-0 sm:w-0 sm:flex-1`}
                       value={String(cond.value)}
                       onChange={(e) => updateCondition(i, 'value', e.target.value)}
                     >
@@ -232,7 +233,7 @@ export function RuleDialog({
                     </select>
                   ) : cond.field === 'payee_id' ? (
                     <select
-                      className={`${selectClass} w-0 flex-1 min-w-0`}
+                      className={`${selectClass} col-span-2 w-full min-w-0 sm:w-0 sm:flex-1`}
                       value={String(cond.value)}
                       onChange={(e) => updateCondition(i, 'value', e.target.value)}
                     >
@@ -243,7 +244,7 @@ export function RuleDialog({
                     </select>
                   ) : (
                     <Input
-                      className="w-0 flex-1 min-w-0 h-8 text-sm"
+                      className="col-span-2 h-8 w-full min-w-0 text-sm sm:w-0 sm:flex-1"
                       value={String(cond.value)}
                       onChange={(e) => updateCondition(i, 'value', e.target.value)}
                       placeholder={cond.field === 'amount' ? '0.00' : cond.field === 'date' ? 'YYYY-MM-DD' : t('rules.valuePlaceholder')}
@@ -252,7 +253,8 @@ export function RuleDialog({
                   )}
                   <button
                     type="button"
-                    className="p-1 text-muted-foreground hover:text-rose-500 transition-colors shrink-0"
+                    aria-label={`${t('common.delete')} ${t('rules.conditions')}`}
+                    className="absolute right-0 top-0 flex size-10 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-rose-500 sm:static sm:size-auto sm:p-1"
                     onClick={() => removeCondition(i)}
                   >
                     <X size={13} />
@@ -274,9 +276,9 @@ export function RuleDialog({
             <Label>{t('rules.actions')}</Label>
             <div className="space-y-2">
               {actions.map((action, i) => (
-                <div key={i} className="flex items-center gap-2 min-w-0">
+                <div key={i} className="relative flex min-w-0 flex-col items-stretch gap-2 pr-12 sm:flex-row sm:items-center sm:pr-0">
                   <select
-                    className={`${selectClass} w-40 shrink-0`}
+                    className={`${selectClass} w-full min-w-0 sm:w-40 sm:shrink-0`}
                     value={action.op}
                     onChange={(e) => updateAction(i, 'op', e.target.value)}
                   >
@@ -286,11 +288,11 @@ export function RuleDialog({
                     <option value="ignore">{t('rules.ignoreAction')}</option>
                   </select>
                   {action.op === 'ignore' ? (
-                    <span className="w-0 flex-1 min-w-0 text-sm text-muted-foreground italic">
+                    <span className="w-full min-w-0 text-sm italic text-muted-foreground sm:w-0 sm:flex-1">
                       {t('rules.ignoreActionHint')}
                     </span>
                   ) : action.op === 'set_category' ? (
-                    <div className="w-0 flex-1 min-w-0">
+                    <div className="w-full min-w-0 sm:w-0 sm:flex-1">
                       <CategorySelect
                         value={action.value}
                         onChange={(val) => updateAction(i, 'value', val)}
@@ -302,7 +304,7 @@ export function RuleDialog({
                     </div>
                   ) : action.op === 'set_payee' ? (
                     <select
-                      className={`${selectClass} w-0 flex-1 min-w-0`}
+                      className={`${selectClass} w-full min-w-0 sm:w-0 sm:flex-1`}
                       value={action.value}
                       onChange={(e) => updateAction(i, 'value', e.target.value)}
                       required
@@ -314,7 +316,7 @@ export function RuleDialog({
                     </select>
                   ) : (
                     <Input
-                      className="w-0 flex-1 min-w-0 h-8 text-sm"
+                      className="h-8 w-full min-w-0 text-sm sm:w-0 sm:flex-1"
                       value={action.value}
                       onChange={(e) => updateAction(i, 'value', e.target.value)}
                       placeholder="Ex: #work #reimbursable"
@@ -322,7 +324,8 @@ export function RuleDialog({
                   )}
                   <button
                     type="button"
-                    className="p-1 text-muted-foreground hover:text-rose-500 transition-colors shrink-0"
+                    aria-label={`${t('common.delete')} ${t('rules.actions')}`}
+                    className="absolute right-0 top-0 flex size-10 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-rose-500 sm:static sm:size-auto sm:p-1"
                     onClick={() => removeAction(i)}
                   >
                     <X size={13} />
@@ -376,7 +379,9 @@ export function RuleDialog({
             </label>
           )}
 
-          <DialogFooter>
+          </div>
+
+          <DialogFooter className="shrink-0 pt-4">
             <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
             <Button type="submit" disabled={loading}>
               {loading ? t('common.loading') : t('common.save')}

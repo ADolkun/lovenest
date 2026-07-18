@@ -235,7 +235,7 @@ export default function WorkspaceSettingsPage() {
 
   if (!current) {
     return (
-      <div className="container max-w-5xl py-8 space-y-4">
+      <div className="w-full py-8 space-y-4">
         <Skeleton className="h-24 w-full" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -248,7 +248,7 @@ export default function WorkspaceSettingsPage() {
   const isManagerSelf = isManaged && current.managed_by_user_id === currentUser?.id
 
   return (
-    <div className="container max-w-5xl py-8 space-y-6">
+    <div className="w-full py-8 space-y-6">
       {/* Header card — identity + role + stats strip */}
       <section className="rounded-xl border bg-card overflow-hidden">
         <div className="p-6 flex items-center gap-5 border-b">
