@@ -1,14 +1,17 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.payee import PayeeMapping
+from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
 from app.models.account import Account
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas.payee import PayeeCreate, PayeeUpdate
 from app.services.payee_service import (
     create_payee,
@@ -207,6 +210,76 @@ async def test_get_or_create_payee_strips_whitespace(session: AsyncSession, test
 async def test_get_or_create_payee_empty_raises(session: AsyncSession, test_user, test_workspace):
     with pytest.raises(ValueError, match="cannot be empty"):
         await get_or_create_payee(session, test_user.id, "  ")
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_payee_returns_case_insensitive_concurrent_winner():
+    session = AsyncMock(spec=AsyncSession)
+    missing = MagicMock()
+    missing.scalar_one_or_none.return_value = None
+    winner = MagicMock(name="Same Payee")
+    found = MagicMock()
+    found.scalar_one_or_none.return_value = winner
+    session.execute.side_effect = [missing, found]
+    session.flush.side_effect = IntegrityError("INSERT", {}, Exception("duplicate"))
+
+    result = await get_or_create_payee(
+        session, uuid.uuid4(), "same payee", workspace_id=uuid.uuid4()
+    )
+
+    assert result is winner
+
+
+@pytest.mark.asyncio
+async def test_payee_name_is_case_insensitive_within_workspace(
+    session: AsyncSession, test_user, test_workspace
+):
+    session.add(Payee(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Case Variant",
+    ))
+    await session.flush()
+    session.add(Payee(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="case variant",
+    ))
+
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_same_user_can_have_same_payee_name_in_different_workspaces(
+    session: AsyncSession, test_user, test_workspace
+):
+    second_workspace = Workspace(
+        name="Second",
+        kind="personal",
+        created_by_user_id=test_user.id,
+        default_currency="USD",
+    )
+    session.add(second_workspace)
+    await session.flush()
+
+    first = await get_or_create_payee(
+        session,
+        test_user.id,
+        "Shared Name",
+        workspace_id=test_workspace.id,
+    )
+    second = await get_or_create_payee(
+        session,
+        test_user.id,
+        "shared name",
+        workspace_id=second_workspace.id,
+    )
+
+    assert first.id != second.id
+    assert first.workspace_id == test_workspace.id
+    assert second.workspace_id == second_workspace.id
 
 
 # ---------------------------------------------------------------------------
