@@ -39,7 +39,7 @@ async def _sync_all() -> int:
                 select(
                     BankConnection.id, BankConnection.user_id, BankConnection.last_sync_at
                 ).where(
-                    BankConnection.status.in_(["active", "error"]),
+                    BankConnection.status.in_(["active", "error", "sync_error"]),
                     (BankConnection.last_sync_at < cutoff)
                     | (BankConnection.last_sync_at.is_(None)),
                 )

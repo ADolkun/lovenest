@@ -19,6 +19,7 @@ class BankConnectionRead(BankConnectionBase):
     settings: Optional[dict] = None
     status: str
     last_sync_at: Optional[datetime] = None
+    last_sync_error_account_id: Optional[uuid.UUID] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

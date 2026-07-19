@@ -112,6 +112,7 @@ export interface BankConnection {
   status: string
   settings: ConnectionSettings | null
   last_sync_at: string | null
+  last_sync_error_account_id: string | null
   created_at: string
 }
 

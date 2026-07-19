@@ -381,13 +381,20 @@ async def get_connections(session: AsyncSession, workspace_id: uuid.UUID) -> lis
 
 
 async def get_connection(
-    session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> Optional[BankConnection]:
-    result = await session.execute(
+    statement = (
         select(BankConnection)
         .where(BankConnection.id == connection_id, BankConnection.workspace_id == workspace_id)
         .options(selectinload(BankConnection.accounts))
     )
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.execute(statement)
     return result.scalar_one_or_none()
 
 
@@ -522,8 +529,13 @@ async def handle_oauth_callback(
     reconnect_id = state_payload.get("reconnect_connection_id") or reconnect_connection_id
     existing_reconnect: BankConnection | None = None
     if reconnect_id:
-        existing_reconnect = await session.get(BankConnection, uuid.UUID(str(reconnect_id)))
-        if not existing_reconnect or existing_reconnect.workspace_id != workspace_id:
+        existing_reconnect = await get_connection(
+            session,
+            uuid.UUID(str(reconnect_id)),
+            workspace_id,
+            for_update=True,
+        )
+        if not existing_reconnect:
             raise ValueError("Reconnect target connection not found")
         # Token reconnects do not carry OAuth state, so the request body may be
         # the only source of provider_name. Never allow a pasted token for one
@@ -546,6 +558,8 @@ async def handle_oauth_callback(
         existing_reconnect.logo_url = _clean_logo_url(connection_data.logo_url) or existing_reconnect.logo_url
         existing_reconnect.credentials = connection_data.credentials
         existing_reconnect.status = "active"
+        existing_reconnect.last_sync_error_account_id = None
+        existing_reconnect.sync_state_version += 1
         # Re-sync from current data on next sync cycle.
         existing_reconnect.last_sync_at = None
         await session.commit()
@@ -1376,6 +1390,29 @@ async def _sync_credit_card_bills(
     return by_external_id
 
 
+async def _set_sync_status_if_current(
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    starting_version: int,
+    status: str,
+    error_account_id: uuid.UUID | None = None,
+) -> None:
+    await session.execute(
+        update(BankConnection)
+        .where(
+            BankConnection.id == connection_id,
+            BankConnection.sync_state_version == starting_version,
+        )
+        .values(
+            status=status,
+            last_sync_error_account_id=error_account_id,
+            sync_state_version=BankConnection.sync_state_version + 1,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await session.get(BankConnection, connection_id, populate_existing=True)
+
+
 async def sync_connection(
     session: AsyncSession,
     connection_id: uuid.UUID,
@@ -1383,14 +1420,22 @@ async def sync_connection(
     user_id: uuid.UUID,
     trigger_provider_refresh: bool = False,
 ) -> tuple[BankConnection, int]:
-    connection = await get_connection(session, connection_id, workspace_id)
+    # Manual and scheduled syncs can overlap. Lock the connection row for the
+    # transaction so every caller shares one serialization boundary.
+    connection = await get_connection(
+        session, connection_id, workspace_id, for_update=True
+    )
     if not connection:
         raise ValueError("Connection not found")
 
+    sync_start_status = connection.status
+    sync_start_version = connection.sync_state_version
+    sync_start_error_account_id = connection.last_sync_error_account_id
     conn_settings = connection.settings or {}
     payee_source = conn_settings.get("payee_source", "auto")
     import_pending = conn_settings.get("import_pending", True)
     use_provider_cats = await admin_service.use_provider_categories(session)
+    syncing_account_id: uuid.UUID | None = None
 
     try:
         provider = get_provider(connection.provider)
@@ -1422,6 +1467,8 @@ async def sync_connection(
                 # Surfacing reconnect immediately is better than silently
                 # reading stale data the user knows is stale.
                 connection.status = "error"
+                connection.last_sync_error_account_id = None
+                connection.sync_state_version += 1
                 await session.commit()
                 raise ProviderUserActionRequired(
                     "Provider needs the user to reconnect before fetching fresh data",
@@ -1438,6 +1485,7 @@ async def sync_connection(
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
         for acc_data in accounts_data:
+            syncing_account_id = None
             account = await _find_existing_connected_account(
                 session, connection, acc_data
             )
@@ -1507,6 +1555,8 @@ async def sync_connection(
                 )
                 session.add(account)
                 await session.flush()
+
+            syncing_account_id = account.id
 
             # Fetch the bills feed before transactions so transaction → bill
             # FK resolution happens in-memory (no N+1). Empty dict for non-CC
@@ -1729,6 +1779,8 @@ async def sync_connection(
             # SUM(all txs) keeps matching account.balance from the provider.
             await sync_opening_balance_for_connected_account(session, account)
 
+        syncing_account_id = None
+
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:
             await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
@@ -1757,6 +1809,8 @@ async def sync_connection(
             connection.status = "error"
         else:
             connection.status = "active"
+        connection.last_sync_error_account_id = None
+        connection.sync_state_version += 1
         await session.commit()
         await session.refresh(connection)
         return connection, merged_count
@@ -1766,9 +1820,9 @@ async def sync_connection(
         # can show a clearer "reauthorize" prompt.
         await session.rollback()
         async with session.begin():
-            conn = await session.get(BankConnection, connection_id)
-            if conn:
-                conn.status = "expired"
+            await _set_sync_status_if_current(
+                session, connection_id, sync_start_version, "expired"
+            )
         raise
     except ProviderUserActionRequired:
         # Stale/revoked provider credentials require a non-destructive
@@ -1777,36 +1831,54 @@ async def sync_connection(
         # instead of a generic 500.
         await session.rollback()
         async with session.begin():
-            conn = await session.get(BankConnection, connection_id)
-            if conn:
-                conn.status = "error"
+            await _set_sync_status_if_current(
+                session, connection_id, sync_start_version, "error"
+            )
         raise
     except ProviderRateLimited:
         # The bank/aggregator is throttling data requests (PSD2 caps unattended
-        # access, commonly ~4/day). The connection is healthy, so don't error
-        # it or 500 the request — skip this run, keep it active, and leave
-        # last_sync_at untouched so the next sync retries the same window.
+        # access, commonly ~4/day). This run learned nothing about connection
+        # health, so preserve its prior status and diagnostic for the next retry.
         await session.rollback()
         async with session.begin():
-            conn = await session.get(BankConnection, connection_id)
-            if conn and conn.status != "expired":
-                conn.status = "active"
+            await _set_sync_status_if_current(
+                session,
+                connection_id,
+                sync_start_version,
+                sync_start_status,
+                sync_start_error_account_id,
+            )
         refreshed = await session.get(BankConnection, connection_id)
         return refreshed, 0
     except Exception:
-        # Mark connection as errored so UI shows reconnect banner
+        # Generic sync failures do not imply invalid credentials. Preserve the
+        # local account being processed so the accounts page can identify it.
         await session.rollback()
         async with session.begin():
-            conn = await session.get(BankConnection, connection_id)
-            if conn:
-                conn.status = "error"
+            error_account_id = None
+            if syncing_account_id is not None:
+                error_account_id = await session.scalar(
+                    select(Account.id).where(
+                        Account.id == syncing_account_id,
+                        Account.connection_id == connection_id,
+                    )
+                )
+            await _set_sync_status_if_current(
+                session,
+                connection_id,
+                sync_start_version,
+                "sync_error",
+                error_account_id,
+            )
         raise
 
 
 async def delete_connection(
     session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
-    connection = await get_connection(session, connection_id, workspace_id)
+    connection = await get_connection(
+        session, connection_id, workspace_id, for_update=True
+    )
     if not connection:
         return False
 
