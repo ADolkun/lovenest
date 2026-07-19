@@ -1330,6 +1330,7 @@ async def sync_connection(
 
     sync_start_status = connection.status
     sync_start_version = connection.sync_state_version
+    sync_start_error_account_id = connection.last_sync_error_account_id
     conn_settings = connection.settings or {}
     payee_source = conn_settings.get("payee_source", "auto")
     import_pending = conn_settings.get("import_pending", True)
@@ -1733,16 +1734,16 @@ async def sync_connection(
         raise
     except ProviderRateLimited:
         # The bank/aggregator is throttling data requests (PSD2 caps unattended
-        # access, commonly ~4/day). The connection is healthy, so don't error
-        # it or 500 the request — skip this run, keep it active, and leave
-        # last_sync_at untouched so the next sync retries the same window.
+        # access, commonly ~4/day). This run learned nothing about connection
+        # health, so preserve its prior status and diagnostic for the next retry.
         await session.rollback()
         async with session.begin():
             await _set_sync_status_if_current(
                 session,
                 connection_id,
                 sync_start_version,
-                "expired" if sync_start_status == "expired" else "active",
+                sync_start_status,
+                sync_start_error_account_id,
             )
         refreshed = await session.get(BankConnection, connection_id)
         return refreshed, 0
@@ -1772,7 +1773,9 @@ async def sync_connection(
 async def delete_connection(
     session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
-    connection = await get_connection(session, connection_id, workspace_id)
+    connection = await get_connection(
+        session, connection_id, workspace_id, for_update=True
+    )
     if not connection:
         return False
 

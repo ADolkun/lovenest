@@ -570,8 +570,14 @@ async def test_update_settings_not_found(session: AsyncSession, test_user, test_
 async def test_delete_connection_found(session: AsyncSession, test_user, test_workspace):
     """Deletes an existing connection."""
     conn = await _make_connection(session, test_user.id, "To Delete")
-    result = await delete_connection(session, conn.id, test_workspace.id)
+    with patch(
+        "app.services.connection_service.get_connection", wraps=get_connection
+    ) as locked_get_connection:
+        result = await delete_connection(session, conn.id, test_workspace.id)
     assert result is True
+    locked_get_connection.assert_awaited_once_with(
+        session, conn.id, test_workspace.id, for_update=True
+    )
 
     assert await get_connection(session, conn.id, test_workspace.id) is None
 
@@ -835,6 +841,30 @@ async def test_sync_rate_limit_preserves_expired_status(
 
     assert result.status == "expired"
     assert result.sync_state_version == 1
+    assert merged == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_rate_limit_preserves_sync_error_account(
+    session: AsyncSession, test_user, test_workspace
+):
+    conn = await _make_connection(session, test_user.id, "Failed Rate Limit")
+    error_account_id = uuid.uuid4()
+    conn.status = "sync_error"
+    conn.last_sync_error_account_id = error_account_id
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(
+        side_effect=ProviderRateLimited("try later")
+    )
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider):
+        result, merged = await sync_connection(
+            session, conn.id, test_workspace.id, test_user.id
+        )
+
+    assert result.status == "sync_error"
+    assert result.last_sync_error_account_id == error_account_id
     assert merged == 0
 
 
