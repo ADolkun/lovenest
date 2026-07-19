@@ -648,6 +648,7 @@ export default function DashboardPage() {
                 className="min-w-0 cursor-pointer hover:opacity-70 transition-opacity"
                 onClick={() => setDrillDown({
                   title: t('dashboard.drillDownIncome', { month: monthLabelStr }),
+                  sort: 'amount',
                   type: 'credit',
                   from: monthStart,
                   to: monthEnd,
@@ -668,6 +669,7 @@ export default function DashboardPage() {
                 className="min-w-0 cursor-pointer hover:opacity-70 transition-opacity"
                 onClick={() => setDrillDown({
                   title: t('dashboard.drillDownExpenses', { month: monthLabelStr }),
+                  sort: 'amount',
                   type: 'debit',
                   from: monthStart,
                   to: monthEnd,

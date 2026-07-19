@@ -8,10 +8,12 @@ import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { transactionOrderDate } from '@/lib/transaction-order-date'
+import { compareTransactionAmountsDesc } from '@/lib/transaction-sort'
 import type { Transaction } from '@/types'
 
 export type DrillDownFilter = {
   title: string
+  sort?: 'date' | 'amount'
   category_id?: string
   uncategorized?: boolean
   account_id?: string
@@ -73,7 +75,7 @@ export function TransactionDrillDown({
         to: filter?.to,
         limit: 200,
         user_pnl_only: true,
-        sort_by: 'date',
+        sort_by: filter?.sort ?? 'date',
         sort_dir: 'desc',
       }),
     enabled: !!filter,
@@ -144,7 +146,9 @@ export function TransactionDrillDown({
       })
     }
 
-    items.sort((a, b) => b.orderDate.localeCompare(a.orderDate))
+    items.sort(filter?.sort === 'amount'
+      ? compareTransactionAmountsDesc
+      : (a, b) => b.orderDate.localeCompare(a.orderDate))
     return items
   }, [data, projectedTxs, filter, isAccrual])
 
