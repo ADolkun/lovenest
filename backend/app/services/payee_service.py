@@ -70,14 +70,9 @@ async def get_or_create_payee(
     user_id: uuid.UUID,
     name: str,
     *,
-    workspace_id: Optional[uuid.UUID] = None,
+    workspace_id: uuid.UUID,
 ) -> Payee:
-    """Find a payee by name (case-insensitive) or create a new one.
-
-    `user_id` is kept first for backwards compatibility with import/connection
-    sync paths. When `workspace_id` is provided, the lookup scopes by workspace;
-    otherwise the autostamp listener fills it in on insert.
-    """
+    """Find a normalized workspace payee or create it."""
     name = name.strip()
     if not name:
         raise ValueError("Payee name cannot be empty")
@@ -85,18 +80,13 @@ async def get_or_create_payee(
     lookup = select(Payee).where(
         func.lower(func.trim(Payee.name)) == name.lower()
     )
-    if workspace_id is not None:
-        lookup = lookup.where(Payee.workspace_id == workspace_id)
-    else:
-        lookup = lookup.where(Payee.user_id == user_id)
+    lookup = lookup.where(Payee.workspace_id == workspace_id)
     result = await session.execute(lookup)
     payee = result.scalar_one_or_none()
     if payee:
         return payee
 
-    payee = Payee(user_id=user_id, name=name)
-    if workspace_id is not None:
-        payee.workspace_id = workspace_id
+    payee = Payee(user_id=user_id, workspace_id=workspace_id, name=name)
     try:
         async with session.begin_nested():
             session.add(payee)
