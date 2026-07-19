@@ -762,7 +762,7 @@ function TransactionForm({
           <p className="text-xs text-muted-foreground">{transaction.payee}</p>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="space-y-2">
           <div className="flex items-center justify-between min-h-5">
             <Label>{t('transactions.amount')}</Label>
@@ -832,7 +832,7 @@ function TransactionForm({
             <span className="text-sm font-medium">{t('transactions.conversion')}</span>
             <span className="text-xs text-muted-foreground ml-2">({t('transactions.conversionHint')})</span>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label className="text-xs">{t('transactions.convertedAmount', { currency: userCurrency })}</Label>
               {hideAmounts ? (
@@ -866,7 +866,7 @@ function TransactionForm({
           </div>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t('transactions.type')}</Label>
           <select
@@ -890,7 +890,7 @@ function TransactionForm({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label>{t('payees.payee')}</Label>
           <select
@@ -1023,7 +1023,7 @@ function TransactionForm({
             <span className="text-sm font-medium">{t('transactions.makeRecurring')}</span>
           </label>
           {isRecurring && (
-            <div className="grid grid-cols-2 gap-4 pt-1">
+            <div className="grid grid-cols-1 gap-4 pt-1 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('recurring.frequency')}</Label>
                 <select
@@ -1286,7 +1286,7 @@ function AddTransactionToRuleDialog({
               </PopoverTrigger>
               <PopoverContent
                 align="start"
-                className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+                className="w-[var(--radix-popover-trigger-width)] max-h-[var(--radix-popover-content-available-height)] p-0 overflow-hidden"
               >
                 <Command
                   filter={(itemValue, search) => {
@@ -1294,7 +1294,7 @@ function AddTransactionToRuleDialog({
                   }}
                 >
                   <CommandInput placeholder={t('transactions.searchRule', 'Search rule...')} />
-                  <CommandList className="max-h-[300px] overflow-y-auto">
+                  <CommandList className="max-h-[min(300px,calc(var(--radix-popover-content-available-height)_-_2.25rem))] overflow-y-auto">
                     <CommandEmpty>{t('transactions.noRulesFound', 'No rules found.')}</CommandEmpty>
                     {groupedRules.map((group) => (
                       <CommandGroup key={group.categoryId}>

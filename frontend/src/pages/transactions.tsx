@@ -853,11 +853,16 @@ export default function TransactionsPage() {
     // Match the amount/attachments body cells' pr-5 so right-aligned
     // headers line up with their values (issue #161 polish).
     const padX = col.align === 'right' ? 'pr-5' : ''
+    const mobileClass = col.id === 'description'
+      ? 'max-md:!w-auto max-md:!min-w-0'
+      : col.id === 'amount'
+        ? 'max-md:!w-28 max-md:!min-w-28'
+        : 'max-md:hidden'
     return (
       <TableHead
         key={col.id}
         style={{ width: grid.widthOf(col.id), minWidth: grid.widthOf(col.id) }}
-        className={`relative text-xs font-medium text-muted-foreground py-3 ${alignClass} ${padX}`}
+        className={`relative text-xs font-medium text-muted-foreground py-3 ${alignClass} ${padX} ${mobileClass}`}
         onClick={() => { if (col.sortable) grid.toggleSort(col.id) }}
       >
         <div className={`flex items-center gap-1 ${justify} ${cursorClass}`}>
@@ -930,12 +935,14 @@ export default function TransactionsPage() {
     const showInlineTags = !grid.isVisible('tags')
     const noteText = tx.notes ? stripHashtags(tx.notes) : ''
     const noteTags = tx.notes ? parseHashtags(tx.notes) : []
+    const account = accountsList?.find((a) => a.id === tx.account_id)
+    const accountName = account ? getAccountName(account) : null
     return (
-      <div className="flex items-center gap-2 md:gap-3">
+      <div className="flex min-w-0 items-center gap-2 md:gap-3">
         <CategoryIcon icon={tx.category?.icon} color={tx.category?.color} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-foreground truncate">{tx.description}</p>
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={tx.description}>{tx.description}</p>
             {tx.group_id && (
               <span
                 className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1.5 py-0.5 rounded-full"
@@ -990,8 +997,12 @@ export default function TransactionsPage() {
               <Paperclip size={12} className="text-muted-foreground shrink-0" />
             )}
           </div>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground md:hidden" title={accountName ?? undefined}>
+            {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
+            {accountName ? ` · ${accountName}` : ''}
+          </p>
           {showInlineDate && (
-            <p className="text-xs text-muted-foreground mt-0.5">{new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}</p>
+            <p className="mt-0.5 hidden text-xs text-muted-foreground md:block">{new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}</p>
           )}
           {(showInlineNotes || showInlineTags) && tx.notes && (
             <div className="mt-1 space-y-0.5">
@@ -1022,24 +1033,29 @@ export default function TransactionsPage() {
     const widthStyle = { width: grid.widthOf(col.id), minWidth: grid.widthOf(col.id) }
     const alignClass = col.align === 'right' ? 'text-right' : ''
     const baseClass = `py-2.5 ${alignClass}`
+    const mobileClass = col.id === 'description'
+      ? 'max-md:!w-auto max-md:!min-w-0'
+      : col.id === 'amount'
+        ? 'max-md:!w-28 max-md:!min-w-28'
+        : 'max-md:hidden'
     switch (col.id) {
       case 'date':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground tabular-nums`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} text-sm text-muted-foreground tabular-nums`}>
             {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
           </TableCell>
         )
       case 'description':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} pl-2 max-w-0`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 overflow-hidden pl-2`}>
             {renderDescriptionCell(tx)}
           </TableCell>
         )
       case 'category':
         return (
-          <TableCell key={col.id} style={widthStyle} className={baseClass}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass}`}>
             {tx.category ? (
-              <span className="text-sm text-muted-foreground">{tx.category.name}</span>
+              <span className="block truncate text-sm text-muted-foreground" title={tx.category.name}>{tx.category.name}</span>
             ) : (
               <span className="text-xs text-muted-foreground italic">{t('transactions.noCategory')}</span>
             )}
@@ -1048,11 +1064,11 @@ export default function TransactionsPage() {
       case 'account': {
         const acc = accountsList?.find((a) => a.id === tx.account_id)
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 overflow-hidden text-sm text-muted-foreground`}>
             {acc ? (
               <span className="flex items-center gap-2 min-w-0">
                 <AccountIcon account={acc} size="sm" />
-                <span className="truncate">{getAccountName(acc)}</span>
+                <span className="truncate" title={getAccountName(acc)}>{getAccountName(acc)}</span>
               </span>
             ) : (
               <span className="text-muted-foreground">—</span>
@@ -1062,20 +1078,22 @@ export default function TransactionsPage() {
       }
       case 'amount':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} pr-5`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pr-5`}>
             {renderAmountCell(tx)}
           </TableCell>
         )
       case 'payee':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground`}>
-            {tx.payee_name ?? tx.payee ?? <span className="text-muted-foreground">—</span>}
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 overflow-hidden text-sm text-muted-foreground`}>
+            {tx.payee_name ?? tx.payee ? (
+              <span className="block truncate" title={tx.payee_name ?? tx.payee ?? undefined}>{tx.payee_name ?? tx.payee}</span>
+            ) : <span className="text-muted-foreground">—</span>}
           </TableCell>
         )
       case 'notes': {
         const text = tx.notes ? stripHashtags(tx.notes) : ''
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-xs text-muted-foreground italic max-w-0 truncate`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 truncate text-xs italic text-muted-foreground`} title={text || undefined}>
             {text || <span className="not-italic">—</span>}
           </TableCell>
         )
@@ -1083,7 +1101,7 @@ export default function TransactionsPage() {
       case 'tags': {
         const tags = tx.notes ? parseHashtags(tx.notes) : []
         return (
-          <TableCell key={col.id} style={widthStyle} className={baseClass}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass}`}>
             {tags.length === 0 ? (
               <span className="text-muted-foreground">—</span>
             ) : (
@@ -1104,7 +1122,7 @@ export default function TransactionsPage() {
       }
       case 'attachments':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} pr-5 text-sm text-muted-foreground tabular-nums`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pr-5 text-sm text-muted-foreground tabular-nums`}>
             {(tx.attachment_count ?? 0) > 0 ? (
               <span className="inline-flex items-center gap-1 justify-end w-full">
                 <Paperclip size={12} />{tx.attachment_count}
@@ -1114,7 +1132,7 @@ export default function TransactionsPage() {
         )
       case 'type':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} text-sm`}>
             <span className={tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}>
               {tx.type === 'credit' ? t('transactions.typeIncome') : t('transactions.typeExpense')}
             </span>
@@ -1122,7 +1140,7 @@ export default function TransactionsPage() {
         )
       case 'status':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} text-sm text-muted-foreground capitalize`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} text-sm text-muted-foreground capitalize`}>
             {tx.status === 'pending'
               ? t('transactions.statusPending')
               : t('transactions.statusPosted')}
@@ -1507,14 +1525,11 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Bulk Action Bar — aligned with the main content area: clears the
-          fixed sidebar on lg+ and matches the page's max-w-7xl + p-6 wrapper
-          so the bar visually sits over the transactions list, not the
-          full viewport. */}
+      {/* Bulk Action Bar — aligned with the full-width main content area. */}
       <div
         className={`fixed bottom-0 left-0 right-0 lg:left-60 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
       >
-        <div className="mx-auto max-w-7xl px-3 md:px-6 pb-4 md:pb-6">
+        <div className="px-3 md:px-6 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
             {/* Selection count + net total — stacked vertically so the
                 sum (issue #185) adds no horizontal width to an already

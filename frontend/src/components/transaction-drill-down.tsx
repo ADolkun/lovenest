@@ -8,10 +8,12 @@ import { CategoryIcon } from '@/components/category-icon'
 import { useAuth } from '@/contexts/auth-context'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { transactionOrderDate } from '@/lib/transaction-order-date'
+import { compareTransactionAmountsDesc } from '@/lib/transaction-sort'
 import type { Transaction } from '@/types'
 
 export type DrillDownFilter = {
   title: string
+  sort?: 'date' | 'amount'
   category_id?: string
   uncategorized?: boolean
   account_id?: string
@@ -73,7 +75,7 @@ export function TransactionDrillDown({
         to: filter?.to,
         limit: 200,
         user_pnl_only: true,
-        sort_by: 'date',
+        sort_by: filter?.sort ?? 'date',
         sort_dir: 'desc',
       }),
     enabled: !!filter,
@@ -144,7 +146,9 @@ export function TransactionDrillDown({
       })
     }
 
-    items.sort((a, b) => b.orderDate.localeCompare(a.orderDate))
+    items.sort(filter?.sort === 'amount'
+      ? compareTransactionAmountsDesc
+      : (a, b) => b.orderDate.localeCompare(a.orderDate))
     return items
   }, [data, projectedTxs, filter, isAccrual])
 
@@ -258,7 +262,7 @@ export function TransactionDrillDown({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{item.description}</p>
+                      <p className="text-sm font-medium text-foreground truncate" title={item.description}>{item.description}</p>
                       {item.isProjected && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                           {t('transactions.recurringBadge')}

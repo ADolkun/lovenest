@@ -648,6 +648,7 @@ export default function DashboardPage() {
                 className="min-w-0 cursor-pointer hover:opacity-70 transition-opacity"
                 onClick={() => setDrillDown({
                   title: t('dashboard.drillDownIncome', { month: monthLabelStr }),
+                  sort: 'amount',
                   type: 'credit',
                   from: monthStart,
                   to: monthEnd,
@@ -668,6 +669,7 @@ export default function DashboardPage() {
                 className="min-w-0 cursor-pointer hover:opacity-70 transition-opacity"
                 onClick={() => setDrillDown({
                   title: t('dashboard.drillDownExpenses', { month: monthLabelStr }),
+                  sort: 'amount',
                   type: 'debit',
                   from: monthStart,
                   to: monthEnd,
@@ -1063,17 +1065,22 @@ export default function DashboardPage() {
             </div>
           ) : pagedRows.length > 0 ? (
             <>
-              <Table>
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow className="border-b border-border hover:bg-transparent">
-                    <TableHead className="pl-5 text-xs font-medium text-muted-foreground hidden sm:table-cell">{t('transactions.date')}</TableHead>
+                    <TableHead className="hidden w-36 pl-5 text-xs font-medium text-muted-foreground md:table-cell">{t('transactions.date')}</TableHead>
                     <TableHead className="text-xs font-medium text-muted-foreground">{t('transactions.description')}</TableHead>
-                    <TableHead className="text-xs font-medium text-muted-foreground hidden sm:table-cell">{t('transactions.account')}</TableHead>
-                    <TableHead className="pr-5 text-right text-xs font-medium text-muted-foreground">{t('transactions.amount')}</TableHead>
+                    <TableHead className="hidden w-64 text-xs font-medium text-muted-foreground md:table-cell">{t('transactions.account')}</TableHead>
+                    <TableHead className="w-36 pr-5 text-right text-xs font-medium text-muted-foreground">{t('transactions.amount')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pagedRows.map((row) => (
+                  {pagedRows.map((row) => {
+                    const acc = row.accountId
+                      ? accountsList?.find((account) => account.id === row.accountId)
+                      : undefined
+                    const accountName = acc ? getAccountName(acc) : null
+                    return (
                     <TableRow
                       key={row.key}
                       className={`border-b border-border last:border-0 ${
@@ -1095,15 +1102,15 @@ export default function DashboardPage() {
                         if (tx) { setEditingTx(tx); setDialogOpen(true) }
                       }}
                     >
-                      <TableCell className="py-2.5 pl-5 text-sm text-muted-foreground tabular-nums whitespace-nowrap hidden sm:table-cell">
+                      <TableCell className="hidden py-2.5 pl-5 text-sm text-muted-foreground tabular-nums whitespace-nowrap md:table-cell">
                         {formatDate(row.date, dateLocale)}
                       </TableCell>
-                      <TableCell className="py-2.5 pl-5 sm:pl-0">
-                        <div className="flex items-center gap-3">
+                      <TableCell className="max-w-0 overflow-hidden py-2.5 pl-5 md:pl-0">
+                        <div className="flex min-w-0 items-center gap-3">
                           <CategoryIcon icon={row.categoryIcon} color={row.categoryColor} size="lg" />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-foreground truncate">{row.description}</p>
+                          <div className="min-w-0 overflow-hidden">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <p className="min-w-0 truncate text-sm font-semibold text-foreground" title={row.description}>{row.description}</p>
                               {row.groupId && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 shrink-0 uppercase tracking-wide">
                                   {row.isShared && row.parentOwnerName
@@ -1127,23 +1134,25 @@ export default function DashboardPage() {
                                 <Paperclip size={12} className="text-muted-foreground shrink-0" />
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground sm:hidden">{formatDate(row.date, dateLocale)}</p>
+                            <p className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground md:hidden">
+                              <span className="shrink-0">{formatDate(row.date, dateLocale)}</span>
+                              {accountName && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="truncate" title={accountName}>{accountName}</span>
+                                </>
+                              )}
+                            </p>
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="py-2.5 text-sm text-muted-foreground hidden sm:table-cell">
-                        {(() => {
-                          const acc = row.accountId
-                            ? accountsList?.find((a) => a.id === row.accountId)
-                            : undefined
-                          if (!acc) return <span className="text-muted-foreground">—</span>
-                          return (
-                            <span className="flex items-center gap-2 min-w-0">
-                              <AccountIcon account={acc} size="sm" />
-                              <span className="truncate">{getAccountName(acc)}</span>
-                            </span>
-                          )
-                        })()}
+                      <TableCell className="hidden max-w-0 overflow-hidden py-2.5 text-sm text-muted-foreground md:table-cell">
+                        {acc && accountName ? (
+                          <span className="flex min-w-0 items-center gap-2 overflow-hidden">
+                            <AccountIcon account={acc} size="sm" />
+                            <span className="truncate" title={accountName}>{accountName}</span>
+                          </span>
+                        ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="py-2.5 pr-5 text-right">
                         <span className={`text-sm font-semibold tabular-nums ${row.isIgnored ? 'text-gray-500' : row.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
@@ -1170,7 +1179,8 @@ export default function DashboardPage() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
               {allDisplayRows.length > 10 && (

@@ -242,7 +242,7 @@ export default function GoalsPage() {
       />
 
       {/* Status filter */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {['active', 'completed', 'paused', 'archived', ''].map((s) => (
           <button
             key={s}
@@ -462,7 +462,7 @@ export default function GoalsPage() {
               <Input name="name" defaultValue={editing?.name ?? ''} required />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('goals.targetAmount')}</Label>
                 <Input
