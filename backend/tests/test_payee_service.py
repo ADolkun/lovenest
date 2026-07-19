@@ -188,7 +188,9 @@ async def test_get_payees_includes_zero_transaction_payees(session: AsyncSession
 
 @pytest.mark.asyncio
 async def test_get_or_create_payee_creates_new(session: AsyncSession, test_user, test_workspace):
-    payee = await get_or_create_payee(session, test_user.id, "New Payee")
+    payee = await get_or_create_payee(
+        session, test_user.id, "New Payee", workspace_id=test_workspace.id
+    )
     assert payee.name == "New Payee"
     assert payee.user_id == test_user.id
 
@@ -196,20 +198,26 @@ async def test_get_or_create_payee_creates_new(session: AsyncSession, test_user,
 @pytest.mark.asyncio
 async def test_get_or_create_payee_returns_existing(session: AsyncSession, test_user, test_workspace):
     original = await create_payee(session, test_workspace.id, test_user.id, PayeeCreate(name="Existing"))
-    found = await get_or_create_payee(session, test_user.id, "existing")  # case-insensitive
+    found = await get_or_create_payee(
+        session, test_user.id, "existing", workspace_id=test_workspace.id
+    )
     assert found.id == original.id
 
 
 @pytest.mark.asyncio
 async def test_get_or_create_payee_strips_whitespace(session: AsyncSession, test_user, test_workspace):
-    payee = await get_or_create_payee(session, test_user.id, "  Trimmed  ")
+    payee = await get_or_create_payee(
+        session, test_user.id, "  Trimmed  ", workspace_id=test_workspace.id
+    )
     assert payee.name == "Trimmed"
 
 
 @pytest.mark.asyncio
 async def test_get_or_create_payee_empty_raises(session: AsyncSession, test_user, test_workspace):
     with pytest.raises(ValueError, match="cannot be empty"):
-        await get_or_create_payee(session, test_user.id, "  ")
+        await get_or_create_payee(
+            session, test_user.id, "  ", workspace_id=test_workspace.id
+        )
 
 
 @pytest.mark.asyncio
