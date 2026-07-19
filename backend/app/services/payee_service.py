@@ -82,7 +82,9 @@ async def get_or_create_payee(
     if not name:
         raise ValueError("Payee name cannot be empty")
 
-    lookup = select(Payee).where(func.lower(Payee.name) == name.lower())
+    lookup = select(Payee).where(
+        func.lower(func.trim(Payee.name)) == name.lower()
+    )
     if workspace_id is not None:
         lookup = lookup.where(Payee.workspace_id == workspace_id)
     else:
@@ -116,14 +118,27 @@ async def create_payee(
     user_id: uuid.UUID,
     data: PayeeCreate,
 ) -> Payee:
+    name = data.name.strip()
+    if not name:
+        raise ValueError("Payee name cannot be empty")
+
     # Check uniqueness
     existing = await session.execute(
-        select(Payee).where(Payee.workspace_id == workspace_id, func.lower(Payee.name) == data.name.strip().lower())
+        select(Payee).where(
+            Payee.workspace_id == workspace_id,
+            func.lower(func.trim(Payee.name)) == name.lower(),
+        )
     )
     if existing.scalar_one_or_none():
         raise ValueError("A payee with this name already exists")
 
-    payee = Payee(user_id=user_id, workspace_id=workspace_id, **data.model_dump())
+    payee = Payee(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        name=name,
+        type=data.type,
+        notes=data.notes,
+    )
     session.add(payee)
     await session.flush()
 
@@ -147,11 +162,15 @@ async def update_payee(
     update_data = data.model_dump(exclude_unset=True)
 
     # Check name uniqueness if name is being changed
-    if "name" in update_data and update_data["name"]:
+    if "name" in update_data:
+        name = (update_data["name"] or "").strip()
+        if not name:
+            raise ValueError("Payee name cannot be empty")
+        update_data["name"] = name
         existing = await session.execute(
             select(Payee).where(
                 Payee.workspace_id == workspace_id,
-                func.lower(Payee.name) == update_data["name"].strip().lower(),
+                func.lower(func.trim(Payee.name)) == name.lower(),
                 Payee.id != payee_id,
             )
         )

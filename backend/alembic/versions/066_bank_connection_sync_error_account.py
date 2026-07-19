@@ -37,8 +37,8 @@ def upgrade() -> None:
     )
 
     # Migration 052 made payees workspace-owned but left the original
-    # user/name constraint behind. Collapse any case variants safely before
-    # replacing it with the workspace-scoped invariant used by the service.
+    # user/name constraint behind. Collapse case/whitespace variants safely
+    # before replacing it with the workspace-scoped invariant used by service.
     op.execute(
         """
         CREATE TEMP TABLE payee_dedupe_066 ON COMMIT DROP AS
@@ -47,11 +47,11 @@ def upgrade() -> None:
             SELECT
                 id,
                 first_value(id) OVER (
-                    PARTITION BY workspace_id, lower(name)
+                    PARTITION BY workspace_id, lower(btrim(name))
                     ORDER BY created_at, id
                 ) AS target_id,
                 row_number() OVER (
-                    PARTITION BY workspace_id, lower(name)
+                    PARTITION BY workspace_id, lower(btrim(name))
                     ORDER BY created_at, id
                 ) AS duplicate_rank
             FROM payees
@@ -184,12 +184,32 @@ def upgrade() -> None:
     op.create_index(
         "uq_payees_workspace_id_lower_name",
         "payees",
-        ["workspace_id", sa.text("lower(name)")],
+        ["workspace_id", sa.text("lower(btrim(name))")],
         unique=True,
     )
 
 
 def downgrade() -> None:
+    # Revision 066 permits the same exact name in different workspaces. Refuse
+    # to restore the old user-wide constraint if post-upgrade data uses that
+    # capability; silently merging or renaming payees would corrupt user data.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM payees
+                GROUP BY user_id, name
+                HAVING count(*) > 1
+            ) THEN
+                RAISE EXCEPTION
+                    'Cannot downgrade revision 066: identical payee names exist '
+                    'for the same user across workspaces';
+            END IF;
+        END $$
+        """
+    )
     op.drop_index("uq_payees_workspace_id_lower_name", table_name="payees")
     op.create_unique_constraint(
         "uq_payees_user_id_name", "payees", ["user_id", "name"]

@@ -34,7 +34,7 @@ class Payee(Base):
 Index(
     "uq_payees_workspace_id_lower_name",
     Payee.workspace_id,
-    func.lower(Payee.name),
+    func.lower(func.trim(Payee.name)),
     unique=True,
 )
 

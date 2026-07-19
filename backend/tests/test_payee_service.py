@@ -243,7 +243,7 @@ async def test_payee_name_is_case_insensitive_within_workspace(
     session.add(Payee(
         user_id=test_user.id,
         workspace_id=test_workspace.id,
-        name="case variant",
+        name="  case variant  ",
     ))
 
     with pytest.raises(IntegrityError):
@@ -299,6 +299,28 @@ async def test_update_payee(session: AsyncSession, test_user, test_workspace):
     assert updated.name == "New Name"
     assert updated.is_favorite is True
     assert updated.type == "merchant"  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_create_and_update_payee_strip_names(
+    session: AsyncSession, test_user, test_workspace
+):
+    payee = await create_payee(
+        session,
+        test_workspace.id,
+        test_user.id,
+        PayeeCreate(name="  Trimmed Create  "),
+    )
+    assert payee.name == "Trimmed Create"
+
+    updated = await update_payee(
+        session,
+        payee.id,
+        test_workspace.id,
+        PayeeUpdate(name="  Trimmed Update  "),
+    )
+    assert updated is not None
+    assert updated.name == "Trimmed Update"
 
 
 @pytest.mark.asyncio
