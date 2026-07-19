@@ -434,6 +434,29 @@ async def test_get_transactions_chunks_long_windows():
     assert len(calls) >= 3  # 200 days / 90-day window
 
 
+@pytest.mark.asyncio
+async def test_get_transactions_followup_rewinds_one_valid_full_window():
+    calls: list[tuple[int, int]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((
+            int(request.url.params["start-date"]),
+            int(request.url.params["end-date"]),
+        ))
+        return httpx.Response(
+            200, json={"accounts": [{"id": "acc-1", "transactions": []}]}
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        await SimpleFinProvider().get_transactions(
+            creds, "acc-1", since=date.today() - timedelta(days=14)
+        )
+
+    assert len(calls) == 1
+    assert calls[0][1] - calls[0][0] == 45 * 24 * 60 * 60
+
+
 # ----- holdings ---------------------------------------------------------------
 
 
