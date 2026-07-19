@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,14 @@ class Payee(Base):
 
     user: Mapped["User"] = relationship()
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="payee_entity")
+
+
+Index(
+    "uq_payees_workspace_id_lower_name",
+    Payee.workspace_id,
+    func.lower(func.trim(Payee.name)),
+    unique=True,
+)
 
 
 class PayeeMapping(Base):
