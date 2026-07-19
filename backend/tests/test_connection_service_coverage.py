@@ -239,6 +239,7 @@ async def test_sync_trigger_refresh_needs_user_action(session: AsyncSession, tes
         select(BankConnection).where(BankConnection.id == conn.id)
     )).scalar_one()
     assert refreshed.status == "error"
+    assert refreshed.sync_state_version == 1
 
 
 @pytest.mark.asyncio

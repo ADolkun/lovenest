@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import case, select, func, update, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.payee import Payee, PayeeMapping
@@ -94,9 +95,19 @@ async def get_or_create_payee(
     payee = Payee(user_id=user_id, name=name)
     if workspace_id is not None:
         payee.workspace_id = workspace_id
-    session.add(payee)
-    await session.flush()
-    return payee
+    try:
+        async with session.begin_nested():
+            session.add(payee)
+            await session.flush()
+        return payee
+    except IntegrityError:
+        # Another sync/import created it after our lookup. The savepoint keeps
+        # the caller's transaction usable; return the winner instead.
+        result = await session.execute(lookup)
+        existing = result.scalar_one_or_none()
+        if existing:
+            return existing
+        raise
 
 
 async def create_payee(
