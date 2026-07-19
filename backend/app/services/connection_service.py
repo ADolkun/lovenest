@@ -1092,18 +1092,21 @@ async def _find_synced_duplicate(
             if candidate.external_id in incoming_external_ids:
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
-            candidate_description = (
-                candidate_raw.get("description")
-                or candidate.payee
-                or candidate.description
+            candidate_descriptions = (
+                candidate_raw.get("description"), candidate.payee, candidate.description,
             )
-            incoming_description = (
-                raw.get("description") or txn_data.payee or txn_data.description
+            incoming_descriptions = (
+                raw.get("description"), txn_data.payee, txn_data.description,
+            )
+            description_matches = any(
+                left and right and _description_similarity(left, right) >= 0.9
+                for left in candidate_descriptions
+                for right in incoming_descriptions
             )
             if (
                 candidate_raw.get("posted") == posted
                 and candidate_raw.get("transacted_at") == transacted_at
-                and _description_similarity(candidate_description, incoming_description) >= 0.9
+                and description_matches
             ):
                 return candidate
 
