@@ -1,0 +1,20 @@
+@import "../../frontend/node_modules/tailwindcss/index.css";
+@source "./index.html";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-brand-50: #eef9f3;
+  --color-brand-100: #d6f0e2;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-ink-900: #0b1120;
+  --color-ink-850: #0f172a;
+  --color-ink-800: #111c33;
+  --color-ink-700: #1e293b;
+  --color-ink-600: #334155;
+  --color-ink-400: #94a3b8;
+  --color-ink-300: #cbd5e1;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, .08), 0 8px 24px -12px rgba(0, 0, 0, .25);
+}

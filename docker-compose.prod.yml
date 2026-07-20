@@ -117,6 +117,23 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
+  tax-planner:
+    build:
+      context: ./extras/tax
+    image: lovenest-tax-planner:0.13.9-lovenest
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/securo
+      BACKEND_URL: http://backend:8000
+      HUB_WORKSPACE_ID: ${HUB_WORKSPACE_ID:-}
+      BASE_PATH: /tax
+      TZ: ${TZ:-UTC}
+    depends_on:
+      backend: { condition: service_started }
+      db: { condition: service_healthy }
+    ports:
+      - "${TAX_PLANNER_PORT:-8088}:8088"
+    restart: unless-stopped
+
   frontend:
     # Built from this branch so the image includes Lovenest customizations.
     build:
@@ -131,6 +148,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     depends_on:
       - backend
+      - tax-planner
     restart: unless-stopped
 
   celery-worker:
