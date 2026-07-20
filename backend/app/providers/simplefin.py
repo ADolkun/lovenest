@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # initial sync (since=None) we walk backwards in chunks of this size; for
 # follow-up syncs the sync layer's typical 30-90 day window fits in one call.
 SIMPLEFIN_MAX_WINDOW_DAYS = 90
-SIMPLEFIN_DEFAULT_HISTORY_DAYS = 90
+SIMPLEFIN_DEFAULT_HISTORY_DAYS = 45
 SIMPLEFIN_INITIAL_HISTORY_DAYS = 365  # ~1 year backfill on first connect
 SIMPLEFIN_HTTP_TIMEOUT = 60.0
 
@@ -383,17 +383,27 @@ class SimpleFinProvider(BankProvider):
         if since is None:
             start_date = end_date - timedelta(days=SIMPLEFIN_INITIAL_HISTORY_DAYS)
         else:
-            start_date = since
+            # The Bridge can expose bank transactions weeks after their posted
+            # date. Always re-read one full provider window so delayed rows are
+            # eventually recovered instead of aging out of the sync cursor.
+            start_date = min(
+                since,
+                end_date - timedelta(days=SIMPLEFIN_DEFAULT_HISTORY_DAYS - 1),
+            )
         # Walk the request window in 90-day chunks (SimpleFIN's per-call cap).
         transactions: list[TransactionData] = []
         seen_ids: set[str] = set()
         cursor = start_date
-        while cursor <= end_date:
-            chunk_end = min(cursor + timedelta(days=SIMPLEFIN_MAX_WINDOW_DAYS), end_date)
+        end_exclusive = end_date + timedelta(days=1)
+        while cursor < end_exclusive:
+            chunk_end = min(
+                cursor + timedelta(days=SIMPLEFIN_MAX_WINDOW_DAYS),
+                end_exclusive,
+            )
             payload = await self._fetch_accounts(
                 credentials,
                 start_date=cursor,
-                end_date=chunk_end + timedelta(days=1),
+                end_date=chunk_end,
                 account_id=account_external_id,
                 pending=True,
             )
@@ -413,7 +423,7 @@ class SimpleFinProvider(BankProvider):
                     if parsed and parsed.external_id not in seen_ids:
                         seen_ids.add(parsed.external_id)
                         transactions.append(parsed)
-            cursor = chunk_end + timedelta(days=1)
+            cursor = chunk_end
         return transactions
 
     @staticmethod
