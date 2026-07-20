@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <base href="{{BASE_HREF}}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lovenest — Tax &amp; Planning</title>
+  <link rel="stylesheet" href="static/styles.css" />
+  <script defer src="static/alpine.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-feature-settings: "tnum" 1; }
+    .num { font-variant-numeric: tabular-nums; }
+    .privacy-mask .num, .privacy-mask input[type="number"] { filter: blur(5px); }
+    ::-webkit-scrollbar { height: 8px; width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-ink-900 text-slate-800 dark:text-ink-300 antialiased min-h-screen">
+<div
+  x-data="taxApp()"
+  x-init="init()"
+  x-cloak
+  :class="{ 'privacy-mask': privacy }"
+  class="min-h-screen flex flex-col"
+>
+  <!-- Header -->
+  <header class="sticky top-0 z-20 backdrop-blur bg-white/80 dark:bg-ink-850/80 border-b border-slate-200 dark:border-ink-700">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="h-9 w-9 rounded-2xl bg-gradient-to-br from-brand-400 to-brand-600 grid place-items-center shadow-card">
+          <svg class="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 4 6v6c0 5 3.4 7.7 8 10 4.6-2.3 8-5 8-10V6l-8-4Z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-semibold tracking-tight text-slate-900 dark:text-white">Lovenest</h1>
+          <p class="text-xs text-slate-500 dark:text-ink-400 -mt-0.5">Tax &amp; Planning</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3">
+        <a href="/"
+           class="text-sm px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-ink-700 hover:bg-slate-100 dark:hover:bg-ink-800 transition flex items-center gap-1.5">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+          <span class="hidden sm:inline">Back to Hub</span>
+        </a>
+        <button @click="toggleDark()"
+                class="h-9 w-9 grid place-items-center rounded-2xl border border-slate-200 dark:border-ink-700 hover:bg-slate-100 dark:hover:bg-ink-800 transition"
+                :title="dark ? 'Switch to light' : 'Switch to dark'">
+          <svg x-show="dark" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/></svg>
+          <svg x-show="!dark" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Tabs -->
+    <nav class="max-w-6xl mx-auto px-4 sm:px-6">
+      <div class="flex gap-1 -mb-px overflow-x-auto">
+        <template x-for="t in tabs" :key="t.id">
+          <button @click="tab = t.id"
+                  :class="tab === t.id
+                    ? 'border-brand-500 text-brand-600 dark:text-brand-400'
+                    : 'border-transparent text-slate-500 dark:text-ink-400 hover:text-slate-800 dark:hover:text-ink-300'"
+                  class="whitespace-nowrap px-3 sm:px-4 py-3 text-sm font-medium border-b-2 transition">
+            <span x-text="t.label"></span>
+          </button>
+        </template>
+      </div>
+    </nav>
+  </header>
+
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+
+    <!-- ============================ TAB A: ANNUAL TAX ESTIMATE ============================ -->
+    <section x-show="tab === 'estimate'" class="space-y-6">
+      <div class="grid lg:grid-cols-5 gap-6">
+        <!-- Form -->
+        <form @submit.prevent="runEstimate()" class="lg:col-span-3 space-y-5">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Annual Tax Estimate</h2>
+            <button type="button" @click="loadPrefill()"
+                    :disabled="prefillLoading"
+                    class="text-sm px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-ink-700 hover:bg-slate-100 dark:hover:bg-ink-800 transition flex items-center gap-1.5 disabled:opacity-50">
+              <svg class="h-4 w-4" :class="prefillLoading && 'animate-spin'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+              <span x-text="prefillLoading ? 'Loading…' : 'Load YTD from my data'"></span>
+            </button>
+          </div>
+          <p x-show="prefillMsg" x-text="prefillMsg" class="text-xs text-brand-600 dark:text-brand-400"></p>
+          <p x-show="prefillHint" x-text="prefillHint" class="text-xs text-slate-500 dark:text-ink-400"></p>
+
+          <!-- Income -->
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-brand-500"></span> Income
+            </h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in fields.income" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.label"></span>
+                  <div class="mt-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input type="number" step="0.01" x-model.number="est[f.k]"
+                           class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                  </div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <!-- Deductions / Pretax -->
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-indigo-500"></span> Deductions &amp; Pretax
+            </h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in fields.deductions" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.label"></span>
+                  <div class="mt-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input type="number" step="0.01" x-model.number="est[f.k]"
+                           class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                  </div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <!-- Withholding -->
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-amber-500"></span> Withholding
+            </h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in fields.withholding" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.label"></span>
+                  <div class="mt-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input type="number" step="0.01" x-model.number="est[f.k]"
+                           class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                  </div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <!-- Prior year -->
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-sky-500"></span> Prior Year (for safe harbor)
+            </h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in fields.prior" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.label"></span>
+                  <div class="mt-1 relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input type="number" step="0.01" x-model.number="est[f.k]"
+                           class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                  </div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <button type="submit" :disabled="estLoading"
+                  class="w-full py-3 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold shadow-card transition flex items-center justify-center gap-2 disabled:opacity-60">
+            <svg x-show="estLoading" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/></svg>
+            <span x-text="estLoading ? 'Calculating…' : 'Calculate'"></span>
+          </button>
+          <p x-show="estError" x-text="estError" class="text-sm text-rose-500 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2"></p>
+        </form>
+
+        <!-- Results -->
+        <div class="lg:col-span-2 space-y-4">
+          <template x-if="!estResult">
+            <div class="rounded-2xl border border-dashed border-slate-300 dark:border-ink-700 p-8 text-center text-sm text-slate-400 dark:text-ink-400">
+              Fill in the form and hit <span class="font-medium text-slate-600 dark:text-ink-300">Calculate</span> to see your federal + California estimate, safe-harbor target, and quarterly payment schedule.
+            </div>
+          </template>
+
+          <template x-if="estResult">
+            <div class="space-y-4">
+              <!-- Headline balance -->
+              <div class="rounded-2xl p-5 shadow-card text-white"
+                   :class="estResult.balance_due_or_refund >= 0 ? 'bg-gradient-to-br from-rose-500 to-rose-700' : 'bg-gradient-to-br from-brand-500 to-brand-700'">
+                <p class="text-xs uppercase tracking-wide opacity-90"
+                   x-text="estResult.balance_due_or_refund >= 0 ? 'Estimated balance due' : 'Estimated refund'"></p>
+                <p class="text-3xl font-bold num mt-1" x-text="usd(Math.abs(estResult.balance_due_or_refund))"></p>
+                <p class="text-xs opacity-90 mt-2">
+                  Total tax <span class="font-semibold" x-text="usd(estResult.total_tax)"></span>
+                  · Withheld <span class="font-semibold" x-text="usd(estResult.total_withholding)"></span>
+                </p>
+              </div>
+
+              <!-- Breakdown grid -->
+              <div class="grid grid-cols-2 gap-3">
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4">
+                  <p class="text-xs text-slate-500 dark:text-ink-400">Federal tax</p>
+                  <p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(estResult.federal_total_tax)"></p>
+                </div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4">
+                  <p class="text-xs text-slate-500 dark:text-ink-400">California tax</p>
+                  <p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(estResult.ca_total_tax)"></p>
+                </div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4">
+                  <p class="text-xs text-slate-500 dark:text-ink-400">Effective rate</p>
+                  <p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="pct(estResult.federal_effective_rate)"></p>
+                </div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4">
+                  <p class="text-xs text-slate-500 dark:text-ink-400">AGI</p>
+                  <p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(estResult.agi)"></p>
+                </div>
+              </div>
+
+              <!-- Std vs itemized -->
+              <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4" x-show="estResult.std_vs_itemized">
+                <p class="text-xs text-slate-500 dark:text-ink-400 mb-2">Deduction used</p>
+                <div class="flex items-center gap-2 text-sm">
+                  <span class="px-2 py-1 rounded-lg num"
+                        :class="estResult.std_vs_itemized.chosen === 'standard' ? 'bg-brand-100 text-brand-700 dark:bg-brand-700/30 dark:text-brand-400 font-semibold' : 'bg-slate-100 dark:bg-ink-800'">
+                    Standard <span x-text="usd(estResult.std_vs_itemized.federal_standard)"></span>
+                  </span>
+                  <span class="px-2 py-1 rounded-lg num"
+                        :class="estResult.std_vs_itemized.chosen === 'itemized' ? 'bg-brand-100 text-brand-700 dark:bg-brand-700/30 dark:text-brand-400 font-semibold' : 'bg-slate-100 dark:bg-ink-800'">
+                    Itemized <span x-text="usd(estResult.std_vs_itemized.federal_itemized)"></span>
+                  </span>
+                </div>
+              </div>
+
+              <!-- Safe harbor -->
+              <div class="rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 p-4" x-show="estResult.safe_harbor_annual != null">
+                <p class="text-xs text-sky-700 dark:text-sky-400">Safe-harbor annual target</p>
+                <p class="text-lg font-semibold num text-sky-900 dark:text-sky-200" x-text="usd(estResult.safe_harbor_annual)"></p>
+              </div>
+
+              <!-- Quarterly tables -->
+              <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4 space-y-4">
+                <div>
+                  <p class="text-sm font-semibold text-slate-900 dark:text-white mb-2">Federal estimated payments</p>
+                  <table class="w-full text-sm">
+                    <thead><tr class="text-slate-400 text-xs text-left"><th class="font-medium py-1">Due</th><th class="font-medium py-1 text-right">Amount</th></tr></thead>
+                    <tbody>
+                      <template x-for="(q, i) in (estResult.fed_quarterly || [])" :key="'f'+i">
+                        <tr class="border-t border-slate-100 dark:border-ink-700">
+                          <td class="py-1.5" x-text="q.due"></td>
+                          <td class="py-1.5 text-right num font-medium" x-text="usd(q.amount)"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <p class="text-sm font-semibold text-slate-900 dark:text-white mb-2">California estimated payments</p>
+                  <table class="w-full text-sm">
+                    <thead><tr class="text-slate-400 text-xs text-left"><th class="font-medium py-1">Due</th><th class="font-medium py-1 text-right">Amount</th></tr></thead>
+                    <tbody>
+                      <template x-for="(q, i) in (estResult.ca_quarterly || [])" :key="'c'+i">
+                        <tr class="border-t border-slate-100 dark:border-ink-700">
+                          <td class="py-1.5" x-text="q.due"></td>
+                          <td class="py-1.5 text-right num font-medium" x-text="usd(q.amount)"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Notes / assumptions -->
+              <div x-data="{ open: false }" class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card overflow-hidden">
+                <button @click="open = !open" class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-ink-300">
+                  <span>Assumptions &amp; notes</span>
+                  <svg class="h-4 w-4 transition" :class="open && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div x-show="open" class="px-4 pb-4 text-xs text-slate-500 dark:text-ink-400 space-y-2">
+                  <template x-if="estResult.assumptions">
+                    <ul class="list-disc pl-4 space-y-1">
+                      <template x-for="(v, k) in normNotes(estResult.assumptions)" :key="'a'+k">
+                        <li x-text="v"></li>
+                      </template>
+                    </ul>
+                  </template>
+                  <template x-if="estResult.notes">
+                    <ul class="list-disc pl-4 space-y-1">
+                      <template x-for="(v, k) in normNotes(estResult.notes)" :key="'n'+k">
+                        <li x-text="v"></li>
+                      </template>
+                    </ul>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ TAB B: RETIREMENT PLAN ============================ -->
+    <section x-show="tab === 'retirement'" class="space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Retirement contribution plan</h2>
+          <p class="text-sm text-slate-500 dark:text-ink-400 mt-1">Use actual YTD totals plus future payroll. Past salary and election changes stay actual instead of being recomputed.</p>
+        </div>
+        <a href="/assets" class="text-sm px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-ink-700 hover:bg-slate-100 dark:hover:bg-ink-800 transition whitespace-nowrap">View investments in Assets</a>
+      </div>
+
+      <div class="grid lg:grid-cols-5 gap-6">
+        <form @submit.prevent="runRetirement()" class="lg:col-span-3 space-y-5">
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4">Remaining payroll</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Current annual salary</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp.annual_salary" class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Eligible bonus still expected</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp.eligible_bonus" class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Paychecks / year</span>
+                <input type="number" min="1" step="1" x-model.number="rp.pay_periods" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Paychecks remaining</span>
+                <input type="number" min="0" step="1" x-model.number="rp.remaining_paychecks" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Age (0 if under 50)</span>
+                <input type="number" min="0" step="1" x-model.number="rp.age" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Current employee 401(k) rate</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="0.1" x-model.number="rp.current_401k_pct" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4">401(k) actuals and goal</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in [
+                {k:'employee_401k_ytd',l:'Employee 401(k) contributed YTD'},
+                {k:'employer_401k_ytd',l:'Employer match / nonelective YTD'},
+                {k:'after_tax_401k_ytd',l:'Non-Roth after-tax 401(k) YTD'},
+                {k:'target_401k',l:'Employee 401(k) target'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp[f.k]" class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /></div>
+                </label>
+              </template>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Roth share of current 401(k)</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="1" x-model.number="rp.current_roth_share_pct" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Roth share of future 401(k)</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="1" x-model.number="rp.future_roth_share_pct" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Rate needed for full match</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="0.1" x-model.number="rp.match_required_pct" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Payroll rate increment</span>
+                <div class="mt-1 relative"><input type="number" min="0.01" max="100" step="0.01" x-model.number="rp.payroll_rate_increment" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">Plan maximum election</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="0.1" x-model.number="rp.plan_max_pct" class="w-full pl-3 pr-7 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span></div>
+              </label>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4">HSA and IRA goals</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400">HSA coverage</span>
+                <select x-model="rp.hsa_coverage" class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800">
+                  <option value="self">Self-only</option>
+                  <option value="family">Family</option>
+                </select>
+              </label>
+              <template x-for="f in [
+                {k:'hsa_goal',l:'HSA annual goal'}, {k:'hsa_ytd',l:'HSA contributed YTD (all sources)'},
+                {k:'current_hsa_per_period',l:'Current HSA per paycheck'},
+                {k:'ira_goal',l:'IRA annual goal'}, {k:'ira_ytd',l:'IRA contributed YTD'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp[f.k]" class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /></div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-1">Other paycheck deductions</h3>
+            <p class="text-xs text-slate-400 mb-4">Held unchanged so the take-home comparison remains apples-to-apples.</p>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in [
+                {k:'other_pretax_per_period',l:'Other pretax per paycheck'},
+                {k:'roth_ira_per_period',l:'Roth IRA transfer per paycheck'},
+                {k:'extra_fed_withholding_per_period',l:'Extra federal withholding'},
+                {k:'ytd_social_security_wages',l:'YTD Social Security wages'},
+                {k:'ytd_medicare_wages',l:'YTD Medicare wages'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp[f.k]" class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 num" /></div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <button type="submit" :disabled="rpLoading" class="w-full py-3 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold shadow-card transition disabled:opacity-60">
+            <span x-text="rpLoading ? 'Planning…' : 'Plan remaining contributions'"></span>
+          </button>
+          <p x-show="rpError" x-text="rpError" class="text-sm text-rose-500 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2"></p>
+        </form>
+
+        <div class="lg:col-span-2 space-y-4">
+          <template x-if="!rpResult">
+            <div class="rounded-2xl border border-dashed border-slate-300 dark:border-ink-700 p-8 text-center text-sm text-slate-400 dark:text-ink-400">Enter actual YTD contributions and remaining payroll to get a rate that only changes future checks.</div>
+          </template>
+          <template x-if="rpResult">
+            <div class="space-y-4">
+              <div class="rounded-2xl p-5 shadow-card text-white bg-gradient-to-br from-indigo-500 to-indigo-700">
+                <p class="text-xs uppercase tracking-wide opacity-90">Recommended 401(k) rate now</p>
+                <p class="text-3xl font-bold num mt-1" x-text="rate(rpResult.recommended_401k_pct)"></p>
+                <p class="text-xs opacity-90 mt-2"><span x-text="usd(rpResult.recommended_401k_per_paycheck)"></span> per regular paycheck</p>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-4 shadow-card"><p class="text-xs text-slate-500 dark:text-ink-400">401(k) remaining</p><p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(rpResult.remaining_401k)"></p></div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-4 shadow-card"><p class="text-xs text-slate-500 dark:text-ink-400">Projected with recommendation</p><p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(rpResult.projected_401k)"></p></div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-4 shadow-card"><p class="text-xs text-slate-500 dark:text-ink-400">Projected at current rate</p><p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(rpResult.projected_401k_at_current_rate)"></p></div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-4 shadow-card"><p class="text-xs text-slate-500 dark:text-ink-400">HSA needed / paycheck</p><p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(rpResult.recommended_hsa_per_paycheck)"></p></div>
+                <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-4 shadow-card"><p class="text-xs text-slate-500 dark:text-ink-400">IRA remaining</p><p class="text-lg font-semibold num text-slate-900 dark:text-white" x-text="usd(rpResult.ira_remaining)"></p></div>
+              </div>
+              <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-4">
+                <p class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Next-paycheck impact</p>
+                <div class="flex justify-between text-sm"><span class="text-slate-500 dark:text-ink-400">Current elections</span><span class="num" x-text="usd(rpResult.current_take_home)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-slate-500 dark:text-ink-400">Recommended elections</span><span class="num" x-text="usd(rpResult.recommended_take_home)"></span></div>
+                <div class="flex justify-between text-sm font-semibold mt-3 pt-3 border-t border-slate-100 dark:border-ink-700"><span>Change per paycheck</span><span class="num" :class="rpResult.take_home_change < 0 ? 'text-rose-500' : 'text-brand-500'" x-text="usd(rpResult.take_home_change)"></span></div>
+              </div>
+              <div x-show="rpResult.current_rate_shortfall > 0" class="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-4 text-sm text-amber-800 dark:text-amber-300">At the current rate, the 401(k) shortfall is <strong x-text="usd(rpResult.current_rate_shortfall)"></strong>.</div>
+              <div x-show="rpResult.projected_401k_shortfall > 0" class="rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 p-4 text-sm text-rose-800 dark:text-rose-300">Even at the recommended capped rate, the 401(k) shortfall is <strong x-text="usd(rpResult.projected_401k_shortfall)"></strong>.</div>
+              <div x-show="rpResult.final_pay_adjustment > 0" class="rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 p-4 text-sm text-sky-800 dark:text-sky-300">Payroll may need to reduce the final contribution by <strong x-text="usd(rpResult.final_pay_adjustment)"></strong> because elections are rounded.</div>
+              <template x-if="rpResult.warnings && rpResult.warnings.length">
+                <ul class="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-4 text-sm text-amber-800 dark:text-amber-300 list-disc pl-8 space-y-1"><template x-for="w in rpResult.warnings" :key="w"><li x-text="w"></li></template></ul>
+              </template>
+              <button @click="applyRetirementToPaycheck()" class="w-full py-2.5 rounded-2xl border border-brand-500 text-brand-600 dark:text-brand-400 font-medium hover:bg-brand-50 dark:hover:bg-brand-950/20 transition">Use this in Paycheck</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-400">Defaults use 2026 <a class="underline hover:text-brand-500" target="_blank" rel="noreferrer" href="https://www.irs.gov/retirement-plans/plan-participant-employee/retirement-topics-401k-and-profit-sharing-plan-contribution-limits">401(k)</a>, <a class="underline hover:text-brand-500" target="_blank" rel="noreferrer" href="https://www.irs.gov/retirement-plans/cola-increases-for-dollar-limitations-on-benefits-and-contributions">IRA</a>, and family-coverage <a class="underline hover:text-brand-500" target="_blank" rel="noreferrer" href="https://www.irs.gov/irb/2025-21_IRB">HSA</a> limits. Change the goals for your eligibility. Employer match, plan maximums, bonus eligibility, and true-up rules remain plan-specific. Estimates only.</p>
+    </section>
+
+    <!-- ============================ TAB C: PAYCHECK ============================ -->
+    <section x-show="tab === 'paycheck'" class="space-y-6">
+      <div class="grid lg:grid-cols-5 gap-6">
+        <form @submit.prevent="runPaycheck()" class="lg:col-span-2 space-y-5">
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Paycheck / Take-home</h2>
+          <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5 space-y-4">
+            <label class="block">
+              <span class="text-xs text-slate-500 dark:text-ink-400">Annual salary</span>
+              <div class="mt-1 relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                <input type="number" step="0.01" x-model.number="pc.annual_salary"
+                       class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="text-xs text-slate-500 dark:text-ink-400">Pay periods / year</span>
+              <input type="number" step="1" x-model.number="pc.pay_periods"
+                     class="mt-1 w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+            </label>
+            <label class="block">
+              <span class="text-xs text-slate-500 dark:text-ink-400">401(k) pretax %</span>
+              <div class="mt-1 relative">
+                <input type="number" step="0.1" x-model.number="pc.pretax_401k_pct"
+                       class="w-full pr-7 pl-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+              </div>
+            </label>
+            <label class="block">
+              <span class="text-xs text-slate-500 dark:text-ink-400">401(k) Roth %</span>
+              <div class="mt-1 relative">
+                <input type="number" min="0" max="100" step="0.1" x-model.number="pc.roth_401k_pct"
+                       class="w-full pr-7 pl-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
+              </div>
+            </label>
+            <template x-for="f in fields.paycheck" :key="f.k">
+              <label class="block">
+                <span class="text-xs text-slate-500 dark:text-ink-400" x-text="f.label"></span>
+                <div class="mt-1 relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                  <input type="number" step="0.01" x-model.number="pc[f.k]"
+                         class="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-ink-700 bg-slate-50 dark:bg-ink-800 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none num" />
+                </div>
+              </label>
+            </template>
+          </div>
+          <button type="submit" :disabled="pcLoading"
+                  class="w-full py-3 rounded-2xl bg-brand-600 hover:bg-brand-700 text-white font-semibold shadow-card transition flex items-center justify-center gap-2 disabled:opacity-60">
+            <svg x-show="pcLoading" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/></svg>
+            <span x-text="pcLoading ? 'Calculating…' : 'Calculate take-home'"></span>
+          </button>
+          <p x-show="pcError" x-text="pcError" class="text-sm text-rose-500 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2"></p>
+        </form>
+
+        <div class="lg:col-span-3 space-y-4">
+          <template x-if="!pcResult">
+            <div class="rounded-2xl border border-dashed border-slate-300 dark:border-ink-700 p-8 text-center text-sm text-slate-400 dark:text-ink-400">
+              Enter your salary and contributions to see your per-period take-home and where the gross goes.
+            </div>
+          </template>
+          <template x-if="pcResult">
+            <div class="space-y-4">
+              <div class="rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white p-5 shadow-card">
+                <p class="text-xs uppercase tracking-wide opacity-90">Net per period</p>
+                <p class="text-2xl font-bold num mt-1" x-text="usd(pcResult.net_take_home_per_period)"></p>
+              </div>
+
+              <!-- Distribution bars -->
+              <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card p-5">
+                <p class="text-sm font-semibold text-slate-900 dark:text-white mb-1">Where each paycheck goes</p>
+                <p class="text-xs text-slate-400 mb-4">Gross <span class="num font-medium" x-text="usd(pcResult.gross)"></span> per period</p>
+                <div class="space-y-3">
+                  <template x-for="row in paycheckBars()" :key="row.label">
+                    <div>
+                      <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-600 dark:text-ink-300" x-text="row.label"></span>
+                        <span class="num font-medium" :class="row.net ? 'text-brand-600 dark:text-brand-400' : 'text-slate-500 dark:text-ink-400'" x-text="usd(row.value)"></span>
+                      </div>
+                      <div class="h-2.5 rounded-full bg-slate-100 dark:bg-ink-800 overflow-hidden">
+                        <div class="h-full rounded-full transition-all" :class="row.color"
+                             :style="`width:${row.pct}%`"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div x-show="pcResult.notes" x-data="{ open:false }" class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card overflow-hidden">
+                <button @click="open=!open" class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-ink-300">
+                  <span>Notes</span>
+                  <svg class="h-4 w-4 transition" :class="open && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div x-show="open" class="px-4 pb-4 text-xs text-slate-500 dark:text-ink-400">
+                  <ul class="list-disc pl-4 space-y-1">
+                    <template x-for="(v,k) in normNotes(pcResult.notes)" :key="'pn'+k"><li x-text="v"></li></template>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ TAB C: WRITE-OFFS ============================ -->
+    <section x-show="tab === 'writeoffs'" class="space-y-6">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Write-offs — 2026 YTD</h2>
+        <button @click="loadWriteoffs()" :disabled="woLoading"
+                class="text-sm px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-ink-700 hover:bg-slate-100 dark:hover:bg-ink-800 transition flex items-center gap-1.5 disabled:opacity-50">
+          <svg class="h-4 w-4" :class="woLoading && 'animate-spin'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <p x-show="wo && wo.error" x-text="'Data note: ' + (wo && wo.error)"
+         class="text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-xl px-3 py-2"></p>
+
+      <!-- Totals -->
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div class="rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white p-5 shadow-card">
+          <p class="text-xs uppercase tracking-wide opacity-90">Schedule C business total</p>
+          <p class="text-3xl font-bold num mt-1" x-text="usd(wo && wo.totals ? wo.totals.schedule_c_total : 0)"></p>
+        </div>
+        <div class="rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white p-5 shadow-card">
+          <p class="text-xs uppercase tracking-wide opacity-90">#ded personal deductions total</p>
+          <p class="text-3xl font-bold num mt-1" x-text="usd(wo && wo.totals ? wo.totals.ded_total : 0)"></p>
+        </div>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-6">
+        <!-- Schedule C table -->
+        <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card overflow-hidden">
+          <div class="px-5 py-3 border-b border-slate-100 dark:border-ink-700">
+            <p class="text-sm font-semibold text-slate-900 dark:text-white">Business / Schedule C categories</p>
+          </div>
+          <table class="w-full text-sm">
+            <thead><tr class="text-slate-400 text-xs text-left">
+              <th class="font-medium px-5 py-2">Category</th>
+              <th class="font-medium px-5 py-2 text-right">Count</th>
+              <th class="font-medium px-5 py-2 text-right">Total</th>
+            </tr></thead>
+            <tbody>
+              <template x-if="!wo || !wo.schedule_c || !wo.schedule_c.length">
+                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-400" x-text="woLoading ? 'Loading…' : 'No Schedule C transactions yet.'"></td></tr>
+              </template>
+              <template x-for="r in (wo && wo.schedule_c) || []" :key="r.category">
+                <tr class="border-t border-slate-100 dark:border-ink-700 hover:bg-slate-50 dark:hover:bg-ink-800/50">
+                  <td class="px-5 py-2.5 text-slate-700 dark:text-ink-300" x-text="r.category"></td>
+                  <td class="px-5 py-2.5 text-right num text-slate-400" x-text="r.count"></td>
+                  <td class="px-5 py-2.5 text-right num font-medium text-slate-900 dark:text-white" x-text="usd(r.total)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- #ded tags table -->
+        <div class="rounded-2xl bg-white dark:bg-ink-850 border border-slate-200 dark:border-ink-700 shadow-card overflow-hidden">
+          <div class="px-5 py-3 border-b border-slate-100 dark:border-ink-700">
+            <p class="text-sm font-semibold text-slate-900 dark:text-white">#ded deduction tags</p>
+          </div>
+          <table class="w-full text-sm">
+            <thead><tr class="text-slate-400 text-xs text-left">
+              <th class="font-medium px-5 py-2">Tag</th>
+              <th class="font-medium px-5 py-2 text-right">Count</th>
+              <th class="font-medium px-5 py-2 text-right">Total</th>
+            </tr></thead>
+            <tbody>
+              <template x-if="!wo || !wo.deduction_tags || !wo.deduction_tags.length">
+                <tr><td colspan="3" class="px-5 py-6 text-center text-slate-400" x-text="woLoading ? 'Loading…' : 'No #ded tags found.'"></td></tr>
+              </template>
+              <template x-for="r in (wo && wo.deduction_tags) || []" :key="r.tag">
+                <tr class="border-t border-slate-100 dark:border-ink-700 hover:bg-slate-50 dark:hover:bg-ink-800/50">
+                  <td class="px-5 py-2.5">
+                    <code class="text-xs px-1.5 py-0.5 rounded bg-brand-100 text-brand-700 dark:bg-brand-700/30 dark:text-brand-400" x-text="r.tag"></code>
+                  </td>
+                  <td class="px-5 py-2.5 text-right num text-slate-400" x-text="r.count"></td>
+                  <td class="px-5 py-2.5 text-right num font-medium text-slate-900 dark:text-white" x-text="usd(r.total)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tagging convention explainer -->
+      <div class="rounded-2xl bg-slate-50 dark:bg-ink-850 border border-slate-200 dark:border-ink-700 p-5">
+        <p class="text-sm font-semibold text-slate-900 dark:text-white mb-2">How tagging works</p>
+        <p class="text-sm text-slate-500 dark:text-ink-400 mb-3">
+          These totals are read live from Lovenest (read-only), counting only posted debits dated on or after Jan 1, 2026, excluding any transaction marked <em>ignored</em>.
+        </p>
+        <ul class="text-sm text-slate-500 dark:text-ink-400 space-y-1.5">
+          <li><span class="font-medium text-slate-700 dark:text-ink-300">Business / Schedule C group</span> — any category filed under this category group rolls into the Schedule C total automatically. No tag needed.</li>
+          <li><code class="text-xs px-1.5 py-0.5 rounded bg-slate-200 dark:bg-ink-700">#ded</code> — add to a transaction's notes to flag a personal deductible expense.</li>
+          <li><code class="text-xs px-1.5 py-0.5 rounded bg-slate-200 dark:bg-ink-700">#ded-charity</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-slate-200 dark:bg-ink-700">#ded-salt</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-slate-200 dark:bg-ink-700">#ded-medical</code> — subtags split deductions by type; each exact tag is totaled separately.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-slate-200 dark:border-ink-700 py-4">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 text-xs text-slate-400 flex items-center justify-between">
+      <span>Lovenest companion · read-only · LAN</span>
+      <span>Estimates only — not tax advice.</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+function taxApp() {
+  return {
+    dark: true,
+    tab: "estimate",
+    tabs: [
+      { id: "estimate", label: "Annual Tax Estimate" },
+      { id: "retirement", label: "Retirement Plan" },
+      { id: "paycheck", label: "Paycheck / Take-home" },
+      { id: "writeoffs", label: "Write-offs (YTD)" },
+    ],
+
+    // ---- field metadata (keys must match tax_engine input contract) ----
+    fields: {
+      income: [
+        { k: "wages", label: "Wages (W-2)" },
+        { k: "se_net_profit", label: "Self-employment net profit" },
+        { k: "st_cap_gains", label: "Short-term capital gains" },
+        { k: "lt_cap_gains", label: "Long-term capital gains" },
+        { k: "qualified_dividends", label: "Qualified dividends" },
+        { k: "ordinary_dividends", label: "Ordinary dividends" },
+        { k: "interest_income", label: "Interest income" },
+        { k: "other_ordinary_income", label: "Other ordinary income" },
+      ],
+      deductions: [
+        { k: "pretax_401k", label: "401(k) pretax" },
+        { k: "direct_hsa_deduction", label: "Direct / outside-payroll HSA deduction" },
+        { k: "trad_ira_deduction", label: "Traditional IRA deduction" },
+        { k: "itemized_deductions", label: "Itemized deductions" },
+      ],
+      withholding: [
+        { k: "fed_withholding", label: "Federal withholding" },
+        { k: "state_withholding", label: "State (CA) withholding" },
+      ],
+      prior: [
+        { k: "prior_year_total_tax", label: "Prior-year total tax" },
+        { k: "prior_year_agi", label: "Prior-year AGI" },
+      ],
+      paycheck: [
+        { k: "hsa_per_period", label: "HSA per period" },
+        { k: "roth_ira_per_period", label: "Roth IRA per period" },
+        { k: "other_pretax_per_period", label: "Other pretax per period" },
+        { k: "extra_fed_withholding_per_period", label: "Extra federal withholding per period" },
+        { k: "ytd_social_security_wages", label: "YTD Social Security wages" },
+        { k: "ytd_medicare_wages", label: "YTD Medicare wages" },
+      ],
+    },
+
+    // ---- estimate state ----
+    est: {
+      wages: 0, fed_withholding: 0, state_withholding: 0,
+      se_net_profit: 0, st_cap_gains: 0, lt_cap_gains: 0,
+      qualified_dividends: 0, ordinary_dividends: 0, interest_income: 0,
+      other_ordinary_income: 0, pretax_401k: 0, direct_hsa_deduction: 0,
+      trad_ira_deduction: 0, itemized_deductions: 0,
+      prior_year_total_tax: 0, prior_year_agi: 0,
+    },
+    estResult: null, estLoading: false, estError: "",
+    prefillLoading: false, prefillMsg: "", prefillHint: "",
+
+    // ---- paycheck state ----
+    pc: {
+      annual_salary: 0, pay_periods: 26, pretax_401k_pct: 0, roth_401k_pct: 0,
+      hsa_per_period: 0, roth_ira_per_period: 0,
+      other_pretax_per_period: 0, extra_fed_withholding_per_period: 0,
+      ytd_social_security_wages: 0, ytd_medicare_wages: 0,
+    },
+    pcResult: null, pcLoading: false, pcError: "",
+
+    // ---- retirement plan state ----
+    rp: {
+      annual_salary: 0, pay_periods: 26, remaining_paychecks: 13, age: 0,
+      employee_401k_ytd: 0, employer_401k_ytd: 0, after_tax_401k_ytd: 0,
+      target_401k: 24500, current_401k_pct: 0, current_roth_share_pct: 0,
+      future_roth_share_pct: 0,
+      payroll_rate_increment: 0.1, plan_max_pct: 100, match_required_pct: 0,
+      eligible_bonus: 0, hsa_coverage: "family", hsa_goal: 8750, hsa_ytd: 0,
+      current_hsa_per_period: 0, ira_goal: 7500, ira_ytd: 0,
+      other_pretax_per_period: 0, roth_ira_per_period: 0,
+      extra_fed_withholding_per_period: 0,
+      ytd_social_security_wages: 0, ytd_medicare_wages: 0,
+    },
+    rpResult: null, rpLoading: false, rpError: "",
+
+    // ---- writeoffs state ----
+    wo: null, woLoading: false, woLoaded: false,
+    privacy: false,
+
+    init() {
+      if (!localStorage.getItem("token")) {
+        window.location.replace("/login");
+        return;
+      }
+      const stored = localStorage.getItem("lovenest-theme") || localStorage.getItem("securo-theme");
+      if (stored) this.dark = stored === "dark";
+      this.privacy = localStorage.getItem("privacyMode") === "true";
+      this.applyDark();
+      this.$watch("tab", (v) => { if (v === "writeoffs" && !this.woLoaded) this.loadWriteoffs(); });
+
+      // Restore typed inputs from last session, merged over defaults so newly
+      // added fields keep a sensible default instead of becoming undefined.
+      const hadEst = this.hydrate("lovenest-tax-est", this.est) || this.hydrate("securo-tax-est", this.est);
+      this.hydrate("lovenest-tax-pc", this.pc) || this.hydrate("securo-tax-pc", this.pc);
+      this.hydrate("lovenest-tax-retirement", this.rp);
+
+      // Persist on every edit (deep watch follows nested field changes).
+      this.$watch("est", (v) => this.persist("lovenest-tax-est", v));
+      this.$watch("pc", (v) => this.persist("lovenest-tax-pc", v));
+      this.$watch("rp", (v) => this.persist("lovenest-tax-retirement", v));
+
+      // First-ever visit (no saved estimate): connect to real Lovenest data so
+      // the form opens with the user's YTD figures, not demo defaults. A saved
+      // session always wins and is never auto-overwritten. Record the visit up
+      // front so the next load restores (not re-prefills) even if prefill
+      // changed no fields.
+      if (!hadEst) {
+        this.persist("lovenest-tax-est", this.est);
+        this.loadPrefill();
+      }
+    },
+
+    // Merge stored JSON over `target` in place. Returns whether saved data
+    // existed. Bad/old payloads are ignored so a single corrupt key can't break
+    // the page.
+    hydrate(key, target) {
+      const raw = localStorage.getItem(key);
+      if (!raw) return false;
+      try {
+        const saved = JSON.parse(raw);
+        if (saved && typeof saved === "object") Object.assign(target, saved);
+        return true;
+      } catch (_) { return false; }
+    },
+    persist(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+    },
+
+    // ---- theming ----
+    applyDark() { document.documentElement.classList.toggle("dark", this.dark); },
+    toggleDark() { this.dark = !this.dark; this.applyDark(); localStorage.setItem("lovenest-theme", this.dark ? "dark" : "light"); },
+
+    // ---- formatting ----
+    usd(n) {
+      if (this.privacy) return "$•••••";
+      const v = Number(n);
+      if (!isFinite(v)) return "$0.00";
+      return v.toLocaleString("en-US", { style: "currency", currency: "USD" });
+    },
+    pct(n) {
+      let v = Number(n);
+      if (!isFinite(v)) return "0.0%";
+      if (v <= 1) v *= 100; // accept either 0.18 or 18
+      return v.toFixed(1) + "%";
+    },
+    rate(n) {
+      const v = Number(n);
+      return (isFinite(v) ? v : 0).toFixed(1) + "%";
+    },
+    // tax_engine notes/assumptions may be a list or an object — normalize to
+    // an array of strings for display.
+    normNotes(x) {
+      if (!x) return [];
+      if (Array.isArray(x)) return x.map(String);
+      if (typeof x === "object") return Object.entries(x).map(([k, v]) => `${k}: ${v}`);
+      return [String(x)];
+    },
+
+    async authFetch(url, options = {}) {
+      const token = localStorage.getItem("token");
+      const workspaceId = localStorage.getItem("workspace_id");
+      const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
+      if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
+      const r = await fetch(url, { ...options, headers });
+      if (r.status === 401) {
+        localStorage.removeItem("token");
+        window.location.replace("/login");
+        throw new Error("Your session expired.");
+      }
+      return r;
+    },
+
+    async postJSON(url, body) {
+      const r = await this.authFetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        let detail = `Request failed (${r.status})`;
+        try { const j = await r.json(); detail = j.error || j.detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      return r.json();
+    },
+
+    async runEstimate() {
+      this.estLoading = true; this.estError = "";
+      try {
+        this.estResult = await this.postJSON("api/tax/estimate", this.est);
+      } catch (e) {
+        this.estError = e.message || "Could not calculate estimate.";
+        this.estResult = null;
+      } finally { this.estLoading = false; }
+    },
+
+    async loadPrefill() {
+      this.prefillLoading = true; this.prefillMsg = ""; this.prefillHint = "";
+      try {
+        const r = await this.authFetch("api/prefill");
+        const d = await r.json();
+        if (d.error) { this.prefillMsg = "Couldn't read your data: " + d.error; return; }
+        // total_income is every non-transfer deposit YTD, not W-2 wages, so it
+        // can't be dropped straight into `wages` (the engine treats that as
+        // strictly W-2). Surface it as a labeled hint instead and let the user
+        // enter their actual wages. interest_income is a fair mapping — prefill.
+        if (typeof d.total_income === "number" && d.total_income > 0) {
+          this.prefillHint = `YTD deposits: ${this.usd(d.total_income)} — set Wages (W-2) to your actual W-2 amount.`;
+        }
+        if (typeof d.interest_income === "number" && d.interest_income > 0) {
+          this.est.interest_income = Math.round(d.interest_income);
+        }
+        this.prefillMsg = `Loaded YTD ${d.year || ""}: interest ${this.usd(d.interest_income || 0)}. Review before calculating.`;
+      } catch (e) {
+        this.prefillMsg = "Couldn't reach the data endpoint.";
+      } finally { this.prefillLoading = false; }
+    },
+
+    async runPaycheck() {
+      this.pcLoading = true; this.pcError = "";
+      try {
+        this.pcResult = await this.postJSON("api/paycheck", this.pc);
+      } catch (e) {
+        this.pcError = e.message || "Could not calculate paycheck.";
+        this.pcResult = null;
+      } finally { this.pcLoading = false; }
+    },
+
+    async runRetirement() {
+      this.rpLoading = true; this.rpError = "";
+      try {
+        this.rpResult = await this.postJSON("api/retirement-plan", this.rp);
+      } catch (e) {
+        this.rpError = e.message || "Could not plan contributions.";
+        this.rpResult = null;
+      } finally { this.rpLoading = false; }
+    },
+
+    applyRetirementToPaycheck() {
+      if (!this.rpResult) return;
+      Object.assign(this.pc, this.rpResult.recommended_paycheck_inputs);
+      this.tab = "paycheck";
+      this.$nextTick(() => this.runPaycheck());
+    },
+
+    // Build the gross->net distribution rows from the paycheck result.
+    paycheckBars() {
+      const r = this.pcResult;
+      if (!r) return [];
+      const gross = Number(r.gross) || 0;
+      const defs = [
+        { label: "401(k) pretax", key: "401k_pretax", color: "bg-indigo-500" },
+        { label: "401(k) Roth", key: "401k_roth", color: "bg-violet-500" },
+        { label: "HSA pretax", key: "hsa_pretax", color: "bg-sky-500" },
+        { label: "Federal income tax", key: "federal_income_withholding", color: "bg-rose-500" },
+        { label: "Social Security", key: "social_security", color: "bg-amber-500" },
+        { label: "Medicare", key: "medicare", color: "bg-orange-500" },
+        { label: "CA income tax", key: "ca_income_withholding", color: "bg-fuchsia-500" },
+        { label: "CA SDI", key: "ca_sdi", color: "bg-pink-500" },
+        { label: "Roth IRA", key: "roth_ira_per_period", color: "bg-violet-500" },
+        { label: "Net take-home", key: "net_take_home_per_period", color: "bg-brand-500", net: true },
+      ];
+      // Roth comes from the input (post-tax), not necessarily the result dict.
+      const val = (k) => k === "roth_ira_per_period"
+        ? (Number(r[k]) || Number(this.pc.roth_ira_per_period) || 0)
+        : (Number(r[k]) || 0);
+      return defs
+        .map((d) => {
+          const value = val(d.key);
+          return { ...d, value, pct: gross > 0 ? Math.max(0, Math.min(100, (value / gross) * 100)) : 0 };
+        })
+        .filter((d) => d.value !== 0 || d.net);
+    },
+
+    async loadWriteoffs() {
+      this.woLoading = true;
+      try {
+        const r = await this.authFetch("api/writeoffs");
+        this.wo = await r.json();
+        this.woLoaded = true;
+      } catch (e) {
+        this.wo = { schedule_c: [], deduction_tags: [], totals: { schedule_c_total: 0, ded_total: 0 }, error: "Could not reach the server." };
+      } finally { this.woLoading = false; }
+    },
+  };
+}
+</script>
+</body>
+</html>
