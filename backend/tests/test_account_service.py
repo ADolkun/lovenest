@@ -754,6 +754,7 @@ async def test_get_account_summary_excludes_transfers(session: AsyncSession, tes
     pair_id = uuid.uuid4()
 
     await _add_txn(session, test_user.id, account.id, 300, "debit", today, transfer_pair_id=pair_id)
+    await _add_txn(session, test_user.id, account.id, 300, "credit", today, transfer_pair_id=pair_id)
     await _add_txn(session, test_user.id, account.id, 100, "debit", today)
 
     summary = await get_account_summary(session, account.id, test_workspace.id)

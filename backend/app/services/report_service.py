@@ -19,6 +19,9 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     reporting_date_col,
+    user_pnl_expense_amount,
+    user_pnl_group,
+    user_pnl_income_amount,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.account_service import get_account_name
@@ -401,8 +404,8 @@ async def get_income_expenses_report(
     result = await session.execute(
         select(
             label_expr,
-            func.sum(case((Transaction.type == "credit", amount_expr), else_=0)),
-            func.sum(case((Transaction.type == "debit", amount_expr), else_=0)),
+            func.sum(user_pnl_income_amount(amount_expr)),
+            func.sum(user_pnl_expense_amount(amount_expr)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -422,7 +425,7 @@ async def get_income_expenses_report(
     data_map: dict[str, tuple[float, float]] = {}
     for row in result.all():
         income = float(row[1] or 0)
-        expenses = abs(float(row[2] or 0))
+        expenses = float(row[2] or 0)
         data_map[row[0]] = (income, expenses)
 
     # Subtract non-owner shares of the user's own splits per period — the
@@ -652,13 +655,17 @@ async def get_income_expenses_report(
     )
 
     # Build per-category composition for the full date range
+    pnl_group = user_pnl_group().label("pnl_group")
+    pnl_group_amount = user_pnl_income_amount(amount_expr) + user_pnl_expense_amount(
+        amount_expr
+    )
     cat_result = await session.execute(
         select(
             Category.id,
             Category.name,
             Category.color,
-            Transaction.type,
-            func.sum(amount_expr),
+            pnl_group,
+            func.sum(pnl_group_amount),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -672,7 +679,7 @@ async def get_income_expenses_report(
             counts_as_user_pnl(),
             *acct_filter,
         )
-        .group_by(Category.id, Category.name, Category.color, Transaction.type)
+        .group_by(Category.id, Category.name, Category.color, pnl_group)
     )
 
     # Collect composition into a mutable map so projections can be added
@@ -680,11 +687,11 @@ async def get_income_expenses_report(
     comp_map: dict[tuple[str, str], dict] = {}
     for row in cat_result.all():
         cat_id, cat_name, cat_color, txn_type, total_amount = row
-        amount = abs(float(total_amount or 0))
+        amount = float(total_amount or 0)
         if amount <= 0:
             continue
         cat_key = str(cat_id) if cat_id else "uncategorized"
-        group = "income" if txn_type == "credit" else "expenses"
+        group = txn_type
         comp_map[(cat_key, group)] = {
             "label": cat_name if cat_name else "Uncategorized",
             "color": cat_color if cat_color else "#6B7280",
@@ -741,7 +748,7 @@ async def get_income_expenses_report(
         .group_by(Category.id, Category.name, Category.color)
     )
     for cat_id, cat_name, cat_color, total_amount in inv_result.all():
-        amount = abs(float(total_amount or 0))
+        amount = float(total_amount or 0)
         if amount <= 0:
             continue
         comp_map[(str(cat_id), "investments")] = {
@@ -757,8 +764,8 @@ async def get_income_expenses_report(
             Category.id,
             Category.name,
             Category.color,
-            Transaction.type,
-            func.sum(amount_expr),
+            pnl_group,
+            func.sum(pnl_group_amount),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -772,18 +779,18 @@ async def get_income_expenses_report(
             counts_as_user_pnl(),
             *acct_filter,
         )
-        .group_by(label_expr, Category.id, Category.name, Category.color, Transaction.type)
+        .group_by(label_expr, Category.id, Category.name, Category.color, pnl_group)
     )
 
     # Collect into dict[(cat_key, group)] -> {label, color, total, periods}
     cat_trend_map: dict[tuple[str, str], dict] = {}
     for row in cat_trend_result.all():
         period_label, cat_id, cat_name, cat_color, txn_type, total_amount = row
-        amount = abs(float(total_amount or 0))
+        amount = float(total_amount or 0)
         if amount <= 0:
             continue
         cat_key = str(cat_id) if cat_id else "uncategorized"
-        group = "income" if txn_type == "credit" else "expenses"
+        group = txn_type
         map_key = (cat_key, group)
         if map_key not in cat_trend_map:
             cat_trend_map[map_key] = {

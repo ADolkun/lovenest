@@ -24,10 +24,11 @@ from app.services.transfer_detection_service import (
 
 async def _make_account(
     session: AsyncSession, user_id: uuid.UUID, name: str,
+    acc_type: str = "checking",
 ) -> Account:
     account = Account(
         id=uuid.uuid4(), user_id=user_id, name=name,
-        type="checking", balance=Decimal("0.00"), currency="BRL",
+        type=acc_type, balance=Decimal("0.00"), currency="BRL",
     )
     session.add(account)
     await session.commit()
@@ -38,14 +39,15 @@ async def _make_account(
 async def _add_txn(
     session: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID,
     amount: float, txn_type: str, txn_date: date,
-    source: str = "manual",
+    source: str = "manual", description: str | None = None,
+    currency: str = "BRL",
 ) -> Transaction:
     from datetime import datetime, timezone
     txn = Transaction(
         id=uuid.uuid4(), user_id=user_id, account_id=account_id,
-        description=f"Transfer {txn_type} {amount}",
+        description=description or f"Transfer {txn_type} {amount} REF{int(amount * 100)}",
         amount=Decimal(str(amount)), date=txn_date, type=txn_type,
-        source=source, currency="BRL",
+        source=source, currency=currency,
         created_at=datetime.now(timezone.utc),
     )
     session.add(txn)
@@ -182,6 +184,280 @@ async def test_detect_different_amounts_no_pair(session: AsyncSession, test_user
 
     pairs = await detect_transfer_pairs(session, test_workspace.id)
     assert pairs == 0
+
+
+@pytest.mark.asyncio
+async def test_detect_does_not_pair_unrelated_equal_amounts(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, card.id, 15, "debit", today,
+        description="LINK.COM* SIMPLEFIN BR",
+    )
+    credit = await _add_txn(
+        session, test_user.id, checking.id, 15, "credit", today,
+        description="Zelle payment from OMKAR",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_detect_requires_compatible_transfer_families(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, checking.id, 5, "debit", today,
+        description="Acorns Invest Transfer",
+    )
+    credit = await _add_txn(
+        session, test_user.id, card.id, 5, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_detect_requires_same_reference_within_transfer_family(
+    session: AsyncSession, test_user, test_workspace,
+):
+    first = await _make_account(session, test_user.id, "First Checking")
+    second = await _make_account(session, test_user.id, "Second Checking")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, first.id, 25, "debit", today,
+        description="Zelle payment JPM11112222 to Alex",
+    )
+    credit = await _add_txn(
+        session, test_user.id, second.id, 25, "credit", today,
+        description="Zelle payment Conf# 99990000 from Sam",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_detect_does_not_treat_counterparty_name_as_reference(
+    session: AsyncSession, test_user, test_workspace,
+):
+    first = await _make_account(session, test_user.id, "First Checking")
+    second = await _make_account(session, test_user.id, "Second Checking")
+    today = date.today()
+    await _add_txn(
+        session, test_user.id, first.id, 25, "debit", today,
+        description="Zelle JPM11112222 to ALEXANDER",
+    )
+    await _add_txn(
+        session, test_user.id, second.id, 25, "credit", today,
+        description="Zelle Conf# 99990000 from ALEXANDER",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_detect_zelle_bac_and_confirmation_reference(
+    session: AsyncSession, test_user, test_workspace,
+):
+    first = await _make_account(session, test_user.id, "Shaire")
+    second = await _make_account(session, test_user.id, "Chase College")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, first.id, 50, "debit", today,
+        description="Zelle payment to XIAYIRE Conf# uoza6w78x",
+    )
+    credit = await _add_txn(
+        session, test_user.id, second.id, 50, "credit", today,
+        description="Zelle payment from MAIMAITIAIZEZI XIAYIRE BACuoza6w78x",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_detect_generic_deposits_need_apple_cash_account(
+    session: AsyncSession, test_user, test_workspace,
+):
+    first = await _make_account(session, test_user.id, "First Checking")
+    second = await _make_account(session, test_user.id, "Second Checking")
+    today = date.today()
+    await _add_txn(
+        session, test_user.id, first.id, 2.64, "debit", today,
+        description="Deposit",
+    )
+    await _add_txn(
+        session, test_user.id, second.id, 2.64, "credit", today,
+        description="Deposit",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_detect_apple_cash_deposit_pair(
+    session: AsyncSession, test_user, test_workspace,
+):
+    card = await _make_account(session, test_user.id, "Card")
+    apple_cash = await _make_account(session, test_user.id, "Apple Cash")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, card.id, 2.64, "debit", today,
+        description="Deposit",
+    )
+    credit = await _add_txn(
+        session, test_user.id, apple_cash.id, 2.64, "credit", today,
+        description="Deposit",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_detect_card_payment_with_matching_evidence(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, checking.id, 100, "debit", today,
+        description="CHASE CREDIT CRD AUTOPAY PPD ID: 123",
+    )
+    credit = await _add_txn(
+        session, test_user.id, card.id, 100, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_detect_card_payment_with_asymmetric_capital_one_description(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, checking.id, 1500, "debit", today,
+        description="CAPITAL ONE",
+    )
+    credit = await _add_txn(
+        session, test_user.id, card.id, 1500, "credit", today,
+        description="CAPITAL ONE MOBILE PYMT",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_detect_card_payments_do_not_cross_issuers(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    chase_card = await _make_account(
+        session, test_user.id, "Chase Card", acc_type="credit_card"
+    )
+    capital_one_card = await _make_account(
+        session, test_user.id, "Venture X", acc_type="credit_card"
+    )
+    today = date.today()
+    chase_debit = await _add_txn(
+        session, test_user.id, checking.id, 200, "debit", today,
+        description="CHASE CREDIT CRD AUTOPAY PPD ID: 123",
+    )
+    capital_one_debit = await _add_txn(
+        session, test_user.id, checking.id, 200, "debit", today,
+        description="CAPITAL ONE CRCARDPMT",
+    )
+    capital_one_credit = await _add_txn(
+        session, test_user.id, capital_one_card.id, 200, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+    chase_credit = await _add_txn(
+        session, test_user.id, chase_card.id, 200, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 2
+    assert chase_debit.transfer_pair_id == chase_credit.transfer_pair_id
+    assert capital_one_debit.transfer_pair_id == capital_one_credit.transfer_pair_id
+    assert chase_debit.transfer_pair_id != capital_one_debit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_detect_wells_fargo_auto_pay(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(
+        session, test_user.id, "Wells Fargo Card", acc_type="credit_card"
+    )
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, checking.id, 90, "debit", today,
+        description="WF CREDIT CARD AUTO PAY 1234",
+    )
+    credit = await _add_txn(
+        session, test_user.id, card.id, 90, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+@pytest.mark.asyncio
+async def test_empty_candidate_ids_do_not_scan_history(
+    session: AsyncSession, test_user, test_workspace,
+):
+    first = await _make_account(session, test_user.id, "First Checking")
+    second = await _make_account(session, test_user.id, "Second Checking")
+    today = date.today()
+    debit = await _add_txn(session, test_user.id, first.id, 100, "debit", today)
+    credit = await _add_txn(session, test_user.id, second.id, 100, "credit", today)
+
+    assert await detect_transfer_pairs(
+        session, test_workspace.id, candidate_ids=[]
+    ) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_detect_does_not_pair_different_currencies(
+    session: AsyncSession, test_user, test_workspace,
+):
+    acc1 = await _make_account(session, test_user.id, "USD")
+    acc2 = await _make_account(session, test_user.id, "EUR")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, acc1.id, 100, "debit", today, currency="USD"
+    )
+    credit = await _add_txn(
+        session, test_user.id, acc2.id, 100, "credit", today, currency="EUR"
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
 
 
 @pytest.mark.asyncio
