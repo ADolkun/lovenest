@@ -8,11 +8,59 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, exists, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.services.transaction_semantics import (
+    credit_card_payment_filter,
+    credit_card_refund_filter,
+)
+
+
+def has_valid_transfer_pair():
+    """SQL predicate requiring a second transaction with the same pair id."""
+    counterpart = aliased(Transaction)
+    return and_(
+        Transaction.transfer_pair_id.is_not(None),
+        exists(
+            select(1).where(
+                counterpart.transfer_pair_id == Transaction.transfer_pair_id,
+                counterpart.id != Transaction.id,
+            )
+        ),
+    )
+
+
+def user_pnl_income_amount(amount_expr):
+    """Income amount with card refunds kept out of income."""
+    return case(
+        (
+            and_(Transaction.type == "credit", ~credit_card_refund_filter()),
+            func.abs(amount_expr),
+        ),
+        else_=0,
+    )
+
+
+def user_pnl_expense_amount(amount_expr):
+    """Expense amount with card refunds reducing, rather than inflating, spend."""
+    return case(
+        (Transaction.type == "debit", func.abs(amount_expr)),
+        (credit_card_refund_filter(), -func.abs(amount_expr)),
+        else_=0,
+    )
+
+
+def user_pnl_group():
+    """Map refund credits into the expense group for category reporting."""
+    return case(
+        (credit_card_refund_filter(), "expenses"),
+        (Transaction.type == "credit", "income"),
+        else_="expenses",
+    )
 
 
 def reporting_date_col(accounting_mode: str):
@@ -49,15 +97,17 @@ def counts_as_pnl():
         movements like investment applications where the counterpart is
         an Asset/Holding, not another Account),
       - transactions flagged `is_ignored=True` (user-marked as not to be reported),
-      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported).
+      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported),
+      - credit-card repayments, even when their transfer link/category is missing.
 
     Does NOT exclude `source='opening_balance'` — callers that already
     filter those keep doing so; this helper only handles the transfer-like
     exclusion family so both rules stay visible at each call site.
     """
     return and_(
-        Transaction.transfer_pair_id.is_(None),
+        not_(has_valid_transfer_pair()),
         Transaction.is_ignored.is_(False),
+        not_(credit_card_payment_filter()),
         # Settlement *debits* are repayments of debts that were already
         # booked as an expense via the share. Counting them would
         # double-count. Settlement *credits*, however, represent the
@@ -67,13 +117,18 @@ def counts_as_pnl():
         ~and_(Transaction.source == "settlement", Transaction.type == "debit"),
         or_(
             Transaction.category_id.is_(None),
-            Transaction.category_id.not_in(
-                select(Category.id).where(
-                    or_(
-                        Category.treat_as_transfer.is_(True),
-                        Category.is_ignored.is_(True),
-                    )
-                )
+            and_(
+                Transaction.category_id.not_in(
+                    select(Category.id).where(Category.is_ignored.is_(True))
+                ),
+                or_(
+                    credit_card_refund_filter(),
+                    Transaction.category_id.not_in(
+                        select(Category.id).where(
+                            Category.treat_as_transfer.is_(True)
+                        )
+                    ),
+                ),
             ),
         ),
     )

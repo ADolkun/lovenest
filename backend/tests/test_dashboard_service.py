@@ -51,12 +51,12 @@ async def _add_txn(
     session: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID,
     amount: float, txn_type: str, txn_date: date,
     source: str = "manual", transfer_pair_id: uuid.UUID | None = None,
-    category_id: uuid.UUID | None = None,
+    category_id: uuid.UUID | None = None, description: str | None = None,
 ) -> Transaction:
     from datetime import datetime, timezone
     txn = Transaction(
         id=uuid.uuid4(), user_id=user_id, account_id=account_id,
-        description=f"Test {txn_type} {amount}", amount=Decimal(str(amount)),
+        description=description or f"Test {txn_type} {amount}", amount=Decimal(str(amount)),
         date=txn_date, type=txn_type, source=source, currency="BRL",
         transfer_pair_id=transfer_pair_id, category_id=category_id,
         created_at=datetime.now(timezone.utc),
@@ -247,10 +247,89 @@ async def test_get_summary_excludes_transfers(session: AsyncSession, test_user, 
     pair_id = uuid.uuid4()
 
     await _add_txn(session, test_user.id, account.id, 500, "debit", today, transfer_pair_id=pair_id)
+    await _add_txn(session, test_user.id, account.id, 500, "credit", today, transfer_pair_id=pair_id)
     await _add_txn(session, test_user.id, account.id, 100, "debit", today)
 
     summary = await get_summary(session, test_workspace.id, test_user.id)
     assert summary.monthly_expenses == pytest.approx(100.0)
+
+
+@pytest.mark.asyncio
+async def test_get_summary_counts_orphaned_transfer_link(
+    session: AsyncSession, test_user, test_workspace,
+):
+    account = await _make_account(session, test_user.id, "Orphaned Pair")
+    await _add_txn(
+        session, test_user.id, account.id, 42, "debit", date.today(),
+        transfer_pair_id=uuid.uuid4(),
+    )
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+    assert summary.monthly_expenses == pytest.approx(42.0)
+
+
+@pytest.mark.asyncio
+async def test_get_summary_recognizes_unpaired_card_payments_without_hiding_purchases(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+
+    await _add_txn(
+        session, test_user.id, checking.id, 78.04, "debit", today,
+        description="ORIG CO NAME:BILT CARD CO ENTRY DESCR:PMT SEC:PPD",
+    )
+    await _add_txn(
+        session, test_user.id, checking.id, 800, "debit", today,
+        description="CAPITAL ONE",
+    )
+    await _add_txn(
+        session, test_user.id, checking.id, 25, "debit", today,
+        description="CAPITAL ONE CAFE PURCHASE",
+    )
+    await _add_txn(
+        session, test_user.id, checking.id, 3000, "debit", today,
+        description="BILT CARD HOUSING RENT PMT",
+    )
+    await _add_txn(
+        session, test_user.id, card.id, 49.30, "debit", today,
+        description="AT&T BILL PAYMENT 4331 COMMUNICATIONS DR",
+    )
+    await _add_txn(
+        session, test_user.id, card.id, 37.55, "credit", today,
+        description="AUTOMATIC PAYMENT - THANK",
+    )
+    await _add_txn(
+        session, test_user.id, card.id, 12.00, "credit", today,
+        description="AT&T BILL PAYMENT 4331 (REFUND)",
+    )
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+    assert summary.monthly_expenses == pytest.approx(3062.30)
+    assert summary.monthly_income == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_get_summary_respects_ignored_category_for_card_refund(
+    session: AsyncSession, test_user, test_workspace,
+):
+    ignored = await _make_category(session, test_user.id, "Ignored Refund")
+    ignored.is_ignored = True
+    await session.commit()
+    card = await _make_account(
+        session, test_user.id, "Ignored Refund Card", acc_type="credit_card"
+    )
+    today = date.today()
+    await _add_txn(session, test_user.id, card.id, 100, "debit", today)
+    await _add_txn(
+        session, test_user.id, card.id, 25, "credit", today,
+        category_id=ignored.id, description="MERCHANT REFUND",
+    )
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+    assert summary.monthly_expenses == pytest.approx(100.0)
+    assert summary.monthly_income == pytest.approx(0.0)
 
 
 @pytest.mark.asyncio
@@ -360,6 +439,7 @@ async def test_spending_excludes_transfers(session: AsyncSession, test_user, tes
     pair_id = uuid.uuid4()
 
     await _add_txn(session, test_user.id, account.id, 500, "debit", today, transfer_pair_id=pair_id)
+    await _add_txn(session, test_user.id, account.id, 500, "credit", today, transfer_pair_id=pair_id)
 
     spending = await get_spending_by_category(session, test_workspace.id, test_user.id)
     # No spending should include the transfer
@@ -812,4 +892,3 @@ async def test_balance_at_multi_currency(session, test_user, test_workspace):
 # ---------------------------------------------------------------------------
 # _total_balance_by_currency
 # ---------------------------------------------------------------------------
-

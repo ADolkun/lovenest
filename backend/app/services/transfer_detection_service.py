@@ -5,7 +5,44 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
 from app.models.transaction import Transaction
+from app.services.transaction_semantics import (
+    is_credit_card_payment,
+    is_credit_card_payment_pair,
+    is_compatible_non_card_transfer,
+)
+
+
+def _compatible_transfer(
+    debit: Transaction,
+    credit: Transaction,
+    account_info: dict[uuid.UUID, tuple[str, str]],
+) -> bool:
+    debit_type, debit_name = account_info[debit.account_id]
+    credit_type, credit_name = account_info[credit.account_id]
+    debit_payment = is_credit_card_payment(
+        debit.description, debit.type, debit_type
+    )
+    credit_payment = is_credit_card_payment(
+        credit.description, credit.type, credit_type
+    )
+    if debit_payment or credit_payment:
+        return is_credit_card_payment_pair(
+            debit.description,
+            debit_type,
+            credit.description,
+            credit_type,
+            debit_name,
+            credit_name,
+        )
+
+    return is_compatible_non_card_transfer(
+        debit.description,
+        credit.description,
+        debit_name,
+        credit_name,
+    )
 
 
 async def detect_transfer_pairs(
@@ -19,12 +56,16 @@ async def detect_transfer_pairs(
     Algorithm:
     1. When candidate_ids is given, load candidate debits AND candidate credits
        so that detection works regardless of which side was just imported.
-    2. For each debit, find an unpaired credit with: same user, different account,
-       same absolute amount, date within ±tolerance days
+    2. For each debit, find an unpaired credit with: same user/currency,
+       different account, same absolute amount, date within ±tolerance days,
+       and compatible transfer evidence in both descriptions
     3. Greedy closest-date-first matching; each tx can only pair once
 
     Returns the number of pairs created.
     """
+    if candidate_ids == []:
+        return 0
+
     # Load candidate debits — filtered to candidate_ids when provided
     debit_query = select(Transaction).where(
         Transaction.workspace_id == workspace_id,
@@ -71,6 +112,17 @@ async def detect_transfer_pairs(
     if not credits:
         return 0
 
+    account_ids = {tx.account_id for tx in (*all_debits, *credits)}
+    account_rows = await session.execute(
+        select(Account.id, Account.type, Account.name).where(
+            Account.id.in_(account_ids)
+        )
+    )
+    account_info = {
+        account_id: (account_type, account_name)
+        for account_id, account_type, account_name in account_rows.all()
+    }
+
     # When candidate_ids is given, restrict reverse debits to only match
     # credits that are in candidate_ids (avoid pairing two old transactions).
     candidate_id_set = set(candidate_ids) if candidate_ids else None
@@ -98,6 +150,10 @@ async def detect_transfer_pairs(
             if credit.id in paired_credit_ids:
                 continue
             if credit.account_id == debit.account_id:
+                continue
+            if credit.currency != debit.currency:
+                continue
+            if not _compatible_transfer(debit, credit, account_info):
                 continue
             # Reverse debits may only match credits from candidate_ids
             if is_reverse_debit and candidate_id_set and credit.id not in candidate_id_set:
