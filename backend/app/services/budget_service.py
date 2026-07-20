@@ -16,6 +16,7 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     reporting_date_col,
+    user_pnl_expense_amount,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import _get_recurring_projections
@@ -265,11 +266,10 @@ async def get_budget_vs_actual(
     spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(_primary_amount_expr()),
+            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
         )
         .where(
             Transaction.workspace_id == workspace_id,
-            Transaction.type == "debit",
             report_date >= month_start,
             report_date < month_end,
             Transaction.category_id.isnot(None),
@@ -279,7 +279,7 @@ async def get_budget_vs_actual(
     )
     spending_map: dict[str, Decimal] = {}
     for row in spending_result.all():
-        spending_map[str(row[0])] = abs(row[1] or Decimal("0"))
+        spending_map[str(row[0])] = row[1] or Decimal("0")
 
     # Subtract non-owner shares of own splits — only the user's share counts.
     own_offset = await owner_split_offset_by_category(
@@ -330,11 +330,10 @@ async def get_budget_vs_actual(
     prev_spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(_primary_amount_expr()),
+            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
         )
         .where(
             Transaction.workspace_id == workspace_id,
-            Transaction.type == "debit",
             report_date >= prev_month_start,
             report_date < prev_month_end,
             Transaction.category_id.isnot(None),
@@ -344,7 +343,7 @@ async def get_budget_vs_actual(
     )
     prev_spending_map: dict[str, Decimal] = {}
     for row in prev_spending_result.all():
-        prev_spending_map[str(row[0])] = abs(row[1] or Decimal("0"))
+        prev_spending_map[str(row[0])] = row[1] or Decimal("0")
 
     prev_own_offset = await owner_split_offset_by_category(
         session, user_id, prev_month_start, prev_month_end,
