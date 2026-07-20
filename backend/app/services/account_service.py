@@ -13,6 +13,7 @@ from app.models.credit_card_bill import CreditCardBill
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate
 from app.services._query_filters import counts_as_pnl
+from app.services.transaction_semantics import credit_card_refund_filter
 from app.services.credit_card_service import apply_effective_date, compute_available_credit, get_cycle_dates
 from app.models.category import Category
 
@@ -750,6 +751,7 @@ async def get_account_summary(
             Transaction.type == "credit",
             Transaction.source != "opening_balance",
             counts_as_pnl(),
+            ~credit_card_refund_filter(),
         ))
     )
     monthly_income = float(income_result.scalar())

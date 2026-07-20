@@ -351,6 +351,10 @@ async def test_get_transactions_user_pnl_only_returns_only_dashboard_reportable_
     await _mk_txn(session, test_user, acct, description="Hidden category", category_id=ignored.id)
     await _mk_txn(session, test_user, acct, description="Investment", category_id=transfer_like.id)
     await _mk_txn(session, test_user, acct, description="Transfer", transfer_pair_id=pair)
+    await _mk_txn(
+        session, test_user, acct, description="Transfer counterpart",
+        type="credit", transfer_pair_id=pair,
+    )
     await _mk_txn(session, test_user, acct, description="Settlement credit", type="credit", source="settlement")
 
     rows, total, summary = await get_transactions(

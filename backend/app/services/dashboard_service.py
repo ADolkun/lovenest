@@ -18,6 +18,8 @@ from app.services._query_filters import (
     owner_split_offset_by_category,
     owner_split_offset_pnl,
     reporting_date_col,
+    user_pnl_expense_amount,
+    user_pnl_income_amount,
     viewer_shared_pnl,
     viewer_shared_spending_by_category,
 )
@@ -158,8 +160,8 @@ async def get_summary(
     # (whose offset is already in the owner's share, see share-only model).
     monthly_result = await session.execute(
         select(
-            func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
-            func.sum(case((Transaction.type == "debit", Transaction.amount), else_=0)),
+            func.sum(user_pnl_income_amount(Transaction.amount)),
+            func.sum(user_pnl_expense_amount(Transaction.amount)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -274,13 +276,13 @@ async def get_summary(
     # Use real-only totals (without projections) to avoid double-counting;
     # projections are added separately below via convert().
     monthly_income_primary = real_monthly_income
-    monthly_expenses_primary = abs(real_monthly_expenses)
+    monthly_expenses_primary = real_monthly_expenses
 
     # Use amount_primary sums for more accurate multi-currency income/expenses
     primary_result = await session.execute(
         select(
-            func.sum(case((Transaction.type == "credit", Transaction.amount_primary), else_=0)),
-            func.sum(case((Transaction.type == "debit", Transaction.amount_primary), else_=0)),
+            func.sum(user_pnl_income_amount(Transaction.amount_primary)),
+            func.sum(user_pnl_expense_amount(Transaction.amount_primary)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -297,7 +299,7 @@ async def get_summary(
     primary_row = primary_result.one()
     if primary_row[0] is not None or primary_row[1] is not None:
         monthly_income_primary = float(primary_row[0] or 0)
-        monthly_expenses_primary = abs(float(primary_row[1] or 0))
+        monthly_expenses_primary = float(primary_row[1] or 0)
 
     if not filtered:
         # Apply share-only offset in primary currency (FX-converted).
@@ -498,13 +500,14 @@ async def get_spending_by_category(
 
     # Real transactions grouped by category (exclude transfer-like movements
     # and closed accounts). Use amount_primary for multi-currency support.
+    expense_amount = user_pnl_expense_amount(_primary_amount_expr())
     result = await session.execute(
         select(
             Category.id,
             Category.name,
             Category.icon,
             Category.color,
-            func.sum(_primary_amount_expr()),
+            func.sum(expense_amount),
         )
         .select_from(Transaction)
         .join(Account, Transaction.account_id == Account.id)
@@ -512,14 +515,14 @@ async def get_spending_by_category(
         .where(
             Transaction.workspace_id == workspace_id,
             Account.is_closed == False,
-            Transaction.type == "debit",
             report_date >= month_start,
             report_date < month_end,
             counts_as_user_pnl(),
             *acct_filter,
         )
         .group_by(Category.id, Category.name, Category.icon, Category.color)
-        .order_by(func.sum(_primary_amount_expr()).desc())
+        .having(func.sum(expense_amount) > 0)
+        .order_by(func.sum(expense_amount).desc())
     )
 
     # Build a dict of category_id -> {name, icon, color, total}
@@ -530,7 +533,7 @@ async def get_spending_by_category(
             "name": row[1] or "Sem categoria",
             "icon": row[2] or "circle-help",
             "color": row[3] or "#6B7280",
-            "total": abs(float(row[4] or 0)),
+            "total": float(row[4] or 0),
         }
 
     # Subtract non-owner shares per category — owner-side splits should
@@ -662,8 +665,8 @@ async def get_monthly_trend(
     result = await session.execute(
         select(
             month_label,
-            func.sum(case((Transaction.type == "credit", primary_amt), else_=0)),
-            func.sum(case((Transaction.type == "debit", primary_amt), else_=0)),
+            func.sum(user_pnl_income_amount(primary_amt)),
+            func.sum(user_pnl_expense_amount(primary_amt)),
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -683,7 +686,7 @@ async def get_monthly_trend(
 
     trends_raw: list[tuple[str, float, float]] = []
     for row in result.all():
-        trends_raw.append((row[0], float(row[1] or 0), abs(float(row[2] or 0))))
+        trends_raw.append((row[0], float(row[1] or 0), float(row[2] or 0)))
 
     # Subtract owner non-owner-share offsets per month, and add the
     # viewer's shares of others' splits.

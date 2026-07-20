@@ -1394,9 +1394,7 @@ class TestEffectiveBillDateFiltersList:
     async def test_credit_tx_with_bill_id_counts_as_income(
         self, session, test_user, test_workspace, cc_account
     ):
-        """Refund/return txs are type=credit. Per-bill summary must include
-        them in monthly_income when their bill_id matches — otherwise CC
-        refunds show up as 0 for the cycle."""
+        """Refund/return credits reduce the card bill instead of income."""
         from app.services.account_service import get_account_summary
         from app.models.credit_card_bill import CreditCardBill
         from datetime import datetime, timezone
@@ -1425,7 +1423,8 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 3, 17), date_to=date(2026, 4, 16),
             bill_id=bill.id,
         )
-        assert summary["monthly_income"] == 80.0
+        assert summary["monthly_income"] == 0.0
+        assert summary["monthly_expenses"] == -80.0
 
     @pytest.mark.asyncio
     async def test_cc_refund_credit_nets_against_debits_in_bill_total(

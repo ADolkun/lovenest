@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, or_, not_, update
+from sqlalchemy import case, select, func, or_, not_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +21,11 @@ from app.services import split_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
-from app.services._query_filters import counts_as_pnl, counts_as_user_pnl, reporting_date_col
+from app.services._query_filters import (
+    counts_as_user_pnl,
+    reporting_date_col,
+)
+from app.services.transaction_semantics import credit_card_refund_filter
 
 
 async def _ensure_category_in_workspace(
@@ -399,31 +403,51 @@ async def get_transactions(
     # rows). Computed before pagination so it covers the whole result set.
     summary: Optional[dict] = None
     if include_summary:
-        # Income / expense / net use the shared `counts_as_pnl()` definition
+        # Income / expense / net use the shared user P/L definition
         # (issue #242) so the footer matches the dashboard & reports: paired
         # transfers, `treat_as_transfer` categories (transfers, investments,
         # custom) and ignored items are kept OUT of income/expense.
-        pnl_filter = counts_as_pnl()
-        pnl_subq = base_query.where(pnl_filter).subquery()
-        amount_norm = func.coalesce(
-            pnl_subq.c.amount_primary, pnl_subq.c.amount
+        pnl_filter = counts_as_user_pnl()
+        pnl_subq = (
+            base_query.add_columns(credit_card_refund_filter().label("is_card_refund"))
+            .where(pnl_filter)
+            .subquery()
         )
-        summary_rows = await session.execute(
-            select(
-                pnl_subq.c.type,
-                func.coalesce(func.sum(func.abs(amount_norm)), 0),
-            ).group_by(pnl_subq.c.type)
-        )
-        income = Decimal("0")
-        expense = Decimal("0")
-        for row_type, row_total in summary_rows:
-            if row_type == "credit":
-                income = Decimal(str(row_total or 0))
-            elif row_type == "debit":
-                expense = Decimal(str(row_total or 0))
+        amount_norm = func.coalesce(pnl_subq.c.amount_primary, pnl_subq.c.amount)
+        summary_row = (
+            await session.execute(
+                select(
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (
+                                    (pnl_subq.c.type == "credit")
+                                    & ~pnl_subq.c.is_card_refund,
+                                    func.abs(amount_norm),
+                                ),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ),
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (pnl_subq.c.type == "debit", func.abs(amount_norm)),
+                                (pnl_subq.c.is_card_refund, -func.abs(amount_norm)),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ),
+                )
+            )
+        ).one()
+        income = Decimal(str(summary_row[0] or 0))
+        expense = Decimal(str(summary_row[1] or 0))
 
         # Excluded: the absolute total of everything filtered out of P/L for
-        # the same rows — the complement of `counts_as_pnl()`. Surfaces
+        # the same rows — the complement of the user P/L filter. Surfaces
         # transfer-like movement (e.g. how much was moved/invested) without
         # distorting income/expense/net.
         excl_subq = base_query.where(not_(pnl_filter)).subquery()
