@@ -1652,13 +1652,130 @@ class TestOfxInstallmentDedup:
         )
         await import_transactions(session, test_workspace.id, test_user.id, test_account.id, [txn], "ofx")
         imported, skipped, _, _ = await import_transactions(
-            session, test_workspace.id, test_user.id, test_account.id, [txn], "ofx",
+            session,
+            test_workspace.id,
+            test_user.id,
+            test_account.id,
+            [txn, txn.model_copy()],
+            "ofx",
         )
         assert imported == 0
-        assert skipped == 1
+        assert skipped == 2
 
 
 class TestCsvDuplicateDetectionToggle:
+    @pytest.mark.asyncio
+    async def test_csv_identical_new_rows_remain_distinct(
+        self, session: AsyncSession, test_user: User, test_workspace, test_account: Account,
+    ):
+        from app.schemas.transaction import TransactionImport
+
+        row = TransactionImport(
+            description="Coffee Shop",
+            amount=Decimal("8.50"),
+            date=date(2026, 6, 15),
+            type="debit",
+        )
+        imported, skipped, _, _ = await import_transactions(
+            session,
+            test_workspace.id,
+            test_user.id,
+            test_account.id,
+            [row, row.model_copy()],
+            "csv",
+        )
+
+        assert (imported, skipped) == (2, 0)
+
+    @pytest.mark.asyncio
+    async def test_csv_exact_match_consumes_one_synced_row_once(
+        self, session: AsyncSession, test_user: User, test_workspace, test_account: Account,
+    ):
+        from app.models.transaction import Transaction
+        from app.schemas.transaction import TransactionImport
+
+        session.add(Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=test_account.id,
+            external_id="provider-coffee",
+            description="Coffee Shop",
+            amount=Decimal("8.50"),
+            date=date(2026, 6, 15),
+            type="debit",
+            source="sync",
+            status="posted",
+        ))
+        await session.commit()
+
+        row = TransactionImport(
+            description="Coffee Shop",
+            amount=Decimal("8.50"),
+            date=date(2026, 6, 15),
+            type="debit",
+        )
+        imported, skipped, _, _ = await import_transactions(
+            session,
+            test_workspace.id,
+            test_user.id,
+            test_account.id,
+            [row, row.model_copy()],
+            "csv",
+        )
+
+        assert (imported, skipped) == (1, 1)
+
+    @pytest.mark.asyncio
+    async def test_csv_payee_match_consumes_one_synced_row_once(
+        self, session: AsyncSession, test_user: User, test_workspace, test_account: Account,
+    ):
+        from app.models.transaction import Transaction
+        from app.schemas.transaction import TransactionImport
+
+        synced = Transaction(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=test_account.id,
+            external_id="provider-spotify",
+            description="SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            payee="Spotify",
+            amount=Decimal("12.99"),
+            date=date(2026, 6, 15),
+            type="debit",
+            source="sync",
+            status="posted",
+        )
+        session.add(synced)
+        await session.commit()
+
+        imported, skipped, _, _ = await import_transactions(
+            session,
+            test_workspace.id,
+            test_user.id,
+            test_account.id,
+            [
+                TransactionImport(
+                    description="Spotify",
+                    payee_raw="Spotify",
+                    amount=Decimal("12.99"),
+                    date=date(2026, 6, 16),
+                    type="debit",
+                ),
+                TransactionImport(
+                    description="Spotify",
+                    payee_raw="Spotify",
+                    amount=Decimal("12.99"),
+                    date=date(2026, 6, 16),
+                    type="debit",
+                ),
+            ],
+            "csv",
+        )
+
+        assert (imported, skipped) == (1, 1)
+
     @pytest.mark.asyncio
     async def test_csv_detect_duplicates_false_allows_duplicates(
         self, session: AsyncSession, test_user: User, test_workspace, test_account: Account,

@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 from app.core.config import get_settings
 from app.models.account import Account
+from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.rule import Rule
 from app.models.transaction import Transaction
@@ -25,6 +26,7 @@ from app.services.rule_engine import apply_rule_actions, evaluate_conditions
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
+from app.services.transaction_match_service import find_unique_transaction_match
 
 
 # Descriptions used by some Brazilian banks (e.g. Banco do Brasil) for
@@ -567,10 +569,19 @@ async def import_transactions(
     await session.flush()  # Get the import_log.id
 
     # Look up account currency for fallback
-    account_result = await session.execute(
-        select(Account).where(Account.id == account_id)
-    )
+    account_result = await session.execute(select(Account).where(Account.id == account_id))
     account = account_result.scalar_one_or_none()
+    if account and account.connection_id:
+        await session.execute(
+            select(BankConnection.id)
+            .where(BankConnection.id == account.connection_id)
+            .with_for_update()
+        )
+    if account:
+        account_result = await session.execute(
+            select(Account).where(Account.id == account_id).with_for_update()
+        )
+        account = account_result.scalar_one()
     account_currency = account.currency if account else get_settings().default_currency
 
     # Build category name → id map scoped to the workspace.
@@ -581,6 +592,7 @@ async def import_transactions(
 
     imported = 0
     skipped = 0
+    matched_existing_ids: set[uuid.UUID] = set()
     effective_format = (detected_format or source or "").lower()
     should_detect_duplicates = detect_duplicates if effective_format == "csv" else True
 
@@ -596,24 +608,38 @@ async def import_transactions(
             # purchase FITID across every monthly statement — don't get skipped
             # as duplicates from later monthly imports (issue #98).
             if txn_data.external_id:
-                existing = await session.execute(
-                    select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.external_id == txn_data.external_id,
-                        Transaction.date == txn_data.date,
-                    )
+                existing_statement = select(Transaction).where(
+                    Transaction.account_id == account_id,
+                    Transaction.external_id == txn_data.external_id,
+                    Transaction.date == txn_data.date,
                 )
             else:
-                existing = await session.execute(
-                    select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.date == txn_data.date,
-                        Transaction.amount == txn_data.amount,
-                        Transaction.type == txn_data.type,
-                        Transaction.description == txn_data.description,
-                    )
+                existing_statement = select(Transaction).where(
+                    Transaction.account_id == account_id,
+                    Transaction.date == txn_data.date,
+                    Transaction.amount == txn_data.amount,
+                    Transaction.type == txn_data.type,
+                    Transaction.description == txn_data.description,
                 )
-            if existing.scalar_one_or_none():
+            if matched_existing_ids and not txn_data.external_id:
+                existing_statement = existing_statement.where(
+                    Transaction.id.not_in(matched_existing_ids)
+                )
+            existing = await session.execute(
+                existing_statement.order_by(Transaction.created_at, Transaction.id)
+            )
+            duplicate = existing.scalars().first()
+            if not duplicate and not txn_data.external_id:
+                duplicate = await find_unique_transaction_match(
+                    session,
+                    account_id,
+                    txn_data,
+                    {"sync"},
+                    exclude_ids=matched_existing_ids,
+                )
+            if duplicate:
+                if not txn_data.external_id:
+                    matched_existing_ids.add(duplicate.id)
                 skipped += 1
                 continue
 
@@ -680,6 +706,8 @@ async def import_transactions(
 
         session.add(transaction)
         await session.flush()
+        if should_detect_duplicates and not txn_data.external_id:
+            matched_existing_ids.add(transaction.id)
         if recurring_link is not None:
             recurring_match_service.advance_past(recurring_link, txn_data.date)
 

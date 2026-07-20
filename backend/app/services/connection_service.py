@@ -40,6 +40,7 @@ from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
+from app.services.transaction_match_service import find_unique_transaction_match
 
 logger = logging.getLogger(__name__)
 
@@ -380,13 +381,20 @@ async def get_connections(session: AsyncSession, workspace_id: uuid.UUID) -> lis
 
 
 async def get_connection(
-    session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> Optional[BankConnection]:
-    result = await session.execute(
+    statement = (
         select(BankConnection)
         .where(BankConnection.id == connection_id, BankConnection.workspace_id == workspace_id)
         .options(selectinload(BankConnection.accounts))
     )
+    if for_update:
+        statement = statement.with_for_update()
+    result = await session.execute(statement)
     return result.scalar_one_or_none()
 
 
@@ -948,8 +956,15 @@ async def _find_synced_duplicate(
         result = await session.execute(
             select(Transaction).where(
                 Transaction.account_id == account_id,
-                Transaction.source == "sync",
-                Transaction.date == txn_data.date,
+                or_(
+                    Transaction.source == "sync",
+                    (
+                        Transaction.source.in_(LOCAL_IMPORT_SOURCES)
+                        & Transaction.raw_data.is_not(None)
+                    ),
+                ),
+                Transaction.date >= txn_data.date - timedelta(days=3),
+                Transaction.date <= txn_data.date + timedelta(days=3),
                 Transaction.amount == txn_data.amount,
                 Transaction.type == txn_data.type,
                 Transaction.status == txn_data.status,
@@ -962,26 +977,35 @@ async def _find_synced_duplicate(
             if candidate.external_id in incoming_external_ids:
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
+            candidate_descriptions = (
+                candidate_raw.get("description"), candidate.payee, candidate.description,
+            )
+            incoming_descriptions = (
+                raw.get("description"), txn_data.payee, txn_data.description,
+            )
+            description_matches = any(
+                left and right and _description_similarity(left, right) >= 0.9
+                for left in candidate_descriptions
+                for right in incoming_descriptions
+            )
             if (
                 candidate_raw.get("posted") == posted
                 and candidate_raw.get("transacted_at") == transacted_at
-                and _description_similarity(candidate.description, txn_data.description) >= 0.9
+                and description_matches
             ):
                 return candidate
 
-    # Local import history from before the account was connected. Exact field
-    # match only; category/source/date/amount stay user/import-owned.
-    result = await session.execute(
-        select(Transaction).where(
-            Transaction.account_id == account_id,
-            Transaction.source.in_(LOCAL_IMPORT_SOURCES),
-            Transaction.date == txn_data.date,
-            Transaction.amount == txn_data.amount,
-            Transaction.type == txn_data.type,
-            Transaction.description == txn_data.description,
-        )
+    # Path 5: local import history from before the account was connected.
+    # Posting lag and statement exports can shift the date or shorten the
+    # merchant description, so accept only one exact normalized merchant/payee.
+    return await find_unique_transaction_match(
+        session,
+        account_id,
+        txn_data,
+        LOCAL_IMPORT_SOURCES,
+        unclaimed_only=True,
+        exclude_external_ids=incoming_external_ids,
     )
-    return result.scalars().first()
 
 
 async def _cleanup_phantom_duplicates(
@@ -1281,7 +1305,9 @@ async def sync_connection(
     user_id: uuid.UUID,
     trigger_provider_refresh: bool = False,
 ) -> tuple[BankConnection, int]:
-    connection = await get_connection(session, connection_id, workspace_id)
+    connection = await get_connection(
+        session, connection_id, workspace_id, for_update=True
+    )
     if not connection:
         raise ValueError("Connection not found")
 
