@@ -50,6 +50,7 @@ import {
   Users,
   Split,
   BarChart3,
+  ReceiptText,
   Sun,
   Moon,
   Languages,
@@ -72,7 +73,7 @@ import { Bot, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
 
 type NavItem =
-  | { type: 'link'; key: string; path: string; icon: React.ElementType }
+  | { type: 'link'; key: string; path: string; icon: React.ElementType; external?: boolean }
   | { type: 'separator'; labelKey: string }
 
 const navItems: NavItem[] = [
@@ -87,6 +88,7 @@ const navItems: NavItem[] = [
   { type: 'separator', labelKey: 'nav.groupAnalysis' },
   { type: 'link', key: 'reports', path: '/reports', icon: BarChart3 },
   { type: 'link', key: 'assets', path: '/assets', icon: Landmark },
+  { type: 'link', key: 'taxPlanning', path: '/tax/', icon: ReceiptText, external: true },
   { type: 'separator', labelKey: 'nav.groupSetup' },
   { type: 'link', key: 'budgets', path: '/budgets', icon: PiggyBank },
   { type: 'link', key: 'goals', path: '/goals', icon: Target },
@@ -396,19 +398,14 @@ export function AppLayout() {
                   ? location.pathname === '/'
                   : location.pathname.startsWith(item.path)
               const Icon = item.icon
-              return (
-                <Link
-                  key={item.key}
-                  to={item.path}
-                  data-tour={`nav-${item.key}`}
-                  onClick={() => setSidebarOpen(false)}
-                  className={cn(
-                    'flex items-center gap-3 text-[13px] font-medium transition-all rounded-lg px-3 py-2',
-                    isActive
-                      ? 'bg-primary/[0.08] text-primary border-l-[3px] border-primary pl-[9px]'
-                      : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                  )}
-                >
+              const navClass = cn(
+                'flex items-center gap-3 text-[13px] font-medium transition-all rounded-lg px-3 py-2',
+                isActive
+                  ? 'bg-primary/[0.08] text-primary border-l-[3px] border-primary pl-[9px]'
+                  : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground',
+              )
+              const content = (
+                <>
                   <Icon
                     size={17}
                     className={cn(
@@ -417,6 +414,30 @@ export function AppLayout() {
                     )}
                   />
                   <span>{t(`nav.${item.key}`)}</span>
+                </>
+              )
+              if (item.external) {
+                return (
+                  <a
+                    key={item.key}
+                    href={item.path}
+                    data-tour={`nav-${item.key}`}
+                    onClick={() => setSidebarOpen(false)}
+                    className={navClass}
+                  >
+                    {content}
+                  </a>
+                )
+              }
+              return (
+                <Link
+                  key={item.key}
+                  to={item.path}
+                  data-tour={`nav-${item.key}`}
+                  onClick={() => setSidebarOpen(false)}
+                  className={navClass}
+                >
+                  {content}
                 </Link>
               )
             })}
