@@ -178,6 +178,21 @@ ASSUMPTIONS_2026: dict = {
     # slightly higher; this user's MAGI is far below the band so the fallback
     # does not affect output. VERIFY for 2026.
     "roth_ira_phaseout_mfj": (236_000.0, 246_000.0),
+
+    # ---- EARLY RETIREMENT / MULTI-YEAR PROJECTION ---------------------------
+    # Penalties on non-qualified early distributions from tax-advantaged plans.
+    # FINAL 2026 (statutory). Federal IRC 72(t) 10%; California FTB additional
+    # 2.5% (FTB tacks 2.5% onto the federal early-distribution penalty).
+    "early_withdrawal_penalty_fed": 0.10,
+    "early_withdrawal_penalty_ca": 0.025,
+    # Penalty-free age for 401(k)/IRA distributions (IRC 72(t)). Statutory.
+    "penalty_free_age": 59.5,
+    # Roth conversion 5-year seasoning: converted principal is penalty-free only
+    # after 5 tax years. Statutory (IRC 408A). Drives the conversion ladder.
+    "roth_conversion_seasoning_years": 5,
+    # Rule-of-thumb sustainable withdrawal rate (Trinity/Bengen 4%). Planning
+    # heuristic, not a statute.
+    "safe_withdrawal_rate": 0.04,
 }
 
 
@@ -1035,6 +1050,304 @@ def plan_contributions(inp: dict) -> dict:
             "extra_fed_withholding_per_period": _r2(_g(inp, "extra_fed_withholding_per_period")),
             "ytd_social_security_wages": _r2(_g(inp, "ytd_social_security_wages")),
             "ytd_medicare_wages": _r2(_g(inp, "ytd_medicare_wages")),
+        },
+        "warnings": warnings,
+        "notes": notes,
+    }
+
+
+def project_retirement(inp: dict) -> dict:
+    """Multi-year accumulate-then-drawdown projection with an early-retirement
+    bridge analysis (funding the years between retirement and 59.5 without the
+    10% federal + 2.5% California early-distribution penalty).
+
+    Nominal dollars throughout. Each year: grow every account at return_rate,
+    then contribute (accumulation) or withdraw (decumulation). Withdrawals use a
+    penalty-free-first waterfall; a Roth-conversion ladder seasons trad->Roth
+    principal for penalty-free access 5 years out.
+    """
+    a = ASSUMPTIONS_2026
+
+    def _default(key: str, dflt: float) -> float:
+        return _g(inp, key) if key in inp else dflt
+
+    numeric_keys = (
+        "current_age", "retire_age", "end_age", "return_rate", "inflation_rate",
+        "trad_401k", "roth_ira", "roth_basis", "hsa", "hsa_receipts", "taxable",
+        "annual_trad_401k", "annual_roth", "annual_hsa", "annual_taxable",
+        "annual_spend", "annual_conversion", "effective_tax_rate",
+    )
+    _nonnegative(inp, *numeric_keys)
+
+    current_age = _default("current_age", 30.0)
+    retire_age = _default("retire_age", 50.0)
+    end_age = _default("end_age", 90.0)
+    if not (current_age.is_integer() and retire_age.is_integer() and end_age.is_integer()):
+        raise ValueError("current_age, retire_age, and end_age must be whole numbers")
+    current_age, retire_age, end_age = int(current_age), int(retire_age), int(end_age)
+    if not current_age < retire_age <= end_age:
+        raise ValueError("require current_age < retire_age <= end_age")
+    if current_age < 0 or end_age > 130:
+        raise ValueError("ages must be between 0 and 130")
+
+    return_rate = _default("return_rate", 7.5)
+    inflation_rate = _default("inflation_rate", 2.5)
+    effective_tax_rate = _default("effective_tax_rate", 12.0)
+    for label, pct in (("return_rate", return_rate), ("inflation_rate", inflation_rate),
+                       ("effective_tax_rate", effective_tax_rate)):
+        if pct >= 100:
+            raise ValueError(f"{label} is a percent and must be below 100")
+
+    r = return_rate / 100.0
+    infl = inflation_rate / 100.0
+    eff = effective_tax_rate / 100.0
+    penalty = a["early_withdrawal_penalty_fed"] + a["early_withdrawal_penalty_ca"]
+    if eff + penalty >= 1.0:
+        raise ValueError("effective_tax_rate plus the early-withdrawal penalty must stay below 100%")
+    seasoning = int(a["roth_conversion_seasoning_years"])
+    penalty_free_age = a["penalty_free_age"]
+
+    trad = _g(inp, "trad_401k")
+    roth = _g(inp, "roth_ira")
+    roth_basis = min(_g(inp, "roth_basis"), roth)
+    hsa = _g(inp, "hsa")
+    hsa_receipts = _g(inp, "hsa_receipts")
+    taxable = _g(inp, "taxable")
+
+    ann_trad = _g(inp, "annual_trad_401k")
+    ann_roth = _g(inp, "annual_roth")
+    ann_hsa = _g(inp, "annual_hsa")
+    ann_taxable = _g(inp, "annual_taxable")
+    grow_contrib = bool(inp.get("contributions_grow_with_inflation", True))
+
+    annual_spend = _g(inp, "annual_spend")
+    annual_conversion = _g(inp, "annual_conversion")
+
+    def _gross_withdraw(source: float, net_needed: float, taxed: bool, penalized: bool):
+        """Gross up a withdrawal so the after-tax/after-penalty net covers the
+        need. Returns (net_delivered, tax, penalty, remaining_source)."""
+        denom = 1.0 - (eff if taxed else 0.0) - (penalty if penalized else 0.0)
+        gross = min(net_needed / denom, source)
+        return gross * denom, gross * (eff if taxed else 0.0), gross * (penalty if penalized else 0.0), source - gross
+
+    # ponytail: conversion tranches are static (converted principal held flat,
+    # not grown at return_rate); upgrade path is to compound each tranche. Over
+    # a ~5yr seasoning window the drift is small.
+    tranches: list = []  # [accessible_age, amount] of seasoned Roth-conversion principal
+    series: list = []
+    total_penalties = total_taxes = 0.0
+    conversions_seasoned_before_pf = 0.0
+    bridge_spend_total = bridge_penalty_total = 0.0
+    bridge_holds = True
+    first_penalty_age = first_shortfall_age = None
+    retire_total = 0.0
+    retire_breakdown = {}
+    taxable_at_retire = roth_basis_at_retire = hsa_receipts_at_retire = 0.0
+
+    for age in range(current_age, end_age + 1):
+        if age == retire_age:
+            retire_breakdown = {"trad_401k": trad, "roth_ira": roth, "hsa": hsa, "taxable": taxable}
+            retire_total = trad + roth + hsa + taxable
+            taxable_at_retire, roth_basis_at_retire, hsa_receipts_at_retire = taxable, roth_basis, hsa_receipts
+
+        trad *= 1 + r
+        roth *= 1 + r
+        hsa *= 1 + r
+        taxable *= 1 + r
+
+        year_penalty = year_tax = year_shortfall = spend = 0.0
+
+        if age < retire_age:
+            factor = (1 + infl) ** (age - current_age) if grow_contrib else 1.0
+            trad += ann_trad * factor
+            roth += ann_roth * factor
+            roth_basis += ann_roth * factor  # ponytail: basis tracks cumulative contributions only; it is NOT grown at return_rate (cost basis never compounds).
+            hsa += ann_hsa * factor
+            taxable += ann_taxable * factor
+        else:
+            spend = annual_spend * (1 + infl) ** (age - current_age)
+            need = spend
+
+            if annual_conversion > 0 and age < penalty_free_age - seasoning and trad > 0:
+                amt = min(annual_conversion, trad)
+                trad -= amt
+                tranches.append([age + seasoning, amt])
+                conv_tax = amt * eff
+                need += conv_tax
+                year_tax += conv_tax
+                total_taxes += conv_tax
+                if age + seasoning < penalty_free_age:
+                    conversions_seasoned_before_pf += amt
+
+            take = min(need, taxable); taxable -= take; need -= take
+            take = min(need, roth_basis); roth_basis -= take; roth -= take; need -= take
+            for tr in tranches:
+                if need <= 0:
+                    break
+                if tr[0] <= age:
+                    take = min(need, tr[1]); tr[1] -= take; need -= take
+            take = min(need, hsa_receipts); hsa_receipts -= take; need -= take
+
+            if need > 1e-9 and trad > 0:
+                net, tax_amt, pen_amt, trad = _gross_withdraw(trad, need, True, age < penalty_free_age)
+                need -= net; year_tax += tax_amt; year_penalty += pen_amt
+                total_taxes += tax_amt; total_penalties += pen_amt
+
+            if need > 1e-9 and roth > 0:
+                if age >= penalty_free_age:
+                    take = min(need, roth); roth -= take; need -= take  # qualified Roth: tax- and penalty-free
+                else:
+                    net, tax_amt, pen_amt, roth = _gross_withdraw(roth, need, True, True)
+                    need -= net; year_tax += tax_amt; year_penalty += pen_amt
+                    total_taxes += tax_amt; total_penalties += pen_amt
+
+            if need > 1e-6:
+                year_shortfall = need
+                if first_shortfall_age is None:
+                    first_shortfall_age = age
+
+            if year_penalty > 0 and first_penalty_age is None:
+                first_penalty_age = age
+
+            if age < penalty_free_age:
+                bridge_spend_total += spend
+                bridge_penalty_total += year_penalty
+                if year_shortfall > 0 or year_penalty > 0:
+                    bridge_holds = False
+
+        outstanding = sum(t[1] for t in tranches)
+        series.append({
+            "age": age,
+            "trad_401k": _r2(trad),
+            "roth_ira": _r2(roth),
+            "hsa": _r2(hsa),
+            "taxable": _r2(taxable),
+            "total": _r2(trad + roth + hsa + taxable + outstanding),
+            "spend": _r2(spend),
+            "penalty": _r2(year_penalty),
+            "tax": _r2(year_tax),
+            "shortfall": _r2(year_shortfall),
+        })
+
+    depleted_age = first_shortfall_age
+    ending_balance = series[-1]["total"]
+    accessible_penalty_free = (
+        taxable_at_retire + roth_basis_at_retire + hsa_receipts_at_retire + conversions_seasoned_before_pf
+    )
+    spend_at_retirement = annual_spend * (1 + infl) ** (retire_age - current_age)
+    safe_withdrawal = retire_total * a["safe_withdrawal_rate"]
+    swr_covered = safe_withdrawal >= spend_at_retirement
+
+    lean_on_ladder = (
+        bridge_holds and total_penalties == 0 and first_shortfall_age is None
+        and bridge_spend_total > 0 and conversions_seasoned_before_pf > 0.25 * bridge_spend_total
+    )
+    if first_shortfall_age is not None:
+        feasibility = "at_risk"
+        feasibility_reason = (
+            f"Money runs short starting at age {first_shortfall_age}: penalty-free bridge assets "
+            f"and the portfolio cannot cover inflated spending through {end_age}."
+        )
+    elif not bridge_holds:
+        feasibility = "tight"
+        feasibility_reason = (
+            f"Plan lasts to {end_age}, but the {retire_age}-to-{penalty_free_age} bridge forces early "
+            f"withdrawals (~${total_penalties:,.0f} in penalties) before {penalty_free_age}."
+        )
+    elif lean_on_ladder:
+        feasibility = "tight"
+        feasibility_reason = (
+            f"Plan lasts to {end_age} penalty-free, but leans hard on the Roth-conversion ladder "
+            f"(${conversions_seasoned_before_pf:,.0f} of seasoned conversions cover the bridge); execution risk is high."
+        )
+    else:
+        feasibility = "strong"
+        feasibility_reason = (
+            f"The {retire_age}-to-{penalty_free_age} bridge is funded penalty-free and the portfolio lasts to {end_age}."
+        )
+
+    years_to_retire = retire_age - current_age
+    suggestions: list = []
+    gap = max(bridge_spend_total - accessible_penalty_free, 0.0)
+    if bridge_spend_total > 0 and taxable_at_retire < 0.5 * bridge_spend_total and years_to_retire > 0 \
+            and (gap > 0 or not bridge_holds):
+        annual = (gap if gap > 0 else bridge_spend_total * 0.5) / years_to_retire
+        suggestions.append(
+            f"Taxable/brokerage savings are thin (~${taxable_at_retire:,.0f} at retirement) versus the "
+            f"~${bridge_spend_total:,.0f} needed from {retire_age} to {penalty_free_age}. Build a taxable "
+            f"bridge by saving roughly ${annual:,.0f}/yr until retirement."
+        )
+    if conversions_seasoned_before_pf > 0:
+        suggestions.append(
+            f"The Roth-conversion ladder needs a {seasoning}-year seasoning runway: conversions started at "
+            f"retirement are not penalty-free until age {retire_age + seasoning}. Cover the first {seasoning} years "
+            f"({retire_age}-{retire_age + seasoning}) from Roth contribution basis, taxable savings, and HSA receipts."
+        )
+    if swr_covered and feasibility != "strong":
+        suggestions.append(
+            f"The portfolio is more than sufficient by the {a['safe_withdrawal_rate']:.0%} rule "
+            f"(${safe_withdrawal:,.0f} vs ${spend_at_retirement:,.0f} spend); the binding constraint is "
+            f"liquidity before {penalty_free_age}, not total savings."
+        )
+    if hsa > 0 or ann_hsa > 0 or hsa_receipts_at_retire > 0:
+        suggestions.append(
+            "Bank medical receipts now and leave the HSA invested: unreimbursed receipts become a flexible, "
+            "tax- and penalty-free withdrawal pool you can tap during the bridge."
+        )
+    if total_penalties > 0:
+        suggestions.append(
+            f"Early withdrawals in this plan trigger about ${total_penalties:,.0f} in combined "
+            f"{penalty:.1%} (10% federal + 2.5% California) penalties; reduce them by adding penalty-free "
+            "bridge assets (taxable, Roth basis, HSA receipts) or a longer conversion-ladder runway."
+        )
+
+    notes = [
+        "Nominal dollars; spending inflates each year from current_age.",
+        "HSA principal beyond banked receipts is not drawn for living expenses (treated as earmarked for medical); only banked receipts are tapped in the bridge.",
+        "'total' includes in-flight Roth-conversion-ladder tranches, which are not shown in the per-account columns.",
+    ]
+    warnings = [
+        "Flat effective-tax-rate approximation on all traditional withdrawals and conversions — no brackets, deductions, or state/federal split.",
+        "No RMDs, no Social Security, no pensions, and no ACA premium subsidies are modeled.",
+        "Simplified Roth 5-year rules: contribution basis is always accessible; each conversion seasons independently; earnings are last.",
+        "ESTIMATE ONLY — a planning projection, not tax or investment advice.",
+    ]
+
+    return {
+        "series": series,
+        "retire_age": retire_age,
+        "retire_total": _r2(retire_total),
+        "retire_breakdown": {k: _r2(v) for k, v in retire_breakdown.items()},
+        "bridge": {
+            "start_age": retire_age,
+            "end_age": penalty_free_age,
+            "spend_total": _r2(bridge_spend_total),
+            "accessible_penalty_free": _r2(accessible_penalty_free),
+            "penalty_total": _r2(bridge_penalty_total),
+            "holds": bridge_holds,
+            "first_penalty_age": first_penalty_age,
+            "first_shortfall_age": first_shortfall_age,
+        },
+        "swr": {
+            "safe_withdrawal": _r2(safe_withdrawal),
+            "spend_at_retirement": _r2(spend_at_retirement),
+            "covered": swr_covered,
+        },
+        "feasibility": feasibility,
+        "feasibility_reason": feasibility_reason,
+        "total_penalties": _r2(total_penalties),
+        "total_taxes": _r2(total_taxes),
+        "ending_balance": _r2(ending_balance),
+        "depleted_age": depleted_age,
+        "suggestions": suggestions,
+        "assumptions": {
+            "return_rate": _r2(return_rate),
+            "inflation_rate": _r2(inflation_rate),
+            "effective_tax_rate": _r2(effective_tax_rate),
+            "penalty_free_age": penalty_free_age,
+            "early_withdrawal_penalty_pct": _r2(penalty * 100),
+            "roth_conversion_seasoning_years": seasoning,
+            "safe_withdrawal_rate": a["safe_withdrawal_rate"],
         },
         "warnings": warnings,
         "notes": notes,

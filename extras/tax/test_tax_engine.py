@@ -210,5 +210,68 @@ class ContributionPlannerTest(unittest.TestCase):
         self.assertTrue(any("phase-out" in w for w in inside["warnings"]))
 
 
+class RetirementProjectionTest(unittest.TestCase):
+    def test_pure_accumulation_matches_compound_growth(self):
+        result = tax_engine.project_retirement({
+            "current_age": 30, "retire_age": 40, "end_age": 40,
+            "return_rate": 7.5, "inflation_rate": 0,
+            "trad_401k": 10_000, "annual_spend": 0,
+        })
+        self.assertAlmostEqual(result["retire_total"], 10_000 * (1.075 ** 10), places=2)
+
+    def test_decumulation_spends_taxable_then_roth_basis_then_trad(self):
+        result = tax_engine.project_retirement({
+            "current_age": 40, "retire_age": 41, "end_age": 41,
+            "return_rate": 0, "inflation_rate": 0,
+            "taxable": 5_000, "roth_ira": 5_000, "roth_basis": 5_000,
+            "trad_401k": 100_000, "annual_spend": 8_000, "effective_tax_rate": 12,
+        })
+        last = result["series"][-1]
+        self.assertEqual(last["taxable"], 0)        # taxable drained first
+        self.assertEqual(last["roth_ira"], 2_000)   # then roth basis (5k -> 2k)
+        self.assertEqual(last["trad_401k"], 100_000)  # trad untouched
+        self.assertEqual(last["penalty"], 0)
+
+    def test_early_trad_only_withdrawal_incurs_penalty(self):
+        result = tax_engine.project_retirement({
+            "current_age": 40, "retire_age": 41, "end_age": 41,
+            "return_rate": 0, "inflation_rate": 0,
+            "trad_401k": 100_000, "annual_spend": 8_760, "effective_tax_rate": 12,
+        })
+        last = result["series"][-1]
+        gross = 8_760 / (1 - 0.12 - 0.125)
+        self.assertAlmostEqual(last["penalty"], gross * 0.125, places=2)
+        self.assertGreater(result["total_penalties"], 0)
+
+    def test_conversion_tranche_seasons_exactly_five_years_later(self):
+        result = tax_engine.project_retirement({
+            "current_age": 49, "retire_age": 50, "end_age": 55,
+            "return_rate": 0, "inflation_rate": 0, "effective_tax_rate": 0,
+            "trad_401k": 500_000, "annual_spend": 10_000, "annual_conversion": 10_000,
+        })
+        by_age = {row["age"]: row for row in result["series"]}
+        self.assertGreater(by_age[54]["penalty"], 0)   # nothing seasoned yet
+        self.assertEqual(by_age[55]["penalty"], 0)      # age-50 tranche now accessible
+
+    def test_rich_but_illiquid_is_not_strong_and_suggests_taxable_bridge(self):
+        result = tax_engine.project_retirement({
+            "current_age": 35, "retire_age": 45, "end_age": 90,
+            "return_rate": 7.5, "inflation_rate": 2.5,
+            "trad_401k": 800_000, "annual_trad_401k": 30_000,
+            "taxable": 5_000, "annual_taxable": 0,
+            "annual_spend": 60_000, "effective_tax_rate": 12,
+        })
+        self.assertNotEqual(result["feasibility"], "strong")
+        self.assertTrue(any("taxable" in s.lower() for s in result["suggestions"]))
+
+    def test_swr_covered_when_four_percent_meets_spend(self):
+        result = tax_engine.project_retirement({
+            "current_age": 40, "retire_age": 41, "end_age": 90,
+            "return_rate": 7.5, "inflation_rate": 2.5,
+            "trad_401k": 2_000_000, "annual_spend": 50_000,
+        })
+        self.assertTrue(result["swr"]["covered"])
+
+
 if __name__ == "__main__":
     unittest.main()
