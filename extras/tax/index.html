@@ -1072,8 +1072,8 @@ function taxApp() {
 
     // ---- shared inputs (single source of truth across paycheck + retirement) ----
     shared: {
-      annual_salary: 147000, pay_periods: 24, age: 27,
-      ytd_social_security_wages: 100089, ytd_medicare_wages: 100089,
+      annual_salary: 100000, pay_periods: 26, age: 40,
+      ytd_social_security_wages: 0, ytd_medicare_wages: 0,
     },
 
     // ---- estimate state ----
@@ -1098,29 +1098,29 @@ function taxApp() {
 
     // ---- retirement plan state (shared fields live in `shared`) ----
     rp: {
-      remaining_paychecks: 11,
-      employee_401k_ytd: 10530.97, employer_401k_ytd: 3306.16, after_tax_401k_ytd: 0,
-      target_401k: 24500, current_401k_pct: 16, current_roth_share_pct: 0,
+      remaining_paychecks: 13,
+      employee_401k_ytd: 0, employer_401k_ytd: 0, after_tax_401k_ytd: 0,
+      target_401k: 24500, current_401k_pct: 10, current_roth_share_pct: 0,
       future_roth_share_pct: 0,
-      payroll_rate_increment: 0.1, plan_max_pct: 100, match_required_pct: 5,
-      eligible_bonus: 0, hsa_coverage: "family", hsa_goal: 8750, hsa_ytd: 4631.25,
-      current_hsa_per_period: 356.25,
-      ira_goal_self: 7500, ira_ytd_self: 7500, ira_goal_spouse: 7500, ira_ytd_spouse: 0,
-      eligible_comp: 147000, match_rate: 0.90, match_cap_pct: 5,
-      frp_pct: 3.5, frp_ytd: 2571.49, years_of_service: 1.5, frp_vest_years: 3,
-      other_pretax_per_period: 19.91, roth_ira_per_period: 0,
+      payroll_rate_increment: 0.1, plan_max_pct: 100, match_required_pct: 0,
+      eligible_bonus: 0, hsa_coverage: "family", hsa_goal: 8750, hsa_ytd: 0,
+      current_hsa_per_period: 0,
+      ira_goal_self: 7500, ira_ytd_self: 0, ira_goal_spouse: 7500, ira_ytd_spouse: 0,
+      eligible_comp: 100000, match_rate: 0, match_cap_pct: 0,
+      frp_pct: 0, frp_ytd: 0, years_of_service: 0, frp_vest_years: 3,
+      other_pretax_per_period: 0, roth_ira_per_period: 0,
       extra_fed_withholding_per_period: 0,
     },
     rpResult: null, rpLoading: false, rpError: "",
 
     // ---- early-retirement projection state ----
     proj: {
-      current_age: 27, retire_age: 47, end_age: 90,
-      return_rate: 7.5, inflation_rate: 2.5,
-      trad_401k: 39000, roth_ira: 80000, roth_basis: 55000,
-      hsa: 10000, hsa_receipts: 0, taxable: 18000,
-      annual_trad_401k: 36260, annual_roth: 15000, annual_hsa: 8750, annual_taxable: 0,
-      annual_spend: 72000, annual_conversion: 0, effective_tax_rate: 12,
+      current_age: 30, retire_age: 50, end_age: 90,
+      return_rate: 7.0, inflation_rate: 2.5,
+      trad_401k: 0, roth_ira: 0, roth_basis: 0,
+      hsa: 0, hsa_receipts: 0, taxable: 0,
+      annual_trad_401k: 0, annual_roth: 0, annual_hsa: 0, annual_taxable: 0,
+      annual_spend: 60000, annual_conversion: 0, effective_tax_rate: 12,
     },
     projResult: null, projLoading: false, projError: "",
 
