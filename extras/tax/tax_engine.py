@@ -173,6 +173,11 @@ ASSUMPTIONS_2026: dict = {
     "hsa_catch_up_limit": 1_000.0,
     "ira_limit": 7_500.0,
     "ira_catch_up_limit": 1_100.0,
+    # Roth IRA MAGI phase-out, MFJ: (full below lower, $0 at/above upper).
+    # 2025 FALLBACK (official 2025 range). Notice 2025-67 sets the 2026 range
+    # slightly higher; this user's MAGI is far below the band so the fallback
+    # does not affect output. VERIFY for 2026.
+    "roth_ira_phaseout_mfj": (236_000.0, 246_000.0),
 }
 
 
@@ -193,6 +198,24 @@ def _nonnegative(inp: dict, *keys: str) -> None:
     for key in keys:
         if _g(inp, key) < 0:
             raise ValueError(f"{key} must be non-negative")
+
+
+def _roth_phaseout_limit(magi: float, limit: float, lower: float, upper: float) -> float:
+    """Reduced Roth IRA contribution limit for a given MAGI (IRS worksheet).
+
+    Full limit below `lower`, $0 at/above `upper`, linear between. The reduction
+    is rounded UP to the nearest $10, and a nonzero result below $200 is raised
+    to $200, per the IRS phase-out rounding rule.
+    """
+    if upper <= lower or magi < lower:
+        return limit
+    if magi >= upper:
+        return 0.0
+    reduction = math.ceil((magi - lower) / (upper - lower) * limit / 10.0) * 10.0
+    reduced = limit - reduction
+    if 0.0 < reduced < 200.0:
+        reduced = 200.0
+    return max(reduced, 0.0)
 
 
 def _tax_from_brackets(income: float, brackets: list) -> float:
@@ -727,6 +750,9 @@ def plan_contributions(inp: dict) -> dict:
         "ytd_social_security_wages", "ytd_medicare_wages",
         "payroll_rate_increment", "plan_max_pct", "match_required_pct",
         "hsa_goal", "hsa_ytd", "current_hsa_per_period", "ira_goal", "ira_ytd",
+        "ira_goal_self", "ira_ytd_self", "ira_goal_spouse", "ira_ytd_spouse",
+        "eligible_comp", "match_rate", "match_cap_pct", "frp_pct", "frp_ytd",
+        "years_of_service", "frp_vest_years", "magi",
     )
     _nonnegative(inp, *keys)
 
@@ -770,8 +796,18 @@ def plan_contributions(inp: dict) -> dict:
     requested_target = _g(inp, "target_401k") if "target_401k" in inp else elective_limit
     target = min(requested_target, elective_limit)
 
+    eligible_comp = _g(inp, "eligible_comp") if "eligible_comp" in inp else salary
+    match_rate = _g(inp, "match_rate")
+    match_cap_pct = _g(inp, "match_cap_pct")
+    frp_pct = _g(inp, "frp_pct")
+    frp_ytd = _g(inp, "frp_ytd")
+    years_of_service = _g(inp, "years_of_service")
+    frp_vest_years = _g(inp, "frp_vest_years") if "frp_vest_years" in inp else 3.0
+
     catch_up_used = min(max(employee_ytd - a["elective_deferral_limit"], 0.0), catch_up)
     additions_used = min(employee_ytd, a["elective_deferral_limit"]) + employer_ytd + after_tax_ytd
+    if "frp_ytd" in inp or "frp_pct" in inp:
+        additions_used += frp_ytd
     additions_room = max(a["annual_additions_limit"] - additions_used, 0.0)
     catch_up_room = max(catch_up - catch_up_used, 0.0)
     statutory_room = additions_room + catch_up_room
@@ -794,6 +830,17 @@ def plan_contributions(inp: dict) -> dict:
     current_bonus = _r2(eligible_bonus * current_rate / 100.0)
     projected_at_current = employee_ytd + current_per_paycheck * remaining_paychecks + current_bonus
 
+    effective_deferral_pct = min(recommended_rate, match_cap_pct)
+    annual_match = match_rate * (effective_deferral_pct / 100.0) * eligible_comp
+    full_match_annual = match_rate * (match_cap_pct / 100.0) * eligible_comp
+    match_left_on_table = max(full_match_annual - annual_match, 0.0)
+    annual_frp = (frp_pct / 100.0) * eligible_comp
+    employer_total_annual = annual_match + annual_frp
+    projected_total_additions = (
+        min(projected_401k, elective_limit) + after_tax_ytd + annual_match + annual_frp
+    )
+    additions_headroom = max(a["annual_additions_limit"] - projected_total_additions, 0.0)
+
     hsa_goal = _g(inp, "hsa_goal")
     hsa_ytd = _g(inp, "hsa_ytd")
     hsa_coverage = str(inp.get("hsa_coverage", "family"))
@@ -807,6 +854,10 @@ def plan_contributions(inp: dict) -> dict:
     current_hsa = _g(inp, "current_hsa_per_period")
     hsa_projected_current = hsa_ytd + current_hsa * remaining_paychecks
     hsa_projected_overage = max(hsa_projected_current - hsa_goal, 0.0)
+    hsa_gap_to_limit = max(hsa_limit - hsa_projected_current, 0.0)
+    hsa_per_paycheck_to_max = (
+        _r2(max(hsa_limit - hsa_ytd, 0.0) / remaining_paychecks) if remaining_paychecks else 0.0
+    )
 
     pretax_rate = recommended_rate * (100.0 - roth_share) / 100.0
     roth_rate = recommended_rate * roth_share / 100.0
@@ -835,6 +886,24 @@ def plan_contributions(inp: dict) -> dict:
         "ytd_medicare_wages": _g(inp, "ytd_medicare_wages"),
     })
 
+    ira_limit = a["ira_limit"] + (a["ira_catch_up_limit"] if age >= 50 else 0.0)
+    if "ira_goal_self" in inp or "ira_ytd_self" in inp:
+        ira_goal_self = _g(inp, "ira_goal_self")
+        ira_ytd_self = _g(inp, "ira_ytd_self")
+    else:
+        ira_goal_self = _g(inp, "ira_goal")
+        ira_ytd_self = _g(inp, "ira_ytd")
+    ira_goal_spouse = _g(inp, "ira_goal_spouse")
+    ira_ytd_spouse = _g(inp, "ira_ytd_spouse")
+    ira_remaining_self = max(ira_goal_self - ira_ytd_self, 0.0)
+    ira_remaining_spouse = max(ira_goal_spouse - ira_ytd_spouse, 0.0)
+    ira_remaining_total = ira_remaining_self + ira_remaining_spouse
+
+    roth_lower, roth_upper = a["roth_ira_phaseout_mfj"]
+    magi = _g(inp, "magi") if "magi" in inp else (salary + eligible_bonus)
+    roth_ira_reduced_limit = _roth_phaseout_limit(magi, ira_limit, roth_lower, roth_upper)
+
+    notes = []
     warnings = []
     if requested_target > elective_limit:
         warnings.append(f"401(k) target capped at the 2026 employee limit of ${elective_limit:,.0f}.")
@@ -857,10 +926,44 @@ def plan_contributions(inp: dict) -> dict:
         warnings.append(
             f"The entered HSA goal exceeds the modeled 2026 {hsa_coverage}-coverage limit of ${hsa_limit:,.0f}."
         )
-    ira_limit = a["ira_limit"] + (a["ira_catch_up_limit"] if age >= 50 else 0.0)
-    if _g(inp, "ira_goal") > ira_limit:
+    if ira_goal_self > ira_limit:
         warnings.append(
-            f"The entered IRA goal exceeds the modeled 2026 per-person limit of ${ira_limit:,.0f}; income eligibility may reduce it further."
+            f"The entered self IRA goal exceeds the modeled 2026 per-person limit of ${ira_limit:,.0f}; income eligibility may reduce it further."
+        )
+    if ira_goal_spouse > ira_limit:
+        warnings.append(
+            f"The entered spouse IRA goal exceeds the modeled 2026 per-person limit of ${ira_limit:,.0f}; income eligibility may reduce it further."
+        )
+    if magi >= roth_lower:
+        if roth_ira_reduced_limit <= 0:
+            warnings.append(
+                f"MAGI ${magi:,.0f} is at or above the ${roth_upper:,.0f} MFJ Roth IRA ceiling; "
+                "direct Roth IRA contributions are not allowed (consider a backdoor Roth)."
+            )
+        else:
+            warnings.append(
+                f"MAGI ${magi:,.0f} is within the MFJ Roth IRA phase-out (${roth_lower:,.0f}-${roth_upper:,.0f}); "
+                f"each spouse's Roth IRA limit is reduced to ${roth_ira_reduced_limit:,.0f}."
+            )
+    if ira_goal_spouse > 0:
+        notes.append(
+            "A non-working spouse may still fund a full Roth IRA under MFJ: the working "
+            "spouse's earned income can cover both spouses' IRA contributions."
+        )
+    if projected_total_additions > a["annual_additions_limit"]:
+        warnings.append(
+            f"Projected annual additions ${projected_total_additions:,.0f} exceed the 415(c) "
+            f"limit of ${a['annual_additions_limit']:,.0f}; employer + after-tax dollars leave no room."
+        )
+    if frp_pct > 0 and years_of_service < frp_vest_years:
+        notes.append(
+            f"FRP vests after {frp_vest_years:.0f} years of service; you have {years_of_service}. "
+            "Employer FRP dollars are unvested until then."
+        )
+    if hsa_gap_to_limit > 0:
+        notes.append(
+            f"On pace for ${hsa_projected_current:,.0f}; ${hsa_gap_to_limit:,.0f} below the "
+            f"${hsa_limit:,.0f} {hsa_coverage} max — raise to ${hsa_per_paycheck_to_max:,.2f}/paycheck to max it."
         )
     if catch_up and salary > 150_000:
         warnings.append(
@@ -887,9 +990,34 @@ def plan_contributions(inp: dict) -> dict:
         "recommended_hsa_per_paycheck": hsa_per_paycheck,
         "projected_hsa_at_current_rate": _r2(hsa_projected_current),
         "projected_hsa_overage": _r2(hsa_projected_overage),
+        "hsa_gap_to_limit": _r2(hsa_gap_to_limit),
+        "hsa_per_paycheck_to_max": hsa_per_paycheck_to_max,
         "hsa_limit": _r2(hsa_limit),
-        "ira_remaining": _r2(max(_g(inp, "ira_goal") - _g(inp, "ira_ytd"), 0.0)),
+        "ira_remaining": _r2(ira_remaining_total),
+        "ira_remaining_self": _r2(ira_remaining_self),
+        "ira_remaining_spouse": _r2(ira_remaining_spouse),
+        "ira_remaining_total": _r2(ira_remaining_total),
+        "ira_goal_self": _r2(ira_goal_self),
+        "ira_ytd_self": _r2(ira_ytd_self),
+        "ira_goal_spouse": _r2(ira_goal_spouse),
+        "ira_ytd_spouse": _r2(ira_ytd_spouse),
         "ira_limit": _r2(ira_limit),
+        "roth_ira_magi": _r2(magi),
+        "roth_ira_reduced_limit": _r2(roth_ira_reduced_limit),
+        "annual_match": _r2(annual_match),
+        "full_match_annual": _r2(full_match_annual),
+        "match_left_on_table": _r2(match_left_on_table),
+        "annual_frp": _r2(annual_frp),
+        "employer_total_annual": _r2(employer_total_annual),
+        "projected_total_additions": _r2(projected_total_additions),
+        "additions_headroom": _r2(additions_headroom),
+        "eligible_comp": _r2(eligible_comp),
+        "match_rate": _r2(match_rate),
+        "match_cap_pct": _r2(match_cap_pct),
+        "frp_pct": _r2(frp_pct),
+        "frp_ytd": _r2(frp_ytd),
+        "years_of_service": _r2(years_of_service),
+        "frp_vest_years": _r2(frp_vest_years),
         "current_take_home": current_paycheck["net_take_home_per_period"],
         "recommended_take_home": recommended_paycheck["net_take_home_per_period"],
         "take_home_change": _r2(
@@ -909,6 +1037,7 @@ def plan_contributions(inp: dict) -> dict:
             "ytd_medicare_wages": _r2(_g(inp, "ytd_medicare_wages")),
         },
         "warnings": warnings,
+        "notes": notes,
     }
 
 
