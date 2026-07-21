@@ -176,8 +176,9 @@ def writeoffs(_auth=Depends(require_auth)):
         with db_conn() as conn, conn.cursor() as cur:
             sched_sql = f"""
                 SELECT c.name AS category,
-                       COALESCE(SUM(COALESCE(t.amount_primary, t.amount)), 0)::float8 AS total,
-                       COUNT(*) AS count
+                       t.date,
+                       t.description,
+                       COALESCE(t.amount_primary, t.amount)::float8 AS amount
                 FROM transactions t
                 JOIN categories c ON c.id = t.category_id
                 JOIN category_groups g ON g.id = c.group_id
@@ -188,19 +189,36 @@ def writeoffs(_auth=Depends(require_auth)):
                   AND t.date < %(end)s
                   AND g.name = 'Business / Schedule C'
                   {ws_sql}
-                GROUP BY c.name
-                ORDER BY total DESC
+                ORDER BY c.name, t.date DESC
             """
             cur.execute(sched_sql, {"start": YTD_START, "end": _ytd_end(), **ws_params})
-            schedule_c = [
-                {"category": r[0], "total": round(r[1], 2), "count": r[2]}
-                for r in cur.fetchall()
-            ]
+            sched_agg = {}
+            for category, date, description, amount in cur.fetchall():
+                agg = sched_agg.setdefault(category, {"total": 0.0, "count": 0, "items": []})
+                agg["total"] += amount
+                agg["count"] += 1
+                agg["items"].append({
+                    "date": date.isoformat(),
+                    "description": description or "",
+                    "amount": round(amount, 2),
+                })
+            schedule_c = sorted(
+                (
+                    {"category": cat, "total": round(v["total"], 2),
+                     "count": v["count"], "items": v["items"]}
+                    for cat, v in sched_agg.items()
+                ),
+                key=lambda x: x["total"],
+                reverse=True,
+            )
 
             # Tags live as free text in notes, so aggregate in Python: pull
             # matching rows, extract each #ded tag, and sum per exact tag.
             ded_sql = f"""
-                SELECT t.notes, COALESCE(t.amount_primary, t.amount)::float8
+                SELECT t.notes,
+                       COALESCE(t.amount_primary, t.amount)::float8,
+                       t.date,
+                       t.description
                 FROM transactions t
                 WHERE t.type = 'debit'
                   AND t.is_ignored = false
@@ -209,11 +227,12 @@ def writeoffs(_auth=Depends(require_auth)):
                   AND t.date < %(end)s
                   AND t.notes ILIKE '%%#ded%%'
                   {ws_sql}
+                ORDER BY t.date DESC
             """
             cur.execute(ded_sql, {"start": YTD_START, "end": _ytd_end(), **ws_params})
 
             tag_totals = {}
-            for notes, amount in cur.fetchall():
+            for notes, amount, date, description in cur.fetchall():
                 seen = set()
                 for m in DED_TAG_RE.findall(notes or ""):
                     tag = m.lower()
@@ -222,13 +241,20 @@ def writeoffs(_auth=Depends(require_auth)):
                     if tag in seen:
                         continue
                     seen.add(tag)
-                    agg = tag_totals.setdefault(tag, {"total": 0.0, "count": 0})
+                    agg = tag_totals.setdefault(tag, {"total": 0.0, "count": 0, "items": []})
                     agg["total"] += amount
                     agg["count"] += 1
+                    agg["items"].append({
+                        "date": date.isoformat(),
+                        "description": description or "",
+                        "amount": round(amount, 2),
+                        "notes": notes or "",
+                    })
 
         deduction_tags = sorted(
             (
-                {"tag": tag, "total": round(v["total"], 2), "count": v["count"]}
+                {"tag": tag, "total": round(v["total"], 2),
+                 "count": v["count"], "items": v["items"]}
                 for tag, v in tag_totals.items()
             ),
             key=lambda x: x["total"],

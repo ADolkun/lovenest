@@ -701,14 +701,42 @@
               <template x-if="!wo || !wo.schedule_c || !wo.schedule_c.length">
                 <tr><td colspan="3" class="px-5 py-6 text-center text-muted-foreground" x-text="woLoading ? 'Loading…' : 'No Schedule C transactions yet.'"></td></tr>
               </template>
-              <template x-for="r in (wo && wo.schedule_c) || []" :key="r.category">
-                <tr class="border-t border-border hover:bg-muted/50">
-                  <td class="px-5 py-2.5 text-foreground" x-text="r.category"></td>
+            </tbody>
+            <template x-for="r in (wo && wo.schedule_c) || []" :key="r.category">
+              <tbody>
+                <tr class="border-t border-border hover:bg-muted/50"
+                    :class="r.items && r.items.length && 'cursor-pointer'"
+                    @click="r.items && r.items.length && toggleWo('sched:' + r.category)">
+                  <td class="px-5 py-2.5 text-foreground">
+                    <span class="inline-flex items-center gap-1.5">
+                      <svg x-show="r.items && r.items.length" class="h-3.5 w-3.5 shrink-0 transition text-muted-foreground"
+                           :class="woExpanded['sched:' + r.category] ? '' : '-rotate-90'"
+                           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                      <span x-text="r.category"></span>
+                    </span>
+                  </td>
                   <td class="px-5 py-2.5 text-right num text-muted-foreground" x-text="r.count"></td>
                   <td class="px-5 py-2.5 text-right num font-medium text-foreground" x-text="usd(r.total)"></td>
                 </tr>
-              </template>
-            </tbody>
+                <template x-if="woExpanded['sched:' + r.category] && r.items && r.items.length">
+                  <tr class="bg-muted/30">
+                    <td colspan="3" class="p-0">
+                      <table class="w-full">
+                        <tbody>
+                          <template x-for="(it, i) in r.items" :key="i">
+                            <tr class="border-t border-border">
+                              <td class="px-5 py-2 text-sm text-muted-foreground whitespace-nowrap" x-text="it.date"></td>
+                              <td class="px-5 py-2 text-sm text-muted-foreground" x-text="it.description || '—'"></td>
+                              <td class="px-5 py-2 text-sm text-right num text-foreground" x-text="usd(it.amount)"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </template>
           </table>
         </div>
 
@@ -727,16 +755,45 @@
               <template x-if="!wo || !wo.deduction_tags || !wo.deduction_tags.length">
                 <tr><td colspan="3" class="px-5 py-6 text-center text-muted-foreground" x-text="woLoading ? 'Loading…' : 'No #ded tags found.'"></td></tr>
               </template>
-              <template x-for="r in (wo && wo.deduction_tags) || []" :key="r.tag">
-                <tr class="border-t border-border hover:bg-muted/50">
+            </tbody>
+            <template x-for="r in (wo && wo.deduction_tags) || []" :key="r.tag">
+              <tbody>
+                <tr class="border-t border-border hover:bg-muted/50"
+                    :class="r.items && r.items.length && 'cursor-pointer'"
+                    @click="r.items && r.items.length && toggleWo('tag:' + r.tag)">
                   <td class="px-5 py-2.5">
-                    <code class="text-xs px-1.5 py-0.5 rounded bg-accent text-accent-foreground" x-text="r.tag"></code>
+                    <span class="inline-flex items-center gap-1.5">
+                      <svg x-show="r.items && r.items.length" class="h-3.5 w-3.5 shrink-0 transition text-muted-foreground"
+                           :class="woExpanded['tag:' + r.tag] ? '' : '-rotate-90'"
+                           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+                      <span class="inline-flex flex-col">
+                        <code class="text-xs px-1.5 py-0.5 rounded bg-accent text-accent-foreground self-start" x-text="r.tag"></code>
+                        <span class="text-xs text-muted-foreground mt-0.5" x-text="dedLabel(r.tag)"></span>
+                      </span>
+                    </span>
                   </td>
                   <td class="px-5 py-2.5 text-right num text-muted-foreground" x-text="r.count"></td>
                   <td class="px-5 py-2.5 text-right num font-medium text-foreground" x-text="usd(r.total)"></td>
                 </tr>
-              </template>
-            </tbody>
+                <template x-if="woExpanded['tag:' + r.tag] && r.items && r.items.length">
+                  <tr class="bg-muted/30">
+                    <td colspan="3" class="p-0">
+                      <table class="w-full">
+                        <tbody>
+                          <template x-for="(it, i) in r.items" :key="i">
+                            <tr class="border-t border-border">
+                              <td class="px-5 py-2 text-sm text-muted-foreground whitespace-nowrap" x-text="it.date"></td>
+                              <td class="px-5 py-2 text-sm text-muted-foreground" x-text="it.description || '—'"></td>
+                              <td class="px-5 py-2 text-sm text-right num text-foreground" x-text="usd(it.amount)"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </template>
           </table>
         </div>
       </div>
@@ -750,7 +807,8 @@
         <ul class="text-sm text-muted-foreground space-y-1.5">
           <li><span class="font-medium text-foreground">Business / Schedule C group</span> — any category filed under this category group rolls into the Schedule C total automatically. No tag needed.</li>
           <li><code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded</code> — add to a transaction's notes to flag a personal deductible expense.</li>
-          <li><code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-charity</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-salt</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-medical</code> — subtags split deductions by type; each exact tag is totaled separately.</li>
+          <li><code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-charity</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-salt</code> · <code class="text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">#ded-medical</code> — subtags split deductions by type; each exact tag is totaled separately and shown with a plain-English label.</li>
+          <li>Click any category or tag to expand its underlying transactions (date, description, amount).</li>
         </ul>
       </div>
     </section>
@@ -855,8 +913,20 @@ function taxApp() {
     rpResult: null, rpLoading: false, rpError: "",
 
     // ---- writeoffs state ----
-    wo: null, woLoading: false, woLoaded: false,
+    wo: null, woLoading: false, woLoaded: false, woExpanded: {},
     privacy: false,
+
+    dedLabels: {
+      "#ded": "General deduction",
+      "#ded-charity": "Charitable donation",
+      "#ded-salt": "State & local tax (SALT)",
+      "#ded-medical": "Medical / HSA-eligible",
+      "#ded-business": "Business expense",
+      "#ded-home-office": "Home office",
+      "#ded-edu": "Education",
+      "#ded-mortgage": "Mortgage interest",
+      "#ded-property-tax": "Property tax",
+    },
 
     init() {
       if (!localStorage.getItem("token")) {
@@ -898,6 +968,10 @@ function taxApp() {
           this.$nextTick(() => { this._syncingTab = false; });
         }
       });
+
+      // Landing directly on ?tab=writeoffs sets the tab before the watcher
+      // above exists, so trigger the lazy load once here.
+      if (this.tab === "writeoffs" && !this.woLoaded) this.loadWriteoffs();
 
       // Persist on every edit (deep watch follows nested field changes).
       this.$watch("est", (v) => this.persist("lovenest-tax-est", v));
@@ -1087,6 +1161,15 @@ function taxApp() {
           return { ...d, value, pct: gross > 0 ? Math.max(0, Math.min(100, (value / gross) * 100)) : 0 };
         })
         .filter((d) => d.value !== 0 || d.net);
+    },
+
+    toggleWo(key) { this.woExpanded[key] = !this.woExpanded[key]; },
+
+    dedLabel(tag) {
+      if (this.dedLabels[tag]) return this.dedLabels[tag];
+      const suffix = (tag || "").replace(/^#ded-?/, "");
+      if (!suffix) return "General deduction";
+      return suffix.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     },
 
     async loadWriteoffs() {
