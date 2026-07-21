@@ -812,6 +812,206 @@
         </ul>
       </div>
     </section>
+
+    <!-- ============================ TAB E: PROJECTION ============================ -->
+    <section x-show="tab === 'projection'" class="space-y-6">
+      <div>
+        <h2 class="text-lg font-semibold text-foreground">Early-retirement projection</h2>
+        <p class="text-sm text-muted-foreground mt-1">Accumulate to your retirement age, then draw down — with a bridge analysis for funding the years before 59½ without early-withdrawal penalties.</p>
+      </div>
+
+      <div class="grid lg:grid-cols-5 gap-6">
+        <form @submit.prevent="runProjection()" class="lg:col-span-3 space-y-5">
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-primary"></span> Timeline &amp; assumptions</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Current age</span>
+                <input type="number" min="0" step="1" x-model.number="proj.current_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Retirement age</span>
+                <input type="number" min="0" step="1" x-model.number="proj.retire_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Plan-to age</span>
+                <input type="number" min="0" step="1" x-model.number="proj.end_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Expected return</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.return_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Inflation</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.inflation_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
+              </label>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-indigo-500"></span> Balances today</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in [
+                {k:'trad_401k',l:'Traditional 401(k) / pretax'},
+                {k:'roth_ira',l:'Roth IRA (total)'},
+                {k:'roth_basis',l:'Roth IRA contributions (basis)',help:'the part you can withdraw penalty-free anytime — enter your actual contribution basis from Fidelity'},
+                {k:'hsa',l:'HSA'},
+                {k:'hsa_receipts',l:'HSA banked receipts',help:'unreimbursed medical receipts you\'ve banked — a penalty-free withdrawal pool'},
+                {k:'taxable',l:'Taxable / cash'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-muted-foreground" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                  <span x-show="f.help" class="text-[11px] leading-tight text-muted-foreground mt-1 block" x-text="f.help"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-cyan-500"></span> Annual contributions <span class="text-xs font-normal text-muted-foreground">until retirement</span></h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in [
+                {k:'annual_trad_401k',l:'Traditional 401(k) / pretax',help:'employee + employer match + FRP'},
+                {k:'annual_roth',l:'Roth',help:'both Roth IRAs'},
+                {k:'annual_hsa',l:'HSA'},
+                {k:'annual_taxable',l:'Taxable / brokerage',help:'brokerage bridge savings — key lever for early retirement'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-muted-foreground" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                  <span x-show="f.help" class="text-[11px] leading-tight text-muted-foreground mt-1 block" x-text="f.help"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-500"></span> Retirement &amp; strategy</h3>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Annual spend</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj.annual_spend" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                <span class="text-[11px] leading-tight text-muted-foreground mt-1 block">today's dollars; inflates automatically</span>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Annual Roth conversion</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj.annual_conversion" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                <span class="text-[11px] leading-tight text-muted-foreground mt-1 block">Roth conversion ladder: converted each year, penalty-free after 5 years</span>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Effective tax rate</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.effective_tax_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" :disabled="projLoading" class="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg h-10 px-5 text-sm font-medium transition-all disabled:opacity-50">
+            <svg x-show="projLoading" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/></svg>
+            <span x-text="projLoading ? 'Projecting…' : 'Project'"></span>
+          </button>
+          <p x-show="projError" x-text="projError" class="text-sm text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 rounded-lg px-3 py-2"></p>
+        </form>
+
+        <div class="lg:col-span-2 space-y-4">
+          <template x-if="!projResult">
+            <div class="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Set your balances, contributions, and target ages, then hit <span class="font-medium text-foreground">Project</span> to see the accumulation path, the 47→59½ bridge, and whether the plan holds.</div>
+          </template>
+
+          <template x-if="projResult">
+            <div class="space-y-4">
+              <!-- Headline -->
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+                <p class="text-xs uppercase tracking-wide text-muted-foreground">Projected at age <span x-text="projResult.retire_age"></span></p>
+                <p class="text-3xl font-bold num text-foreground mt-1" x-text="usd(projResult.retire_total)"></p>
+                <div class="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border"
+                     :class="{
+                       'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900': projResult.feasibility === 'strong',
+                       'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900': projResult.feasibility === 'tight',
+                       'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900': projResult.feasibility === 'at_risk'
+                     }">
+                  <span class="h-1.5 w-1.5 rounded-full bg-current"></span>
+                  <span x-text="({strong:'Strong', tight:'Tight', at_risk:'At risk'})[projResult.feasibility] || projResult.feasibility"></span>
+                </div>
+                <p class="text-xs text-muted-foreground mt-2" x-text="projResult.feasibility_reason"></p>
+              </div>
+
+              <!-- Chart -->
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+                <p class="text-sm font-semibold text-foreground mb-1">Portfolio path</p>
+                <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground mb-3">
+                  <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-sm" style="background:#6366F1"></span>401(k)</span>
+                  <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-sm" style="background:#8B5CF6"></span>Roth</span>
+                  <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-sm" style="background:#06B6D4"></span>HSA</span>
+                  <span class="inline-flex items-center gap-1"><span class="h-2 w-2 rounded-sm" style="background:#10B981"></span>Taxable</span>
+                  <span class="inline-flex items-center gap-1"><span class="h-0.5 w-3" style="background:var(--foreground)"></span>Total</span>
+                </div>
+                <div class="overflow-x-auto -mx-1 px-1" x-html="projChart()"></div>
+                <p x-show="Number(proj.end_age) > projResult.retire_age + 20" class="text-xs text-muted-foreground mt-2">
+                  Balance keeps compounding to <span class="num font-medium text-foreground" x-text="usd(projResult.ending_balance)"></span> by age <span x-text="proj.end_age"></span>.
+                </p>
+              </div>
+
+              <!-- Bridge -->
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
+                <p class="text-sm font-semibold text-foreground mb-3">The <span x-text="projResult.retire_age"></span>→59½ bridge</p>
+                <div class="flex justify-between text-sm"><span class="text-muted-foreground">Needed to retire early</span><span class="num" x-text="usd(projResult.bridge.spend_total)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-muted-foreground">Penalty-free funds</span><span class="num" x-text="usd(projResult.bridge.accessible_penalty_free)"></span></div>
+                <div class="mt-3 rounded-lg px-3 py-2 text-sm font-medium"
+                     :class="projResult.bridge.holds ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'"
+                     x-text="projResult.bridge.holds ? 'Bridge holds' : 'Bridge falls short'"></div>
+                <div x-show="projResult.bridge.penalty_total > 0" class="flex justify-between text-sm mt-3 pt-3 border-t border-border"><span class="text-muted-foreground">Early-withdrawal penalties</span><span class="num text-rose-500 dark:text-rose-400" x-text="usd(projResult.bridge.penalty_total)"></span></div>
+                <p x-show="projResult.bridge.first_penalty_age" class="text-xs text-rose-600 dark:text-rose-400 mt-2">First penalty at age <span x-text="projResult.bridge.first_penalty_age"></span>.</p>
+                <p x-show="projResult.bridge.first_shortfall_age" class="text-xs text-rose-600 dark:text-rose-400 mt-1">Funds run short at age <span x-text="projResult.bridge.first_shortfall_age"></span>.</p>
+              </div>
+
+              <!-- SWR -->
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
+                <div class="flex items-center justify-between mb-3">
+                  <p class="text-sm font-semibold text-foreground">Safe withdrawal (4%)</p>
+                  <span class="px-2 py-0.5 rounded-full text-xs font-semibold"
+                        :class="projResult.swr.covered ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300'"
+                        x-text="projResult.swr.covered ? 'Covered' : 'Not covered'"></span>
+                </div>
+                <div class="flex justify-between text-sm"><span class="text-muted-foreground">Safe annual withdrawal</span><span class="num" x-text="usd(projResult.swr.safe_withdrawal)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-muted-foreground">Spend at retirement</span><span class="num" x-text="usd(projResult.swr.spend_at_retirement)"></span></div>
+              </div>
+
+              <!-- Key stats -->
+              <div class="grid grid-cols-2 gap-3">
+                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Total penalties</p><p class="text-lg font-semibold num" :class="projResult.total_penalties > 0 ? 'text-rose-500 dark:text-rose-400' : 'text-foreground'" x-text="usd(projResult.total_penalties)"></p></div>
+                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Total taxes</p><p class="text-lg font-semibold num text-foreground" x-text="usd(projResult.total_taxes)"></p></div>
+                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Ending balance</p><p class="text-lg font-semibold num text-foreground" x-text="usd(projResult.ending_balance)"></p></div>
+                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Funds depleted</p><p class="text-lg font-semibold num" :class="projResult.depleted_age ? 'text-rose-500 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'" x-text="projResult.depleted_age ? ('Age ' + projResult.depleted_age) : 'never — funds last'"></p></div>
+              </div>
+
+              <!-- Suggestions -->
+              <template x-if="projResult.suggestions && projResult.suggestions.length">
+                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
+                  <p class="text-sm font-semibold text-foreground mb-3">Suggestions</p>
+                  <ul class="space-y-2.5">
+                    <template x-for="(s, i) in projResult.suggestions" :key="'s'+i">
+                      <li class="flex gap-2.5 text-sm text-muted-foreground">
+                        <svg class="h-4 w-4 shrink-0 mt-0.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>
+                        <span x-text="s"></span>
+                      </li>
+                    </template>
+                  </ul>
+                </div>
+              </template>
+
+              <!-- Caveats -->
+              <template x-if="(projResult.warnings && projResult.warnings.length) || (projResult.notes && projResult.notes.length)">
+                <ul class="rounded-xl bg-muted/50 border border-border p-4 text-xs text-muted-foreground list-disc pl-6 space-y-1">
+                  <template x-for="(w, i) in (projResult.warnings || [])" :key="'w'+i"><li x-text="w"></li></template>
+                  <template x-for="(n, i) in (projResult.notes || [])" :key="'nt'+i"><li x-text="n"></li></template>
+                </ul>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="border-t border-border py-4">
@@ -833,6 +1033,7 @@ function taxApp() {
       { id: "retirement", label: "Retirement Plan" },
       { id: "paycheck", label: "Paycheck / Take-home" },
       { id: "writeoffs", label: "Write-offs (YTD)" },
+      { id: "projection", label: "Projection" },
     ],
 
     // ---- field metadata (keys must match tax_engine input contract) ----
@@ -912,6 +1113,17 @@ function taxApp() {
     },
     rpResult: null, rpLoading: false, rpError: "",
 
+    // ---- early-retirement projection state ----
+    proj: {
+      current_age: 30, retire_age: 50, end_age: 90,
+      return_rate: 7.5, inflation_rate: 2.5,
+      trad_401k: 0, roth_ira: 0, roth_basis: 0,
+      hsa: 0, hsa_receipts: 0, taxable: 0,
+      annual_trad_401k: 0, annual_roth: 0, annual_hsa: 0, annual_taxable: 0,
+      annual_spend: 60000, annual_conversion: 0, effective_tax_rate: 12,
+    },
+    projResult: null, projLoading: false, projError: "",
+
     // ---- writeoffs state ----
     wo: null, woLoading: false, woLoaded: false, woExpanded: {},
     privacy: false,
@@ -950,6 +1162,7 @@ function taxApp() {
       const hadEst = this.hydrate("lovenest-tax-est", this.est) || this.hydrate("securo-tax-est", this.est);
       this.hydrate("lovenest-tax-pc", this.pc) || this.hydrate("securo-tax-pc", this.pc);
       this.hydrate("lovenest-tax-retirement", this.rp);
+      this.hydrate("lovenest-tax-projection", this.proj) || this.hydrate("securo-tax-projection", this.proj);
       this.hydrate("lovenest-tax-shared", this.shared) || this.hydrate("securo-tax-shared", this.shared);
 
       // Normalize the URL to the active tab without adding a history entry.
@@ -977,6 +1190,7 @@ function taxApp() {
       this.$watch("est", (v) => this.persist("lovenest-tax-est", v));
       this.$watch("pc", (v) => this.persist("lovenest-tax-pc", v));
       this.$watch("rp", (v) => this.persist("lovenest-tax-retirement", v));
+      this.$watch("proj", (v) => this.persist("lovenest-tax-projection", v));
       this.$watch("shared", (v) => this.persist("lovenest-tax-shared", v));
 
       // First-ever visit (no saved estimate): connect to real Lovenest data so
@@ -1121,6 +1335,90 @@ function taxApp() {
         this.rpError = e.message || "Could not plan contributions.";
         this.rpResult = null;
       } finally { this.rpLoading = false; }
+    },
+
+    async runProjection() {
+      this.projLoading = true; this.projError = "";
+      try {
+        this.projResult = await this.postJSON("api/projection", this.proj);
+      } catch (e) {
+        this.projError = e.message || "Could not run projection.";
+        this.projResult = null;
+      } finally { this.projLoading = false; }
+    },
+
+    // Compact axis-tick currency ($1.2M / $340k). Kept plain — the privacy mask
+    // blurs it via the `.num` class on the <text>, matching how inputs are hidden.
+    usdShort(n) {
+      const v = Number(n) || 0, a = Math.abs(v);
+      if (a >= 1e6) return "$" + (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M";
+      if (a >= 1e3) return "$" + Math.round(v / 1e3) + "k";
+      return "$" + Math.round(v);
+    },
+
+    // Hand-rolled stacked-area SVG of the projection. Window is capped at
+    // retire_age + 20 (or end_age if sooner); y-axis scales to that window's
+    // peak total. The `total` line sits above the bands during ladder years
+    // because in-flight conversions live only in `total` — it's authoritative.
+    projChart() {
+      const res = this.projResult;
+      if (!res || !res.series || res.series.length < 2) return "";
+      const retireAge = Number(res.retire_age);
+      const winEnd = Math.min(Number(this.proj.end_age), retireAge + 20);
+      const pts = res.series.filter((p) => p.age <= winEnd);
+      if (pts.length < 2) return "";
+      const a0 = pts[0].age, a1 = pts[pts.length - 1].age;
+      const maxTotal = Math.max(1, ...pts.map((p) => Number(p.total) || 0));
+
+      const W = 720, H = 300, padL = 52, padR = 16, padT = 16, padB = 28;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const x = (age) => padL + (a1 === a0 ? 0 : (age - a0) / (a1 - a0)) * plotW;
+      const y = (v) => padT + plotH - (v / maxTotal) * plotH;
+
+      const bands = [
+        { k: "trad_401k", c: "#6366F1" },
+        { k: "roth_ira", c: "#8B5CF6" },
+        { k: "hsa", c: "#06B6D4" },
+        { k: "taxable", c: "#10B981" },
+      ];
+      const cum = pts.map(() => 0);
+      let areas = "";
+      for (const b of bands) {
+        const top = pts.map((p, i) => cum[i] + (Number(p[b.k]) || 0));
+        const upper = pts.map((p, i) => `${x(p.age).toFixed(1)},${y(top[i]).toFixed(1)}`).join(" ");
+        const lower = pts.map((p, i) => `${x(p.age).toFixed(1)},${y(cum[i]).toFixed(1)}`).reverse().join(" ");
+        areas += `<polygon points="${upper} ${lower}" fill="${b.c}" fill-opacity="0.82"/>`;
+        for (let i = 0; i < pts.length; i++) cum[i] = top[i];
+      }
+      const totalLine = pts.map((p) => `${x(p.age).toFixed(1)},${y(Number(p.total) || 0).toFixed(1)}`).join(" ");
+
+      let grid = "", yLabels = "";
+      for (let f = 0; f <= 4; f++) {
+        const v = (maxTotal * f) / 4, yy = y(v).toFixed(1);
+        grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" stroke="var(--border)" stroke-width="1"/>`;
+        yLabels += `<text class="num" x="${padL - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted-foreground)">${this.usdShort(v)}</text>`;
+      }
+      let xLabels = "";
+      for (let i = 0; i <= 4; i++) {
+        const age = Math.round(a0 + ((a1 - a0) * i) / 4);
+        xLabels += `<text x="${x(age).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted-foreground)">${age}</text>`;
+      }
+
+      const marker = (age, label, anchor) => {
+        if (age < a0 || age > a1) return "";
+        const mx = x(age).toFixed(1);
+        return `<line x1="${mx}" y1="${padT}" x2="${mx}" y2="${padT + plotH}" stroke="var(--muted-foreground)" stroke-width="1" stroke-dasharray="4 3"/>`
+          + `<text x="${anchor === "end" ? (x(age) - 4).toFixed(1) : (x(age) + 4).toFixed(1)}" y="${padT + 10}" text-anchor="${anchor}" font-size="10" fill="var(--muted-foreground)">${label}</text>`;
+      };
+
+      return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" `
+        + `style="width:100%;max-width:100%;height:auto;min-width:420px">`
+        + grid + areas
+        + `<polyline points="${totalLine}" fill="none" stroke="var(--foreground)" stroke-width="2" stroke-linejoin="round"/>`
+        + marker(retireAge, "Retire", "start")
+        + marker(59.5, "59½ penalty-free", "end")
+        + yLabels + xLabels
+        + `</svg>`;
     },
 
     applyRetirementToPaycheck() {
