@@ -2,19 +2,99 @@
 @source "./index.html";
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
-  --color-brand-50: #eef9f3;
-  --color-brand-100: #d6f0e2;
-  --color-brand-400: #34d399;
-  --color-brand-500: #10b981;
-  --color-brand-600: #059669;
-  --color-brand-700: #047857;
-  --color-ink-900: #0b1120;
-  --color-ink-850: #0f172a;
-  --color-ink-800: #111c33;
-  --color-ink-700: #1e293b;
-  --color-ink-600: #334155;
-  --color-ink-400: #94a3b8;
-  --color-ink-300: #cbd5e1;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, .08), 0 8px 24px -12px rgba(0, 0, 0, .25);
+/* Design tokens mirror the main Lovenest frontend (frontend/src/index.css) so
+   this sidecar reads as a native part of the app: indigo primary, Geist type,
+   shadcn-style neutral surfaces. Keep in sync with the frontend. */
+:root {
+  --background: #F8F9FB;
+  --foreground: #0F172A;
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #6366F1;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+  --accent: #EEF2FF;
+  --accent-foreground: #4F46E5;
+  --destructive: #F43F5E;
+  --destructive-foreground: #FFFFFF;
+  --border: #E8ECF1;
+  --input: #E8ECF1;
+  --ring: #6366F1;
+  --radius: 0.625rem;
+  --chart-1: #6366F1;
+  --chart-2: #8B5CF6;
+  --chart-3: #10B981;
+  --chart-4: #F59E0B;
+  --chart-5: #F43F5E;
+}
+
+.dark {
+  --background: #0C0D12;
+  --foreground: #F0F0F5;
+  --card: #16171F;
+  --card-foreground: #F0F0F5;
+  --popover: #16171F;
+  --popover-foreground: #F0F0F5;
+  --primary: #818CF8;
+  --primary-foreground: #FFFFFF;
+  --secondary: #252836;
+  --secondary-foreground: #F0F0F5;
+  --muted: #252836;
+  --muted-foreground: #8A8F9E;
+  --accent: #1E1B4B;
+  --accent-foreground: #A5B4FC;
+  --destructive: #FB7185;
+  --destructive-foreground: #0C0D12;
+  --border: #2A2D3A;
+  --input: #2A2D3A;
+  --ring: #818CF8;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+@layer base {
+  body {
+    font-family: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3 {
+    letter-spacing: -0.035em;
+  }
 }
