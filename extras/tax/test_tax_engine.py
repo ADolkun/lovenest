@@ -112,5 +112,103 @@ class ContributionPlannerTest(unittest.TestCase):
         self.assertTrue(any("IRA goal" in warning for warning in result["warnings"]))
 
 
+    def test_dual_ira_tracks_self_and_spouse_remaining(self):
+        result = tax_engine.plan_contributions({
+            "annual_salary": 147_000,
+            "pay_periods": 24,
+            "remaining_paychecks": 11,
+            "ira_goal_self": 7_500,
+            "ira_ytd_self": 7_500,
+            "ira_goal_spouse": 7_500,
+            "ira_ytd_spouse": 0,
+        })
+
+        self.assertEqual(result["ira_remaining_self"], 0)
+        self.assertEqual(result["ira_remaining_spouse"], 7_500)
+        self.assertEqual(result["ira_remaining_total"], 7_500)
+        self.assertEqual(result["ira_remaining"], 7_500)
+        self.assertTrue(any("spouse" in n.lower() for n in result["notes"]))
+
+    def test_legacy_ira_keys_still_drive_ira_remaining(self):
+        result = tax_engine.plan_contributions({
+            "annual_salary": 100_000,
+            "pay_periods": 26,
+            "remaining_paychecks": 13,
+            "ira_goal": 7_000,
+            "ira_ytd": 2_000,
+        })
+
+        self.assertEqual(result["ira_remaining"], 5_000)
+        self.assertEqual(result["ira_remaining_self"], 5_000)
+        self.assertEqual(result["ira_remaining_spouse"], 0)
+
+    def test_employer_match_below_cap_leaves_money_on_table(self):
+        result = tax_engine.plan_contributions({
+            "annual_salary": 147_000,
+            "pay_periods": 24,
+            "remaining_paychecks": 24,
+            "employee_401k_ytd": 0,
+            "target_401k": 4_410,
+            "eligible_comp": 147_000,
+            "match_rate": 0.90,
+            "match_cap_pct": 5,
+            "frp_pct": 3.5,
+        })
+
+        self.assertEqual(result["recommended_401k_pct"], 3)
+        self.assertEqual(result["full_match_annual"], round(0.90 * 0.05 * 147_000, 2))
+        self.assertEqual(result["annual_match"], round(0.90 * 0.03 * 147_000, 2))
+        self.assertGreater(result["match_left_on_table"], 0)
+        self.assertEqual(result["annual_frp"], round(0.035 * 147_000, 2))
+        self.assertAlmostEqual(
+            result["employer_total_annual"],
+            result["annual_match"] + result["annual_frp"], places=2,
+        )
+
+    def test_projected_total_additions_and_headroom(self):
+        result = tax_engine.plan_contributions({
+            "annual_salary": 147_000,
+            "pay_periods": 24,
+            "remaining_paychecks": 24,
+            "target_401k": 24_500,
+            "eligible_comp": 147_000,
+            "match_rate": 0.90,
+            "match_cap_pct": 5,
+            "frp_pct": 3.5,
+        })
+
+        expected = (
+            min(result["projected_401k"], result["elective_limit"])
+            + result["annual_match"] + result["annual_frp"]
+        )
+        self.assertAlmostEqual(result["projected_total_additions"], expected, places=2)
+        self.assertEqual(
+            result["additions_headroom"],
+            round(max(72_000 - result["projected_total_additions"], 0), 2),
+        )
+
+    def test_roth_magi_phaseout_reduces_only_inside_the_band(self):
+        low = tax_engine.plan_contributions({
+            "annual_salary": 147_000,
+            "pay_periods": 24,
+            "remaining_paychecks": 11,
+            "magi": 160_000,
+            "ira_goal_self": 7_500,
+        })
+        self.assertEqual(low["roth_ira_reduced_limit"], 7_500)
+        self.assertFalse(any("phase-out" in w for w in low["warnings"]))
+
+        inside = tax_engine.plan_contributions({
+            "annual_salary": 147_000,
+            "pay_periods": 24,
+            "remaining_paychecks": 11,
+            "magi": 241_000,
+            "ira_goal_self": 7_500,
+        })
+        self.assertLess(inside["roth_ira_reduced_limit"], 7_500)
+        self.assertGreater(inside["roth_ira_reduced_limit"], 0)
+        self.assertTrue(any("phase-out" in w for w in inside["warnings"]))
+
+
 if __name__ == "__main__":
     unittest.main()

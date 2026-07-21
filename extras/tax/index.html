@@ -378,7 +378,7 @@
           </div>
 
           <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
-            <h3 class="text-sm font-semibold text-foreground mb-4">HSA and IRA goals</h3>
+            <h3 class="text-sm font-semibold text-foreground mb-4">HSA goal</h3>
             <div class="grid sm:grid-cols-2 gap-4">
               <label class="block">
                 <span class="text-xs text-muted-foreground">HSA coverage</span>
@@ -389,14 +389,60 @@
               </label>
               <template x-for="f in [
                 {k:'hsa_goal',l:'HSA annual goal'}, {k:'hsa_ytd',l:'HSA contributed YTD (all sources)'},
-                {k:'current_hsa_per_period',l:'Current HSA per paycheck'},
-                {k:'ira_goal',l:'IRA annual goal'}, {k:'ira_ytd',l:'IRA contributed YTD'}
+                {k:'current_hsa_per_period',l:'Current HSA per paycheck'}
               ]" :key="f.k">
                 <label class="block">
                   <span class="text-xs text-muted-foreground" x-text="f.l"></span>
                   <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
                 </label>
               </template>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-1">Roth IRA (both spouses)</h3>
+            <p class="text-xs text-muted-foreground mb-4">A non-working spouse can still fund a full Roth IRA under MFJ — the working spouse's earned income covers both.</p>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <template x-for="f in [
+                {k:'ira_goal_self',l:'Your Roth IRA goal'}, {k:'ira_ytd_self',l:'Your Roth IRA YTD'},
+                {k:'ira_goal_spouse',l:'Spouse Roth IRA goal'}, {k:'ira_ytd_spouse',l:'Spouse Roth IRA YTD'}
+              ]" :key="f.k">
+                <label class="block">
+                  <span class="text-xs text-muted-foreground" x-text="f.l"></span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-5">
+            <h3 class="text-sm font-semibold text-foreground mb-1">Employer contributions</h3>
+            <p class="text-xs text-muted-foreground mb-4">Match and non-elective dollars don't reduce take-home, but they count toward the $72k 415(c) annual-additions limit.</p>
+            <div class="grid sm:grid-cols-2 gap-4">
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Eligible compensation</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp.eligible_comp" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Match rate ($ per $1 deferred)</span>
+                <input type="number" min="0" step="0.01" x-model.number="rp.match_rate" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Match cap (% of comp)</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="0.1" x-model.number="rp.match_cap_pct" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">FRP non-elective (% of comp)</span>
+                <div class="mt-1 relative"><input type="number" min="0" max="100" step="0.1" x-model.number="rp.frp_pct" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">FRP contributed YTD</span>
+                <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="rp.frp_ytd" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+              </label>
+              <label class="block">
+                <span class="text-xs text-muted-foreground">Years of service</span>
+                <input type="number" min="0" step="0.5" x-model.number="rp.years_of_service" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
+              </label>
             </div>
           </div>
 
@@ -447,7 +493,26 @@
                 <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Projected with recommendation</p><p class="text-lg font-semibold num text-foreground" x-text="usd(rpResult.projected_401k)"></p></div>
                 <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">Projected at current rate</p><p class="text-lg font-semibold num text-foreground" x-text="usd(rpResult.projected_401k_at_current_rate)"></p></div>
                 <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">HSA needed / paycheck</p><p class="text-lg font-semibold num text-foreground" x-text="usd(rpResult.recommended_hsa_per_paycheck)"></p></div>
-                <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4"><p class="text-xs text-muted-foreground">IRA remaining</p><p class="text-lg font-semibold num text-foreground" x-text="usd(rpResult.ira_remaining)"></p></div>
+              </div>
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
+                <p class="text-sm font-semibold text-foreground mb-3">Roth IRA remaining</p>
+                <div class="flex justify-between text-sm"><span class="text-muted-foreground">You</span><span class="num" x-text="usd(rpResult.ira_remaining_self)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-muted-foreground">Spouse</span><span class="num" x-text="usd(rpResult.ira_remaining_spouse)"></span></div>
+                <div class="flex justify-between text-sm font-semibold mt-3 pt-3 border-t border-border"><span>Combined remaining</span><span class="num" x-text="usd(rpResult.ira_remaining_total)"></span></div>
+                <p class="text-xs text-muted-foreground mt-3">A non-working spouse can still fund a full Roth IRA under MFJ.</p>
+              </div>
+              <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
+                <p class="text-sm font-semibold text-foreground mb-3">Employer contributions (annual)</p>
+                <div class="flex justify-between text-sm"><span class="text-muted-foreground">401(k) match</span><span class="num" x-text="usd(rpResult.annual_match)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-muted-foreground">FRP (non-elective)</span><span class="num" x-text="usd(rpResult.annual_frp)"></span></div>
+                <div class="flex justify-between text-sm font-semibold mt-3 pt-3 border-t border-border"><span>Total employer</span><span class="num" x-text="usd(rpResult.employer_total_annual)"></span></div>
+                <div class="mt-3 rounded-lg px-3 py-2 text-sm" :class="rpResult.match_left_on_table > 0 ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300' : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'">
+                  <template x-if="rpResult.match_left_on_table > 0"><span>Leaving <strong x-text="usd(rpResult.match_left_on_table)"></strong> of match on the table — raise the rate to the match cap.</span></template>
+                  <template x-if="rpResult.match_left_on_table <= 0"><span>Capturing the full employer match.</span></template>
+                </div>
+                <div class="flex justify-between text-sm mt-3 pt-3 border-t border-border"><span class="text-muted-foreground">Projected 415(c) additions</span><span class="num" x-text="usd(rpResult.projected_total_additions)"></span></div>
+                <div class="flex justify-between text-sm mt-1"><span class="text-muted-foreground">Headroom to $72k limit</span><span class="num" x-text="usd(rpResult.additions_headroom)"></span></div>
+                <p x-show="rpResult.frp_pct > 0 && rpResult.years_of_service < rpResult.frp_vest_years" class="text-xs text-amber-700 dark:text-amber-400 mt-3">FRP is on a <span x-text="Math.round(rpResult.frp_vest_years)"></span>-year cliff — unvested until ~<span x-text="frpVestYear()"></span>.</p>
               </div>
               <div class="rounded-xl bg-card text-card-foreground border border-border shadow-sm p-4">
                 <p class="text-sm font-semibold text-foreground mb-3">Next-paycheck impact</p>
@@ -458,8 +523,12 @@
               <div x-show="rpResult.current_rate_shortfall > 0" class="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-4 text-sm text-amber-800 dark:text-amber-300">At the current rate, the 401(k) shortfall is <strong x-text="usd(rpResult.current_rate_shortfall)"></strong>.</div>
               <div x-show="rpResult.projected_401k_shortfall > 0" class="rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 p-4 text-sm text-rose-800 dark:text-rose-300">Even at the recommended capped rate, the 401(k) shortfall is <strong x-text="usd(rpResult.projected_401k_shortfall)"></strong>.</div>
               <div x-show="rpResult.final_pay_adjustment > 0" class="rounded-xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 p-4 text-sm text-sky-800 dark:text-sky-300">Payroll may need to reduce the final contribution by <strong x-text="usd(rpResult.final_pay_adjustment)"></strong> because elections are rounded.</div>
+              <div x-show="rpResult.hsa_gap_to_limit > 0" class="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-4 text-sm text-emerald-800 dark:text-emerald-300">On pace to leave <strong x-text="usd(rpResult.hsa_gap_to_limit)"></strong> of HSA room unused — raise to <strong x-text="usd(rpResult.hsa_per_paycheck_to_max)"></strong>/paycheck to max the <span x-text="rpResult.hsa_limit && usd(rpResult.hsa_limit)"></span> limit.</div>
               <template x-if="rpResult.warnings && rpResult.warnings.length">
                 <ul class="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 p-4 text-sm text-amber-800 dark:text-amber-300 list-disc pl-8 space-y-1"><template x-for="w in rpResult.warnings" :key="w"><li x-text="w"></li></template></ul>
+              </template>
+              <template x-if="rpResult.notes && rpResult.notes.length">
+                <ul class="rounded-xl bg-muted/50 border border-border p-4 text-sm text-muted-foreground list-disc pl-8 space-y-1"><template x-for="n in normNotes(rpResult.notes)" :key="n"><li x-text="n"></li></template></ul>
               </template>
               <button @click="applyRetirementToPaycheck()" class="w-full py-2.5 rounded-lg border border-primary text-primary font-medium hover:bg-accent hover:text-accent-foreground transition-colors">Use this in Paycheck</button>
             </div>
@@ -744,8 +813,8 @@ function taxApp() {
 
     // ---- shared inputs (single source of truth across paycheck + retirement) ----
     shared: {
-      annual_salary: 0, pay_periods: 26, age: 0,
-      ytd_social_security_wages: 0, ytd_medicare_wages: 0,
+      annual_salary: 147000, pay_periods: 24, age: 27,
+      ytd_social_security_wages: 100089, ytd_medicare_wages: 100089,
     },
 
     // ---- estimate state ----
@@ -770,14 +839,17 @@ function taxApp() {
 
     // ---- retirement plan state (shared fields live in `shared`) ----
     rp: {
-      remaining_paychecks: 13,
-      employee_401k_ytd: 0, employer_401k_ytd: 0, after_tax_401k_ytd: 0,
-      target_401k: 24500, current_401k_pct: 0, current_roth_share_pct: 0,
+      remaining_paychecks: 11,
+      employee_401k_ytd: 10530.97, employer_401k_ytd: 3306.16, after_tax_401k_ytd: 0,
+      target_401k: 24500, current_401k_pct: 16, current_roth_share_pct: 0,
       future_roth_share_pct: 0,
-      payroll_rate_increment: 0.1, plan_max_pct: 100, match_required_pct: 0,
-      eligible_bonus: 0, hsa_coverage: "family", hsa_goal: 8750, hsa_ytd: 0,
-      current_hsa_per_period: 0, ira_goal: 7500, ira_ytd: 0,
-      other_pretax_per_period: 0, roth_ira_per_period: 0,
+      payroll_rate_increment: 0.1, plan_max_pct: 100, match_required_pct: 5,
+      eligible_bonus: 0, hsa_coverage: "family", hsa_goal: 8750, hsa_ytd: 4631.25,
+      current_hsa_per_period: 356.25,
+      ira_goal_self: 7500, ira_ytd_self: 7500, ira_goal_spouse: 7500, ira_ytd_spouse: 0,
+      eligible_comp: 147000, match_rate: 0.90, match_cap_pct: 5,
+      frp_pct: 3.5, frp_ytd: 2571.49, years_of_service: 1.5, frp_vest_years: 3,
+      other_pretax_per_period: 19.91, roth_ira_per_period: 0,
       extra_fed_withholding_per_period: 0,
     },
     rpResult: null, rpLoading: false, rpError: "",
@@ -880,6 +952,13 @@ function taxApp() {
     rate(n) {
       const v = Number(n);
       return (isFinite(v) ? v : 0).toFixed(1) + "%";
+    },
+    // FRP cliff-vest year: today + whole years still needed to reach frp_vest_years.
+    frpVestYear() {
+      const r = this.rpResult;
+      if (!r) return "";
+      const left = Math.max(0, (Number(r.frp_vest_years) || 0) - (Number(r.years_of_service) || 0));
+      return new Date().getFullYear() + Math.ceil(left);
     },
     // tax_engine notes/assumptions may be a list or an object — normalize to
     // an array of strings for display.
