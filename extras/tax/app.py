@@ -141,6 +141,11 @@ def retirement_plan(body: dict, _auth=Depends(require_auth)):
     return _calculate(tax_engine.plan_contributions, body)
 
 
+@app.post("/api/projection")
+def projection(body: dict, _auth=Depends(require_auth)):
+    return _calculate(tax_engine.project_retirement, body)
+
+
 def _calculate(fn, body):
     try:
         return fn(body)
