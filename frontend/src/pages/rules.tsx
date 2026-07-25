@@ -348,7 +348,7 @@ export default function RulesPage() {
                   size="sm"
                   className="gap-1.5 h-8"
                   onClick={() => {
-                    if (window.confirm(t('rules.confirmReapplyAll', 'Reapply all rules to all transactions? This can change existing transaction fields.'))) {
+                    if (window.confirm(t('rules.confirmResetAndReapplyAll', 'Reset matching transaction categories and notes, then reapply all active rules?'))) {
                       applyAllMutation.mutate()
                     }
                   }}
