@@ -17,6 +17,7 @@ import pytest
 from app.providers.base import ProviderUserActionRequired, SessionExpiredError
 from app.providers.simplefin import (
     SimpleFinProvider,
+    _accounts_url_and_auth,
     _decode_setup_token,
     _epoch_to_date,
 )
@@ -73,10 +74,17 @@ def test_decode_setup_token_rejects_garbage():
 def test_epoch_to_date_handles_unset():
     assert _epoch_to_date(None) is None
     assert _epoch_to_date("") is None
+    assert _epoch_to_date(0) is None
 
 
 def test_epoch_to_date_parses_seconds():
     assert _epoch_to_date(1672531200) == date(2023, 1, 1)
+
+
+def test_accounts_url_and_auth_strips_userinfo():
+    url, auth = _accounts_url_and_auth("https://u:p@bridge.example/simplefin")
+    assert url == "https://bridge.example/simplefin/accounts"
+    assert auth == ("u", "p")
 
 
 # ----- claim flow -------------------------------------------------------------
@@ -217,6 +225,18 @@ async def test_401_response_signals_credentials_invalid():
 
 
 @pytest.mark.asyncio
+async def test_accounts_request_moves_url_userinfo_to_auth_header():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.userinfo == b""
+        assert "authorization" in request.headers
+        return httpx.Response(200, json={"accounts": []})
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        await SimpleFinProvider().get_accounts(creds)
+
+
+@pytest.mark.asyncio
 async def test_missing_access_url_raises_session_expired():
     with pytest.raises(SessionExpiredError):
         await SimpleFinProvider().get_accounts({})
@@ -231,6 +251,8 @@ async def test_get_transactions_filters_by_account_and_parses_signs():
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/simplefin/accounts"
+        assert "u:p@" not in str(request.url)
+        assert request.headers["authorization"].startswith("Basic ")
         # We always request a specific account
         assert request.url.params.get("account") == "acc-1"
         assert request.url.params.get("pending") == "1"
@@ -282,6 +304,38 @@ async def test_get_transactions_filters_by_account_and_parses_signs():
     assert by_id["t1"].status == "posted"
     assert by_id["t2"].status == "pending"
     assert by_id["t2"].type == "credit"
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_uses_transacted_at_when_posted_zero():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "accounts": [
+                    {
+                        "id": "acc-1",
+                        "transactions": [
+                            {
+                                "id": "t1",
+                                "amount": "-12.34",
+                                "posted": 0,
+                                "transacted_at": 1672617600,
+                                "description": "Coffee",
+                            },
+                        ],
+                    },
+                ]
+            },
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        txns = await SimpleFinProvider().get_transactions(
+            creds, "acc-1", since=date(2023, 1, 1)
+        )
+
+    assert txns[0].date == date(2023, 1, 2)
 
 
 @pytest.mark.asyncio
