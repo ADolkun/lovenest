@@ -34,6 +34,7 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
     TransactionData,
+    default_oauth_redirect_uri,
     mask_last4,
 )
 
@@ -190,7 +191,10 @@ class EnableBankingProvider(BankProvider):
 
     @property
     def redirect_uri(self) -> str:
-        return get_settings().enable_banking_oauth_redirect_uri
+        return (
+            get_settings().enable_banking_oauth_redirect_uri
+            or default_oauth_redirect_uri()
+        )
 
     # ----- credentials -----
 
