@@ -299,6 +299,9 @@ class EnableBankingProvider(BankProvider):
             inst_country = (item.get("country") or "").upper()
             if inst_country:
                 countries.add(inst_country)
+            if (maximum_consent_validity := item.get("maximum_consent_validity", None)) is not None:
+                maximum_consent_validity = timedelta(seconds=maximum_consent_validity).days
+
             institutions.append(
                 InstitutionData(
                     name=item.get("name") or "",
@@ -307,7 +310,7 @@ class EnableBankingProvider(BankProvider):
                     logo=item.get("logo"),
                     bic=item.get("bic"),
                     psu_types=list(item.get("psu_types") or []),
-                    max_consent_days=item.get("maximum_consent_validity"),
+                    max_consent_days=maximum_consent_validity,
                 )
             )
         institutions.sort(key=lambda i: (i.country, i.display_name.lower()))
