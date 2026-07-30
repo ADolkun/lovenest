@@ -34,7 +34,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, HelpCircle, Info, Paperclip, Users, X, EyeClosed, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, CalendarDays, Check, HelpCircle, Info, List, Paperclip, Users, X, EyeClosed, SlidersHorizontal } from 'lucide-react'
 import type { Transaction, Rule } from '@/types'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { PageHeader } from '@/components/page-header'
@@ -50,6 +50,7 @@ import { TransferDialog } from '@/components/transfer-dialog'
 import { LinkTransferDialog } from '@/components/link-transfer-dialog'
 import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/components/bulk-add-to-group-dialog'
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
+import { TransactionCalendarView } from '@/components/transaction-calendar-view'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -95,7 +96,10 @@ export default function TransactionsPage() {
       return 20
     }
   })
-  const [filterAccountIds, setFilterAccountIds] = useState<string[]>([])
+  const [filterAccountIds, setFilterAccountIds] = useState<string[]>(() => {
+    const initial = searchParams.get('account_id')
+    return initial ? initial.split(',') : []
+  })
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>(() => {
     const initial = searchParams.get('category_id')
     return initial ? [initial] : []
@@ -131,6 +135,10 @@ export default function TransactionsPage() {
     useState<PendingTransferCategoryUpdate | null>(null)
   const [formResetKey, setFormResetKey] = useState(0)
   const [duplicateDraft, setDuplicateDraft] = useState<Partial<Transaction> | null>(null)
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>(() => (
+    searchParams.get('view') === 'calendar' ? 'calendar' : 'list'
+  ))
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>(() => searchParams.get('day') ?? '')
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [filterGroupId, setFilterGroupId] = useState<string>(searchParams.get('group_id') ?? '')
   const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
@@ -202,6 +210,8 @@ export default function TransactionsPage() {
     prevSearchRef.current = search
 
     const nextQ = searchParams.get('q') ?? ''
+    setViewMode(searchParams.get('view') === 'calendar' ? 'calendar' : 'list')
+    setCalendarSelectedDate(searchParams.get('day') ?? '')
     setSearchInput(nextQ)
     setSearchQuery(nextQ)
     const tags = searchParams.get('tags');
@@ -237,6 +247,8 @@ export default function TransactionsPage() {
     const params = new URLSearchParams(
       [
         ['q', searchQuery],
+        ['view', viewMode === 'calendar' ? 'calendar' : ''],
+        ['day', viewMode === 'calendar' ? calendarSelectedDate : ''],
         ['tags', tagFilters.join(',')],
         ['payee_id', filterPayee],
         ['group_id', filterGroupId],
@@ -258,6 +270,8 @@ export default function TransactionsPage() {
     );
   }, [
     searchQuery,
+    viewMode,
+    calendarSelectedDate,
     tagFilters,
     filterPayee,
     filterGroupId,
@@ -286,6 +300,15 @@ export default function TransactionsPage() {
     setLastSelectedId(null)
     setBulkCategory('')
   }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery])
+
+  useEffect(() => {
+    if (viewMode === 'calendar') {
+      setFilterAccountIds((prev) => prev.length > 1 ? [] : prev)
+      setSelectedIds(new Set())
+      setLastSelectedId(null)
+      setBulkCategory('')
+    }
+  }, [viewMode, filterAccountIds.length])
 
   // Reset bulk category when selection changes so the same category can be re-applied
   useEffect(() => {
@@ -346,6 +369,17 @@ export default function TransactionsPage() {
         tags: tagFilters.length > 0 ? tagFilters : undefined,
         ...grid.apiSort,
       }),
+  })
+
+  const calendarMonth = steppedMonth
+  const calendarAccountIds = filterAccountIds.length === 1 ? filterAccountIds : []
+  const { data: calendarData, isLoading: calendarLoading } = useQuery({
+    queryKey: ['transactions', 'calendar', calendarMonth, calendarAccountIds],
+    enabled: viewMode === 'calendar',
+    queryFn: () => transactions.calendar({
+      month: `${calendarMonth}-01`,
+      account_ids: calendarAccountIds.length === 1 ? calendarAccountIds : undefined,
+    }),
   })
 
   // Publish the active filters + result count to the global chat panel.
@@ -789,6 +823,17 @@ export default function TransactionsPage() {
     setDialogOpen(true)
   }
 
+  const handleOpenCalendarTransaction = async (id: string) => {
+    try {
+      const tx = await transactions.get(id)
+      setEditingTx(tx)
+      setDuplicateDraft(null)
+      setDialogOpen(true)
+    } catch {
+      toast.error(t('common.error'))
+    }
+  }
+
   const handleExport = async () => {
     setExporting(true)
     try {
@@ -1155,7 +1200,32 @@ export default function TransactionsPage() {
               prevLabel: t('transactions.monthPrevious'),
               nextLabel: t('transactions.monthNext'),
             }}
-            columnPicker={<TransactionsColumnPicker state={grid} />}
+            viewToggle={
+              <div className="inline-flex rounded-lg border border-border bg-card p-0.5">
+                <Button
+                  variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 gap-1.5 px-2.5"
+                  onClick={() => setViewMode('list')}
+                >
+                  <List size={14} />
+                  {t('transactions.listView')}
+                </Button>
+                <Button
+                  variant={viewMode === 'calendar' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 gap-1.5 px-2.5"
+                  onClick={() => {
+                    if (filterAccountIds.length > 1) setFilterAccountIds([])
+                    setViewMode('calendar')
+                  }}
+                >
+                  <CalendarDays size={14} />
+                  {t('transactions.calendarView')}
+                </Button>
+              </div>
+            }
+            columnPicker={viewMode === 'list' ? <TransactionsColumnPicker state={grid} /> : null}
             exportLabel={exportLabel}
             exporting={exporting}
             onExport={handleExport}
@@ -1184,7 +1254,8 @@ export default function TransactionsPage() {
           setSearchQuery(text)
         }}
         filterAccountIds={filterAccountIds}
-        onAccountIdsChange={(v) => { setFilterAccountIds(v); setPage(1) }}
+        onAccountIdsChange={(v) => { setFilterAccountIds(viewMode === 'calendar' ? v.slice(0, 1) : v); setPage(1) }}
+        accountSelectionMode={viewMode === 'calendar' ? 'single' : 'multiple'}
         filterCategoryIds={filterCategoryIds}
         onCategoryIdsChange={(v) => { setFilterCategoryIds(v); setPage(1) }}
         filterUncategorized={filterUncategorized}
@@ -1263,7 +1334,21 @@ export default function TransactionsPage() {
         </div>
       )}
 
+      {viewMode === 'calendar' && (
+        <TransactionCalendarView
+          calendar={calendarData}
+          isLoading={calendarLoading}
+          locale={locale}
+          dateLocale={dateLocale}
+          mask={mask}
+          selectedDate={calendarSelectedDate}
+          onSelectedDateChange={setCalendarSelectedDate}
+          onOpenTransaction={handleOpenCalendarTransaction}
+        />
+      )}
+
       {/* Table */}
+      {viewMode === 'list' && (
       <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden mb-4">
         {isLoading ? (
           <div className="p-6 space-y-3">
@@ -1382,9 +1467,10 @@ export default function TransactionsPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Pagination */}
-      {data && data.total > 10 && (
+      {viewMode === 'list' && data && data.total > 10 && (
         <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 py-4 ${selectedIds.size > 0 ? 'pb-20' : ''}`}>
           <div className="hidden sm:block w-32" />
           {totalPages > 1 ? (
@@ -1441,14 +1527,12 @@ export default function TransactionsPage() {
           </div>
         </div>
       )}
-
       {/* Bulk Action Bar — aligned with the main content area: clears the
           fixed sidebar on lg+ and matches the page's max-w-7xl + p-6 wrapper
           so the bar visually sits over the transactions list, not the
           full viewport. */}
-      <div
-        className={`fixed bottom-0 left-0 right-0 lg:left-60 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
-      >
+      {viewMode === 'list' && selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 lg:left-60 z-50">
         <div className="mx-auto max-w-7xl px-3 md:px-6 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
             <MobileBulkSelectionActions
@@ -1640,6 +1724,7 @@ export default function TransactionsPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Bulk Add-to-Group Dialog */}
       <BulkAddToGroupDialog

@@ -489,7 +489,28 @@
         "last90": "Letzte 90 Tage",
         "thisYear": "Dieses Jahr"
       }
-    }
+    },
+    "listView": "Liste",
+    "calendarView": "Kalender",
+    "calendar": "Kalender",
+    "calendarOneAccount": "1 Konto",
+    "calendarAccountCount": "{{count}} Konten",
+    "calendarAllAccounts": "Alle Konten",
+    "calendarEndBalance": "Endsaldo",
+    "calendarItemCount": "{{count}} Eintrag",
+    "calendarItemCount_plural": "{{count}} Einträge",
+    "calendarProjectedCount": "{{count}} geplant",
+    "calendarProjected": "Geplant",
+    "calendarBalanceTrend": "Saldoverlauf",
+    "calendarLegend": "Legende",
+    "calendarDensity": "Ansicht",
+    "calendarCompact": "Kompakt",
+    "calendarDetailed": "Detailliert",
+    "calendarMoreItems": "+{{count}} weitere",
+    "calendarAddIncome": "Einnahme hinzufügen",
+    "calendarAddExpense": "Ausgabe hinzufügen",
+    "calendarSelectedDay": "Ausgewählter Tag",
+    "calendarNoItems": "Keine Transaktionen an diesem Tag"
   },
   "accounts": {
     "title": "Konten",

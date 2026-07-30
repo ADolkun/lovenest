@@ -20,6 +20,7 @@ type MonthStepperConfig = {
 
 export type TransactionsPageActionsProps = {
   month: MonthStepperConfig
+  viewToggle?: ReactNode
   columnPicker: ReactNode
   exportLabel: string
   exporting: boolean
@@ -42,6 +43,7 @@ function DesktopSecondaryActions(props: TransactionsPageActionsProps) {
   const { t } = useTranslation()
   return (
     <div className="hidden sm:contents">
+      {props.viewToggle}
       {props.columnPicker}
       <Button variant="outline" disabled={props.exporting} onClick={props.onExport}>
         <Download size={16} className="mr-1.5" />{props.exportLabel}

@@ -54,6 +54,7 @@ interface TransactionsFilterBarProps {
   onSearchSubmit?: (value: string) => void
   filterAccountIds: string[]
   onAccountIdsChange: (value: string[]) => void
+  accountSelectionMode?: 'multiple' | 'single'
   filterCategoryIds: string[]
   onCategoryIdsChange: (value: string[]) => void
   filterUncategorized: boolean
@@ -88,6 +89,7 @@ export function TransactionsFilterBar({
   onSearchSubmit,
   filterAccountIds,
   onAccountIdsChange,
+  accountSelectionMode = 'multiple',
   filterCategoryIds,
   onCategoryIdsChange,
   filterUncategorized,
@@ -432,7 +434,7 @@ export function TransactionsFilterBar({
                 {t('transactions.filtersBar.filterBy')}
               </DropdownMenuLabel>
               <DropdownMenuGroup>
-                {/* Account submenu (multi) */}
+                {/* Account submenu: calendar mode is all-or-one; list mode stays multi-select. */}
                 <DropdownMenuSub
                   open={accountSubOpen}
                   onOpenChange={handleAccountSubOpenChange}
@@ -451,10 +453,55 @@ export function TransactionsFilterBar({
                       sideOffset={8}
                       className="max-h-[320px] w-[240px] overflow-y-auto p-1"
                     >
+                      {accountSelectionMode === 'single' && (
+                        <>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              onAccountIdsChange([])
+                            }}
+                            className={cn(
+                              'gap-2 rounded-sm px-2 py-1.5 text-[13px]',
+                              filterAccountIds.length === 0 && 'bg-primary/5',
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate text-left">
+                              {t('transactions.all')}
+                            </span>
+                            {filterAccountIds.length === 0 && <Check size={13} className="text-primary" />}
+                          </DropdownMenuItem>
+                          <div className="my-1 h-px bg-border/60" />
+                        </>
+                      )}
                       {accounts.length === 0 ? (
                         <div className="px-2 py-3 text-center text-[12px] text-muted-foreground">
                           {t('transactions.filtersBar.noOptions')}
                         </div>
+                      ) : accountSelectionMode === 'single' ? (
+                        accounts.map((a) => {
+                          const checked = filterAccountIds[0] === a.id
+                          return (
+                            <DropdownMenuItem
+                              key={a.id}
+                              onSelect={() => {
+                                onAccountIdsChange(checked ? [] : [a.id])
+                              }}
+                              className={cn(
+                                'gap-2 rounded-sm px-2 py-1.5 text-[13px]',
+                                checked && 'bg-primary/5',
+                              )}
+                            >
+                              <span className="min-w-0 flex-1 truncate text-left">
+                                {getAccountName(a)}
+                              </span>
+                              {a.currency && (
+                                <span className="text-[10.5px] uppercase tracking-wide text-muted-foreground/70">
+                                  {a.currency}
+                                </span>
+                              )}
+                              {checked && <Check size={13} className="text-primary" />}
+                            </DropdownMenuItem>
+                          )
+                        })
                       ) : (
                         accounts.map((a) => (
                           <DropdownMenuCheckboxItem
@@ -480,7 +527,7 @@ export function TransactionsFilterBar({
                           </DropdownMenuCheckboxItem>
                         ))
                       )}
-                      {filterAccountIds.length > 0 && (
+                      {accountSelectionMode === 'multiple' && filterAccountIds.length > 0 && (
                         <>
                           <div className="my-1 h-px bg-border/60" />
                           <DropdownMenuItem

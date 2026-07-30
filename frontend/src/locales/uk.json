@@ -489,7 +489,28 @@
         "last90": "Останні 90 днів",
         "thisYear": "Цей рік"
       }
-    }
+    },
+    "listView": "Список",
+    "calendarView": "Календар",
+    "calendar": "Календар",
+    "calendarOneAccount": "1 рахунок",
+    "calendarAccountCount": "{{count}} рахунків",
+    "calendarAllAccounts": "Усі рахунки",
+    "calendarEndBalance": "Кінцевий баланс",
+    "calendarItemCount": "{{count}} запис",
+    "calendarItemCount_plural": "{{count}} записи",
+    "calendarProjectedCount": "{{count}} заплановано",
+    "calendarProjected": "Заплановано",
+    "calendarBalanceTrend": "Динаміка балансу",
+    "calendarLegend": "Легенда",
+    "calendarDensity": "Вигляд",
+    "calendarCompact": "Компактно",
+    "calendarDetailed": "Детально",
+    "calendarMoreItems": "ще +{{count}}",
+    "calendarAddIncome": "Додати дохід",
+    "calendarAddExpense": "Додати витрату",
+    "calendarSelectedDay": "Вибраний день",
+    "calendarNoItems": "Немає транзакцій у цей день"
   },
   "accounts": {
     "title": "Рахунки",
