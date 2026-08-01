@@ -592,10 +592,10 @@ export default function ImportPage() {
                   <TableHead className="w-16 px-3 py-3 text-right font-medium text-muted-foreground sm:w-20 sm:px-4">{t('import.historyCount')}</TableHead>
                   <TableHead className="hidden w-32 px-4 py-3 text-right font-medium text-muted-foreground md:table-cell">{t('import.historyCredit')}</TableHead>
                   <TableHead className="hidden w-32 px-4 py-3 text-right font-medium text-muted-foreground md:table-cell">{t('import.historyDebit')}</TableHead>
-                  <TableHead className="w-12 px-3 py-3 sm:px-4" />
-                </TableRow>
-              </TableHeader>
-              <TableBody className="divide-y divide-border">
+                <TableHead className="w-12 px-3 py-3 sm:px-4" aria-label={t('common.more')} />
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-border">
                 {importHistory.map((log) => (
                   <TableRow key={log.id} className="hover:bg-muted">
                     <TableCell className="hidden px-3 py-3 text-xs text-muted-foreground sm:table-cell sm:px-4 sm:text-sm">
@@ -629,6 +629,7 @@ export default function ImportPage() {
                         <button
                           onClick={() => setDeleteTarget(log)}
                           className="text-muted-foreground hover:text-rose-500 transition-colors"
+                          aria-label={t('import.undoImport')}
                           title={t('import.undoImport')}
                         >
                           <Trash2 className="w-4 h-4" />

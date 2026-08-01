@@ -1159,6 +1159,63 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
 
 
 @pytest.mark.asyncio
+async def test_sync_connection_tolerates_duplicate_transaction_rows(
+    session: AsyncSession, test_user, test_workspace
+):
+    conn = await _make_connection(session, test_user.id, "Dup Bank")
+    account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
+        external_id="dup-acc-1", name="Checking", type="checking",
+        balance=Decimal("500"), currency="BRL",
+    )
+    session.add(account)
+    await session.flush()
+    account_id = account.id
+
+    for _ in range(2):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, account_id=account_id,
+            external_id="dup-tx-1", description="SPOTIFY", amount=Decimal("23.90"),
+            date=date.today(), type="debit", status="pending", source="sync",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="dup-acc-1", name="Checking",
+            type="checking", balance=Decimal("500"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="dup-tx-1", description="SPOTIFY",
+            amount=Decimal("23.90"), date=date.today(), type="debit",
+            currency="BRL", status="posted",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service._cleanup_phantom_duplicates", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, _ = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    assert result_conn.status == "active"
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.external_id == "dup-tx-1",
+        )
+    )).scalars().all()
+    assert len(rows) == 2
+    assert any(row.status == "posted" for row in rows)
+
+
+@pytest.mark.asyncio
 async def test_sync_connection_not_found(session: AsyncSession, test_user, test_workspace):
     with pytest.raises(ValueError, match="not found"):
         await sync_connection(session, uuid.uuid4(), test_workspace.id, test_user.id)

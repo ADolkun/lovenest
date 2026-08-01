@@ -222,6 +222,7 @@ function RecurringTab() {
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
                           onClick={() => { setEditing(rt); setDialogOpen(true) }}
+                          aria-label={t('common.edit')}
                           title={t('common.edit')}
                         >
                           <Pencil size={13} />
@@ -230,6 +231,7 @@ function RecurringTab() {
                           className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
                           onClick={() => deleteMutation.mutate(rt.id)}
                           disabled={deleteMutation.isPending}
+                          aria-label={t('common.delete')}
                           title={t('common.delete')}
                         >
                           <Trash2 size={13} />

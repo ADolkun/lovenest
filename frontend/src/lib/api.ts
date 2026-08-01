@@ -20,6 +20,7 @@ import type {
   PayeeSummary,
   RecurringTransaction,
   ProjectedTransaction,
+  TransactionCalendarResponse,
   Budget,
   BudgetVsActual,
   Rule,
@@ -447,6 +448,17 @@ export const transactions = {
     sort_dir?: 'asc' | 'desc'
   }): Promise<PaginatedTransactions> => {
     const { data } = await api.get('/transactions', {
+      params,
+      paramsSerializer: { indexes: null },
+    })
+    return data
+  },
+  calendar: async (params?: {
+    month?: string
+    account_id?: string
+    account_ids?: string[]
+  }): Promise<TransactionCalendarResponse> => {
+    const { data } = await api.get('/transactions/calendar', {
       params,
       paramsSerializer: { indexes: null },
     })

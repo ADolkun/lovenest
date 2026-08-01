@@ -257,7 +257,7 @@ async def test_update_rule_rejects_payee_outside_workspace(
 
 
 @pytest.mark.asyncio
-async def test_import_rules_rejects_category_outside_workspace(
+async def test_import_rules_skips_invalid_rules(
     session: AsyncSession, test_user, test_workspace
 ):
     category = Category(
@@ -273,15 +273,29 @@ async def test_import_rules_rejects_category_outside_workspace(
     payload = RuleExportPayload(
         rules=[
             RuleExportItem(
-                name="Imported",
+                name="Foreign category",
                 conditions=[RuleCondition(field="description", op="contains", value="X")],
                 actions=[RuleAction(op="set_category", value=str(category.id))],
-            )
+            ),
+            RuleExportItem(
+                name="Invalid condition",
+                conditions=[RuleCondition(field="description", op="invalid", value="X")],
+                actions=[RuleAction(op="append_notes", value="#bad")],
+            ),
+            RuleExportItem(
+                name="Valid",
+                conditions=[RuleCondition(field="description", op="contains", value="X")],
+                actions=[RuleAction(op="append_notes", value="#valid")],
+            ),
         ]
     )
 
-    with pytest.raises(ValueError, match="Category not found"):
-        await import_rules(session, test_workspace.id, test_user.id, payload, overwrite=True)
+    result = await import_rules(
+        session, test_workspace.id, test_user.id, payload, overwrite=True
+    )
+
+    assert result.imported == 1
+    assert result.skipped == 2
 
 
 # ---------------------------------------------------------------------------

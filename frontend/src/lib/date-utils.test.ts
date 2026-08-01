@@ -4,6 +4,14 @@ import { localDateString } from './date-utils'
 
 describe('localDateString', () => {
   it('formats the browser-local calendar day', () => {
-    expect(localDateString(new Date(2026, 5, 30, 23, 30))).toBe('2026-06-30')
+    const originalTimezone = process.env.TZ
+
+    try {
+      process.env.TZ = 'America/Los_Angeles'
+      expect(localDateString(new Date('2026-07-01T06:30:00Z'))).toBe('2026-06-30')
+    } finally {
+      if (originalTimezone === undefined) delete process.env.TZ
+      else process.env.TZ = originalTimezone
+    }
   })
 })
