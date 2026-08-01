@@ -192,7 +192,7 @@ export function ImportReviewTable({
                       className="rounded border-border text-primary focus:ring-primary"
                     />
                   </TableCell>
-                  <TableCell className="hidden py-2.5 text-xs text-muted-foreground sm:table-cell">
+                  <TableCell className="hidden whitespace-nowrap py-2.5 text-xs text-muted-foreground sm:table-cell">
                     {formatLocalDate(tx.date, dateLocale)}
                   </TableCell>
                   <TableCell className={`max-w-0 overflow-hidden py-2.5 text-sm ${tx.excluded ? 'text-muted-foreground' : 'text-foreground'}`}>

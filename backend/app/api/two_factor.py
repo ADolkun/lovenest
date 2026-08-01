@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_active_user, get_jwt_strategy
 from app.core.database import get_async_session
+from app.core.rate_limit import login_rate_limit
 from app.core.redis import get_redis
 from app.models.user import User
 from app.schemas.two_factor import (
@@ -105,7 +106,7 @@ async def disable_2fa(
     return {"detail": "2FA disabled"}
 
 
-@router.post("/2fa/verify")
+@router.post("/2fa/verify", dependencies=[Depends(login_rate_limit)])
 async def verify_2fa(
     body: TwoFactorVerifyRequest,
     session: AsyncSession = Depends(get_async_session),

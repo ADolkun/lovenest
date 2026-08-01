@@ -21,10 +21,7 @@ from app.services import split_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
-from app.services._query_filters import (
-    counts_as_user_pnl,
-    reporting_date_col,
-)
+from app.services._query_filters import counts_as_user_pnl, reporting_date_col
 from app.services.transaction_semantics import credit_card_refund_filter
 
 
@@ -254,7 +251,7 @@ async def get_transactions(
     if exclude_transfers:
         base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if user_pnl_only:
-        base_query = base_query.where(counts_as_user_pnl())
+        base_query = base_query.where(Account.is_closed == False, counts_as_user_pnl())
     if txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
     if currency:
@@ -519,8 +516,6 @@ async def get_transactions(
         for tx in transactions:
             tx.attachment_count = counts.get(tx.id, 0)
             tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
-            if not tx.is_ignored and tx.category and tx.category.is_ignored:
-                tx.is_ignored = True
         # Tag shared rows with the viewer's share + the source group.
         # Owned rows stay as-is. We pre-compute the viewer's linked
         # member ids → group ids once, then look up each transaction's
@@ -684,8 +679,6 @@ async def get_transaction(
         )
         transaction.attachment_count = count_result.scalar_one()
         transaction.payee_name = transaction.payee_entity.name if transaction.payee_entity else None
-        if not transaction.is_ignored and transaction.category and transaction.category.is_ignored:
-            transaction.is_ignored = True
     return transaction
 
 

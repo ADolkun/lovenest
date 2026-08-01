@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
+import { useDisplayLocale } from '@/hooks/use-display-locale'
+import { monthLabel } from '@/lib/month-utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, categoryGroups as groupsApi, budgets as budgetsApi } from '@/lib/api'
 import { toast } from 'sonner'
@@ -59,7 +60,6 @@ export default function BudgetsPage() {
   const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
-  const dateLocale = useDateLocale()
   const queryClient = useQueryClient()
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [monthCalOpen, setMonthCalOpen] = useState(false)
@@ -125,7 +125,8 @@ export default function BudgetsPage() {
     )
   }
 
-  const monthTitle = new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())
+  const uiLocale = i18n.resolvedLanguage ?? i18n.language
+  const monthTitle = monthLabel(selectedMonth, uiLocale).replace(/^\w/, c => c.toUpperCase())
 
   return (
     <div>
@@ -219,6 +220,7 @@ export default function BudgetsPage() {
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
                           onClick={() => { setEditing(budget); setDialogOpen(true) }}
+                          aria-label={t('common.edit')}
                           title={t('common.edit')}
                         >
                           <Pencil size={13} />
@@ -227,6 +229,7 @@ export default function BudgetsPage() {
                           className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
                           onClick={() => deleteMutation.mutate(budget.id)}
                           disabled={deleteMutation.isPending}
+                          aria-label={t('common.delete')}
                           title={t('common.delete')}
                         >
                           <Trash2 size={13} />

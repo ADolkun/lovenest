@@ -152,7 +152,7 @@ export function RuleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="flex flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
+      <DialogContent aria-describedby={undefined} className="flex flex-col overflow-hidden p-4 sm:max-w-2xl sm:p-6">
         <DialogHeader className="shrink-0">
           <DialogTitle>{rule ? t('rules.editRule') : t('rules.newRule')}</DialogTitle>
         </DialogHeader>
