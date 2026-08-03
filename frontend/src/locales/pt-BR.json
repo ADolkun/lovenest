@@ -836,6 +836,7 @@
     "andOp": "E (AND)",
     "orOp": "OU (OR)",
     "addCondition": "Adicionar condição",
+    "blankConditionValue": "Toda condição precisa de um valor. Uma condição em branco corresponderia a todas as transações.",
     "addAction": "Adicionar ação",
     "setCategory": "Definir categoria",
     "setPayee": "Definir beneficiário",

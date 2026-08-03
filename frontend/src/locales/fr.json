@@ -836,6 +836,7 @@
     "andOp": "ET",
     "orOp": "OU",
     "addCondition": "Ajouter une condition",
+    "blankConditionValue": "Chaque condition nécessite une valeur. Une condition vide correspondrait à toutes les transactions.",
     "addAction": "Ajouter une action",
     "setCategory": "Définir la catégorie",
     "setPayee": "Définir le bénéficiaire",

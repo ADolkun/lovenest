@@ -836,6 +836,7 @@
     "andOp": "E",
     "orOp": "O",
     "addCondition": "Aggiungi condizione",
+    "blankConditionValue": "Ogni condizione richiede un valore. Una condizione vuota corrisponderebbe a tutte le transazioni.",
     "addAction": "Aggiungi azione",
     "setCategory": "Imposta categoria",
     "setPayee": "Imposta beneficiario",

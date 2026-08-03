@@ -890,6 +890,7 @@
     "andOp": "ORAZ",
     "orOp": "LUB",
     "addCondition": "Dodaj warunek",
+    "blankConditionValue": "Każdy warunek wymaga wartości. Pusty warunek pasowałby do wszystkich transakcji.",
     "addAction": "Dodaj akcję",
     "setCategory": "Ustaw kategorię",
     "setPayee": "Ustaw odbiorcę",

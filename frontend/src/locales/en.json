@@ -836,6 +836,7 @@
     "andOp": "AND",
     "orOp": "OR",
     "addCondition": "Add condition",
+    "blankConditionValue": "Every condition needs a value. A blank one would match every transaction.",
     "addAction": "Add action",
     "setCategory": "Set category",
     "setPayee": "Set payee",

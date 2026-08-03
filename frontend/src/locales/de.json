@@ -836,6 +836,7 @@
     "andOp": "UND",
     "orOp": "ODER",
     "addCondition": "Bedingung hinzufügen",
+    "blankConditionValue": "Jede Bedingung benötigt einen Wert. Eine leere Bedingung würde auf alle Transaktionen zutreffen.",
     "addAction": "Aktion hinzufügen",
     "setCategory": "Kategorie festlegen",
     "setPayee": "Zahlungsempfänger festlegen",
