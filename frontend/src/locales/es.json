@@ -510,7 +510,15 @@
     "calendarAddIncome": "Añadir ingreso",
     "calendarAddExpense": "Añadir gasto",
     "calendarSelectedDay": "Día seleccionado",
-    "calendarNoItems": "No hay transacciones en este día"
+    "calendarNoItems": "No hay transacciones en este día",
+    "calendarMetric": "Datos",
+    "calendarBalanceMode": "Saldo",
+    "calendarActivityMode": "Actividad",
+    "calendarActivityTrend": "Actividad diaria",
+    "calendarNoActivity": "Sin actividad este mes",
+    "calendarNoMovements": "Sin movimientos",
+    "calendarActualNet": "Neto real",
+    "calendarTransfersExcluded": "Las transferencias no cuentan como ingresos ni gastos"
   },
   "accounts": {
     "title": "Cuentas",
