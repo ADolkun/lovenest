@@ -336,6 +336,7 @@ DATE_FORMAT_MAP = {
 CSV_MAPPABLE_FIELDS = (
     'date', 'description', 'amount', 'type',
     'category', 'currency', 'fx_rate', 'inflow', 'outflow',
+    'payee', 'external_id', 'notes',
 )
 
 
@@ -385,7 +386,7 @@ def parse_csv(
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
 
     # Normalize field names
-    fieldnames = [f.lower().strip() for f in (reader.fieldnames or [])]
+    fieldnames = [f.lower().strip() if f is not None else "" for f in (reader.fieldnames or [])]
 
     # Map common column names
     date_cols = ['date', 'data', 'dt', 'transaction_date', 'data_transacao']
@@ -395,6 +396,9 @@ def parse_csv(
     category_cols = ['category', 'categoria']
     currency_cols = ['currency', 'moeda', 'currency_code']
     fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
+    payee_cols = ['payee', 'merchant', 'beneficiary', 'beneficiario', 'pagador']
+    external_id_cols = [] # External ID must be mapped explicitly
+    notes_cols = ['notes', 'nota', 'observacao']
 
     # Normalize the user-supplied column mapping (Securo field -> CSV header).
     mapping = {
@@ -445,6 +449,9 @@ def parse_csv(
     category_col = resolve_col('category', category_cols)
     currency_col = resolve_col('currency', currency_cols)
     fx_rate_col = resolve_col('fx_rate', fx_rate_cols)
+    payee_col = resolve_col('payee', payee_cols)
+    external_id_col = resolve_col('external_id', external_id_cols)
+    notes_col = resolve_col('notes', notes_cols)
 
     if not date_col or not desc_col:
         raise ValueError(
@@ -461,12 +468,12 @@ def parse_csv(
     if date_format and date_format in DATE_FORMAT_MAP:
         date_formats = [DATE_FORMAT_MAP[date_format]]
     else:
-        date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y']
+        date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%d.%m.%Y']
 
     transactions = []
     for row in reader:
         # Normalize row keys
-        row = {k.lower().strip(): v for k, v in row.items()}
+        row = {k.lower().strip() if k is not None else "": v for k, v in row.items()}
 
         # Parse date
         date_str = row[date_col].strip()
@@ -534,6 +541,10 @@ def parse_csv(
                 except Exception:
                     pass
 
+        txn_payee = row[payee_col].strip() if payee_col and row.get(payee_col) else None
+        txn_external_id = row[external_id_col].strip() if external_id_col and row.get(external_id_col) else None
+        txn_notes = row[notes_col].strip() if notes_col and row.get(notes_col) else None
+
         transactions.append(TransactionImport(
             description=row[desc_col].strip(),
             amount=abs(amount),
@@ -542,6 +553,9 @@ def parse_csv(
             currency=txn_currency,
             fx_rate=txn_fx_rate,
             category_name=category_name,
+            payee_raw=txn_payee,
+            external_id=txn_external_id,
+            notes=txn_notes,
         ))
 
     return transactions
@@ -741,6 +755,7 @@ async def import_transactions(
             payee=import_payee_raw,
             payee_id=import_payee_id,
             category_id=category_id,
+            notes=getattr(txn_data, "notes", None),
             recurring_transaction_id=recurring_link.id if recurring_link else None,
         )
         apply_effective_date(transaction, account)
@@ -768,7 +783,7 @@ async def import_transactions(
     await session.commit()
     return imported, skipped, excluded_count, import_log.id
 
-def normalize_amount(amount_str: str) -> str:
+def normalize_amount(amount_str: str | None) -> str:
     """
     Normalize monetary string into a standard decimal format compatible with Decimal.
 
@@ -776,8 +791,10 @@ def normalize_amount(amount_str: str) -> str:
         1.442,20 -> 1442.20
         1,442.20 -> 1442.20
     """
+    if not amount_str:
+        return ""
 
-    amount_str = amount_str.replace('R$', '').strip()
+    amount_str = str(amount_str).replace('R$', '').strip()
 
     if ',' in amount_str and '.' in amount_str:
         if amount_str.rfind(',') > amount_str.rfind('.'):
