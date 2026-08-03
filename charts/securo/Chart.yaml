@@ -5,3 +5,21 @@ type: application
 version: 0.1.0
 appVersion: "latest"
 icon: https://raw.githubusercontent.com/securo-finance/securo/main/frontend/public/favicon.ico
+home: https://github.com/securo-finance/securo
+sources:
+  - https://github.com/securo-finance/securo
+keywords:
+  - finance
+  - accounting
+  - securo
+annotations:
+  artifacthub.io/license: "AGPL-3.0"
+  artifacthub.io/category: "finance"
+  artifacthub.io/images: |
+    - name: securo-backend
+      image: ghcr.io/securo-finance/securo-backend:latest
+    - name: securo-frontend
+      image: ghcr.io/securo-finance/securo-frontend:latest
+  artifacthub.io/links: |
+    - name: Source
+      url: https://github.com/securo-finance/securo
