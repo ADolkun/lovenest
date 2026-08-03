@@ -418,6 +418,7 @@
     "transferDescription": "Description",
     "transferNotes": "Notes",
     "transferInfo": "Il s'agit d'un virement — les modifications de la description, de la date et des notes s'appliqueront aux deux côtés",
+    "transferLinkedTo": "Liée à :",
     "transferTooltip": "Les virements sont exclus des totaux des rapports et du tableau de bord",
     "installmentTooltip": "Paiement échelonné — {{count}} prélèvements pour un total de {{total}}",
     "billOverrideTooltip": "Déplacée vers la facture due le {{date}}",

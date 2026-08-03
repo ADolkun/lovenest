@@ -418,6 +418,7 @@
     "transferDescription": "Опис",
     "transferNotes": "Примітки",
     "transferInfo": "Це переказ — зміни в описі, даті та примітках буде застосовано до обох сторін",
+    "transferLinkedTo": "Пов'язана з:",
     "transferTooltip": "Перекази виключаються зі звітів та підсумків панелі",
     "installmentTooltip": "План розстрочки — {{count}} платежів на суму {{total}}",
     "billOverrideTooltip": "Перенесено на оплату {{date}}",

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { getAccountLabel } from '@/lib/account-utils'
+import { getAccountLabel, getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
-import { useDateLocale } from '@/hooks/use-display-locale'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
+import { formatCurrency } from '@/lib/format'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
@@ -107,7 +108,7 @@ export function TransactionDialog({
   transaction: Transaction | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
-  accounts: { id: string; name: string; type?: string }[]
+  accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -323,7 +324,7 @@ function TransactionForm({
   duplicateDraft: Partial<Transaction> | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
-  accounts: { id: string; name: string; type?: string }[]
+  accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -344,6 +345,7 @@ function TransactionForm({
   const { privacyMode, MASK } = usePrivacyMode()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const dateLocale = useDateLocale()
+  const displayLocale = useDisplayLocale()
   const { data: supportedCurrencies } = useQuery({
     queryKey: ['currencies'],
     queryFn: currenciesApi.list,
@@ -438,6 +440,14 @@ function TransactionForm({
     queryKey: ['rules'],
     queryFn: rulesApi.list,
     enabled: !!transaction && !!onCreateRule,
+  })
+
+  // Counterpart leg of a transfer. Fetched lazily so only transfer dialogs
+  // pay for it — the list response carries just the shared pair id.
+  const { data: transferPair } = useQuery({
+    queryKey: ['transactions', transaction?.id, 'transfer-pair'],
+    queryFn: () => transactionsApi.transferPair(transaction!.id),
+    enabled: !!transaction?.id && !!transaction?.transfer_pair_id,
   })
   const extendableRules = useMemo(
     () => (rulesList ?? []).filter(canExtendRuleFromTransaction),
@@ -695,6 +705,25 @@ function TransactionForm({
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1 min-w-0">
               <p>{t('transactions.transferInfo')}</p>
+              {transferPair && (() => {
+                const pairAccount = accounts.find(a => a.id === transferPair.account_id)
+                const sign = transferPair.type === 'debit' ? '−' : '+'
+                return (
+                  <p className="text-xs text-blue-600 dark:text-blue-300 truncate">
+                    <span className="font-medium">{t('transactions.transferLinkedTo')}</span>{' '}
+                    {pairAccount ? getAccountName(pairAccount) : '—'}
+                    {' · '}
+                    {new Date(transferPair.date + 'T00:00:00').toLocaleDateString(dateLocale)}
+                    {' · '}
+                    {sign}
+                    {formatCurrency(
+                      Math.abs(Number(transferPair.amount)),
+                      transferPair.currency ?? undefined,
+                      displayLocale,
+                    )}
+                  </p>
+                )
+              })()}
               <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
             </div>
             {onUnlinkTransfer && transaction?.transfer_pair_id && (

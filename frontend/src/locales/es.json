@@ -415,6 +415,7 @@
     "transferDescription": "Descripción",
     "transferNotes": "Notas",
     "transferInfo": "Esto es una transferencia — los cambios en descripción, fecha y notas se aplicarán a ambos lados",
+    "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Las transferencias están excluidas de los informes y totales del panel",
     "installmentTooltip": "Plan de cuotas — {{count}} cargos por un total de {{total}}",
     "billOverrideTooltip": "Movido a la factura con vencimiento {{date}}",

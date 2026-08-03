@@ -558,6 +558,10 @@ export const transactions = {
     const { data } = await api.get(`/transactions/${transactionId}/transfer-candidates`, { params })
     return data
   },
+  transferPair: async (transactionId: string): Promise<Transaction | null> => {
+    const { data } = await api.get(`/transactions/${transactionId}/transfer-pair`)
+    return data
+  },
   unlinkTransfer: async (pairId: string): Promise<void> => {
     await api.delete(`/connections/transfers/${pairId}`)
   },

@@ -418,6 +418,7 @@
     "transferDescription": "Beschreibung",
     "transferNotes": "Notizen",
     "transferInfo": "Dies ist eine Umbuchung — Änderungen an Beschreibung, Datum und Notizen wirken sich auf beide Seiten aus",
+    "transferLinkedTo": "Verknüpft mit:",
     "transferTooltip": "Umbuchungen sind von den Berichts- und Dashboard-Summen ausgeschlossen",
     "installmentTooltip": "Ratenzahlung — {{count}} Belastungen von insgesamt {{total}}",
     "billOverrideTooltip": "Verschoben auf die Abrechnung fällig am {{date}}",

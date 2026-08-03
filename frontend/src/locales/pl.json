@@ -436,6 +436,7 @@
     "transferDescription": "Opis",
     "transferNotes": "Notatki",
     "transferInfo": "To transfer — zmiany opisu, daty i notatek obejmą obie strony",
+    "transferLinkedTo": "Powiązana z:",
     "transferTooltip": "Transfery są wyłączone z sum w raportach i na pulpicie",
     "installmentTooltip_one": "Plan ratalny — {{count}} obciążenie na łączną kwotę {{total}}",
     "installmentTooltip_few": "Plan ratalny — {{count}} obciążenia na łączną kwotę {{total}}",

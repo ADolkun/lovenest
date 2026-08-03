@@ -415,6 +415,7 @@
     "transferDescription": "Descrição",
     "transferNotes": "Notas",
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
+    "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard",
     "installmentTooltip": "Compra parcelada — {{count}} parcelas totalizando {{total}}",
     "billOverrideTooltip": "Movida para a fatura com vencimento em {{date}}",
