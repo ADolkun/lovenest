@@ -4,7 +4,7 @@ description: A Helm chart for Securo Finance, an open-source personal finance ap
 type: application
 version: 0.1.0
 appVersion: "latest"
-icon: https://raw.githubusercontent.com/securo-finance/securo/main/frontend/public/favicon.ico
+icon: https://raw.githubusercontent.com/securo-finance/securo/main/favicons/android-icon-192x192.png
 home: https://github.com/securo-finance/securo
 sources:
   - https://github.com/securo-finance/securo
@@ -13,8 +13,14 @@ keywords:
   - accounting
   - securo
 annotations:
+  # Artifact Hub only accepts ai-machine-learning, database,
+  # integration-delivery, monitoring-logging, networking, security, storage or
+  # streaming-messaging, and none of them describe a personal finance app. An
+  # invalid value fails the whole package, and omitting the field entirely lets
+  # Artifact Hub predict one from the keywords, which would be just as wrong,
+  # so opt out of the prediction instead.
+  artifacthub.io/category: skip-prediction
   artifacthub.io/license: "AGPL-3.0"
-  artifacthub.io/category: "finance"
   artifacthub.io/images: |
     - name: securo-backend
       image: ghcr.io/securo-finance/securo-backend:latest
