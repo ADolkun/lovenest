@@ -1309,7 +1309,12 @@
     "typeCompany": "Firma",
     "allTypes": "Wszystkie typy",
     "filterByType": "Filtruj według typu",
-    "favoritesOnly": "Tylko ulubione"
+    "favoritesOnly": "Tylko ulubione",
+    "deletedMultiple": "Usunięto {{count}} odbiorców",
+    "deleteTitle": "Usuń odbiorcę",
+    "deleteConfirm": "Czy na pewno chcesz usunąć tego odbiorcę? Usunie to również odbiorcę ze wszystkich powiązanych transakcji.",
+    "deleteMultipleTitle": "Usuń odbiorców",
+    "deleteMultipleConfirm": "Czy na pewno chcesz usunąć {{count}} wybranych odbiorców? Usunie to ich również ze wszystkich powiązanych transakcji."
   },
   "common": {
     "view": "Zobacz",
