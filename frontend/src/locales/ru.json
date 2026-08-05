@@ -420,6 +420,7 @@
     "transferDescription": "Описание",
     "transferNotes": "Примечания",
     "transferInfo": "Это перевод — изменения в описании, дате и примечаниях будут применены к обеим сторонам",
+    "transferLinkedTo": "Связана с:",
     "transferTooltip": "Переводы исключаются из отчётов и итогов панели",
     "installmentTooltip": "План рассрочки — {{count}} платежей на сумму {{total}}",
     "billOverrideTooltip": "Перенесено на оплату {{date}}",
@@ -512,7 +513,15 @@
     "calendarAddIncome": "Добавить доход",
     "calendarAddExpense": "Добавить расход",
     "calendarSelectedDay": "Выбранный день",
-    "calendarNoItems": "В этот день транзакций нет"
+    "calendarNoItems": "В этот день транзакций нет",
+    "calendarMetric": "Данные",
+    "calendarBalanceMode": "Баланс",
+    "calendarActivityMode": "Активность",
+    "calendarActivityTrend": "Дневная активность",
+    "calendarNoActivity": "В этом месяце нет активности",
+    "calendarNoMovements": "Нет операций",
+    "calendarActualNet": "Фактический итог",
+    "calendarTransfersExcluded": "Переводы не учитываются как приход или расходы"
   },
   "accounts": {
     "title": "Счета",
@@ -839,6 +848,7 @@
     "andOp": "И",
     "orOp": "ИЛИ",
     "addCondition": "Добавить условие",
+    "blankConditionValue": "Каждому условию нужно значение. Пустое условие совпадёт со всеми транзакциями.",
     "addAction": "Добавить действие",
     "setCategory": "Установить категорию",
     "setPayee": "Установить получателя",
@@ -987,7 +997,10 @@
     "balanceImpact": "Влияние на баланс",
     "importedWithExcluded": "{{imported}} импортировано, {{skipped}} пропущено, {{excluded}} исключено",
     "suggested": "Предложено",
-    "page": "Страница {{current}} из {{total}}"
+    "page": "Страница {{current}} из {{total}}",
+    "mapPayee": "Колонка получателя",
+    "mapExternalId": "Колонка ID транзакции",
+    "mapNotes": "Колонка заметок"
   },
   "assets": {
     "title": "Активы",
@@ -1233,7 +1246,12 @@
     "typeCompany": "Компания",
     "allTypes": "Все типы",
     "filterByType": "Фильтровать по типу",
-    "favoritesOnly": "Только избранные"
+    "favoritesOnly": "Только избранные",
+    "deletedMultiple": "Удалено {{count}} получателей",
+    "deleteTitle": "Удалить получателя",
+    "deleteConfirm": "Вы уверены, что хотите удалить этого получателя? Это также удалит его из всех связанных транзакций.",
+    "deleteMultipleTitle": "Удалить получателей",
+    "deleteMultipleConfirm": "Вы уверены, что хотите удалить {{count}} выбранных получателей? Это также удалит их из всех связанных транзакций."
   },
   "common": {
     "view": "Просмотр",

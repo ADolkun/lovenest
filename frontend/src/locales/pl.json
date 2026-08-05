@@ -438,6 +438,7 @@
     "transferDescription": "Opis",
     "transferNotes": "Notatki",
     "transferInfo": "To transfer — zmiany opisu, daty i notatek obejmą obie strony",
+    "transferLinkedTo": "Powiązana z:",
     "transferTooltip": "Transfery są wyłączone z sum w raportach i na pulpicie",
     "installmentTooltip_one": "Plan ratalny — {{count}} obciążenie na łączną kwotę {{total}}",
     "installmentTooltip_few": "Plan ratalny — {{count}} obciążenia na łączną kwotę {{total}}",
@@ -539,7 +540,15 @@
     "calendarAddIncome": "Dodaj przychód",
     "calendarAddExpense": "Dodaj wydatek",
     "calendarSelectedDay": "Wybrany dzień",
-    "calendarNoItems": "Brak transakcji w tym dniu"
+    "calendarNoItems": "Brak transakcji w tym dniu",
+    "calendarMetric": "Dane",
+    "calendarBalanceMode": "Saldo",
+    "calendarActivityMode": "Aktywność",
+    "calendarActivityTrend": "Dzienna aktywność",
+    "calendarNoActivity": "Brak aktywności w tym miesiącu",
+    "calendarNoMovements": "Brak operacji",
+    "calendarActualNet": "Rzeczywiste netto",
+    "calendarTransfersExcluded": "Transfery nie liczą się jako przychody ani wydatki"
   },
   "accounts": {
     "title": "Konta",
@@ -893,6 +902,7 @@
     "andOp": "ORAZ",
     "orOp": "LUB",
     "addCondition": "Dodaj warunek",
+    "blankConditionValue": "Każdy warunek wymaga wartości. Pusty warunek pasowałby do wszystkich transakcji.",
     "addAction": "Dodaj akcję",
     "setCategory": "Ustaw kategorię",
     "setPayee": "Ustaw odbiorcę",
@@ -1056,7 +1066,10 @@
     "balanceImpact": "Wpływ na saldo",
     "importedWithExcluded": "Zaimportowano: {{imported}}, pominięto: {{skipped}}, wykluczono: {{excluded}}",
     "suggested": "Sugerowane",
-    "page": "Strona {{current}} z {{total}}"
+    "page": "Strona {{current}} z {{total}}",
+    "mapPayee": "Kolumna odbiorcy",
+    "mapExternalId": "Kolumna ID transakcji",
+    "mapNotes": "Kolumna notatek"
   },
   "assets": {
     "title": "Aktywa",
@@ -1308,7 +1321,12 @@
     "typeCompany": "Firma",
     "allTypes": "Wszystkie typy",
     "filterByType": "Filtruj według typu",
-    "favoritesOnly": "Tylko ulubione"
+    "favoritesOnly": "Tylko ulubione",
+    "deletedMultiple": "Usunięto {{count}} odbiorców",
+    "deleteTitle": "Usuń odbiorcę",
+    "deleteConfirm": "Czy na pewno chcesz usunąć tego odbiorcę? Usunie to również odbiorcę ze wszystkich powiązanych transakcji.",
+    "deleteMultipleTitle": "Usuń odbiorców",
+    "deleteMultipleConfirm": "Czy na pewno chcesz usunąć {{count}} wybranych odbiorców? Usunie to ich również ze wszystkich powiązanych transakcji."
   },
   "common": {
     "view": "Zobacz",

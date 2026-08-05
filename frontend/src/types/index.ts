@@ -415,6 +415,7 @@ export interface ImportPreviewTransaction {
   excluded?: boolean
   category_id?: string | null
   force_uncategorized?: boolean
+  notes?: string | null
 }
 
 export interface ImportReviewTransaction extends ImportPreviewTransaction {
@@ -484,9 +485,16 @@ export interface TransactionCalendarDay {
   date: string
   in_month: boolean
   ending_balance: number
+  // Combined totals kept for backwards compatibility.
   income: number
   expense: number
   transfer_net: number
+  actual_income: number
+  actual_expense: number
+  actual_transfer_net: number
+  projected_income: number
+  projected_expense: number
+  projected_transfer_net: number
   actual_count: number
   projected_count: number
   has_income: boolean

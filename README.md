@@ -76,6 +76,8 @@ For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exch
 
 Parts of this codebase were built with help of AI. All code is human-reviewed and no data leaves your environment.
 
+Contributing with AI is welcome. We review the author, not the tool: whatever wrote the diff, you own its quality, its fit with where lovenest is going, and everything that happens after it merges. See [Using AI](CONTRIBUTING.md#using-ai).
+
 ## Development
 
 ```bash

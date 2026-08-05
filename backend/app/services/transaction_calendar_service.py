@@ -98,14 +98,18 @@ async def get_transaction_calendar(
         ignored = bool(tx.is_ignored or (tx.category and tx.category.is_ignored))
         if not ignored:
             if is_transfer or tx.source == "transfer":
-                day.transfer_net += await _signed_balance_delta_primary(session, tx, primary_currency)
+                transfer_delta = await _signed_balance_delta_primary(session, tx, primary_currency)
+                day.transfer_net += transfer_delta
+                day.actual_transfer_net += transfer_delta
                 day.has_transfer = True
             elif tx.source != "opening_balance":
                 if tx.type == "credit":
                     day.income += amount_primary
+                    day.actual_income += amount_primary
                     day.has_income = True
                 else:
                     day.expense += amount_primary
+                    day.actual_expense += amount_primary
                     day.has_expense = True
 
         day.actual_count += 1
@@ -122,15 +126,23 @@ async def get_transaction_calendar(
     for item, signed_delta in projected_items:
         day = days[item.date]
         amount_primary = abs(signed_delta)
-        if item.is_transfer:
-            day.transfer_net += signed_delta
-            day.has_transfer = True
-        elif item.type == "credit":
-            day.income += amount_primary
-            day.has_income = True
-        else:
-            day.expense += amount_primary
-            day.has_expense = True
+        # Ignored projections stay out of every aggregate, exactly like ignored
+        # actuals: out of the activity buckets here, and out of the balance deltas
+        # built in _project_recurring_items. A recurring the user chose to ignore
+        # must not move a projected balance that will not move once it posts.
+        if not item.is_ignored:
+            if item.is_transfer:
+                day.transfer_net += signed_delta
+                day.projected_transfer_net += signed_delta
+                day.has_transfer = True
+            elif item.type == "credit":
+                day.income += amount_primary
+                day.projected_income += amount_primary
+                day.has_income = True
+            else:
+                day.expense += amount_primary
+                day.projected_expense += amount_primary
+                day.has_expense = True
         day.projected_count += 1
         day.items.append(item)
 
@@ -146,6 +158,12 @@ async def get_transaction_calendar(
         day.income = round(day.income, 2)
         day.expense = round(day.expense, 2)
         day.transfer_net = round(day.transfer_net, 2)
+        day.actual_income = round(day.actual_income, 2)
+        day.actual_expense = round(day.actual_expense, 2)
+        day.actual_transfer_net = round(day.actual_transfer_net, 2)
+        day.projected_income = round(day.projected_income, 2)
+        day.projected_expense = round(day.projected_expense, 2)
+        day.projected_transfer_net = round(day.projected_transfer_net, 2)
         day.items.sort(key=lambda item: (item.kind != "actual", item.type, item.description.lower()))
         response_days.append(day)
 
@@ -325,6 +343,7 @@ async def _project_recurring_items(
         )
         signed_delta = amount_primary if rec.type == "credit" else -amount_primary
         is_transfer = bool(category and category.treat_as_transfer)
+        is_ignored = bool(category and category.is_ignored)
         for occ_date in occurrences:
             item = TransactionCalendarItem(
                 kind="projected",
@@ -343,7 +362,13 @@ async def _project_recurring_items(
                 category_color=category.color if category else None,
                 source="recurring",
                 is_transfer=is_transfer,
+                is_ignored=is_ignored,
             )
             items.append((item, signed_delta))
-            deltas[occ_date] = deltas.get(occ_date, 0.0) + signed_delta
+            # The row is still listed, but an ignored occurrence never moves the
+            # projected balance: _daily_balance_deltas_by_date already leaves the
+            # posted version out, so counting the projection here would promise a
+            # balance that reverts the day the recurring actually posts.
+            if not is_ignored:
+                deltas[occ_date] = deltas.get(occ_date, 0.0) + signed_delta
     return items, deltas

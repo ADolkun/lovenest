@@ -558,6 +558,10 @@ export const transactions = {
     const { data } = await api.get(`/transactions/${transactionId}/transfer-candidates`, { params })
     return data
   },
+  transferPair: async (transactionId: string): Promise<Transaction | null> => {
+    const { data } = await api.get(`/transactions/${transactionId}/transfer-pair`)
+    return data
+  },
   unlinkTransfer: async (pairId: string): Promise<void> => {
     await api.delete(`/connections/transfers/${pairId}`)
   },
@@ -686,6 +690,10 @@ export const payees = {
   },
   merge: async (targetId: string, sourceIds: string[]): Promise<{ merged: number; transactions_reassigned: number }> => {
     const { data } = await api.post('/payees/merge', { target_id: targetId, source_ids: sourceIds })
+    return data
+  },
+  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => {
+    const { data } = await api.post('/payees/bulk-delete', { ids })
     return data
   },
 }

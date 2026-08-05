@@ -420,6 +420,7 @@
     "transferDescription": "Опис",
     "transferNotes": "Примітки",
     "transferInfo": "Це переказ — зміни в описі, даті та примітках буде застосовано до обох сторін",
+    "transferLinkedTo": "Пов'язана з:",
     "transferTooltip": "Перекази виключаються зі звітів та підсумків панелі",
     "installmentTooltip": "План розстрочки — {{count}} платежів на суму {{total}}",
     "billOverrideTooltip": "Перенесено на оплату {{date}}",
@@ -512,7 +513,15 @@
     "calendarAddIncome": "Додати дохід",
     "calendarAddExpense": "Додати витрату",
     "calendarSelectedDay": "Вибраний день",
-    "calendarNoItems": "Немає транзакцій у цей день"
+    "calendarNoItems": "Немає транзакцій у цей день",
+    "calendarMetric": "Дані",
+    "calendarBalanceMode": "Баланс",
+    "calendarActivityMode": "Активність",
+    "calendarActivityTrend": "Щоденна активність",
+    "calendarNoActivity": "Цього місяця немає активності",
+    "calendarNoMovements": "Немає операцій",
+    "calendarActualNet": "Фактичний підсумок",
+    "calendarTransfersExcluded": "Перекази не враховуються як надходження чи витрати"
   },
   "accounts": {
     "title": "Рахунки",
@@ -839,6 +848,7 @@
     "andOp": "І",
     "orOp": "АБО",
     "addCondition": "Додати умову",
+    "blankConditionValue": "Кожна умова потребує значення. Порожня умова збігатиметься з усіма транзакціями.",
     "addAction": "Додати дію",
     "setCategory": "Установити категорію",
     "setPayee": "Установити отримувача",
@@ -987,7 +997,10 @@
     "balanceImpact": "Вплив на баланс",
     "importedWithExcluded": "{{imported}} імпортовано, {{skipped}} пропущено, {{excluded}} виключено",
     "suggested": "Запропоновано",
-    "page": "Сторінка {{current}} із {{total}}"
+    "page": "Сторінка {{current}} із {{total}}",
+    "mapPayee": "Стовпець одержувача",
+    "mapExternalId": "Стовпець ID транзакції",
+    "mapNotes": "Стовпець приміток"
   },
   "assets": {
     "title": "Активи",
@@ -1233,7 +1246,12 @@
     "typeCompany": "Компанія",
     "allTypes": "Всі типи",
     "filterByType": "Фільтрувати за типом",
-    "favoritesOnly": "Тільки обрані"
+    "favoritesOnly": "Тільки обрані",
+    "deletedMultiple": "Видалено {{count}} одержувачів",
+    "deleteTitle": "Видалити одержувача",
+    "deleteConfirm": "Ви впевнені, що хочете видалити цього одержувача? Це також видалить його з усіх пов'язаних транзакцій.",
+    "deleteMultipleTitle": "Видалити одержувачів",
+    "deleteMultipleConfirm": "Ви впевнені, що хочете видалити {{count}} вибраних одержувачів? Це також видалить їх з усіх пов'язаних транзакцій."
   },
   "common": {
     "view": "Переглянути",

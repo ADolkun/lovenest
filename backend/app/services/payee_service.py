@@ -82,6 +82,9 @@ async def get_or_create_payee(
     if not name:
         raise ValueError("Payee name cannot be empty")
 
+    if len(name) > 255:
+        name = name[:255]
+
     lookup = select(Payee).where(
         func.lower(func.trim(Payee.name)) == name.lower()
     )
@@ -205,6 +208,37 @@ async def delete_payee(session: AsyncSession, payee_id: uuid.UUID, workspace_id:
     await session.delete(payee)
     await session.commit()
     return True
+
+
+async def bulk_delete_payees(session: AsyncSession, workspace_id: uuid.UUID, payee_ids: list[uuid.UUID]) -> int:
+    # Check which payees exist in this workspace first
+    payees_query = await session.execute(
+        select(Payee.id).where(Payee.id.in_(payee_ids), Payee.workspace_id == workspace_id)
+    )
+    valid_ids = [row[0] for row in payees_query.all()]
+
+    if not valid_ids:
+        return 0
+
+    # Null out transaction references
+    await session.execute(
+        update(Transaction)
+        .where(Transaction.payee_id.in_(valid_ids))
+        .values(payee_id=None)
+    )
+
+    # Delete mappings pointing to this payee
+    await session.execute(
+        delete(PayeeMapping).where(PayeeMapping.target_id.in_(valid_ids))
+    )
+
+    # Delete payees
+    result = await session.execute(
+        delete(Payee).where(Payee.id.in_(valid_ids))
+    )
+
+    await session.commit()
+    return result.rowcount
 
 
 async def merge_payees(

@@ -136,8 +136,13 @@ export function RuleDialog({
     setActions(prev => [...prev, { op: 'set_category', value: '' }])
   }
 
+  // A blank condition value matches every transaction, so the rule would apply
+  // its actions to the whole ledger. The API rejects these too.
+  const hasBlankCondition = conditions.some(c => String(c.value ?? '').trim() === '')
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (hasBlankCondition) return
     onSave({
       name,
       conditions_op: conditionsOp,
@@ -261,6 +266,9 @@ export function RuleDialog({
                   </button>
                 </div>
               ))}
+              {hasBlankCondition && (
+                <p className="text-xs text-rose-500">{t('rules.blankConditionValue')}</p>
+              )}
               <button
                 type="button"
                 className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1"
@@ -383,7 +391,7 @@ export function RuleDialog({
 
           <DialogFooter className="shrink-0 pt-4">
             <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || hasBlankCondition}>
               {loading ? t('common.loading') : t('common.save')}
             </Button>
           </DialogFooter>
