@@ -372,6 +372,26 @@ async def get_transfer_candidates(
     ]
 
 
+@router.get("/{transaction_id}/transfer-pair", response_model=Optional[TransactionRead])
+async def get_transfer_pair(
+    transaction_id: uuid.UUID,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Return the counterpart leg of a transfer, or null when not linked."""
+    anchor = await transaction_service.get_transaction(session, transaction_id, ctx.workspace.id)
+    if not anchor:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    pair = await transaction_service.get_transfer_pair(
+        session, ctx.workspace.id, transaction_id
+    )
+    if not pair:
+        return None
+    return _tag_fx_fallback(
+        TransactionRead.model_validate(pair, from_attributes=True), ctx.user.primary_currency
+    )
+
+
 @router.get("/{transaction_id}", response_model=TransactionRead)
 async def get_transaction(
     transaction_id: uuid.UUID,

@@ -944,6 +944,41 @@ async def get_transfer_candidates(
     return candidates
 
 
+async def get_transfer_pair(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    transaction_id: uuid.UUID,
+) -> Optional[Transaction]:
+    """Return the counterpart leg of a linked transfer, or None.
+
+    Both legs share the same ``transfer_pair_id``, so the counterpart is the
+    other row carrying that id — not a foreign key on the anchor itself.
+    """
+    anchor = await get_transaction(session, transaction_id, workspace_id)
+    if not anchor or anchor.transfer_pair_id is None:
+        return None
+
+    result = await session.execute(
+        select(Transaction)
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.transfer_pair_id == anchor.transfer_pair_id,
+            Transaction.id != anchor.id,
+        )
+        .options(
+            selectinload(Transaction.category),
+            selectinload(Transaction.account),
+            selectinload(Transaction.payee_entity),
+            selectinload(Transaction.splits),
+        )
+        .limit(1)
+    )
+    pair = result.scalars().first()
+    if pair:
+        pair.payee_name = pair.payee_entity.name if pair.payee_entity else None
+    return pair
+
+
 async def link_existing_as_transfer(
     session: AsyncSession,
     workspace_id: uuid.UUID,

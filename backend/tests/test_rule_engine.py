@@ -459,3 +459,34 @@ def test_set_payee_combined_with_category():
     apply_rule_actions(actions, tx, category_already_set=False)
     assert tx.category_id == cat_id
     assert tx.payee_id == payee_id
+
+
+# --- blank condition values (issue #438) ---
+
+def test_blank_value_never_matches():
+    """A blank value must not turn a condition into a match-everything rule."""
+    tx = make_tx(description="UBER TRIP")
+    for op in ("contains", "starts_with", "ends_with", "regex", "equals", "not_equals"):
+        conditions = [{"field": "description", "op": op, "value": ""}]
+        assert evaluate_conditions("and", conditions, tx) is False, op
+
+
+def test_whitespace_and_none_values_never_match():
+    tx = make_tx(description="UBER TRIP")
+    for value in ("   ", None):
+        conditions = [{"field": "description", "op": "contains", "value": value}]
+        assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_blank_numeric_value_never_matches():
+    """Blank numeric values used to fall back to 0, matching every amount."""
+    tx = make_tx(amount=Decimal("25.50"))
+    conditions = [{"field": "amount", "op": "gt", "value": ""}]
+    assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_zero_value_still_matches():
+    """0 is a real value, not a blank one — it must keep working."""
+    tx = make_tx(amount=Decimal("25.50"))
+    conditions = [{"field": "amount", "op": "gt", "value": 0}]
+    assert evaluate_conditions("and", conditions, tx) is True

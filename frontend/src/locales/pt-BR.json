@@ -417,6 +417,7 @@
     "transferDescription": "Descrição",
     "transferNotes": "Notas",
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
+    "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard",
     "installmentTooltip": "Compra parcelada — {{count}} parcelas totalizando {{total}}",
     "billOverrideTooltip": "Movida para a fatura com vencimento em {{date}}",
@@ -512,7 +513,15 @@
     "calendarAddIncome": "Adicionar receita",
     "calendarAddExpense": "Adicionar despesa",
     "calendarSelectedDay": "Dia selecionado",
-    "calendarNoItems": "Nenhuma transação neste dia"
+    "calendarNoItems": "Nenhuma transação neste dia",
+    "calendarMetric": "Dados",
+    "calendarBalanceMode": "Saldo",
+    "calendarActivityMode": "Atividade",
+    "calendarActivityTrend": "Atividade diária",
+    "calendarNoActivity": "Sem atividade neste mês",
+    "calendarNoMovements": "Sem movimentações",
+    "calendarActualNet": "Líquido real",
+    "calendarTransfersExcluded": "Transferências não contam como receitas ou despesas"
   },
   "accounts": {
     "title": "Contas",
@@ -839,6 +848,7 @@
     "andOp": "E (AND)",
     "orOp": "OU (OR)",
     "addCondition": "Adicionar condição",
+    "blankConditionValue": "Toda condição precisa de um valor. Uma condição em branco corresponderia a todas as transações.",
     "addAction": "Adicionar ação",
     "setCategory": "Definir categoria",
     "setPayee": "Definir beneficiário",
@@ -987,7 +997,10 @@
     "balanceImpact": "Impacto no saldo",
     "importedWithExcluded": "{{imported}} importadas, {{skipped}} ignoradas, {{excluded}} excluídas",
     "suggested": "Sugerida",
-    "page": "Página {{current}} de {{total}}"
+    "page": "Página {{current}} de {{total}}",
+    "mapPayee": "Coluna de beneficiário",
+    "mapExternalId": "Coluna de ID da transação",
+    "mapNotes": "Coluna de notas"
   },
   "assets": {
     "title": "Patrimônio",
@@ -1233,7 +1246,12 @@
     "typeCompany": "Empresa",
     "allTypes": "Todos os tipos",
     "filterByType": "Filtrar por tipo",
-    "favoritesOnly": "Apenas favoritos"
+    "favoritesOnly": "Apenas favoritos",
+    "deletedMultiple": "{{count}} beneficiários excluídos",
+    "deleteTitle": "Excluir beneficiário",
+    "deleteConfirm": "Tem certeza de que deseja excluir este beneficiário? Isso também o removerá de todas as transações associadas.",
+    "deleteMultipleTitle": "Excluir beneficiários",
+    "deleteMultipleConfirm": "Tem certeza de que deseja excluir os {{count}} beneficiários selecionados? Isso também os removerá de todas as transações associadas."
   },
   "common": {
     "view": "Ver",

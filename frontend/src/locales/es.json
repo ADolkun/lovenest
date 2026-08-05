@@ -417,6 +417,7 @@
     "transferDescription": "Descripción",
     "transferNotes": "Notas",
     "transferInfo": "Esto es una transferencia — los cambios en descripción, fecha y notas se aplicarán a ambos lados",
+    "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Las transferencias están excluidas de los informes y totales del panel",
     "installmentTooltip": "Plan de cuotas — {{count}} cargos por un total de {{total}}",
     "billOverrideTooltip": "Movido a la factura con vencimiento {{date}}",
@@ -512,7 +513,15 @@
     "calendarAddIncome": "Añadir ingreso",
     "calendarAddExpense": "Añadir gasto",
     "calendarSelectedDay": "Día seleccionado",
-    "calendarNoItems": "No hay transacciones en este día"
+    "calendarNoItems": "No hay transacciones en este día",
+    "calendarMetric": "Datos",
+    "calendarBalanceMode": "Saldo",
+    "calendarActivityMode": "Actividad",
+    "calendarActivityTrend": "Actividad diaria",
+    "calendarNoActivity": "Sin actividad este mes",
+    "calendarNoMovements": "Sin movimientos",
+    "calendarActualNet": "Neto real",
+    "calendarTransfersExcluded": "Las transferencias no cuentan como ingresos ni gastos"
   },
   "accounts": {
     "title": "Cuentas",
@@ -839,6 +848,7 @@
     "andOp": "Y",
     "orOp": "O",
     "addCondition": "Agregar condición",
+    "blankConditionValue": "Cada condición necesita un valor. Una condición en blanco coincidiría con todas las transacciones.",
     "addAction": "Agregar acción",
     "setCategory": "Establecer categoría",
     "setPayee": "Establecer beneficiario",
@@ -987,7 +997,10 @@
     "balanceImpact": "Impacto en el saldo",
     "importedWithExcluded": "{{imported}} importadas, {{skipped}} omitidas, {{excluded}} excluidas",
     "suggested": "Sugerido",
-    "page": "Página {{current}} de {{total}}"
+    "page": "Página {{current}} de {{total}}",
+    "mapPayee": "Columna de beneficiario",
+    "mapExternalId": "Columna de ID de transacción",
+    "mapNotes": "Columna de notas"
   },
   "assets": {
     "title": "Activos",
@@ -1233,7 +1246,12 @@
     "typeCompany": "Empresa",
     "allTypes": "Todos los tipos",
     "filterByType": "Filtrar por tipo",
-    "favoritesOnly": "Solo favoritos"
+    "favoritesOnly": "Solo favoritos",
+    "deletedMultiple": "{{count}} beneficiarios eliminados",
+    "deleteTitle": "Eliminar beneficiario",
+    "deleteConfirm": "¿Estás seguro de que quieres eliminar este beneficiario? Esto también lo eliminará de cualquier transacción asociada.",
+    "deleteMultipleTitle": "Eliminar beneficiarios",
+    "deleteMultipleConfirm": "¿Estás seguro de que quieres eliminar los {{count}} beneficiarios seleccionados? Esto también los eliminará de cualquier transacción asociada."
   },
   "common": {
     "view": "Ver",

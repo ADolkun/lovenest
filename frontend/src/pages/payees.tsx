@@ -79,6 +79,8 @@ export default function PayeesPage() {
   const [mergeTargetId, setMergeTargetId] = useState<string>('')
   const [filterType, setFilterType] = useState(() => searchParams.get('type') ?? '')
   const [filterFavorites, setFilterFavorites] = useState(() => searchParams.get('is_favorite') === 'true')
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [payeesToDelete, setPayeesToDelete] = useState<string[]>([])
   const prevSearchRef = useRef<string | null>(null)
 
   // Sync state from URL when navigating
@@ -180,7 +182,10 @@ export default function PayeesPage() {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['payees'] })
       setDialogOpen(false)
-      setEditingPayee(null)
+      setDeleteDialogOpen(false)
+      if (editingPayee?.id === id) {
+        setEditingPayee(null)
+      }
       setSelectedIds(prev => {
         const next = new Set(prev)
         next.delete(id)
@@ -216,6 +221,22 @@ export default function PayeesPage() {
         setSummaryPayee(null)
       }
       toast.success(t('payees.merged', { count: result.transactions_reassigned }))
+    },
+    onError: () => toast.error(t('common.error')),
+  })
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => payeesApi.bulkDelete(ids),
+    onSuccess: (result, deletedIds) => {
+      invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['payees'] })
+      setDeleteDialogOpen(false)
+      setSelectedIds(new Set())
+      setLastSelectedId(null)
+      if (summaryPayee && deletedIds.includes(summaryPayee)) {
+        setSummaryPayee(null)
+      }
+      toast.success(t('payees.deletedMultiple', { count: result.deleted, defaultValue: `${result.deleted} payees deleted` }))
     },
     onError: () => toast.error(t('common.error')),
   })
@@ -275,10 +296,19 @@ export default function PayeesPage() {
           canWrite ? (
             <div className="flex items-center gap-2">
               {selectedIds.size >= 2 && (
-                <Button variant="outline" onClick={() => { setMergeTargetId(''); setMergeDialogOpen(true) }}>
-                  <Merge size={16} className="mr-1.5" />
-                  {t('payees.merge')} ({selectedIds.size})
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => { setMergeTargetId(''); setMergeDialogOpen(true) }}>
+                    <Merge size={16} className="mr-1.5" />
+                    {t('payees.merge')} ({selectedIds.size})
+                  </Button>
+                  <Button variant="destructive" onClick={() => {
+                    setPayeesToDelete(Array.from(selectedIds))
+                    setDeleteDialogOpen(true)
+                  }} disabled={bulkDeleteMutation.isPending}>
+                    <Trash2 size={16} className="mr-1.5" />
+                    {t('common.delete')} ({selectedIds.size})
+                  </Button>
+                </div>
               )}
               <Button onClick={openCreate}>
                 + {t('payees.add')}
@@ -478,7 +508,7 @@ export default function PayeesPage() {
                 <TableHead className="text-xs font-medium text-muted-foreground py-3">{t('payees.name')}</TableHead>
                 <TableHead className="hidden md:table-cell text-xs font-medium text-muted-foreground py-3 w-[120px]">{t('payees.type')}</TableHead>
                 <TableHead className="hidden w-[120px] py-3 text-right text-xs font-medium text-muted-foreground sm:table-cell">{t('payees.transactionCount')}</TableHead>
-                {canWrite && <TableHead className="w-[60px]" />}
+                {canWrite && <TableHead className="w-[100px]" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -544,16 +574,33 @@ export default function PayeesPage() {
                     <span className="text-sm tabular-nums text-muted-foreground">{payee.transaction_count}</span>
                   </TableCell>
                   {canWrite && (
-                    <TableCell className="py-2.5 pr-4">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => { e.stopPropagation(); openEdit(payee) }}
-                        title={t('common.edit')}
-                        aria-label={t('common.edit')}
-                      >
-                        <Pencil size={14} />
-                      </Button>
+                    <TableCell className="py-2.5 pr-4 sm:pr-5">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); openEdit(payee) }}
+                          title={t('common.edit')}
+                          aria-label={t('common.edit')}
+                        >
+                          <Pencil size={14} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setPayeesToDelete([payee.id])
+                            setDeleteDialogOpen(true)
+                          }}
+                          disabled={deleteMutation.isPending || bulkDeleteMutation.isPending}
+                          title={t('common.delete')}
+                          aria-label={t('common.delete')}
+                          className="hover:text-rose-500"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -755,6 +802,41 @@ export default function PayeesPage() {
               }}
             >
               {t('payees.merge')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {payeesToDelete.length > 1 ? t('payees.deleteMultipleTitle') : t('payees.deleteTitle')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {payeesToDelete.length > 1 ? t('payees.deleteMultipleConfirm', { count: payeesToDelete.length }) : t('payees.deleteConfirm')}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending || bulkDeleteMutation.isPending}
+              onClick={() => {
+                if (payeesToDelete.length === 1) {
+                  deleteMutation.mutate(payeesToDelete[0])
+                } else if (payeesToDelete.length > 1) {
+                  bulkDeleteMutation.mutate(payeesToDelete)
+                }
+              }}
+            >
+              <Trash2 size={14} className="mr-1" />
+              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
