@@ -77,6 +77,56 @@ def test_regex():
     assert evaluate_conditions("and", conditions, tx) is True
 
 
+def test_regex_whitespace_class():
+    conditions = [{"field": "description", "op": "regex", "value": r"PIX\s+RECEBIDO"}]
+    tx = make_tx(description="PIX RECEBIDO JOAO")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_regex_digit_class():
+    conditions = [{"field": "description", "op": "regex", "value": r"NOTA \d+"}]
+    tx = make_tx(description="OPERACOES EM BOLSA NOTA 123884393")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_regex_word_boundary():
+    conditions = [{"field": "description", "op": "regex", "value": r"\bCDB\b"}]
+    tx = make_tx(description="VENCIMENTO CDB BANCO MASTER")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_regex_word_boundary_no_match():
+    conditions = [{"field": "description", "op": "regex", "value": r"\bCDB\b"}]
+    tx = make_tx(description="COMPRA CDB321LQ8I6 RESGATE")
+    assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_regex_negative_lookahead_with_whitespace():
+    conditions = [
+        {"field": "description", "op": "regex", "value": r"RESGATE(?!\s+PONTOS)"}
+    ]
+    assert evaluate_conditions("and", conditions, make_tx(description="RESGATE RDB")) is True
+    assert evaluate_conditions("and", conditions, make_tx(description="RESGATE PONTOS")) is False
+
+
+def test_regex_inline_flag_is_valid():
+    conditions = [{"field": "description", "op": "regex", "value": "(?i)uber"}]
+    tx = make_tx(description="UBER TRIP")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_regex_lowercase_pattern_still_matches():
+    conditions = [{"field": "description", "op": "regex", "value": "pix.*recebido"}]
+    tx = make_tx(description="PIX RECEBIDO JOAO")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_regex_accented_pattern_still_matches():
+    conditions = [{"field": "description", "op": "regex", "value": "APLICAÇÃO"}]
+    tx = make_tx(description="APLICACAO EM CDB")
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
 def test_amount_lt():
     conditions = [{"field": "amount", "op": "lt", "value": 50}]
     tx = make_tx(amount=Decimal("25.50"))
@@ -218,6 +268,36 @@ def test_lte_less():
 def test_lte_greater():
     conditions = [{"field": "amount", "op": "lte", "value": 20}]
     tx = make_tx(amount=Decimal("25.50"))
+    assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_date_gt():
+    conditions = [{"field": "date", "op": "gt", "value": "2026-02-09"}]
+    tx = make_tx(date=date(2026, 2, 10))
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_date_gte_equal():
+    conditions = [{"field": "date", "op": "gte", "value": "2026-02-10"}]
+    tx = make_tx(date=date(2026, 2, 10))
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_date_lt():
+    conditions = [{"field": "date", "op": "lt", "value": "2026-02-11"}]
+    tx = make_tx(date=date(2026, 2, 10))
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_date_lte_equal():
+    conditions = [{"field": "date", "op": "lte", "value": "2026-02-10"}]
+    tx = make_tx(date=date(2026, 2, 10))
+    assert evaluate_conditions("and", conditions, tx) is True
+
+
+def test_invalid_date_comparison_returns_false():
+    conditions = [{"field": "date", "op": "gte", "value": "not-a-date"}]
+    tx = make_tx(date=date(2026, 2, 10))
     assert evaluate_conditions("and", conditions, tx) is False
 
 
@@ -379,3 +459,34 @@ def test_set_payee_combined_with_category():
     apply_rule_actions(actions, tx, category_already_set=False)
     assert tx.category_id == cat_id
     assert tx.payee_id == payee_id
+
+
+# --- blank condition values (issue #438) ---
+
+def test_blank_value_never_matches():
+    """A blank value must not turn a condition into a match-everything rule."""
+    tx = make_tx(description="UBER TRIP")
+    for op in ("contains", "starts_with", "ends_with", "regex", "equals", "not_equals"):
+        conditions = [{"field": "description", "op": op, "value": ""}]
+        assert evaluate_conditions("and", conditions, tx) is False, op
+
+
+def test_whitespace_and_none_values_never_match():
+    tx = make_tx(description="UBER TRIP")
+    for value in ("   ", None):
+        conditions = [{"field": "description", "op": "contains", "value": value}]
+        assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_blank_numeric_value_never_matches():
+    """Blank numeric values used to fall back to 0, matching every amount."""
+    tx = make_tx(amount=Decimal("25.50"))
+    conditions = [{"field": "amount", "op": "gt", "value": ""}]
+    assert evaluate_conditions("and", conditions, tx) is False
+
+
+def test_zero_value_still_matches():
+    """0 is a real value, not a blank one — it must keep working."""
+    tx = make_tx(amount=Decimal("25.50"))
+    conditions = [{"field": "amount", "op": "gt", "value": 0}]
+    assert evaluate_conditions("and", conditions, tx) is True

@@ -34,6 +34,9 @@ const CSV_MAPPING_FIELDS = [
   { key: 'category', label: 'import.mapCategory' },
   { key: 'currency', label: 'import.mapCurrency' },
   { key: 'fx_rate', label: 'import.mapFxRate' },
+  { key: 'payee', label: 'import.mapPayee' },
+  { key: 'external_id', label: 'import.mapExternalId' },
+  { key: 'notes', label: 'import.mapNotes' },
 ] as const
 
 function toReviewTransactions(txns: ImportPreviewTransaction[]): ImportReviewTransaction[] {
@@ -127,6 +130,7 @@ export default function ImportPage() {
         currency: rt.currency ?? undefined,
         fx_rate: rt.fx_rate ?? undefined,
         payee_raw: rt.payee_raw ?? undefined,
+        notes: rt.notes ?? undefined,
         category_name: rt.category_name ?? undefined,
         excluded: rt.excluded,
         category_id: rt.selected_category_id !== undefined
@@ -145,6 +149,8 @@ export default function ImportPage() {
     onSuccess: (data) => {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['import-logs'] })
+      queryClient.invalidateQueries({ queryKey: ['payees'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
       const hasSkippedOrExcluded = (data.skipped ?? 0) > 0 || (data.excluded ?? 0) > 0
       const msg = hasSkippedOrExcluded
         ? t('import.importedWithExcluded', { imported: data.imported, skipped: data.skipped ?? 0, excluded: data.excluded ?? 0 })
@@ -556,7 +562,7 @@ export default function ImportPage() {
             </button>
             <Button
               onClick={() => importMutation.mutate()}
-              disabled={!selectedAccount || importMutation.isPending || reviewTransactions.length === 0}
+              disabled={!selectedAccount || importMutation.isPending || includedCount === 0}
               className="gap-2"
             >
               <Upload size={14} />
@@ -591,7 +597,7 @@ export default function ImportPage() {
                   <th className="text-right px-3 sm:px-4 py-3 font-medium text-muted-foreground">{t('import.historyCount')}</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyCredit')}</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyDebit')}</th>
-                  <th className="px-3 sm:px-4 py-3"></th>
+                  <th className="px-3 sm:px-4 py-3" aria-label={t('common.more')}></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -619,6 +625,7 @@ export default function ImportPage() {
                         <button
                           onClick={() => setDeleteTarget(log)}
                           className="text-muted-foreground hover:text-rose-500 transition-colors"
+                          aria-label={t('import.undoImport')}
                           title={t('import.undoImport')}
                         >
                           <Trash2 className="w-4 h-4" />

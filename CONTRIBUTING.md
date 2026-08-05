@@ -31,6 +31,25 @@ Good ways to align first:
 
 Once there's a shared understanding, go ahead and build. Large PRs that arrive without any prior discussion are harder to review and sometimes don't align with where the project is heading, so a quick conversation up front is the best way to make your contribution count.
 
+## Using AI
+
+Use it. We do. Parts of this codebase were written with AI. This isn't a policy against the tools.
+
+It's a policy about ownership. **We don't review the AI, we review you.** When a PR arrives, the questions are the same as they've always been: does this person understand what they're proposing, can they explain why it's built this way, and will they still be around if it breaks. Whatever produced the diff doesn't change any of that.
+
+So whatever you use, before you open the PR:
+
+- **You own the approach, not just the output.** You decided the strategy and delegated the typing. If the model picked the architecture and you went along with it, you don't know the change well enough to defend it in review.
+- **You're the quality gate.** The change holds to the standards of the code already here: naming, structure, tests, error handling. AI writes plausible code, and plausible isn't the bar.
+- **It fits where the product is going.** A change can work and still be wrong for Securo. Whether it belongs here is your call before it's ours.
+- **You ran it.** Not "the tests should pass" — you ran them, you ran the app, you saw the change work.
+- **The scope is what the issue asked for.** AI is generous with refactors nobody requested. Strip them. A thirty-file diff for a one-line bug goes back.
+- **You're accountable after it merges.** If it breaks in three weeks, you're who we come to.
+
+We won't ask which tools you used and we won't try to detect them. We'll read the code and ask questions. Contributors who understand their own work pass easily, and that was true long before any of this.
+
+The same applies to issues. An issue produced by pointing a model at the repository and asking it to find problems is not a bug report. Tell us what you did, what happened, and what you expected.
+
 ## Development Workflow
 
 1. Create a branch from `main`: `git checkout -b feature/your-feature`
