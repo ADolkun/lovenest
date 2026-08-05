@@ -2,9 +2,9 @@ import re
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, cast
 
-from sqlalchemy import select, func, or_, not_, update
+from sqlalchemy import CursorResult, select, func, or_, not_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -131,7 +131,7 @@ async def get_transactions(
     # point of the override (issue #92, LucasFidelis suggestion). Shared
     # with the dashboard/report/budget aggregations so a transaction lands
     # in the same month everywhere (issue #232).
-    date_col = reporting_date_col(accounting_mode)
+    date_col = reporting_date_col(accounting_mode or "cash")
 
     # Group-scope visibility: when the caller filters by a group they
     # have access to (owner or linked member), bypass the user-owns-it
@@ -143,7 +143,7 @@ async def get_transactions(
 
         accessible = await get_group_visible(session, group_id, workspace_id, user_id)
         if accessible is None:
-            return [], 0
+            return [], 0, None
         use_group_scope = True
 
     # CC bill-view date column: when the caller asks "what's in this bill?"
@@ -446,7 +446,7 @@ async def get_transactions(
     # order by purchase date so the in-cycle list matches the bank's own
     # statement ordering regardless of accounting mode.
     default_order_col = bill_view_date_col if in_bill_view else date_col
-    sort_columns: dict[str, object] = {
+    sort_columns = {
         # `date` is the cycle/accrual-aware column the UI lists use so its
         # ordering matches the cash-flow & dashboard views.
         "date": default_order_col,
@@ -491,7 +491,7 @@ async def get_transactions(
             .where(TransactionAttachment.transaction_id.in_(tx_ids))
             .group_by(TransactionAttachment.transaction_id)
         )
-        counts = dict(count_rows.all())
+        counts = {row[0]: row[1] for row in count_rows.all()}
         for tx in transactions:
             tx.attachment_count = counts.get(tx.id, 0)
             tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
@@ -915,7 +915,7 @@ async def get_transfer_candidates(
             .where(TransactionAttachment.transaction_id.in_(tx_ids))
             .group_by(TransactionAttachment.transaction_id)
         )
-        counts = dict(count_rows.all())
+        counts = {row[0]: row[1] for row in count_rows.all()}
         for tx in candidates:
             tx.attachment_count = counts.get(tx.id, 0)
             tx.payee_name = tx.payee_entity.name if tx.payee_entity else None
@@ -1290,7 +1290,7 @@ async def bulk_update_category(
         .values(category_id=category_id)
     )
     await session.commit()
-    return result.rowcount
+    return cast(CursorResult, result).rowcount
 
 
 _TAG_CHAR_CLASS = r"[\wÀ-ž-]"

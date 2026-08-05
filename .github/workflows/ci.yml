@@ -61,6 +61,10 @@ jobs:
         if: steps.backend-changes.outputs.run_backend == 'true'
         run: ruff check .
 
+      - name: Type check with ty
+        if: steps.backend-changes.outputs.run_backend == 'true'
+        run: ty check .
+
       - name: Run tests with coverage
         if: steps.backend-changes.outputs.run_backend == 'true'
         run: |

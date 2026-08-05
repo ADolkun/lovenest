@@ -59,6 +59,22 @@ The same applies to issues. An issue produced by pointing a model at the reposit
 5. Commit with a clear message (see below)
 6. Push your branch and open a Pull Request
 
+Optional but recommended, so you catch lint and type errors before CI does:
+
+```bash
+prek install                                   # once, from the repo root
+# or, if you prefer the Python original:
+pip install pre-commit && pre-commit install
+```
+
+This runs `ruff check` and `ty check` on the backend whenever you commit a
+`backend/*.py` file. Both read their config from `backend/pyproject.toml`, so
+local and CI stay in sync.
+
+[prek](https://github.com/j178/prek) is a drop-in replacement for pre-commit:
+same `.pre-commit-config.yaml`, but a single binary with no Python bootstrap.
+Either works.
+
 ## Commit Messages
 
 Use clear, descriptive commit messages:
@@ -78,6 +94,10 @@ pytest
 
 # Backend tests with coverage
 pytest --cov=app --cov-report=term-missing
+
+# Backend lint + type check (same commands CI runs)
+ruff check .
+ty check .
 
 # Frontend lint
 cd frontend && npm run lint

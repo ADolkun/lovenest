@@ -293,6 +293,10 @@ async def create_transfer(
         debit_full = await transaction_service.get_transaction(session, debit_tx.id, ctx.workspace.id)
         credit_full = await transaction_service.get_transaction(session, credit_tx.id, ctx.workspace.id)
         primary_currency = ctx.user.primary_currency
+
+        if debit_tx.transfer_pair_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transfer_pair cannot be null")
+
         return TransferRead(
             debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
             credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
@@ -316,6 +320,10 @@ async def link_transfer(
         debit_full = await transaction_service.get_transaction(session, debit_tx.id, ctx.workspace.id)
         credit_full = await transaction_service.get_transaction(session, credit_tx.id, ctx.workspace.id)
         primary_currency = ctx.user.primary_currency
+
+        if debit_tx.transfer_pair_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transfer_pair cannot be null")
+
         return TransferRead(
             debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
             credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
@@ -341,6 +349,10 @@ async def create_counterpart(
         debit_full = await transaction_service.get_transaction(session, debit_tx.id, ctx.workspace.id)
         credit_full = await transaction_service.get_transaction(session, credit_tx.id, ctx.workspace.id)
         primary_currency = ctx.user.primary_currency
+
+        if debit_tx.transfer_pair_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="transfer_pair cannot be null")
+
         return TransferRead(
             debit=_tag_fx_fallback(TransactionRead.model_validate(debit_full, from_attributes=True), primary_currency),
             credit=_tag_fx_fallback(TransactionRead.model_validate(credit_full, from_attributes=True), primary_currency),
