@@ -1332,6 +1332,7 @@ async def test_sync_connection_error_raises(session: AsyncSession, test_user, te
             await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     refreshed = await session.get(BankConnection, conn.id)
+    assert refreshed is not None
     assert refreshed.status == "sync_error"
     assert refreshed.last_sync_error_account_id is None
 
@@ -1373,6 +1374,7 @@ async def test_sync_connection_records_and_clears_error_account(
             await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     refreshed = await session.get(BankConnection, conn.id)
+    assert refreshed is not None
     assert refreshed.status == "sync_error"
     assert refreshed.last_sync_error_account_id == account_id
 
