@@ -385,7 +385,7 @@ export default function ImportPage() {
                 {t('import.importTo')}
               </Label>
               <select
-                className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
               >
@@ -474,7 +474,7 @@ export default function ImportPage() {
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">{t('import.inflowColumn')}</Label>
                     <select
-                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvInflowColumn}
                       onChange={(e) => { setCsvInflowColumn(e.target.value); rePreview({ inflow: e.target.value }) }}
                     >
@@ -485,7 +485,7 @@ export default function ImportPage() {
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">{t('import.outflowColumn')}</Label>
                     <select
-                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvOutflowColumn}
                       onChange={(e) => { setCsvOutflowColumn(e.target.value); rePreview({ outflow: e.target.value }) }}
                     >
@@ -508,7 +508,7 @@ export default function ImportPage() {
                         <div key={f.key}>
                           <Label className="text-xs text-muted-foreground mb-1 block">{t(f.label)}</Label>
                           <select
-                            className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                            className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                             value={csvColumnMapping[f.key] ?? ''}
                             onChange={(e) => handleMappingChange(f.key, e.target.value)}
                           >
