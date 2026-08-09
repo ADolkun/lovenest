@@ -2,7 +2,7 @@
 import uuid
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class RuleCondition(BaseModel):
@@ -10,9 +10,22 @@ class RuleCondition(BaseModel):
     op: str      # contains, not_contains, equals, not_equals, starts_with, ends_with, regex, gt, gte, lt, lte
     value: Any   # str or number depending on field
 
+    @field_validator("value")
+    @classmethod
+    def value_must_not_be_blank(cls, v: Any) -> Any:
+        """Reject blank values — they silently match every transaction.
+
+        A blank value turns `contains`/`starts_with`/`ends_with`/`regex` into a
+        tautology, and numeric comparisons fall back to 0, so the rule applies
+        its actions to the whole ledger. Explicit `0` and `False` stay valid.
+        """
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Condition value cannot be blank")
+        return v
+
 
 class RuleAction(BaseModel):
-    op: str      # set_category, append_notes
+    op: str      # set_category, set_payee, append_notes, ignore
     value: Any   # category UUID str or notes string
 
 
@@ -23,6 +36,8 @@ class RuleCreate(BaseModel):
     actions: list[RuleAction]
     priority: int = 0
     is_active: bool = True
+    apply_to_existing: bool = True
+    overwrite_existing_categories: bool = False
 
 
 class RuleUpdate(BaseModel):
@@ -32,6 +47,8 @@ class RuleUpdate(BaseModel):
     actions: Optional[list[RuleAction]] = None
     priority: Optional[int] = None
     is_active: Optional[bool] = None
+    apply_to_existing: Optional[bool] = None
+    overwrite_existing_categories: bool = False
 
 
 class RuleRead(BaseModel):

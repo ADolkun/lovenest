@@ -360,6 +360,8 @@ export interface Rule {
   actions: RuleAction[]
   priority: number
   is_active: boolean
+  apply_to_existing?: boolean
+  overwrite_existing_categories?: boolean
 }
 
 export interface RuleExportItem {
@@ -411,6 +413,7 @@ export interface ImportPreviewTransaction {
   excluded?: boolean
   category_id?: string | null
   force_uncategorized?: boolean
+  notes?: string | null
 }
 
 export interface ImportReviewTransaction extends ImportPreviewTransaction {
@@ -428,7 +431,7 @@ export interface RecurringTransaction {
   amount: number
   currency: string
   type: 'debit' | 'credit'
-  frequency: 'monthly' | 'weekly' | 'yearly'
+  frequency: 'monthly' | 'quarterly' | 'weekly' | 'yearly'
   day_of_month: number | null
   start_date: string
   end_date: string | null
@@ -451,7 +454,58 @@ export interface ProjectedTransaction {
   category_name: string | null
   category_icon: string | null
   category_color: string | null
+}
+
+export interface TransactionCalendarItem {
+  kind: 'actual' | 'projected'
+  id: string | null
+  recurring_id: string | null
+  date: string
+  description: string
+  amount: number
+  amount_primary: number | null
+  currency: string
+  type: 'debit' | 'credit'
+  account_id: string | null
+  account_name: string | null
+  category_id: string | null
+  category_name: string | null
+  category_icon: string | null
+  category_color: string | null
+  status: string | null
+  source: string | null
+  transfer_pair_id: string | null
+  is_transfer: boolean
   is_ignored: boolean
+}
+
+export interface TransactionCalendarDay {
+  date: string
+  in_month: boolean
+  ending_balance: number
+  // Combined totals kept for backwards compatibility.
+  income: number
+  expense: number
+  transfer_net: number
+  actual_income: number
+  actual_expense: number
+  actual_transfer_net: number
+  projected_income: number
+  projected_expense: number
+  projected_transfer_net: number
+  actual_count: number
+  projected_count: number
+  has_income: boolean
+  has_expense: boolean
+  has_transfer: boolean
+  items: TransactionCalendarItem[]
+}
+
+export interface TransactionCalendarResponse {
+  month: string
+  currency: string
+  account_ids: string[] | null
+  days: TransactionCalendarDay[]
 }
 
 export interface DashboardSummary {

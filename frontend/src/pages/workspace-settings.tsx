@@ -338,7 +338,7 @@ export default function WorkspaceSettingsPage() {
                     type="color"
                     value={editColor}
                     onChange={(e) => setEditColor(e.target.value)}
-                    className="h-10 w-10 p-1 rounded-lg cursor-pointer border border-input bg-background shrink-0"
+                    className="h-10 w-10 p-1 rounded-lg cursor-pointer border border-input bg-card shrink-0"
                     title={t('groups.color', 'Cor')}
                   />
                 </div>
@@ -406,9 +406,11 @@ export default function WorkspaceSettingsPage() {
                   <SelectItem value="uk">Українська</SelectItem>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="pt-BR">Português (BR)</SelectItem>
+                  <SelectItem value="pt-PT">Português (PT)</SelectItem>
                   <SelectItem value="es">Español</SelectItem>
                   <SelectItem value="pl">Polski</SelectItem>
                   <SelectItem value="it">Italiano</SelectItem>
+                  <SelectItem value="fr">Français</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -476,7 +478,7 @@ export default function WorkspaceSettingsPage() {
                           role: e.target.value as WorkspaceRole,
                         })
                       }
-                      className="h-9 w-32 rounded-lg border border-input bg-background px-2 text-sm"
+                      className="h-9 w-32 rounded-lg border border-input bg-card px-2 text-sm"
                     >
                       {(['owner', 'editor', 'viewer'] as WorkspaceRole[]).map((r) => (
                         <option key={r} value={r}>
@@ -573,7 +575,7 @@ export default function WorkspaceSettingsPage() {
                 id="invite-role"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-                className="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm"
+                className="w-full h-10 rounded-lg border border-input bg-card px-3 text-sm"
               >
                 {(['owner', 'editor', 'viewer'] as WorkspaceRole[]).map((r) => (
                   <option key={r} value={r}>

@@ -54,10 +54,19 @@ async def _get_recurring_projections(
         return []
     stmt = (
         select(RecurringTransaction)
+        .outerjoin(Category, RecurringTransaction.category_id == Category.id)
         .where(
             RecurringTransaction.workspace_id == workspace_id,
             RecurringTransaction.is_active == True,
             RecurringTransaction.start_date < month_end,
+            or_(
+                RecurringTransaction.category_id.is_(None),
+                Category.treat_as_transfer.is_not(True),
+            ),
+            or_(
+                RecurringTransaction.category_id.is_(None),
+                Category.is_ignored.is_not(True),
+            ),
         )
     )
     if account_ids:
@@ -147,6 +156,8 @@ async def get_summary(
     # don't inflate the month's income figure. counts_as_user_pnl() skips
     # paired transfers, transfer-like categories AND settlement movements
     # (whose offset is already in the owner's share, see share-only model).
+    # Only posted (settled) transactions count; pending entries stay out of
+    # the period totals until they post.
     monthly_result = await session.execute(
         select(
             func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
@@ -159,6 +170,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             *acct_filter,
         )
@@ -267,7 +279,8 @@ async def get_summary(
     monthly_income_primary = real_monthly_income
     monthly_expenses_primary = abs(real_monthly_expenses)
 
-    # Use amount_primary sums for more accurate multi-currency income/expenses
+    # Use amount_primary sums for more accurate multi-currency income/expenses.
+    # Same posted-only rule as the native-currency totals above.
     primary_result = await session.execute(
         select(
             func.sum(case((Transaction.type == "credit", Transaction.amount_primary), else_=0)),
@@ -280,6 +293,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             Transaction.amount_primary.isnot(None),
             *acct_filter,
@@ -731,10 +745,19 @@ async def get_projected_transactions(
 
     result = await session.execute(
         select(RecurringTransaction)
+        .outerjoin(Category, RecurringTransaction.category_id == Category.id)
         .where(
             RecurringTransaction.workspace_id == workspace_id,
             RecurringTransaction.is_active == True,
             RecurringTransaction.start_date < month_end,
+            or_(
+                RecurringTransaction.category_id.is_(None),
+                Category.treat_as_transfer.is_not(True),
+            ),
+            or_(
+                RecurringTransaction.category_id.is_(None),
+                Category.is_ignored.is_not(True),
+            ),
         )
     )
     recurring_list = list(result.scalars().all())
@@ -911,21 +934,22 @@ async def _balance_at(
     already know the workspace's primary currency.
     """
     totals = await _total_balance_by_currency(session, workspace_id, cutoff, account_ids)
-
-    # If all same currency, just sum
-    if len(totals) <= 1:
-        return sum(totals.values())
+    if not totals:
+        return 0.0
 
     primary_currency = primary_currency_hint or get_settings().default_currency
 
     total = 0.0
     for currency, amount in totals.items():
+        if currency == primary_currency:
+            total += amount
+            continue
         converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency)
         total += float(converted)
     return total
 
 
-async def _daily_deltas(
+async def _daily_balance_deltas_by_date(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     start: date,
@@ -933,12 +957,14 @@ async def _daily_deltas(
     *,
     primary_currency_hint: Optional[str] = None,
     account_ids: Optional[list[uuid.UUID]] = None,
-) -> dict[int, float]:
-    """Get daily balance deltas for a date range [start, end).
+) -> dict[date, float]:
+    """Get daily balance deltas for a date range [start, end), keyed by date.
+
     Computes per-account in native currency (using amount_primary only for
-    foreign txs within an account), grouped by day and account currency,
-    then converts each currency to primary. This is consistent with _balance_at."""
-    # Use amount_primary only when tx currency differs from account currency
+    foreign txs within an account), grouped by date and account currency,
+    then converts each currency to primary. This is consistent with
+    ``_balance_at`` and avoids per-transaction FX conversion loops.
+    """
     effective = case(
         (Transaction.currency == Account.currency, Transaction.amount),
         else_=func.coalesce(Transaction.amount_primary, Transaction.amount),
@@ -949,7 +975,7 @@ async def _daily_deltas(
     )
     result = await session.execute(
         select(
-            func.extract("day", Transaction.date).label("day"),
+            Transaction.date,
             Account.currency,
             func.sum(signed),
         )
@@ -967,28 +993,39 @@ async def _daily_deltas(
             ),
             *( [Transaction.account_id.in_(account_ids)] if account_ids is not None else [] ),
         )
-        .group_by("day", Account.currency)
+        .group_by(Transaction.date, Account.currency)
     )
-    rows = result.all()
 
-    # Check if all same currency — skip conversion
-    currencies_seen = {row[1] for row in rows}
-    if len(currencies_seen) <= 1:
-        return {int(row[0]): float(row[2] or 0) for row in rows}
-
-    # Multiple currencies: convert each to primary
     primary_currency = primary_currency_hint or get_settings().default_currency
-
-    deltas: dict[int, float] = {}
-    for row in rows:
-        day = int(row[0])
-        currency = row[1]
-        amount = float(row[2] or 0)
+    deltas: dict[date, float] = {}
+    for tx_date, currency, raw_amount in result.all():
+        amount = raw_amount or 0
         if currency != primary_currency:
             converted, _ = await convert(session, Decimal(str(amount)), currency, primary_currency)
-            amount = float(converted)
-        deltas[day] = deltas.get(day, 0) + amount
+            amount = converted
+        deltas[tx_date] = deltas.get(tx_date, 0.0) + float(amount)
     return deltas
+
+
+async def _daily_deltas(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    start: date,
+    end: date,
+    *,
+    primary_currency_hint: Optional[str] = None,
+    account_ids: Optional[list[uuid.UUID]] = None,
+) -> dict[int, float]:
+    """Get daily balance deltas for a date range [start, end), keyed by day-of-month."""
+    by_date = await _daily_balance_deltas_by_date(
+        session,
+        workspace_id,
+        start,
+        end,
+        primary_currency_hint=primary_currency_hint,
+        account_ids=account_ids,
+    )
+    return {tx_date.day: amount for tx_date, amount in by_date.items()}
 
 
 async def get_balance_history(

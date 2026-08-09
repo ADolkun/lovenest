@@ -20,6 +20,7 @@ import type {
   PayeeSummary,
   RecurringTransaction,
   ProjectedTransaction,
+  TransactionCalendarResponse,
   Budget,
   BudgetVsActual,
   Rule,
@@ -429,6 +430,7 @@ export const transactions = {
     payee_id?: string
     uncategorized?: boolean
     type?: string
+    status?: string
     from?: string
     to?: string
     bill_id?: string
@@ -439,6 +441,7 @@ export const transactions = {
     limit?: number
     include_opening_balance?: boolean
     exclude_transfers?: boolean
+    user_pnl_only?: boolean
     tags?: string[]
     min_amount?: number
     max_amount?: number
@@ -446,6 +449,17 @@ export const transactions = {
     sort_dir?: 'asc' | 'desc'
   }): Promise<PaginatedTransactions> => {
     const { data } = await api.get('/transactions', {
+      params,
+      paramsSerializer: { indexes: null },
+    })
+    return data
+  },
+  calendar: async (params?: {
+    month?: string
+    account_id?: string
+    account_ids?: string[]
+  }): Promise<TransactionCalendarResponse> => {
+    const { data } = await api.get('/transactions/calendar', {
       params,
       paramsSerializer: { indexes: null },
     })
@@ -545,6 +559,10 @@ export const transactions = {
     const { data } = await api.get(`/transactions/${transactionId}/transfer-candidates`, { params })
     return data
   },
+  transferPair: async (transactionId: string): Promise<Transaction | null> => {
+    const { data } = await api.get(`/transactions/${transactionId}/transfer-pair`)
+    return data
+  },
   unlinkTransfer: async (pairId: string): Promise<void> => {
     await api.delete(`/connections/transfers/${pairId}`)
   },
@@ -594,11 +612,14 @@ export const transactions = {
     account_ids?: string[]
     category_id?: string
     category_ids?: string[]
+    payee_id?: string
     uncategorized?: boolean
     type?: string
+    status?: string
     from?: string
     to?: string
     q?: string
+    tags?: string[]
     transaction_ids?: string[]
   }): Promise<void> => {
     const { data } = await api.get('/transactions/export', {
@@ -671,6 +692,10 @@ export const payees = {
   },
   merge: async (targetId: string, sourceIds: string[]): Promise<{ merged: number; transactions_reassigned: number }> => {
     const { data } = await api.post('/payees/merge', { target_id: targetId, source_ids: sourceIds })
+    return data
+  },
+  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => {
+    const { data } = await api.post('/payees/bulk-delete', { ids })
     return data
   },
 }

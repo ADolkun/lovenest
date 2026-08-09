@@ -34,6 +34,9 @@ const CSV_MAPPING_FIELDS = [
   { key: 'category', label: 'import.mapCategory' },
   { key: 'currency', label: 'import.mapCurrency' },
   { key: 'fx_rate', label: 'import.mapFxRate' },
+  { key: 'payee', label: 'import.mapPayee' },
+  { key: 'external_id', label: 'import.mapExternalId' },
+  { key: 'notes', label: 'import.mapNotes' },
 ] as const
 
 function toReviewTransactions(txns: ImportPreviewTransaction[]): ImportReviewTransaction[] {
@@ -127,6 +130,7 @@ export default function ImportPage() {
         currency: rt.currency ?? undefined,
         fx_rate: rt.fx_rate ?? undefined,
         payee_raw: rt.payee_raw ?? undefined,
+        notes: rt.notes ?? undefined,
         category_name: rt.category_name ?? undefined,
         excluded: rt.excluded,
         category_id: rt.selected_category_id !== undefined
@@ -145,6 +149,8 @@ export default function ImportPage() {
     onSuccess: (data) => {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['import-logs'] })
+      queryClient.invalidateQueries({ queryKey: ['payees'] })
+      queryClient.invalidateQueries({ queryKey: ['categories'] })
       const hasSkippedOrExcluded = (data.skipped ?? 0) > 0 || (data.excluded ?? 0) > 0
       const msg = hasSkippedOrExcluded
         ? t('import.importedWithExcluded', { imported: data.imported, skipped: data.skipped ?? 0, excluded: data.excluded ?? 0 })
@@ -379,7 +385,7 @@ export default function ImportPage() {
                 {t('import.importTo')}
               </Label>
               <select
-                className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                className="flex-1 border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
               >
@@ -468,7 +474,7 @@ export default function ImportPage() {
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">{t('import.inflowColumn')}</Label>
                     <select
-                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvInflowColumn}
                       onChange={(e) => { setCsvInflowColumn(e.target.value); rePreview({ inflow: e.target.value }) }}
                     >
@@ -479,7 +485,7 @@ export default function ImportPage() {
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">{t('import.outflowColumn')}</Label>
                     <select
-                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                      className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                       value={csvOutflowColumn}
                       onChange={(e) => { setCsvOutflowColumn(e.target.value); rePreview({ outflow: e.target.value }) }}
                     >
@@ -502,7 +508,7 @@ export default function ImportPage() {
                         <div key={f.key}>
                           <Label className="text-xs text-muted-foreground mb-1 block">{t(f.label)}</Label>
                           <select
-                            className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                            className="w-full border border-border rounded-md px-3 py-1.5 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                             value={csvColumnMapping[f.key] ?? ''}
                             onChange={(e) => handleMappingChange(f.key, e.target.value)}
                           >
@@ -556,7 +562,7 @@ export default function ImportPage() {
             </button>
             <Button
               onClick={() => importMutation.mutate()}
-              disabled={!selectedAccount || importMutation.isPending || reviewTransactions.length === 0}
+              disabled={!selectedAccount || importMutation.isPending || includedCount === 0}
               className="gap-2"
             >
               <Upload size={14} />
@@ -591,7 +597,7 @@ export default function ImportPage() {
                   <th className="text-right px-3 sm:px-4 py-3 font-medium text-muted-foreground">{t('import.historyCount')}</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyCredit')}</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">{t('import.historyDebit')}</th>
-                  <th className="px-3 sm:px-4 py-3"></th>
+                  <th className="px-3 sm:px-4 py-3" aria-label={t('common.more')}></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -619,6 +625,7 @@ export default function ImportPage() {
                         <button
                           onClick={() => setDeleteTarget(log)}
                           className="text-muted-foreground hover:text-rose-500 transition-colors"
+                          aria-label={t('import.undoImport')}
                           title={t('import.undoImport')}
                         >
                           <Trash2 className="w-4 h-4" />

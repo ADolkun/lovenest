@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAccountLabel } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { localDateString } from '@/lib/date-utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -42,7 +43,7 @@ export function TransferDialog({
   const [fromAccountId, setFromAccountId] = useState(defaultFromAccountId || (accounts[0]?.id ?? ''))
   const [toAccountId, setToAccountId] = useState('')
   const [amount, setAmount] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(localDateString)
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
   const [fxRate, setFxRate] = useState('')
@@ -53,7 +54,7 @@ export function TransferDialog({
     setFromAccountId(defaultFromAccountId || (accounts[0]?.id ?? ''))
     setToAccountId('')
     setAmount('')
-    setDate(new Date().toISOString().split('T')[0])
+    setDate(localDateString())
     setDescription('')
     setNotes('')
     setFxRate('')
@@ -124,7 +125,7 @@ export function TransferDialog({
             <div className="space-y-2">
               <Label>{t('transactions.transferFromAccount')}</Label>
               <select
-                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                 value={fromAccountId}
                 onChange={(e) => {
                   setFromAccountId(e.target.value)
@@ -148,7 +149,7 @@ export function TransferDialog({
             <div className="space-y-2">
               <Label>{t('transactions.transferToAccount')}</Label>
               <select
-                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                 value={toAccountId}
                 onChange={(e) => {
                   setToAccountId(e.target.value)
@@ -255,7 +256,7 @@ export function TransferDialog({
               <span className="text-muted-foreground font-normal text-xs">({t('transactions.notesHint')})</span>
             </Label>
             <textarea
-              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0"
+              className="w-full border border-input rounded-md px-3 py-2 text-sm bg-card resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0"
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
