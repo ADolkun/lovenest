@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { categories as categoriesApi, categoryGroups as categoryGroupsApi, recurring as recurringApi, accounts as accountsApi, currencies as currenciesApi } from '@/lib/api'
+import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -136,7 +137,7 @@ function RecurringTab() {
   })
 
   const frequencyLabel = (f: string) => {
-    const map: Record<string, string> = { monthly: t('recurring.monthly'), weekly: t('recurring.weekly'), yearly: t('recurring.yearly') }
+    const map: Record<string, string> = { monthly: t('recurring.monthly'), quarterly: t('recurring.quarterly'), weekly: t('recurring.weekly'), yearly: t('recurring.yearly') }
     return map[f] ?? f
   }
 
@@ -216,6 +217,7 @@ function RecurringTab() {
                         <button
                           className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
                           onClick={() => { setEditing(rt); setDialogOpen(true) }}
+                          aria-label={t('common.edit')}
                           title={t('common.edit')}
                         >
                           <Pencil size={13} />
@@ -224,6 +226,7 @@ function RecurringTab() {
                           className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
                           onClick={() => deleteMutation.mutate(rt.id)}
                           disabled={deleteMutation.isPending}
+                          aria-label={t('common.delete')}
                           title={t('common.delete')}
                         >
                           <Trash2 size={13} />
@@ -298,7 +301,7 @@ function RecurringForm({
   const [type, setType] = useState<'debit' | 'credit'>(recurring?.type ?? 'debit')
   const [frequency, setFrequency] = useState(recurring?.frequency ?? 'monthly')
   const [dayOfMonth, setDayOfMonth] = useState(recurring?.day_of_month?.toString() ?? '')
-  const [startDate, setStartDate] = useState(recurring?.start_date ?? new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(recurring?.start_date ?? localDateString())
   const [endDate, setEndDate] = useState(recurring?.end_date ?? '')
   const [categoryId, setCategoryId] = useState(recurring?.category_id ?? '')
   const [accountId, setAccountId] = useState(recurring?.account_id ?? accounts[0]?.id ?? '')
@@ -356,13 +359,14 @@ function RecurringForm({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{t('recurring.frequency')}</Label>
-          <select className={selectClass} value={frequency} onChange={(e) => setFrequency(e.target.value as 'monthly' | 'weekly' | 'yearly')}>
+          <select className={selectClass} value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringTransaction['frequency'])}>
             <option value="monthly">{t('recurring.monthly')}</option>
+            <option value="quarterly">{t('recurring.quarterly')}</option>
             <option value="weekly">{t('recurring.weekly')}</option>
             <option value="yearly">{t('recurring.yearly')}</option>
           </select>
         </div>
-        {frequency === 'monthly' && (
+        {(frequency === 'monthly' || frequency === 'quarterly') && (
           <div className="space-y-2">
             <Label>{t('recurring.dayOfMonth')}</Label>
             <Input type="number" min="1" max="31" value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} />

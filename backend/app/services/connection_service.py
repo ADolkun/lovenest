@@ -40,6 +40,7 @@ from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
+from app.services.transaction_match_service import find_unique_transaction_match
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +241,7 @@ async def _upsert_asset_from_holding(
             purchase_price=holding.purchase_price,
             purchase_date=holding.purchase_date,
             isin=holding.isin,
+            ticker=holding.ticker,
             maturity_date=holding.maturity_date,
             external_metadata=holding.metadata,
             valuation_method="manual",
@@ -272,6 +274,8 @@ async def _upsert_asset_from_holding(
         asset.purchase_date = holding.purchase_date
     if holding.isin:
         asset.isin = holding.isin
+    if holding.ticker:
+        asset.ticker = holding.ticker
     if holding.maturity_date:
         asset.maturity_date = holding.maturity_date
     return asset
@@ -964,8 +968,15 @@ async def _find_synced_duplicate(
         result = await session.execute(
             select(Transaction).where(
                 Transaction.account_id == account_id,
-                Transaction.source == "sync",
-                Transaction.date == txn_data.date,
+                or_(
+                    Transaction.source == "sync",
+                    (
+                        Transaction.source.in_(LOCAL_IMPORT_SOURCES)
+                        & Transaction.raw_data.is_not(None)
+                    ),
+                ),
+                Transaction.date >= txn_data.date - timedelta(days=3),
+                Transaction.date <= txn_data.date + timedelta(days=3),
                 Transaction.amount == txn_data.amount,
                 Transaction.type == txn_data.type,
                 Transaction.status == txn_data.status,
@@ -978,26 +989,35 @@ async def _find_synced_duplicate(
             if candidate.external_id in incoming_external_ids:
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
+            candidate_descriptions = (
+                candidate_raw.get("description"), candidate.payee, candidate.description,
+            )
+            incoming_descriptions = (
+                raw.get("description"), txn_data.payee, txn_data.description,
+            )
+            description_matches = any(
+                left and right and _description_similarity(left, right) >= 0.9
+                for left in candidate_descriptions
+                for right in incoming_descriptions
+            )
             if (
                 candidate_raw.get("posted") == posted
                 and candidate_raw.get("transacted_at") == transacted_at
-                and _description_similarity(candidate.description, txn_data.description) >= 0.9
+                and description_matches
             ):
                 return candidate
 
-    # Local import history from before the account was connected. Exact field
-    # match only; category/source/date/amount stay user/import-owned.
-    result = await session.execute(
-        select(Transaction).where(
-            Transaction.account_id == account_id,
-            Transaction.source.in_(LOCAL_IMPORT_SOURCES),
-            Transaction.date == txn_data.date,
-            Transaction.amount == txn_data.amount,
-            Transaction.type == txn_data.type,
-            Transaction.description == txn_data.description,
-        )
+    # Path 5: local import history from before the account was connected.
+    # Posting lag and statement exports can shift the date or shorten the
+    # merchant description, so accept only one exact normalized merchant/payee.
+    return await find_unique_transaction_match(
+        session,
+        account_id,
+        txn_data,
+        LOCAL_IMPORT_SOURCES,
+        unclaimed_only=True,
+        exclude_external_ids=incoming_external_ids,
     )
-    return result.scalars().first()
 
 
 async def _cleanup_phantom_duplicates(
@@ -1182,6 +1202,7 @@ async def _sync_bill_finance_charges(
         else:
             tx = Transaction(
                 user_id=user_id,
+                workspace_id=account.workspace_id,
                 account_id=account.id,
                 external_id=external_id,
                 description=description,
@@ -1327,6 +1348,8 @@ async def sync_connection(
     )
     if not connection:
         raise ValueError("Connection not found")
+    if not connection.credentials:
+        raise ValueError("Credentials not found")
 
     sync_start_status = connection.status
     sync_start_version = connection.sync_state_version
@@ -1485,12 +1508,21 @@ async def sync_connection(
             incoming_external_ids = {txn.external_id for txn in transactions_data}
             for txn_data in transactions_data:
                 existing = await session.execute(
-                    select(Transaction).where(
+                    select(Transaction)
+                    .where(
                         Transaction.account_id == account.id,
                         Transaction.external_id == txn_data.external_id,
                     )
+                    .order_by(Transaction.created_at)
                 )
-                existing_tx = existing.scalar_one_or_none()
+                # `.first()` rather than `.scalar_one_or_none()`: a prior sync
+                # race (two overlapping passes both select-then-insert the same
+                # external_id before either commits) can leave two rows sharing
+                # (account_id, external_id). scalar_one_or_none() would raise
+                # MultipleResultsFound and abort the whole connection's sync;
+                # we instead reconcile onto the oldest matching row and skip
+                # re-inserting, so a stray duplicate is harmless and never grows.
+                existing_tx = existing.scalars().first()
                 if existing_tx:
                     # User-flagged rows are frozen: skip status/bill drift so
                     # a re-sync can't revive a transaction the user hid.
@@ -1745,8 +1777,11 @@ async def sync_connection(
                 sync_start_status,
                 sync_start_error_account_id,
             )
+        # The row can vanish if the connection was deleted mid-sync. Fall back
+        # to the one we already hold rather than raising: re-raising here would
+        # escape as a 500, which is exactly what this handler exists to avoid.
         refreshed = await session.get(BankConnection, connection_id)
-        return refreshed, 0
+        return refreshed or connection, 0
     except Exception:
         # Generic sync failures do not imply invalid credentials. Preserve the
         # local account being processed so the accounts page can identify it.

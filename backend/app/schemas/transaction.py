@@ -3,7 +3,7 @@ from datetime import date as _Date
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.category import CategoryRead
 from app.schemas.transaction_split import (
@@ -34,6 +34,11 @@ class TransactionCreate(TransactionBase):
     fx_rate_used: Optional[Decimal] = None
     effective_bill_date: Optional[_Date] = None
     splits: Optional[TransactionSplitsInput] = None
+    # Manual status override. When omitted the transaction is created as
+    # "posted" (settled), matching the model default. Pass "pending"
+    # (not yet settled) to record an entry that isn't settled yet. Only
+    # posted/pending are valid.
+    status: Optional[Literal["posted", "pending"]] = None
 
 
 class TransactionUpdate(BaseModel):
@@ -49,6 +54,10 @@ class TransactionUpdate(BaseModel):
     amount_primary: Optional[Decimal] = None
     fx_rate_used: Optional[Decimal] = None
     is_ignored: Optional[bool] = None
+    # Manual status override (posted=settled, pending=not yet settled). Lets the
+    # user mark a manually-entered transaction as settled once it clears,
+    # or flip a synced row back to pending before the next sync.
+    status: Optional[Literal["posted", "pending"]] = None
     apply_to_transfer_pair: bool = False
     # CC bucketing override (issue #92). Empty string / explicit null clears
     # it back to auto. Only meaningful for credit-card accounts.
@@ -96,6 +105,12 @@ class TransactionRead(TransactionBase):
     # instead of a generic "shared" badge.
     parent_owner_name: Optional[str] = None
     is_ignored: bool = False
+
+    @model_validator(mode="after")
+    def reflect_ignored_category(self):
+        if self.category and self.category.is_ignored:
+            self.is_ignored = True
+        return self
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,6 +172,7 @@ class TransactionImport(TransactionBase):
     excluded: bool = False
     category_id: Optional[uuid.UUID] = None
     force_uncategorized: bool = False
+    notes: Optional[str] = None
 
 
 class TransactionImportPreview(BaseModel):

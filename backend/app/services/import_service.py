@@ -11,10 +11,9 @@ from ofxparse import OfxParser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from types import SimpleNamespace
-
 from app.core.config import get_settings
 from app.models.account import Account
+from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.rule import Rule
 from app.models.transaction import Transaction
@@ -25,6 +24,7 @@ from app.services.rule_engine import apply_rule_actions, evaluate_conditions
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
+from app.services.transaction_match_service import find_unique_transaction_match
 
 
 # Descriptions used by some Brazilian banks (e.g. Banco do Brasil) for
@@ -38,7 +38,18 @@ _OFX_BALANCE_ROW_DESCRIPTIONS = (
 )
 
 
-def _preprocess_ofx_for_empty_fitid(content: bytes) -> bytes:
+def _decode_ofx_bytes(content: bytes) -> tuple[str, str]:
+    """Decode OFX content to text, trying UTF-8 then falling back to Latin-1.
+
+    Returns (text, encoding) so callers can re-encode consistently later.
+    """
+    try:
+        return content.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return content.decode("latin-1"), "latin-1"
+
+
+def _patch_empty_fitids(text: str) -> str:
     """Synthesize a FITID for STMTTRN blocks that have an empty/missing one.
 
     Banco do Brasil (and a few other Brazilian banks) emit balance-summary
@@ -47,13 +58,6 @@ def _preprocess_ofx_for_empty_fitid(content: bytes) -> bytes:
     each affected block with a deterministic synthetic FITID so parsing
     succeeds; balance rows are filtered out later by description.
     """
-    try:
-        text = content.decode("utf-8")
-        original_encoding = "utf-8"
-    except UnicodeDecodeError:
-        text = content.decode("latin-1")
-        original_encoding = "latin-1"
-
     def _replace(match: re.Match) -> str:
         block = match.group(0)
         fitid_match = re.search(r"<FITID>([^<\r\n]*)", block, re.IGNORECASE)
@@ -74,13 +78,56 @@ def _preprocess_ofx_for_empty_fitid(content: bytes) -> bytes:
             flags=re.IGNORECASE,
         )
 
-    patched = re.sub(
+    return re.sub(
         r"<STMTTRN>.*?</STMTTRN>",
         _replace,
         text,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    return patched.encode(original_encoding, errors="replace")
+
+
+def _ensure_ofx_sgml_header(text: str, encoding: str) -> str:
+    """Prepend a legacy OFX 1.x SGML header for OFX 2.x files that omit it.
+
+    OFX 2.x is plain XML that goes straight into its first tag, with no
+    colon-delimited SGML header block (e.g. Erste Bank's "MS Money Sunset
+    Deluxe" export). ofxparse only looks for encoding hints in the bytes
+    preceding the file's first "<"; when that's empty it silently assumes
+    ASCII and crashes on any non-ASCII byte. Prepending a synthetic SGML
+    header routes the file through ofxparse's existing, correctly-working
+    SGML decode path instead of its broken auto-detection (see
+    https://github.com/jseutter/ofxparse/issues/133).
+
+    The trigger is therefore "nothing precedes the first tag", not "starts
+    with <?xml": the XML declaration is optional in XML 1.0, so an OFX 2.x
+    file may open with just its <?OFX ... ?> instruction, or with <OFX>
+    itself, and those hit the same ofxparse bug. Anything else already has a
+    legacy header, and a file with no tag at all is left for ofxparse to
+    reject on its own terms.
+
+    `encoding` must match whatever the caller will re-encode `text` with,
+    so the declared header and the actual bytes stay consistent.
+    """
+    preamble, first_tag, _ = text.lstrip("\ufeff \t\r\n").partition("<")
+    if not first_tag or preamble.strip():
+        return text
+    if encoding == "latin-1":
+        enc_lines = "ENCODING:USASCII\r\nCHARSET:8859-1\r\n"
+    else:
+        enc_lines = "ENCODING:UTF-8\r\nCHARSET:NONE\r\n"
+    header = (
+        f"OFXHEADER:100\r\nDATA:OFXSGML\r\nVERSION:102\r\nSECURITY:NONE\r\n"
+        f"{enc_lines}COMPRESSION:NONE\r\nOLDFILEUID:NONE\r\nNEWFILEUID:NONE\r\n\r\n"
+    )
+    return header + text
+
+
+def _preprocess_ofx(content: bytes) -> bytes:
+    """Apply text-level fixups ofxparse needs before it can parse the file."""
+    text, encoding = _decode_ofx_bytes(content)
+    text = _patch_empty_fitids(text)
+    text = _ensure_ofx_sgml_header(text, encoding)
+    return text.encode(encoding, errors="replace")
 
 
 def _is_balance_summary_row(description: str | None) -> bool:
@@ -92,7 +139,7 @@ def _is_balance_summary_row(description: str | None) -> bool:
 
 def parse_ofx(content: bytes) -> list[TransactionImport]:
     """Parse OFX file content and return transactions."""
-    content = _preprocess_ofx_for_empty_fitid(content)
+    content = _preprocess_ofx(content)
     ofx = OfxParser.parse(io.BytesIO(content))
     transactions = []
 
@@ -184,7 +231,7 @@ def parse_qif(content: bytes) -> list[TransactionImport]:
 
 
 def parse_camt(content: bytes) -> list[TransactionImport]:
-    """Parse CAMT.053 (ISO 20022) XML file content and return transactions."""
+    """Parse CAMT.052/CAMT.053 (ISO 20022) XML file content and return transactions."""
     root = ET.fromstring(content)
 
     # Detect namespace dynamically
@@ -213,9 +260,26 @@ def parse_camt(content: bytes) -> list[TransactionImport]:
 
     transactions = []
 
-    # Navigate: Document > BkToCstmrStmt > Stmt > Ntry
-    for stmt in findall(root, 'BkToCstmrStmt/Stmt'):
+    # Navigate: Document > BkToCstmrStmt > Stmt > Ntry (CAMT.053, end-of-day statement)
+    # Fallback: Document > BkToCstmrAcctRpt > Rpt > Ntry (CAMT.052, intraday report —
+    # same Ntry sub-schema, different root/container element). Several European banks,
+    # including German Volksbanken/Raiffeisenbanken, only offer CAMT.052 exports.
+    stmts = findall(root, 'BkToCstmrStmt/Stmt') or findall(root, 'BkToCstmrAcctRpt/Rpt')
+    for stmt in stmts:
         for ntry in findall(stmt, 'Ntry'):
+            # Entry status: BOOK (final) vs. PDNG/INFO (pending/informational).
+            # CAMT.052 intraday reports commonly include PDNG entries for
+            # transactions that haven't settled yet; the same transaction is
+            # reported again as BOOK once it settles. Skip anything that
+            # isn't BOOK to avoid importing it twice. Status is either a
+            # plain code (<Sts>BOOK</Sts>) or wrapped (<Sts><Cd>BOOK</Cd></Sts>)
+            # depending on the schema version. Check the wrapped form first:
+            # in pretty-printed XML the <Sts> element's own text is the
+            # whitespace before <Cd>, which would otherwise mask the real code.
+            status = find_text(ntry, 'Sts/Cd') or find_text(ntry, 'Sts')
+            if status and status.strip().upper() != 'BOOK':
+                continue
+
             # Amount
             amt_el = find(ntry, 'Amt')
             if amt_el is None:
@@ -272,6 +336,7 @@ DATE_FORMAT_MAP = {
 CSV_MAPPABLE_FIELDS = (
     'date', 'description', 'amount', 'type',
     'category', 'currency', 'fx_rate', 'inflow', 'outflow',
+    'payee', 'external_id', 'notes',
 )
 
 
@@ -321,7 +386,7 @@ def parse_csv(
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
 
     # Normalize field names
-    fieldnames = [f.lower().strip() for f in (reader.fieldnames or [])]
+    fieldnames = [f.lower().strip() if f is not None else "" for f in (reader.fieldnames or [])]
 
     # Map common column names
     date_cols = ['date', 'data', 'dt', 'transaction_date', 'data_transacao']
@@ -331,6 +396,9 @@ def parse_csv(
     category_cols = ['category', 'categoria']
     currency_cols = ['currency', 'moeda', 'currency_code']
     fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
+    payee_cols = ['payee', 'merchant', 'beneficiary', 'beneficiario', 'pagador']
+    external_id_cols = [] # External ID must be mapped explicitly
+    notes_cols = ['notes', 'nota', 'observacao']
 
     # Normalize the user-supplied column mapping (Securo field -> CSV header).
     mapping = {
@@ -381,6 +449,9 @@ def parse_csv(
     category_col = resolve_col('category', category_cols)
     currency_col = resolve_col('currency', currency_cols)
     fx_rate_col = resolve_col('fx_rate', fx_rate_cols)
+    payee_col = resolve_col('payee', payee_cols)
+    external_id_col = resolve_col('external_id', external_id_cols)
+    notes_col = resolve_col('notes', notes_cols)
 
     if not date_col or not desc_col:
         raise ValueError(
@@ -397,12 +468,12 @@ def parse_csv(
     if date_format and date_format in DATE_FORMAT_MAP:
         date_formats = [DATE_FORMAT_MAP[date_format]]
     else:
-        date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y']
+        date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%d.%m.%Y']
 
     transactions = []
     for row in reader:
         # Normalize row keys
-        row = {k.lower().strip(): v for k, v in row.items()}
+        row = {k.lower().strip() if k is not None else "": v for k, v in row.items()}
 
         # Parse date
         date_str = row[date_col].strip()
@@ -470,6 +541,10 @@ def parse_csv(
                 except Exception:
                     pass
 
+        txn_payee = row[payee_col].strip() if payee_col and row.get(payee_col) else None
+        txn_external_id = row[external_id_col].strip() if external_id_col and row.get(external_id_col) else None
+        txn_notes = row[notes_col].strip() if notes_col and row.get(notes_col) else None
+
         transactions.append(TransactionImport(
             description=row[desc_col].strip(),
             amount=abs(amount),
@@ -478,6 +553,9 @@ def parse_csv(
             currency=txn_currency,
             fx_rate=txn_fx_rate,
             category_name=category_name,
+            payee_raw=txn_payee,
+            external_id=txn_external_id,
+            notes=txn_notes,
         ))
 
     return transactions
@@ -504,7 +582,7 @@ async def enrich_with_category_suggestions(
         return transactions
 
     for txn in transactions:
-        proxy = SimpleNamespace(
+        proxy: Transaction = Transaction(
             description=txn.description,
             amount=txn.amount,
             date=txn.date,
@@ -567,10 +645,19 @@ async def import_transactions(
     await session.flush()  # Get the import_log.id
 
     # Look up account currency for fallback
-    account_result = await session.execute(
-        select(Account).where(Account.id == account_id)
-    )
+    account_result = await session.execute(select(Account).where(Account.id == account_id))
     account = account_result.scalar_one_or_none()
+    if account and account.connection_id:
+        await session.execute(
+            select(BankConnection.id)
+            .where(BankConnection.id == account.connection_id)
+            .with_for_update()
+        )
+    if account:
+        account_result = await session.execute(
+            select(Account).where(Account.id == account_id).with_for_update()
+        )
+        account = account_result.scalar_one()
     account_currency = account.currency if account else get_settings().default_currency
 
     # Build category name → id map scoped to the workspace.
@@ -581,6 +668,7 @@ async def import_transactions(
 
     imported = 0
     skipped = 0
+    matched_existing_ids: set[uuid.UUID] = set()
     effective_format = (detected_format or source or "").lower()
     should_detect_duplicates = detect_duplicates if effective_format == "csv" else True
 
@@ -596,24 +684,43 @@ async def import_transactions(
             # purchase FITID across every monthly statement — don't get skipped
             # as duplicates from later monthly imports (issue #98).
             if txn_data.external_id:
-                existing = await session.execute(
-                    select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.external_id == txn_data.external_id,
-                        Transaction.date == txn_data.date,
-                    )
+                existing_statement = select(Transaction).where(
+                    Transaction.account_id == account_id,
+                    Transaction.external_id == txn_data.external_id,
+                    Transaction.date == txn_data.date,
                 )
             else:
-                existing = await session.execute(
-                    select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.date == txn_data.date,
-                        Transaction.amount == txn_data.amount,
-                        Transaction.type == txn_data.type,
-                        Transaction.description == txn_data.description,
-                    )
+                existing_statement = select(Transaction).where(
+                    Transaction.account_id == account_id,
+                    Transaction.date == txn_data.date,
+                    Transaction.amount == txn_data.amount,
+                    Transaction.type == txn_data.type,
+                    Transaction.description == txn_data.description,
                 )
-            if existing.scalar_one_or_none():
+            # `.first()` rather than `.scalar_one_or_none()`: the dedup key can
+            # legitimately match more than one row (e.g. a prior sync/import race
+            # left a duplicate, or a bank reuses one FITID across statements),
+            # and we only need to know whether *any* match exists. Requiring
+            # exactly one would raise MultipleResultsFound and abort the import.
+            if matched_existing_ids and not txn_data.external_id:
+                existing_statement = existing_statement.where(
+                    Transaction.id.not_in(matched_existing_ids)
+                )
+            existing = await session.execute(
+                existing_statement.order_by(Transaction.created_at, Transaction.id)
+            )
+            duplicate = existing.scalars().first()
+            if not duplicate and not txn_data.external_id:
+                duplicate = await find_unique_transaction_match(
+                    session,
+                    account_id,
+                    txn_data,
+                    {"sync"},
+                    exclude_ids=matched_existing_ids,
+                )
+            if duplicate:
+                if not txn_data.external_id:
+                    matched_existing_ids.add(duplicate.id)
                 skipped += 1
                 continue
 
@@ -672,6 +779,7 @@ async def import_transactions(
             payee=import_payee_raw,
             payee_id=import_payee_id,
             category_id=category_id,
+            notes=getattr(txn_data, "notes", None),
             recurring_transaction_id=recurring_link.id if recurring_link else None,
         )
         apply_effective_date(transaction, account)
@@ -682,6 +790,8 @@ async def import_transactions(
 
         session.add(transaction)
         await session.flush()
+        if should_detect_duplicates and not txn_data.external_id:
+            matched_existing_ids.add(transaction.id)
         if recurring_link is not None:
             recurring_match_service.advance_past(recurring_link, txn_data.date)
 
@@ -699,7 +809,7 @@ async def import_transactions(
     await session.commit()
     return imported, skipped, excluded_count, import_log.id
 
-def normalize_amount(amount_str: str) -> str:
+def normalize_amount(amount_str: str | None) -> str:
     """
     Normalize monetary string into a standard decimal format compatible with Decimal.
 
@@ -707,8 +817,10 @@ def normalize_amount(amount_str: str) -> str:
         1.442,20 -> 1442.20
         1,442.20 -> 1442.20
     """
+    if not amount_str:
+        return ""
 
-    amount_str = amount_str.replace('R$', '').strip()
+    amount_str = str(amount_str).replace('R$', '').strip()
 
     if ',' in amount_str and '.' in amount_str:
         if amount_str.rfind(',') > amount_str.rfind('.'):

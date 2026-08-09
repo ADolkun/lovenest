@@ -46,6 +46,7 @@ import { TransactionDrillDown, type DrillDownFilter } from '@/components/transac
 import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
@@ -91,6 +92,7 @@ export default function DashboardPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { mask, privacyMode, MASK } = usePrivacyMode()
+  const isMobile = useIsMobile()
   const { user } = useAuth()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const displayName = user?.preferences?.display_name || ''
@@ -149,7 +151,8 @@ export default function DashboardPage() {
   const dateFnsLocale = resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language)
   const { from: monthStart, to: monthEnd } = monthRange(selectedMonth)
   const monthParam = monthStart
-  const monthLabelStr = monthLabel(selectedMonth, dateLocale)
+  const uiLocale = i18n.resolvedLanguage ?? i18n.language
+  const monthLabelStr = monthLabel(selectedMonth, uiLocale)
 
   const handleMonthChange = (newMonth: string) => {
     setSelectedMonth(newMonth)
@@ -273,12 +276,18 @@ export default function DashboardPage() {
 
   const createRuleMutation = useMutation({
     mutationFn: (data: Omit<Rule, 'id' | 'user_id'>) => rulesApi.create(data),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['rules'] })
-      invalidateFinancialQueries(queryClient)
       setCreateRuleOpen(false)
       setCreateRuleInitialData(undefined)
-      toast.success(t('rules.created'))
+      const applied = result.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+        queryClient.invalidateQueries({ queryKey: ['payees'] })
+        toast.success(t('rules.createdAndApplied', { count: applied }))
+      } else {
+        toast.success(t('rules.created'))
+      }
     },
     onError: (error: unknown) => {
       const err = error as { response?: { status?: number } }
@@ -489,7 +498,7 @@ export default function DashboardPage() {
         groupId: null,
         parentOwnerName: null,
         groupName: null,
-        isIgnored: pt.is_ignored
+        isIgnored: false
       })
     }
     rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
@@ -518,7 +527,7 @@ export default function DashboardPage() {
       {/* Header */}
       <PageHeader
         section={greeting}
-        title={new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+        title={monthLabel(selectedMonth, uiLocale).replace(/^\w/, c => c.toUpperCase())}
         action={
           <div className="flex items-center gap-1">
             <button
@@ -532,7 +541,7 @@ export default function DashboardPage() {
                   className="inline-flex items-center justify-center gap-2 border border-border rounded-lg px-3 py-1.5 text-sm bg-card text-foreground hover:bg-muted/50 transition-all cursor-pointer min-w-[180px]"
                 >
                   <CalendarIcon className="size-3.5 text-muted-foreground" />
-                  {new Date(selectedMonth + '-02').toLocaleDateString(dateLocale, { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+                  {monthLabel(selectedMonth, uiLocale).replace(/^\w/, c => c.toUpperCase())}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="center" className="w-auto p-0">
@@ -891,7 +900,7 @@ export default function DashboardPage() {
                   <Tooltip
                     formatter={(value, name) => [
                       value !== null ? (privacyMode ? MASK : formatCurrency(Number(value), userCurrency, locale)) : '\u2014',
-                      name === 'current' ? monthLabel(selectedMonth, dateLocale).split(' ')[0] : monthLabel(prevMonth, dateLocale).split(' ')[0],
+                      name === 'current' ? monthLabel(selectedMonth, uiLocale).split(' ')[0] : monthLabel(prevMonth, uiLocale).split(' ')[0],
                     ]}
                     labelFormatter={(day) => t('dashboard.day', { day })}
                     contentStyle={{
@@ -938,7 +947,7 @@ export default function DashboardPage() {
               <div className="px-5 pb-4 pt-0 shrink-0">
                 <p className="text-xs text-muted-foreground">
                   {t('dashboard.balanceFlowVsPrev', {
-                    month: monthLabel(prevMonth, dateLocale).split(' ')[0],
+                    month: monthLabel(prevMonth, uiLocale).split(' ')[0],
                     day: footerDay,
                     amount: mask(formatCurrency(footerPrev, userCurrency, locale)),
                     delta: `${footerPct >= 0 ? '+' : ''}${footerPct.toFixed(1)}%`,
@@ -1046,6 +1055,96 @@ export default function DashboardPage() {
             </div>
           ) : pagedRows.length > 0 ? (
             <>
+              {isMobile ? (
+                <div>
+                  {pagedRows.map((row) => (
+                    <div
+                      key={row.key}
+                      className={`flex items-center gap-3 pl-3 pr-3 py-3 border-b border-border last:border-0 bg-card ${
+                        row.isProjected ? '' : 'cursor-pointer active:bg-muted/60'
+                      }`}
+                      onClick={() => {
+                        if (row.isProjected) return
+                        if (row.isShared) {
+                          if (row.groupId) navigate(`/groups/${row.groupId}`)
+                          return
+                        }
+                        const tx = currentMonthTxs?.items.find((t) => t.id === row.key)
+                        if (tx) { setEditingTx(tx); setDialogOpen(true) }
+                      }}
+                    >
+                      {/* Category Icon */}
+                      <div className="shrink-0">
+                        <CategoryIcon icon={row.categoryIcon} color={row.categoryColor} size="md" />
+                      </div>
+
+                      {/* Content */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-foreground truncate leading-tight">{row.description}</p>
+                          {row.groupId && (
+                            <span className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1 py-0.5 rounded-full shrink-0">
+                              {row.isShared && row.parentOwnerName
+                                ? t('splitGroups.sharedShortBadgeAuthor', { author: row.parentOwnerName })
+                                : row.groupName ?? t('splitGroups.sharedShortBadge')}
+                            </span>
+                          )}
+                          {row.isProjected && (
+                            <span className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1 py-0.5 rounded-full shrink-0">
+                              {t('transactions.recurringBadge')}
+                            </span>
+                          )}
+                          {row.isIgnored && (
+                            <EyeClosed className="h-3 w-3 text-gray-500 shrink-0" />
+                          )}
+                          {row.attachmentCount > 0 && (
+                            <Paperclip size={11} className="text-muted-foreground shrink-0" />
+                          )}
+                        </div>
+                        {row.accountId && (() => {
+                          const acc = accountsList?.find((a) => a.id === row.accountId)
+                          if (!acc) return null
+                          return (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <AccountIcon account={acc} size="xs" />
+                              <span className="text-xs text-muted-foreground truncate">{getAccountName(acc)}</span>
+                            </div>
+                          )
+                        })()}
+                        {!row.accountId && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{formatDate(row.date, dateLocale)}</p>
+                        )}
+                      </div>
+
+                      {/* Amount */}
+                      <div className="shrink-0 text-right">
+                        <span className={`text-sm font-bold tabular-nums ${row.isIgnored ? 'text-gray-500' : row.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                          {mask(`${row.isIgnored ? ' ' : row.type === 'credit' ? '+' : '\u2212'}${formatCurrency(Math.abs(row.amount), row.currency, locale)}`)}
+                        </span>
+                        {row.isShared && row.parentTotal != null && (
+                          <div className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {t('splitGroups.sharedRowParent', {
+                              total: formatCurrency(Math.abs(row.parentTotal), row.currency, locale),
+                            })}
+                          </div>
+                        )}
+                        {!row.isShared && row.ownerShare != null && (
+                          <div className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {t('splitGroups.ownerRowYourShare', {
+                              share: formatCurrency(Math.abs(row.ownerShare), row.currency, locale),
+                            })}
+                          </div>
+                        )}
+                        {!row.isShared && row.currency !== userCurrency && row.amountPrimary != null && (
+                          <div className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {mask(formatCurrency(Math.abs(row.amountPrimary), userCurrency, locale))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="border-b border-border hover:bg-transparent">
@@ -1156,6 +1255,7 @@ export default function DashboardPage() {
                   ))}
                 </TableBody>
               </Table>
+              )}
               {allDisplayRows.length > 10 && (
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-4 border-t border-border">
                   <div className="hidden sm:block w-32" />
@@ -1257,7 +1357,7 @@ export default function DashboardPage() {
         }}
         loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={updateMutation.error ? extractApiError(updateMutation.error) : deleteMutation.error ? extractApiError(deleteMutation.error) : null}
-        isSynced={!!editingTx?.external_id}
+        isSynced={editingTx?.source === 'sync'}
       />
 
       <RuleDialog

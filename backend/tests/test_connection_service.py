@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -336,6 +337,7 @@ async def test_update_settings_new(session: AsyncSession, test_user, test_worksp
         session, conn.id, test_workspace.id, {"payee_source": "merchant"},
     )
     assert updated is not None
+    assert updated.settings is not None
     assert updated.settings["payee_source"] == "merchant"
 
 
@@ -351,6 +353,7 @@ async def test_update_settings_preserves_existing(session: AsyncSession, test_us
         session, conn.id, test_workspace.id, {"import_pending": False},
     )
     assert updated is not None
+    assert updated.settings is not None
     assert updated.settings["payee_source"] == "auto"
     assert updated.settings["import_pending"] is False
 
@@ -367,6 +370,7 @@ async def test_update_settings_sync_assets(session: AsyncSession, test_user, tes
         session, conn.id, test_workspace.id, {"sync_assets": False},
     )
     assert updated is not None
+    assert updated.settings is not None
     assert updated.settings["payee_source"] == "auto"
     assert updated.settings["import_pending"] is True
     assert updated.settings["sync_assets"] is False
@@ -402,6 +406,8 @@ async def test_oauth_callback_respects_initial_asset_sync_opt_out(
             sync_assets=False,
         )
 
+    assert connection is not None
+    assert connection.settings is not None
     assert connection.settings["sync_assets"] is False
     mock_provider.get_holdings.assert_not_awaited()
     assets = (await session.execute(select(Asset))).scalars().all()
@@ -447,6 +453,8 @@ async def test_oauth_callback_respects_state_asset_sync_opt_out(
             state="stored-state",
         )
 
+    assert connection is not None
+    assert connection.settings is not None
     assert connection.settings["sync_assets"] is False
     assert connection.settings["flow_params"] == {
         "country": "BR",
@@ -549,6 +557,7 @@ async def test_update_settings_ignores_none(session: AsyncSession, test_user, te
         session, conn.id, test_workspace.id, {"payee_source": None},
     )
     assert updated is not None
+    assert updated.settings is not None
     assert updated.settings["payee_source"] == "auto"
 
 
@@ -1005,6 +1014,7 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
     category_id = uuid.uuid4()
     import_log_id = uuid.uuid4()
     imported_id = uuid.uuid4()
+    second_imported_id = uuid.uuid4()
     category = Category(
         id=category_id,
         user_id=test_user.id,
@@ -1032,7 +1042,7 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
         account_id=account_id,
         filename="history.csv",
         format="csv",
-        transaction_count=1,
+        transaction_count=2,
         total_debit=Decimal("42.00"),
     )
     imported = Transaction(
@@ -1041,16 +1051,31 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
         workspace_id=test_workspace.id,
         account_id=account_id,
         external_id="csv-row-1",
-        description="GROCERY STORE",
+        description="Spotify",
         amount=Decimal("42.00"),
-        date=date(2026, 6, 20),
+        date=date(2026, 6, 21),
         type="debit",
         currency="BRL",
         source="import",
         import_id=import_log_id,
         category_id=category_id,
     )
-    session.add_all([category, account, import_log, imported])
+    second_imported = Transaction(
+        id=second_imported_id,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=account_id,
+        external_id="csv-row-2",
+        description="Spotify",
+        amount=Decimal("42.00"),
+        date=date(2026, 6, 21),
+        type="debit",
+        currency="BRL",
+        source="import",
+        import_id=import_log_id,
+        category_id=category_id,
+    )
+    session.add_all([category, account, import_log, imported, second_imported])
     await session.commit()
 
     mock_provider = AsyncMock()
@@ -1067,13 +1092,42 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
     mock_provider.get_transactions = AsyncMock(return_value=[
         TransactionData(
             external_id="provider-tx-1",
-            description="GROCERY STORE",
+            description="SPOTIFY USA 45 W. 18TH STREET NEW YORK",
             amount=Decimal("42.00"),
             date=date(2026, 6, 20),
             type="debit",
             currency="BRL",
-            payee="Grocery Store",
-            raw_data={"posted": 1781913600},
+            payee="Spotify",
+            raw_data={
+                "posted": 1781913600,
+                "description": "SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            },
+        ),
+        TransactionData(
+            external_id="provider-tx-2",
+            description="SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            amount=Decimal("42.00"),
+            date=date(2026, 6, 20),
+            type="debit",
+            currency="BRL",
+            payee="Spotify",
+            raw_data={
+                "posted": 1781913600,
+                "description": "SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            },
+        ),
+        TransactionData(
+            external_id="provider-tx-3",
+            description="SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            amount=Decimal("42.00"),
+            date=date(2026, 6, 20),
+            type="debit",
+            currency="BRL",
+            payee="Spotify",
+            raw_data={
+                "posted": 1781913600,
+                "description": "SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            },
         ),
     ])
 
@@ -1089,21 +1143,153 @@ async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
             Transaction.source != "opening_balance",
         )
     )).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].id == imported_id
-    assert rows[0].source == "import"
-    assert rows[0].import_id is None
-    assert rows[0].category_id == category_id
-    assert rows[0].external_id == "provider-tx-1"
-    assert rows[0].payee == "Grocery Store"
-    assert rows[0].raw_data == {"posted": 1781913600}
-    apply_rules.assert_not_called()
+    assert len(rows) == 3
+    claimed_rows = [
+        row for row in rows if row.id in {imported_id, second_imported_id}
+    ]
+    assert len(claimed_rows) == 2
+    assert {row.external_id for row in claimed_rows} == {
+        "provider-tx-1", "provider-tx-2",
+    }
+    assert all(row.source == "import" for row in claimed_rows)
+    assert all(row.import_id is None for row in claimed_rows)
+    assert all(row.category_id == category_id for row in claimed_rows)
+    assert all(row.description == "Spotify" for row in claimed_rows)
+    assert all(row.date == date(2026, 6, 21) for row in claimed_rows)
+    assert all(row.payee == "Spotify" for row in claimed_rows)
+    assert {row.external_id for row in rows} == {
+        "provider-tx-1", "provider-tx-2", "provider-tx-3",
+    }
+    assert apply_rules.await_count == 1
+
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="provider-tx-4",
+            description="SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            amount=Decimal("42.00"),
+            date=date(2026, 6, 20),
+            type="debit",
+            currency="BRL",
+            payee="Spotify",
+            raw_data={
+                "posted": 1781913600,
+                "description": "SPOTIFY USA 45 W. 18TH STREET NEW YORK",
+            },
+        ),
+        *mock_provider.get_transactions.return_value[1:],
+    ])
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    rekeyed_rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.source != "opening_balance",
+        )
+    )).scalars().all()
+    assert len(rekeyed_rows) == 3
+    assert {row.external_id for row in rekeyed_rows} == {
+        "provider-tx-4", "provider-tx-2", "provider-tx-3",
+    }
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_tolerates_duplicate_transaction_rows(
+    session: AsyncSession, test_user, test_workspace
+):
+    """A pre-existing (account_id, external_id) duplicate — the state an earlier
+    concurrent-sync race leaves behind — must not abort the sync. Regression for
+    the MultipleResultsFound crash at the transaction dedup lookup.
+    """
+    conn = await _make_connection(session, test_user.id, "Dup Bank")
+
+    account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, connection_id=conn.id,
+        external_id="dup-acc-1", name="Checking", type="checking",
+        balance=Decimal("500"), currency="BRL",
+    )
+    session.add(account)
+    await session.flush()
+    account_id = account.id  # capture before sync commits/expires the ORM object
+
+    # Two rows sharing (account_id, external_id): exactly what a sync race
+    # leaves behind, and what scalar_one_or_none() used to choke on.
+    for _ in range(2):
+        session.add(Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, account_id=account_id,
+            external_id="dup-tx-1", description="SPOTIFY", amount=Decimal("23.90"),
+            date=date.today(), type="debit", status="pending", source="sync",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await session.commit()
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="dup-acc-1", name="Checking",
+            type="checking", balance=Decimal("500"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="dup-tx-1", description="SPOTIFY",
+            amount=Decimal("23.90"), date=date.today(), type="debit",
+            currency="BRL", status="posted",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service._cleanup_phantom_duplicates", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        result_conn, _ = await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    assert result_conn.status == "active"
+    # Sync reconciled onto an existing row instead of inserting a third, and did
+    # not raise. The incoming "posted" status is applied to one of the twins.
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.external_id == "dup-tx-1",
+        )
+    )).scalars().all()
+    assert len(rows) == 2
+    assert any(r.status == "posted" for r in rows)
+
 
 
 @pytest.mark.asyncio
 async def test_sync_connection_not_found(session: AsyncSession, test_user, test_workspace):
-    with pytest.raises(ValueError, match="not found"):
-        await sync_connection(session, uuid.uuid4(), test_workspace.id, test_user.id)
+    connection_id = uuid.uuid4()
+    with patch(
+        "app.services.connection_service.get_connection", wraps=get_connection
+    ) as locked_get_connection:
+        with pytest.raises(ValueError, match="not found"):
+            await sync_connection(session, connection_id, test_workspace.id, test_user.id)
+    locked_get_connection.assert_awaited_once_with(
+        session, connection_id, test_workspace.id, for_update=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_connection_can_lock_row_for_update():
+    session = AsyncMock(spec=AsyncSession)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+
+    await get_connection(
+        session, uuid.uuid4(), uuid.uuid4(), for_update=True
+    )
+
+    statement = session.execute.await_args.args[0]
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert sql.rstrip().endswith("FOR UPDATE")
 
 
 @pytest.mark.asyncio
@@ -1221,6 +1407,7 @@ async def test_sync_connection_user_action_marks_error(
             await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     refreshed = await session.get(BankConnection, conn.id)
+    assert refreshed is not None
     assert refreshed.status == "error"
 
 
@@ -1993,6 +2180,7 @@ async def test_sync_creates_synthetic_transactions_for_finance_charges(
         assert r.date == date(2026, 4, 15)
         assert r.effective_date == date(2026, 4, 15)
         assert r.type == "debit"
+        assert r.external_id is not None
         assert r.external_id.startswith("bill_charge:bill-fc-1:")
 
 
@@ -2214,6 +2402,7 @@ async def test_sync_removes_orphaned_finance_charges_on_resync(
         )
     )).scalars().all()
     assert len(rows) == 1
+    assert rows[0].external_id is not None
     assert "fc-keep" in rows[0].external_id
 
 
@@ -2688,14 +2877,14 @@ async def test_sync_keeps_genuine_same_day_repeats(
             description="UBER TRIP",
             amount=Decimal("25.00"), date=date(2026, 4, 20),
             type="debit", currency="BRL", status="posted",
-            raw_data={"posted": 1776643200},
+            raw_data={"posted": 1776643200, "transacted_at": 1776643200},
         ),
         TransactionData(
             external_id="uber-2",
             description="UBER TRIP",
             amount=Decimal("25.00"), date=date(2026, 4, 20),
             type="debit", currency="BRL", status="posted",
-            raw_data={"posted": 1776643200},
+            raw_data={"posted": 1776643200, "transacted_at": 1776643200},
         ),
     ])
 
