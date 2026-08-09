@@ -1,9 +1,9 @@
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, cast
 
-from sqlalchemy import case, select, func, update, delete
+from sqlalchemy import CursorResult, case, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -238,7 +238,7 @@ async def bulk_delete_payees(session: AsyncSession, workspace_id: uuid.UUID, pay
     )
 
     await session.commit()
-    return result.rowcount
+    return cast(CursorResult, result).rowcount
 
 
 async def merge_payees(
@@ -267,7 +267,7 @@ async def merge_payees(
         .where(Transaction.payee_id.in_(source_ids))
         .values(payee_id=target_id)
     )
-    reassigned = result.rowcount
+    reassigned = cast(CursorResult, result).rowcount
 
     # Update mappings: point source mappings to target
     for source_id in source_ids:
@@ -327,7 +327,7 @@ async def get_payee_summary(
                     else_=Decimal("0"),
                 )
             ), Decimal("0")).label("total_received"),
-            func.count(Transaction.id).label("count"),
+            func.count(Transaction.id).label("tx_count"),
             func.max(Transaction.date).label("last_date"),
         )
         .where(
@@ -357,12 +357,12 @@ async def get_payee_summary(
         )
         most_common_category = cat.scalar_one_or_none()
 
-    payee.transaction_count = row.count
+    payee.transaction_count = row.tx_count
     return {
         "payee": payee,
         "total_spent": row.total_spent,
         "total_received": row.total_received,
-        "transaction_count": row.count,
+        "transaction_count": row.tx_count,
         "most_common_category": most_common_category,
         "last_transaction_date": row.last_date,
     }

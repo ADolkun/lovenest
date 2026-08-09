@@ -120,9 +120,14 @@ CI runs two jobs. Reproduce both locally before opening a PR.
 
 ```bash
 cd backend
-pip install -e ".[dev]"        # first time only — installs ruff, pytest, dev deps
-ruff check .                   # lint (must be clean)
-pytest --cov=app --cov-report=term-missing --cov-fail-under=60   # tests + coverage gate
+uv sync --all-extras   # first time only — builds .venv from uv.lock, same versions as CI
+.venv/bin/ruff check .
+.venv/bin/ty check .
+.venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=60
+
+# After changing dependencies in pyproject.toml: regenerate the lock and
+# commit uv.lock along with it (CI enforces this)
+./scripts/lock.sh
 ```
 
 CI fails the build if `ruff check` reports any issues or if coverage drops below **60%**. Add tests
@@ -154,7 +159,7 @@ PR titles follow the same convention.
 
 - Open PRs against **`lovenest`** (never `main`).
 - Keep PRs focused — one feature or fix each.
-- Make sure both CI jobs pass: `ruff check` + `pytest` clean, frontend lint + build green.
+- Make sure both CI jobs pass: `ruff` + `ty` + `pytest` clean, frontend lint + build green.
 - Add tests for new backend functionality.
 - Update translations if you add user-facing strings (EN + PT-BR).
 - The PR template asks **"Could this also benefit upstream Securo?"** — answer honestly (see below).

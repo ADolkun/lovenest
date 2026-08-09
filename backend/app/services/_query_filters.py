@@ -157,6 +157,7 @@ async def owner_split_offset_pnl(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     workspace_id: Optional[uuid.UUID] = None,
+    posted_only: bool = False,
 ) -> tuple[float, float]:
     """Return (income_offset, expense_offset) — the totals to *subtract*
     from the owner's full-amount aggregations so only their own share
@@ -210,6 +211,7 @@ async def owner_split_offset_pnl(
             ),
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
+            *([Transaction.status == "posted"] if posted_only else []),
             date_col >= month_start,
             date_col < month_end,
             counts_as_user_pnl(),
@@ -250,6 +252,7 @@ async def owner_split_offset_by_category(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     workspace_id: Optional[uuid.UUID] = None,
+    posted_only: bool = False,
 ) -> dict:
     """Per-category, sum of non-owner shares on owner-side debit splits —
     subtract from full owner debits to get the owner's category share."""
@@ -288,6 +291,7 @@ async def owner_split_offset_by_category(
             Transaction.type == "debit",
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
+            *([Transaction.status == "posted"] if posted_only else []),
             date_col >= month_start,
             date_col < month_end,
             counts_as_user_pnl(),
@@ -320,6 +324,7 @@ async def viewer_shared_pnl(
     month_end: date,
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
+    posted_only: bool = False,
 ) -> tuple[float, float]:
     """Return (income, expense) totals contributed by transactions the
     viewer doesn't own but participates in via a group split.
@@ -370,6 +375,7 @@ async def viewer_shared_pnl(
             # Avoid double-counting if the viewer also owns the parent.
             Transaction.user_id != user_id,
             Transaction.source != "opening_balance",
+            *([Transaction.status == "posted"] if posted_only else []),
             date_col >= month_start,
             date_col < month_end,
             counts_as_pnl(),
@@ -413,6 +419,7 @@ async def viewer_shared_spending_by_category(
     month_end: date,
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
+    posted_only: bool = False,
 ) -> dict:
     """Return {category_id (uuid|None): total_share_expense_float} for
     transactions where the viewer participates via a group split.
@@ -447,6 +454,7 @@ async def viewer_shared_spending_by_category(
             Transaction.user_id != user_id,
             Transaction.type == "debit",
             Transaction.source != "opening_balance",
+            *([Transaction.status == "posted"] if posted_only else []),
             date_col >= month_start,
             date_col < month_end,
             counts_as_pnl(),

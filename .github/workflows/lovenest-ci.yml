@@ -24,13 +24,23 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: backend/uv.lock
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -q uv==0.12.1
+          uv export --frozen --all-extras --no-emit-project -o /tmp/requirements-dev.txt
+          pip install --require-hashes -r /tmp/requirements-dev.txt
+          pip install --no-deps -e .
+
+      - name: Verify lockfile is in sync
+        run: uv lock --check
 
       - name: Lint with Ruff
         run: ruff check .
+
+      - name: Type check with ty
+        run: ty check .
 
       - name: Run tests
         run: pytest -n auto

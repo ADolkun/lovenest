@@ -158,6 +158,8 @@ async def get_summary(
     # don't inflate the month's income figure. counts_as_user_pnl() skips
     # paired transfers, transfer-like categories AND settlement movements
     # (whose offset is already in the owner's share, see share-only model).
+    # Only posted (settled) transactions count; pending entries stay out of
+    # the period totals until they post.
     monthly_result = await session.execute(
         select(
             func.sum(user_pnl_income_amount(Transaction.amount)),
@@ -170,6 +172,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             *acct_filter,
         )
@@ -177,6 +180,8 @@ async def get_summary(
     monthly_row = monthly_result.one()
     monthly_income = float(monthly_row[0] or 0)
     monthly_expenses = float(monthly_row[1] or 0)
+    base_monthly_income = monthly_income
+    base_monthly_expenses = monthly_expenses
 
     if not filtered:
         # Subtract non-owner shares of the user's own split txs — they paid
@@ -188,6 +193,7 @@ async def get_summary(
             month_end,
             use_effective_date=False,
             workspace_id=workspace_id,
+            posted_only=True,
         )
         monthly_income -= own_offset_inc
         monthly_expenses -= own_offset_exp
@@ -196,14 +202,15 @@ async def get_summary(
         # member but not the owner. Their concert ticket paid by a friend
         # is a real expense in their P/L picture.
         shared_income, shared_expenses = await viewer_shared_pnl(
-            session, user_id, month_start, month_end, use_effective_date=False
+            session,
+            user_id,
+            month_start,
+            month_end,
+            use_effective_date=False,
+            posted_only=True,
         )
         monthly_income += shared_income
         monthly_expenses += shared_expenses
-
-    # Save real-only totals before adding projections (used for primary init)
-    real_monthly_income = monthly_income
-    real_monthly_expenses = monthly_expenses
 
     # Add virtual recurring projections
     projections = await _get_recurring_projections(
@@ -275,10 +282,11 @@ async def get_summary(
     # Convert income/expenses to primary currency using amount_primary when available
     # Use real-only totals (without projections) to avoid double-counting;
     # projections are added separately below via convert().
-    monthly_income_primary = real_monthly_income
-    monthly_expenses_primary = real_monthly_expenses
+    monthly_income_primary = base_monthly_income
+    monthly_expenses_primary = base_monthly_expenses
 
-    # Use amount_primary sums for more accurate multi-currency income/expenses
+    # Use amount_primary sums for more accurate multi-currency income/expenses.
+    # Same posted-only rule as the native-currency totals above.
     primary_result = await session.execute(
         select(
             func.sum(user_pnl_income_amount(Transaction.amount_primary)),
@@ -291,6 +299,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             Transaction.amount_primary.isnot(None),
             *acct_filter,
@@ -311,6 +320,7 @@ async def get_summary(
             use_effective_date=False,
             primary_currency=primary_currency,
             workspace_id=workspace_id,
+            posted_only=True,
         )
         monthly_income_primary -= own_offset_inc_pri
         monthly_expenses_primary -= own_offset_exp_pri
@@ -351,6 +361,7 @@ async def get_summary(
                 TransactionSplit.group_member_id.in_(viewer_member_ids),
                 Transaction.user_id != user_id,
                 Transaction.source != "opening_balance",
+                Transaction.status == "posted",
                 report_date >= month_start,
                 report_date < month_end,
                 counts_as_user_pnl(),
@@ -517,6 +528,7 @@ async def get_spending_by_category(
             Account.is_closed == False,
             report_date >= month_start,
             report_date < month_end,
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             *acct_filter,
         )
@@ -546,6 +558,7 @@ async def get_spending_by_category(
         use_effective_date=accounting_mode == "accrual",
         primary_currency=primary_currency,
         workspace_id=workspace_id,
+        posted_only=True,
     )
     for cat_uuid, offset_total in owner_offset.items():
         cat_id = str(cat_uuid) if cat_uuid else None
@@ -561,6 +574,7 @@ async def get_spending_by_category(
         session, user_id, month_start, month_end,
         use_effective_date=accounting_mode == "accrual",
         primary_currency=primary_currency,
+        posted_only=True,
     )
     if shared_by_cat:
         cat_meta_cache: dict[str, dict] = {}
@@ -673,6 +687,7 @@ async def get_monthly_trend(
             Transaction.workspace_id == workspace_id,
             Account.is_closed == False,
             Transaction.source != "opening_balance",
+            Transaction.status == "posted",
             counts_as_user_pnl(),
             *acct_filter,
         )
@@ -707,11 +722,13 @@ async def get_monthly_trend(
                 use_effective_date=accounting_mode == "accrual",
                 primary_currency=primary_currency,
                 workspace_id=workspace_id,
+                posted_only=True,
             )
             shared_inc, shared_exp = await viewer_shared_pnl(
                 session, user_id, m_start, m_end,
                 use_effective_date=accounting_mode == "accrual",
                 primary_currency=primary_currency,
+                posted_only=True,
             )
         adjusted.append(
             MonthlyTrend(

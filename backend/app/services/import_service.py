@@ -11,8 +11,6 @@ from ofxparse import OfxParser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from types import SimpleNamespace
-
 from app.core.config import get_settings
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
@@ -584,7 +582,7 @@ async def enrich_with_category_suggestions(
         return transactions
 
     for txn in transactions:
-        proxy = SimpleNamespace(
+        proxy: Transaction = Transaction(
             description=txn.description,
             amount=txn.amount,
             date=txn.date,

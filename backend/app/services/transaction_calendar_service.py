@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,7 +56,9 @@ async def get_transaction_calendar(
 
     requested_account_ids = account_ids
     if requested_account_ids is not None and len(requested_account_ids) == 0:
-        return _empty_calendar(month_start, grid_start, grid_end, primary_currency, requested_account_ids)
+        return _empty_calendar(
+            month_start, grid_start, grid_end, primary_currency, requested_account_ids
+        )
 
     days = {
         d: TransactionCalendarDay(
@@ -94,7 +96,9 @@ async def get_transaction_calendar(
             session, tx.amount, tx.currency, primary_currency, tx.amount_primary
         )
 
-        is_transfer = bool(tx.transfer_pair_id) or bool(tx.category and tx.category.treat_as_transfer)
+        is_transfer = bool(tx.transfer_pair_id) or bool(
+            tx.category and tx.category.treat_as_transfer
+        )
         ignored = bool(tx.is_ignored or (tx.category and tx.category.is_ignored))
         if not ignored:
             if is_transfer or tx.source == "transfer":
@@ -261,7 +265,11 @@ async def _signed_balance_delta_primary(
     primary_currency: str,
 ) -> float:
     account_currency = tx.account.currency if tx.account else tx.currency
-    effective = tx.amount if tx.currency == account_currency else Decimal(str(tx.amount_primary or tx.amount))
+    effective = (
+        tx.amount
+        if tx.currency == account_currency
+        else Decimal(str(tx.amount_primary or tx.amount))
+    )
     amount = abs(Decimal(str(effective)))
     if account_currency != primary_currency:
         amount, _ = await fx_convert(session, amount, account_currency, primary_currency)
@@ -269,7 +277,9 @@ async def _signed_balance_delta_primary(
     return float(signed)
 
 
-def _actual_item(tx: Transaction, amount_primary: float, is_transfer: bool, ignored: bool) -> TransactionCalendarItem:
+def _actual_item(
+    tx: Transaction, amount_primary: float, is_transfer: bool, ignored: bool
+) -> TransactionCalendarItem:
     category = tx.category
     account = tx.account
     return TransactionCalendarItem(
@@ -280,7 +290,7 @@ def _actual_item(tx: Transaction, amount_primary: float, is_transfer: bool, igno
         amount=float(tx.amount),
         amount_primary=amount_primary,
         currency=tx.currency,
-        type=tx.type,
+        type=cast(Literal["debit", "credit"], tx.type),
         account_id=tx.account_id,
         account_name=account.display_name or account.name if account else None,
         category_id=tx.category_id,
@@ -353,7 +363,7 @@ async def _project_recurring_items(
                 amount=float(rec.amount),
                 amount_primary=amount_primary,
                 currency=rec.currency,
-                type=rec.type,
+                type=cast(Literal["debit", "credit"], rec.type),
                 account_id=rec.account_id,
                 account_name=account.display_name or account.name if account else None,
                 category_id=rec.category_id,
