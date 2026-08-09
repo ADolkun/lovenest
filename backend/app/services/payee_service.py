@@ -79,11 +79,12 @@ async def get_or_create_payee(
 
     if len(name) > 255:
         name = name[:255]
-    lookup = select(Payee).where(func.lower(Payee.name) == name.lower())
-    if workspace_id is not None:
-        lookup = lookup.where(Payee.workspace_id == workspace_id)
-    else:
-        lookup = lookup.where(Payee.user_id == user_id)
+    # Mirrors the uq_payees_workspace_id_lower_name index exactly, so the
+    # lookup hits the same row the unique constraint would reject.
+    lookup = select(Payee).where(
+        Payee.workspace_id == workspace_id,
+        func.lower(func.trim(Payee.name)) == name.lower(),
+    )
     result = await session.execute(lookup)
     payee = result.scalar_one_or_none()
     if payee:
