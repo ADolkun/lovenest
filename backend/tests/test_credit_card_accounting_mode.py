@@ -1423,6 +1423,7 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 3, 17), date_to=date(2026, 4, 16),
             bill_id=bill.id,
         )
+        assert summary is not None
         assert summary["monthly_income"] == 0.0
         assert summary["monthly_expenses"] == -80.0
 
@@ -1481,6 +1482,8 @@ class TestEffectiveBillDateFiltersList:
             bill_id=bill.id,
         )
         # 44.90 (charge) - 44.90 (refund) + 32.50 (other) = 32.50
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 32.50
 
     @pytest.mark.asyncio
@@ -1519,6 +1522,8 @@ class TestEffectiveBillDateFiltersList:
             session, checking.id, test_workspace.id,
             date_from=date(2026, 4, 1), date_to=date(2026, 4, 30),
         )
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 50.0
         assert summary["monthly_income"] == 3000.0
 
@@ -1602,6 +1607,8 @@ class TestEffectiveBillDateFiltersList:
             bill_id=bill.id,
         )
         # Manual 50 counted, pending 99 excluded
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 50.0
 
     @pytest.mark.asyncio
@@ -1714,6 +1721,8 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 4, 17), date_to=date(2026, 5, 16),
             bill_id=may.id,
         )
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 105.0
 
     @pytest.mark.asyncio
@@ -1758,4 +1767,6 @@ class TestEffectiveBillDateFiltersList:
             date_from=date(2026, 4, 12), date_to=date(2026, 5, 11),
             unbilled_only=True,
         )
+
+        assert summary is not None
         assert summary["monthly_expenses"] == 59.90

@@ -1454,6 +1454,8 @@ async def sync_connection(
     )
     if not connection:
         raise ValueError("Connection not found")
+    if not connection.credentials:
+        raise ValueError("Credentials not found")
 
     sync_start_status = connection.status
     sync_start_version = connection.sync_state_version
@@ -1885,8 +1887,11 @@ async def sync_connection(
                 sync_start_status,
                 sync_start_error_account_id,
             )
+        # The row can vanish if the connection was deleted mid-sync. Fall back
+        # to the one we already hold rather than raising: re-raising here would
+        # escape as a 500, which is exactly what this handler exists to avoid.
         refreshed = await session.get(BankConnection, connection_id)
-        return refreshed, 0
+        return refreshed or connection, 0
     except Exception:
         # Generic sync failures do not imply invalid credentials. Preserve the
         # local account being processed so the accounts page can identify it.

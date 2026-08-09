@@ -205,11 +205,69 @@ async def test_summary_owner_split_offset(session, test_user, test_workspace):
     summary = await get_summary(session, test_workspace.id, test_user.id, month=month_start)
     # Only the owner's 50 share should count as expense, not the full 100
     assert summary.monthly_expenses == pytest.approx(50.0, abs=0.01)
+    assert summary.monthly_expenses_primary == pytest.approx(50.0, abs=0.01)
 
     spending = await get_spending_by_category(session, test_workspace.id, test_user.id, month=month_start)
     dining = next((s for s in spending if s.category_name == "Dining"), None)
     assert dining is not None
     assert dining.total == pytest.approx(50.0, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_excludes_pending_owner_split(
+    session, test_user, test_workspace
+):
+    today = date.today()
+    month_start = today.replace(day=1)
+    acc = await _make_account(
+        session, test_user.id, test_workspace.id, currency="BRL"
+    )
+    cat = await _make_category(
+        session, test_user.id, test_workspace.id, "Pending split"
+    )
+    _, self_m, other_m = await _make_group_with_members(
+        session, test_user.id, test_workspace.id
+    )
+    txn = await _add_txn(
+        session,
+        test_user.id,
+        acc.id,
+        test_workspace.id,
+        100,
+        "debit",
+        today,
+        category_id=cat.id,
+    )
+    txn.status = "pending"
+    for member in (self_m, other_m):
+        session.add(
+            TransactionSplit(
+                id=uuid.uuid4(),
+                transaction_id=txn.id,
+                workspace_id=test_workspace.id,
+                group_member_id=member.id,
+                share_amount=Decimal("50.00"),
+                share_type="exact",
+            )
+        )
+    await session.commit()
+
+    summary = await get_summary(
+        session, test_workspace.id, test_user.id, month=month_start
+    )
+    assert summary.monthly_expenses == 0.0
+    assert summary.monthly_expenses_primary == 0.0
+
+    spending = await get_spending_by_category(
+        session, test_workspace.id, test_user.id, month=month_start
+    )
+    assert all(row.category_name != "Pending split" for row in spending)
+
+    await _register_sqlite_to_char(session)
+    trends = await get_monthly_trend(
+        session, test_workspace.id, test_user.id, months=6
+    )
+    assert all(row.month != month_start.strftime("%Y-%m") for row in trends)
 
 
 @pytest.mark.asyncio
@@ -264,6 +322,45 @@ async def test_summary_viewer_shared_split(session, test_user, test_workspace, c
     assert summary.monthly_expenses == pytest.approx(40.0, abs=0.01)
 
     spending = await get_spending_by_category(session, test_workspace.id, test_user.id, month=month_start)
+    shared = next((s for s in spending if s.category_name == "Shared"), None)
+    assert shared is not None
+    assert shared.total == pytest.approx(40.0, abs=0.01)
+
+    # A pending parent from the same owner must not leak through the linked
+    # member's split into either dashboard total.
+    pending = await _add_txn(
+        session,
+        owner.id,
+        owner_acc.id,
+        owner_ws.id,
+        200,
+        "debit",
+        today,
+        category_id=cat.id,
+    )
+    pending.status = "pending"
+    for member, amt in [(self_m, "120.00"), (viewer_m, "80.00")]:
+        session.add(
+            TransactionSplit(
+                id=uuid.uuid4(),
+                transaction_id=pending.id,
+                workspace_id=owner_ws.id,
+                group_member_id=member.id,
+                share_amount=Decimal(amt),
+                share_type="exact",
+            )
+        )
+    await session.commit()
+
+    summary = await get_summary(
+        session, test_workspace.id, test_user.id, month=month_start
+    )
+    assert summary.monthly_expenses == pytest.approx(40.0, abs=0.01)
+    assert summary.monthly_expenses_primary == pytest.approx(40.0, abs=0.01)
+
+    spending = await get_spending_by_category(
+        session, test_workspace.id, test_user.id, month=month_start
+    )
     shared = next((s for s in spending if s.category_name == "Shared"), None)
     assert shared is not None
     assert shared.total == pytest.approx(40.0, abs=0.01)
