@@ -116,7 +116,7 @@ described in the deployment docs before logging in.
 
 CI runs two jobs. Reproduce both locally before opening a PR.
 
-### Backend (Python 3.13, from `backend/`)
+### Backend (Python version from `backend/.python-version`, run from `backend/`)
 
 ```bash
 cd backend
