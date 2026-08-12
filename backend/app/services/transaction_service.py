@@ -775,8 +775,29 @@ async def create_transfer(
     if not to_account:
         raise ValueError("Destination account not found")
 
+    is_cross_currency = from_account.currency != to_account.currency
+    if (
+        not is_cross_currency
+        and data.destination_amount is not None
+    ):
+        raise ValueError(
+            "Destination amount must be absent for same-currency transfers."
+        )
+
     transfer_pair_id = uuid.uuid4()
-    from decimal import Decimal
+    from decimal import Decimal, ROUND_HALF_UP
+
+    def _to_cents(value) -> Decimal:
+        """Round to the 2 decimals both amount columns store.
+
+        Without this the response would echo back a precision the database
+        never kept, and `amount_primary`/`fx_rate_used` would be derived from
+        an amount that isn't the one on the row.
+        """
+        return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    debit_amount = _to_cents(data.amount)
+    amount_is_explicit = data.destination_amount is not None
 
     # Debit transaction (from account)
     debit_tx = Transaction(
@@ -784,31 +805,28 @@ async def create_transfer(
         workspace_id=workspace_id,
         account_id=data.from_account_id,
         description=data.description,
-        amount=data.amount,
+        amount=debit_amount,
         currency=from_account.currency,
         date=data.date,
         type="debit",
         source="transfer",
         notes=data.notes,
         transfer_pair_id=transfer_pair_id,
+        transfer_amount_explicit=amount_is_explicit,
     )
     apply_effective_date(debit_tx, from_account)
     session.add(debit_tx)
 
     # Credit transaction (to account) — convert if cross-currency
-    if from_account.currency != to_account.currency:
-        if data.fx_rate is not None:
-            from decimal import ROUND_HALF_UP
-            credit_amount = (Decimal(str(data.amount)) * Decimal(str(data.fx_rate))).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
+    if is_cross_currency:
+        if data.destination_amount is not None:
+            credit_amount = _to_cents(data.destination_amount)
         else:
-            converted_amount, _ = await fx_convert(
-                session, Decimal(str(data.amount)), from_account.currency, to_account.currency, data.date
+            credit_amount, _ = await fx_convert(
+                session, debit_amount, from_account.currency, to_account.currency, data.date
             )
-            credit_amount = converted_amount
     else:
-        credit_amount = data.amount
+        credit_amount = debit_amount
 
     credit_tx = Transaction(
         user_id=user_id,
@@ -822,6 +840,7 @@ async def create_transfer(
         source="transfer",
         notes=data.notes,
         transfer_pair_id=transfer_pair_id,
+        transfer_amount_explicit=amount_is_explicit,
     )
     apply_effective_date(credit_tx, to_account)
     session.add(credit_tx)
@@ -1256,8 +1275,15 @@ async def update_transaction(
         if paired_tx:
             if should_cascade_category:
                 paired_tx.category_id = transaction.category_id
+            # When the user typed both amounts, neither is a conversion of the
+            # other: correcting one leg leaves the amount that actually landed
+            # on the other account untouched. Re-converting here would throw
+            # away the number the user entered (issue #529).
+            keeps_own_amount = transaction.transfer_amount_explicit or paired_tx.transfer_amount_explicit
             for key in cascade_fields & update_data.keys():
                 if key == "amount" and paired_tx.currency != transaction.currency:
+                    if keeps_own_amount:
+                        continue
                     from decimal import Decimal
                     converted, _ = await fx_convert(
                         session, Decimal(str(transaction.amount)),
