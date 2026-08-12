@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Pulpit",
     "transactions": "Transakcje",
+    "invoices": "Faktury",
     "accounts": "Konta",
     "import": "Import",
     "rules": "Reguły",
@@ -123,6 +124,10 @@
     "agents": "Agenci",
     "aiAgents": "Agenci AI",
     "collections": "Kolekcje"
+  },
+  "invoices": {
+    "title": "Faktury",
+    "comingNext": "Wystawiaj faktury klientom i śledź, co zostało zapłacone, a co wciąż jest otwarte. To następna rzecz w budowie."
   },
   "collections": {
     "title": "Kolekcje",

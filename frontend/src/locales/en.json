@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "transactions": "Transactions",
+    "invoices": "Invoices",
     "accounts": "Accounts",
     "collections": "Collections",
     "import": "Import",
@@ -123,6 +124,10 @@
     "groupAgents": "AI",
     "agents": "Agents",
     "aiAgents": "AI Agents"
+  },
+  "invoices": {
+    "title": "Invoices",
+    "comingNext": "Bill your clients and keep track of what has been paid and what is still open. This is the next thing being built."
   },
   "collections": {
     "title": "Collections",

@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Tableau de bord",
     "transactions": "Transactions",
+    "invoices": "Factures",
     "accounts": "Comptes",
     "collections": "Collections",
     "import": "Importer",
@@ -123,6 +124,10 @@
     "groupAgents": "IA",
     "agents": "Agents",
     "aiAgents": "Agents IA"
+  },
+  "invoices": {
+    "title": "Factures",
+    "comingNext": "Facturez vos clients et suivez ce qui a été payé et ce qui reste ouvert. C'est la prochaine chose en construction."
   },
   "collections": {
     "title": "Collections",

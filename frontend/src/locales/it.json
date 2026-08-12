@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "transactions": "Transazioni",
+    "invoices": "Fatture",
     "accounts": "Conti",
     "collections": "Collezioni",
     "import": "Importa",
@@ -123,6 +124,10 @@
     "groupAgents": "IA",
     "agents": "Agenti",
     "aiAgents": "Agenti IA"
+  },
+  "invoices": {
+    "title": "Fatture",
+    "comingNext": "Fattura i tuoi clienti e tieni traccia di cosa è stato pagato e cosa è ancora aperto. È la prossima cosa in costruzione."
   },
   "collections": {
     "title": "Collezioni",

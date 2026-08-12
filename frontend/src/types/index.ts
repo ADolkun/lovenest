@@ -62,6 +62,8 @@ export interface Workspace {
   created_by_user_id: string | null
   managed_by_user_id: string | null
   role: WorkspaceRole | null
+  /** Modules this workspace shows. Resolved server-side; see lib/modules.ts. */
+  enabled_modules: string[]
 }
 
 export interface WorkspaceMember {

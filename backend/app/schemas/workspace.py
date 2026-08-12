@@ -25,6 +25,11 @@ class WorkspaceRead(BaseModel):
     # /api/workspaces (the listing endpoint). Omitted from per-workspace
     # detail responses since the membership row is fetched alongside.
     role: Optional[str] = None
+    # Which modules this workspace shows, resolved server-side by
+    # `services.module_service`. The frontend consumes this list; it must
+    # never re-derive it from `kind`, or the two copies drift and a user
+    # sees a module the server thinks is off.
+    enabled_modules: list[str] = []
 
     class Config:
         from_attributes = True

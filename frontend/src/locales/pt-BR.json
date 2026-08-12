@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Painel",
     "transactions": "Transações",
+    "invoices": "Cobranças",
     "accounts": "Contas",
     "collections": "Coleções",
     "import": "Importar",
@@ -123,6 +124,10 @@
     "groupAgents": "IA",
     "agents": "Agentes",
     "aiAgents": "Agentes IA"
+  },
+  "invoices": {
+    "title": "Cobranças",
+    "comingNext": "Cobre seus clientes e acompanhe o que já foi pago e o que continua em aberto. É a próxima coisa sendo construída."
   },
   "collections": {
     "title": "Coleções",

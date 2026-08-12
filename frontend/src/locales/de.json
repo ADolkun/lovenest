@@ -103,6 +103,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "transactions": "Transaktionen",
+    "invoices": "Rechnungen",
     "accounts": "Konten",
     "collections": "Sammlungen",
     "import": "Importieren",
@@ -123,6 +124,10 @@
     "groupAgents": "KI",
     "agents": "Agenten",
     "aiAgents": "KI-Agenten"
+  },
+  "invoices": {
+    "title": "Rechnungen",
+    "comingNext": "Stelle deinen Kunden Rechnungen und behalte im Blick, was bezahlt ist und was offen bleibt. Das ist das Nächste, was gebaut wird."
   },
   "collections": {
     "title": "Sammlungen",

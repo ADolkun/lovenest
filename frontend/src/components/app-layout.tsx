@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +6,7 @@ import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 import { CollectionSelector } from '@/components/collection-selector'
 import { auth as authApi, backup as backupApi, admin as adminApi } from '@/lib/api'
 import { resolveSupportedLang } from '@/lib/i18n'
@@ -33,23 +34,12 @@ import { ShellLogo } from '@/components/shell-logo'
 import { UpdateAvailableBanner } from '@/components/update-available-banner'
 import { UpdateAvailableDialog } from '@/components/update-available-dialog'
 import { WorkspaceSwitcher } from '@/components/workspace-switcher'
+import { navItems, visibleNavItems, type NavItem } from '@/lib/nav-items'
 import {
-  ArrowLeftRight,
-  Building2,
-  SlidersHorizontal,
-  Upload,
   Menu,
   ChevronRight,
-  Tag,
-  PiggyBank,
-  Target,
   Eye,
   EyeOff,
-  Repeat,
-  Landmark,
-  Users,
-  Split,
-  BarChart3,
   Sun,
   Moon,
   Languages,
@@ -71,31 +61,26 @@ import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { Bot, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
 
-type NavItem =
-  | { type: 'link'; key: string; path: string; icon: React.ElementType }
-  | { type: 'separator'; labelKey: string }
-
-const navItems: NavItem[] = [
-  // The dashboard ("Painel") is now reachable by clicking the Securo
-  // logo + name in the sidebar header — no dedicated menu item to keep
-  // the sidebar focused on the main destinations. Transactions sits
-  // inside the ACCOUNTS section since it's account-scoped data.
-  { type: 'separator', labelKey: 'nav.groupAccounts' },
-  { type: 'link', key: 'transactions', path: '/transactions', icon: ArrowLeftRight },
-  { type: 'link', key: 'accounts', path: '/accounts', icon: Building2 },
-  { type: 'link', key: 'import', path: '/import', icon: Upload },
-  { type: 'separator', labelKey: 'nav.groupAnalysis' },
-  { type: 'link', key: 'reports', path: '/reports', icon: BarChart3 },
-  { type: 'link', key: 'assets', path: '/assets', icon: Landmark },
-  { type: 'separator', labelKey: 'nav.groupSetup' },
-  { type: 'link', key: 'budgets', path: '/budgets', icon: PiggyBank },
-  { type: 'link', key: 'goals', path: '/goals', icon: Target },
-  { type: 'link', key: 'recurring', path: '/recurring', icon: Repeat },
-  { type: 'link', key: 'categories', path: '/categories', icon: Tag },
-  { type: 'link', key: 'payees', path: '/payees', icon: Users },
-  { type: 'link', key: 'splitGroups', path: '/groups', icon: Split },
-  { type: 'link', key: 'rules', path: '/rules', icon: SlidersHorizontal },
-]
+/** Placeholder rows shown while the workspace's module list is in flight. */
+function NavSkeleton() {
+  return (
+    <div className="flex flex-col gap-0.5" aria-hidden>
+      {[3, 2, 7].map((count, section) => (
+        <div key={section} className={cn('flex flex-col gap-0.5', section > 0 && 'pt-3')}>
+          <div className="px-3 pt-1 pb-1">
+            <div className="h-2 w-16 rounded bg-sidebar-accent/60 animate-pulse" />
+          </div>
+          {Array.from({ length: count }).map((_, row) => (
+            <div key={row} className="flex items-center gap-3 px-3 py-2">
+              <div className="h-4 w-4 rounded bg-sidebar-accent/60 animate-pulse" />
+              <div className="h-3 flex-1 max-w-[7rem] rounded bg-sidebar-accent/40 animate-pulse" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
@@ -124,6 +109,7 @@ export function AppLayout() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
   const { agentsEnabled } = useFeatureFlags()
+  const { hasModule, isLoading: workspaceLoading } = useWorkspace()
 
   // ⌘J / Ctrl+J toggles the global slide-over chat from anywhere.
   // Distinct from ⌘K (command palette) so users can have both open.
@@ -149,7 +135,10 @@ export function AppLayout() {
   // a configuration surface (KB upload, providers, default selection),
   // not a daily destination. Moved to the user menu (Change password,
   // 2FA, Backups, AI agents).
-  const finalNavItems: NavItem[] = navItems
+  const finalNavItems: NavItem[] = useMemo(
+    () => visibleNavItems(navItems, hasModule),
+    [hasModule],
+  )
   const isMac =
     typeof navigator !== 'undefined' &&
     /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -375,7 +364,11 @@ export function AppLayout() {
           <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Nav */}
           <nav className="flex flex-col gap-0.5 px-3 pt-1 pb-3" data-tour="sidebar">
-            {finalNavItems.map((item, idx) => {
+            {/* Which modules this workspace shows is resolved server-side,
+                so until the workspace list lands there is no honest answer
+                — a placeholder beats both an empty sidebar and a guess. */}
+            {workspaceLoading && <NavSkeleton />}
+            {!workspaceLoading && finalNavItems.map((item, idx) => {
               if (item.type === 'separator') {
                 // The first separator sits right below the search bar
                 // — without trimming the top padding it leaves a wide
