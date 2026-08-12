@@ -86,6 +86,46 @@ PLUGGY_CATEGORY_MAP = {
 }
 
 
+def _syncable_accounts(
+    connection: BankConnection, accounts: list[AccountData]
+) -> tuple[list[AccountData], Optional[set[str]]]:
+    """Narrow a provider's account list to what this connection may sync.
+
+    The one place the allowlist is enforced: every entity a sync creates is
+    derived from the accounts this returns, so a new entity type can't bypass
+    the check by adding its own code path.
+
+    `account_allowlist` is tri-state, and the difference between the first two
+    states is the compatibility contract:
+
+    - absent: sync every account the provider returns (what every connection
+      did before this setting existed);
+    - present: sync only the listed provider account ids;
+    - present and empty: sync nothing. A valid state, not an error.
+
+    A non-list value is treated as absent — a malformed setting must not
+    silently stop a connection from syncing.
+
+    Also records every id the provider returned, before filtering, so the
+    account-discovery endpoint can tell an account that appeared after the
+    allowlist was configured from one the user deliberately unchecked, without
+    spending a provider request.
+
+    Returns the surviving accounts and their ids, or None for "no allowlist" —
+    the signal holdings sync keys off.
+    """
+    updated = dict(connection.settings or {})
+    updated["seen_account_ids"] = sorted({a.external_id for a in accounts})
+    connection.settings = updated
+
+    raw = updated.get("account_allowlist")
+    if not isinstance(raw, list):
+        return accounts, None
+    allowlist = {str(item) for item in raw}
+    surviving = [a for a in accounts if a.external_id in allowlist]
+    return surviving, {a.external_id for a in surviving}
+
+
 def _sync_assets_enabled(settings: Optional[dict]) -> bool:
     """Return whether provider investment holdings should sync for a connection.
 
@@ -100,6 +140,7 @@ async def _sync_holdings(
     user_id: uuid.UUID,
     connection: BankConnection,
     credentials: dict,
+    synced_account_ids: Optional[set[str]] = None,
 ) -> None:
     """Fetch investment holdings from the provider and upsert them as Assets.
 
@@ -111,6 +152,10 @@ async def _sync_holdings(
     Holdings that disappear from the provider response (e.g. fully
     redeemed fixed income) get archived rather than deleted so the user
     keeps their value history.
+
+    ``synced_account_ids`` is the provider account set this sync survived the
+    allowlist with, or None when no allowlist is configured (legacy: everything
+    syncs).
 
     Failures here are swallowed: not all Pluggy connectors expose
     investment data, and we don't want a brokerage hiccup to break the
@@ -131,6 +176,23 @@ async def _sync_holdings(
 
     source = connection.provider
     today = date.today()
+
+    # Deny by default: with an allowlist configured, a holding the provider
+    # can't attribute to an account (Pluggy's item-level investments carry no
+    # account id) cannot be shown to belong to a synced account, so it does not
+    # sync. Excluding is not deleting, though — the provider still reports these
+    # positions, so they are pre-seeded into `seen` below to keep the archive
+    # sweep off assets imported before the account was excluded.
+    excluded_external_ids: set[str] = set()
+    if synced_account_ids is not None:
+        excluded_external_ids = {
+            h.external_id
+            for h in holdings
+            if h.account_external_id not in synced_account_ids
+        }
+        holdings = [
+            h for h in holdings if h.account_external_id in synced_account_ids
+        ]
 
     # Find-or-create the wallet that will own this connection's holdings.
     # Name defaults to the institution; users can rename freely without
@@ -160,7 +222,7 @@ async def _sync_holdings(
     existing_by_external: dict[str, Asset] = {
         a.external_id: a for a in existing_rows.scalars().all() if a.external_id
     }
-    seen: set[str] = set()
+    seen: set[str] = set(excluded_external_ids)
 
     for holding in holdings:
         seen.add(holding.external_id)
@@ -489,7 +551,13 @@ async def update_connection_settings(
     workspace_id: uuid.UUID,
     settings_update: dict,
 ) -> Optional[BankConnection]:
-    connection = await get_connection(session, connection_id, workspace_id)
+    # Settings are a single JSON blob and sync now writes to it too (the seen
+    # account ids). Take the same row lock sync holds so a save landing mid-sync
+    # waits and then merges onto fresh settings, instead of the two blob writes
+    # clobbering each other.
+    connection = await get_connection(
+        session, connection_id, workspace_id, for_update=True
+    )
     if not connection:
         return None
 
@@ -573,11 +641,16 @@ async def handle_oauth_callback(
 
     flow_params = dict(state_payload.get("flow_params") or {})
     flow_sync_assets = flow_params.pop("sync_assets", None)
+    flow_allowlist = flow_params.pop("account_allowlist", None)
     initial_settings: dict[str, object] = {"flow_params": flow_params}
     if sync_assets is None and isinstance(flow_sync_assets, bool):
         sync_assets = flow_sync_assets
     if sync_assets is not None:
         initial_settings["sync_assets"] = sync_assets
+    # Chosen during the connect flow, so the very first import already honors
+    # it rather than creating accounts the user then has to clean up.
+    if isinstance(flow_allowlist, list):
+        initial_settings["account_allowlist"] = [str(item) for item in flow_allowlist]
 
     connection = BankConnection(
         workspace_id=workspace_id,
@@ -599,7 +672,11 @@ async def handle_oauth_callback(
 
     use_provider_cats = await admin_service.use_provider_categories(session)
 
-    for acc_data in connection_data.accounts:
+    syncable_accounts, synced_account_ids = _syncable_accounts(
+        connection, connection_data.accounts
+    )
+
+    for acc_data in syncable_accounts:
         is_cc = acc_data.type == "credit_card"
         account = Account(
             user_id=user_id,
@@ -735,7 +812,10 @@ async def handle_oauth_callback(
     # /accounts. Pulled after account setup when enabled so holdings are
     # available on the Assets page immediately after the widget closes.
     if _sync_assets_enabled(connection.settings):
-        await _sync_holdings(session, user_id, connection, connection_data.credentials)
+        await _sync_holdings(
+            session, user_id, connection, connection_data.credentials,
+            synced_account_ids,
+        )
 
     connection.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
@@ -1129,7 +1209,7 @@ async def _find_synced_duplicate(
 
 async def _cleanup_phantom_duplicates(
     session: AsyncSession,
-    connection_id: uuid.UUID,
+    account_ids: list[uuid.UUID],
 ) -> int:
     """Delete synced transactions that are phantom duplicates.
 
@@ -1143,11 +1223,11 @@ async def _cleanup_phantom_duplicates(
     within ±1 day. The pairing of the sibling is the safety signal that lets
     us distinguish the duplicate from a legitimate same-day repeat (e.g. two
     real Uber rides for the same fare).
+
+    Scoped to the accounts the run actually synced, never every account on the
+    connection: this deletes rows, and an account the allowlist excludes (or
+    the user closed) must come out of a sync exactly as it went in.
     """
-    accounts_result = await session.execute(
-        select(Account.id).where(Account.connection_id == connection_id)
-    )
-    account_ids = [row[0] for row in accounts_result.all()]
     if not account_ids:
         return 0
 
@@ -1523,8 +1603,10 @@ async def sync_connection(
         user = await session.get(User, user_id)
         user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
+        synced_account_row_ids: list[uuid.UUID] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
+        accounts_data, synced_account_ids = _syncable_accounts(connection, accounts_data)
         for acc_data in accounts_data:
             syncing_account_id = None
             account = await _find_existing_connected_account(
@@ -1598,6 +1680,7 @@ async def sync_connection(
                 await session.flush()
 
             syncing_account_id = account.id
+            synced_account_row_ids.append(account.id)
 
             # Fetch the bills feed before transactions so transaction → bill
             # FK resolution happens in-memory (no N+1). Empty dict for non-CC
@@ -1839,14 +1922,16 @@ async def sync_connection(
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired
         # the real one, the orphan twin gets removed here.
-        await _cleanup_phantom_duplicates(session, connection.id)
+        await _cleanup_phantom_duplicates(session, synced_account_row_ids)
 
         # Refresh investment holdings (brokerage, fixed income, funds,
         # etc.) when enabled for this connection. Errors here are logged but
         # don't fail the sync; a bank connector that doesn't expose
         # /investments shouldn't block the transaction sync that just succeeded.
         if _sync_assets_enabled(conn_settings):
-            await _sync_holdings(session, user_id, connection, credentials)
+            await _sync_holdings(
+                session, user_id, connection, credentials, synced_account_ids
+            )
 
         connection.last_sync_at = datetime.now(timezone.utc)
         action_required_warnings = getattr(provider, "action_required_warnings", None)
