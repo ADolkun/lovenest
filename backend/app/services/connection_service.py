@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Optional
+from typing import Literal, Optional
 
 from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +29,7 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
 )
+from app.schemas.bank_connection import ProviderAccountRead
 from app.services import oauth_state
 from app.services import admin_service
 from app.services import recurring_match_service
@@ -575,6 +576,58 @@ async def update_connection_settings(
     await session.commit()
     await session.refresh(connection)
     return connection
+
+
+async def list_provider_accounts(
+    session: AsyncSession,
+    connection_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+) -> list[ProviderAccountRead]:
+    """List every account the provider exposes, annotated with allowlist state.
+
+    One provider request, filtered here. Asking the provider per account would
+    burn a rate-limit budget measured in requests per day (SimpleFIN Bridge:
+    24/token/day, with documented token disablement for sustained overuse) and
+    SimpleFIN's per-account filter has its own bucket on top of that.
+
+    Read-only by design: nothing here writes the allowlist or the seen ids, so
+    an account the provider stops returning keeps its place in the user's
+    selection, and a `pending` account stays pending until a sync records it.
+    """
+    connection = await get_connection(session, connection_id, workspace_id)
+    if not connection:
+        raise ValueError("Connection not found")
+    if not connection.credentials:
+        raise ValueError("Credentials not found")
+
+    provider = get_provider(connection.provider)
+    credentials = await provider.refresh_credentials(connection.credentials)
+    accounts = await provider.get_accounts(credentials)
+
+    conn_settings = connection.settings or {}
+    raw = conn_settings.get("account_allowlist")
+    allowlist = {str(item) for item in raw} if isinstance(raw, list) else None
+    # Sync records what the provider returned; the account rows are the older
+    # evidence of the same thing, for connections last synced before it did.
+    known = {str(item) for item in conn_settings.get("seen_account_ids") or []}
+    known |= {a.external_id for a in connection.accounts if a.external_id}
+
+    def _status(external_id: str) -> Literal["included", "excluded", "pending"]:
+        if allowlist is None or external_id in allowlist:
+            return "included"
+        return "excluded" if external_id in known else "pending"
+
+    return [
+        ProviderAccountRead(
+            external_id=account.external_id,
+            name=account.name,
+            balance=account.balance,
+            currency=account.currency,
+            has_holdings=account.has_holdings,
+            status=_status(account.external_id),
+        )
+        for account in accounts
+    ]
 
 
 async def handle_oauth_callback(

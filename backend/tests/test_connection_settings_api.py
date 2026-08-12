@@ -1,8 +1,12 @@
 """Tests for connection settings PATCH endpoint (Phase 2)."""
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
+from app.models.user import User
 
 
 @pytest.mark.asyncio
@@ -131,3 +135,125 @@ async def test_settings_visible_in_connection_list(
     assert resp.status_code == 200
     conn = resp.json()[0]
     assert conn["settings"]["payee_source"] == "payment_data"
+
+
+async def _other_user_headers(client: AsyncClient, session: AsyncSession) -> dict:
+    """Register a second user in their own workspace and return their auth headers."""
+    import bcrypt as _bcrypt
+
+    from app.services.workspace_service import create_personal_workspace_for_user
+
+    hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
+    other = User(
+        id=uuid.uuid4(),
+        email="allowlist-other@example.com",
+        hashed_password=hashed,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+        preferences={
+            "language": "en",
+            "date_format": "MM/DD/YYYY",
+            "timezone": "UTC",
+            "currency_display": "USD",
+        },
+    )
+    session.add(other)
+    await session.flush()
+    await create_personal_workspace_for_user(session, other)
+    await session.commit()
+
+    login = await client.post(
+        "/api/auth/login",
+        data={"username": "allowlist-other@example.com", "password": "otherpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+@pytest.mark.asyncio
+async def test_set_account_allowlist(
+    client: AsyncClient, auth_headers, test_connection: BankConnection
+):
+    """A list of provider account ids persists and comes back on the read model."""
+    resp = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": ["acc-1", "acc-2"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["settings"]["account_allowlist"] == ["acc-1", "acc-2"]
+
+    listing = await client.get("/api/connections", headers=auth_headers)
+    assert listing.json()[0]["settings"]["account_allowlist"] == ["acc-1", "acc-2"]
+
+
+@pytest.mark.asyncio
+async def test_empty_account_allowlist_persists(
+    client: AsyncClient, auth_headers, test_connection: BankConnection
+):
+    """An empty list means "sync nothing" — it is stored, not treated as unset."""
+    resp = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": []},
+    )
+    assert resp.status_code == 200
+    settings = resp.json()["settings"]
+    assert "account_allowlist" in settings
+    assert settings["account_allowlist"] == []
+
+
+@pytest.mark.asyncio
+async def test_omitting_account_allowlist_preserves_it(
+    client: AsyncClient, auth_headers, test_connection: BankConnection
+):
+    """Updating other settings leaves an existing allowlist untouched."""
+    await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": ["acc-1"]},
+    )
+    resp = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"payee_source": "merchant"},
+    )
+    assert resp.status_code == 200
+    settings = resp.json()["settings"]
+    assert settings["account_allowlist"] == ["acc-1"]
+    assert settings["payee_source"] == "merchant"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["acc-1", {"acc-1": True}, ["acc-1", 2], [None]])
+async def test_invalid_account_allowlist_rejected(
+    client: AsyncClient, auth_headers, test_connection: BankConnection, value
+):
+    """Anything that is not a list of strings is a validation error."""
+    resp = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": value},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_account_allowlist_hidden_from_non_member(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """A non-member of the connection's workspace gets 404, not a write."""
+    other_headers = await _other_user_headers(client, session)
+    resp = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=other_headers,
+        json={"account_allowlist": ["acc-1"]},
+    )
+    assert resp.status_code == 404
+
+    read_back = await client.get("/api/connections", headers=auth_headers)
+    assert "account_allowlist" not in (read_back.json()[0]["settings"] or {})

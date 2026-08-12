@@ -25,6 +25,7 @@ from app.schemas.bank_connection import (
     OAuthCallbackRequest,
     OAuthUrlRequest,
     OAuthUrlResponse,
+    ProviderAccountRead,
     ReauthUrlResponse,
     ReconnectTokenResponse,
 )
@@ -248,6 +249,38 @@ async def update_settings(
     if not connection:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
     return connection
+
+
+@router.get("/{connection_id}/provider-accounts", response_model=list[ProviderAccountRead])
+async def list_provider_accounts(
+    connection_id: uuid.UUID,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """List the provider's accounts for this connection, with allowlist state."""
+    try:
+        return await connection_service.list_provider_accounts(
+            session, connection_id, ctx.workspace.id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ProviderUserActionRequired as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(e), "code": e.code, "help_url": e.help_url},
+        )
+    except SessionExpiredError as e:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(e))
+    except ProviderNotConfiguredError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception:
+        # An empty list would read as "this connection has no accounts" and
+        # invite the user to save an allowlist that unchecks everything.
+        logger.exception("Provider account listing failed for connection %s", connection_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the provider to list accounts.",
+        )
 
 
 @router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
