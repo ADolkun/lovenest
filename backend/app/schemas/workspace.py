@@ -4,9 +4,14 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.models.workspace import WorkspaceKind
+
+
 class WorkspaceRead(BaseModel):
     id: uuid.UUID
     name: str
+    # Deliberately a bare `str` on the way out: reads must not blow up on
+    # a row that predates the current kind list. Writes are validated.
     kind: str
     is_archived: bool
     default_currency: str
@@ -27,7 +32,7 @@ class WorkspaceRead(BaseModel):
 
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    kind: str = "personal"
+    kind: WorkspaceKind = "personal"
     default_currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
     locale: Optional[str] = Field(default=None, max_length=10)
     icon: Optional[str] = Field(default=None, max_length=50)
@@ -40,6 +45,8 @@ class WorkspaceCreate(BaseModel):
 
 
 class WorkspaceUpdate(BaseModel):
+    # No `kind` here on purpose: it is fixed at creation. See
+    # `models.workspace.WorkspaceKind`.
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     icon: Optional[str] = Field(default=None, max_length=50)
     color: Optional[str] = Field(default=None, max_length=7)

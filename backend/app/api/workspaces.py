@@ -1,9 +1,9 @@
 """Workspace + member management endpoints.
 
-Note: there's intentionally NO `POST /api/workspaces` endpoint here.
-Workspaces are auto-created at user registration; additional workspaces
-(Freelancer / Small Business / Accountant Firm) ship as part of the
-templates feature in a later phase.
+Every user gets a Personal workspace at registration. `POST` here
+creates the additional ones and is the only place `kind` is ever set;
+`PATCH` edits the rest of the workspace and deliberately cannot touch
+it.
 """
 import uuid
 

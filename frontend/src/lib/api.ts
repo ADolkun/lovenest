@@ -29,6 +29,7 @@ import type {
   ImportLog,
   ImportPreviewTransaction,
   Workspace,
+  WorkspaceKind,
   WorkspaceMember,
   WorkspaceRole,
   Asset,
@@ -100,7 +101,7 @@ export const workspaces = {
   },
   create: async (payload: {
     name: string
-    kind?: string
+    kind?: WorkspaceKind
     default_currency?: string
     locale?: string
     icon?: string
@@ -110,6 +111,7 @@ export const workspaces = {
     const { data } = await api.post('/workspaces', payload)
     return data
   },
+  // `kind` is absent on purpose: it is fixed when the workspace is created.
   update: async (id: string, payload: Partial<Pick<Workspace, 'name' | 'icon' | 'color' | 'default_currency' | 'locale'>>): Promise<Workspace> => {
     const { data } = await api.patch(`/workspaces/${id}`, payload)
     return data

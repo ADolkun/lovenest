@@ -36,7 +36,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { AlertTriangle, Archive, Plus, Save, Trash2, Users } from 'lucide-react'
-import type { WorkspaceMember, WorkspaceRole } from '@/types'
+import { WORKSPACE_KIND_LABEL_KEY } from '@/lib/workspace-kinds'
+import type { WorkspaceKind, WorkspaceMember, WorkspaceRole } from '@/types'
 
 function labelForRole(role: WorkspaceRole, t: (key: string) => string): string {
   return {
@@ -246,6 +247,7 @@ export default function WorkspaceSettingsPage() {
   const stats = statsQuery.data ?? { members: 1, accounts: 0, transactions: 0 }
   const isManaged = !!current.managed_by_user_id
   const isManagerSelf = isManaged && current.managed_by_user_id === currentUser?.id
+  const kindLabelKey = WORKSPACE_KIND_LABEL_KEY[current.kind as WorkspaceKind]
 
   return (
     <div className="container max-w-5xl py-8 space-y-6">
@@ -261,6 +263,12 @@ export default function WorkspaceSettingsPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-semibold truncate">{current.name}</h1>
+              {/* Fixed at creation, so it reads as identity, not a control. */}
+              {kindLabelKey && (
+                <Badge variant="outline" className="text-[11px]">
+                  {t(kindLabelKey)}
+                </Badge>
+              )}
               {current.role && (
                 <Badge variant="secondary" className="text-[11px]">
                   {labelForRole(current.role, t)}

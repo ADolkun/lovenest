@@ -45,9 +45,13 @@ export interface AppSetting {
 
 export type WorkspaceRole = 'owner' | 'editor' | 'viewer' | 'manager'
 
+export type WorkspaceKind = 'personal' | 'business'
+
 export interface Workspace {
   id: string
   name: string
+  // Widened on purpose: a workspace stored before the current kind list
+  // still has to render. Writes are narrowed to WorkspaceKind.
   kind: string
   is_archived: boolean
   default_currency: string
