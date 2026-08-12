@@ -84,6 +84,9 @@ class OAuthCallbackRequest(BaseModel):
     state: Optional[str] = None
     provider: Optional[str] = None
     sync_assets: Optional[bool] = None
+    # Empty is the review-first connect: create the connection, import nothing,
+    # and let the user pick from the account picker before the first sync.
+    account_allowlist: Optional[list[str]] = None
     reconnect_connection_id: Optional[uuid.UUID] = None
 
 

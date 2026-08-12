@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { connections } from '@/lib/api'
+import { needsAccountReview } from '@/lib/account-allowlist'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import {
   Dialog,
@@ -14,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
+import type { BankConnection } from '@/types'
 
 interface TokenConnectDialogProps {
   open: boolean
@@ -21,6 +23,7 @@ interface TokenConnectDialogProps {
   provider: string
   supportsAssetSync?: boolean
   reconnectConnectionId?: string
+  onReviewAccounts?: (connection: BankConnection) => void
 }
 
 const PROVIDER_BRIDGE_URLS: Record<string, string> = {
@@ -33,18 +36,21 @@ export function TokenConnectDialog({
   provider,
   supportsAssetSync = false,
   reconnectConnectionId,
+  onReviewAccounts,
 }: TokenConnectDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [token, setToken] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [syncAssets, setSyncAssets] = useState(true)
+  const [reviewAccounts, setReviewAccounts] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setToken('')
       setSubmitting(false)
       setSyncAssets(true)
+      setReviewAccounts(false)
     }
   }, [open])
 
@@ -56,17 +62,24 @@ export function TokenConnectDialog({
     if (!token.trim()) return
     setSubmitting(true)
     try {
-      await connections.handleCallback(
+      const connection = await connections.handleCallback(
         token.trim(),
         provider,
         undefined,
-        supportsAssetSync && !isReconnect ? { sync_assets: syncAssets } : undefined,
+        isReconnect
+          ? undefined
+          : {
+              ...(supportsAssetSync ? { sync_assets: syncAssets } : {}),
+              // Empty means "import nothing yet" — the picker opens next.
+              ...(reviewAccounts ? { account_allowlist: [] } : {}),
+            },
         reconnectConnectionId,
       )
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
       toast.success(t(isReconnect ? 'accounts.reconnected' : 'accounts.connected'))
       onClose()
+      if (!isReconnect && needsAccountReview(connection)) onReviewAccounts?.(connection)
     } catch (err) {
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail
@@ -118,6 +131,27 @@ export function TokenConnectDialog({
               type="checkbox"
               checked={syncAssets}
               onChange={(e) => setSyncAssets(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              disabled={submitting}
+            />
+          </div>
+        )}
+
+        {!isReconnect && (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+            <div className="space-y-1">
+              <label htmlFor="token-review-accounts" className="text-sm font-medium text-foreground">
+                {t('connections.reviewAccountsFirst')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('connections.reviewAccountsFirstHint')}
+              </p>
+            </div>
+            <input
+              id="token-review-accounts"
+              type="checkbox"
+              checked={reviewAccounts}
+              onChange={(e) => setReviewAccounts(e.target.checked)}
               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
               disabled={submitting}
             />

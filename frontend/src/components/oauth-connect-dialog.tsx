@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { connections } from '@/lib/api'
+import { markReviewOnConnect } from '@/lib/account-allowlist'
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,7 @@ export function OAuthConnectDialog({ open, onClose, provider, supportsAssetSync 
   const [error, setError] = useState<string | null>(null)
   const [redirecting, setRedirecting] = useState(false)
   const [syncAssets, setSyncAssets] = useState(true)
+  const [reviewAccounts, setReviewAccounts] = useState(false)
 
   // Reset when dialog opens.
   useEffect(() => {
@@ -61,6 +63,7 @@ export function OAuthConnectDialog({ open, onClose, provider, supportsAssetSync 
     setError(null)
     setRedirecting(false)
     setSyncAssets(true)
+    setReviewAccounts(false)
     setLoading(true)
     connections
       .listInstitutions(provider)
@@ -105,12 +108,15 @@ export function OAuthConnectDialog({ open, onClose, provider, supportsAssetSync 
   const handleBankSelect = async (institution: Institution) => {
     if (!country) return
     setRedirecting(true)
+    if (reviewAccounts) markReviewOnConnect()
     try {
       const url = await connections.getOAuthUrl(provider, {
         country,
         institution_name: institution.name,
         valid_until_days: institution.max_consent_days,
         ...(supportsAssetSync ? { sync_assets: syncAssets } : {}),
+        // Empty means "import nothing yet" — the picker opens after the callback.
+        ...(reviewAccounts ? { account_allowlist: [] } : {}),
       })
       window.location.assign(url)
     } catch (e) {
@@ -156,6 +162,26 @@ export function OAuthConnectDialog({ open, onClose, provider, supportsAssetSync 
               type="checkbox"
               checked={syncAssets}
               onChange={(e) => setSyncAssets(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+            />
+          </div>
+        )}
+
+        {!redirecting && (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+            <div className="space-y-1">
+              <label htmlFor="oauth-review-accounts" className="text-sm font-medium text-foreground">
+                {t('connections.reviewAccountsFirst')}
+              </label>
+              <p className="text-xs text-muted-foreground">
+                {t('connections.reviewAccountsFirstHint')}
+              </p>
+            </div>
+            <input
+              id="oauth-review-accounts"
+              type="checkbox"
+              checked={reviewAccounts}
+              onChange={(e) => setReviewAccounts(e.target.checked)}
               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
             />
           </div>

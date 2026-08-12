@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import axios from 'axios'
 import { connections } from '@/lib/api'
+import { needsAccountReview, takeReviewOnConnect } from '@/lib/account-allowlist'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { Button } from '@/components/ui/button'
 import { Building2, ExternalLink } from 'lucide-react'
@@ -54,11 +55,15 @@ export default function OAuthCallbackPage() {
 
     ;(async () => {
       try {
-        await connections.handleCallback(code, '', state)
+        const connection = await connections.handleCallback(code, '', state)
         await queryClient.refetchQueries({ queryKey: ['connections'] })
         invalidateFinancialQueries(queryClient)
         toast.success(t('accounts.connected'))
-        navigate('/accounts', { replace: true })
+        // A review-first connect imported nothing; the accounts page picks the
+        // id up and opens the picker so the choice is the next thing they see.
+        // A reauth lands here too, and never re-opens it.
+        const review = takeReviewOnConnect() && needsAccountReview(connection)
+        navigate(review ? `/accounts?review=${connection.id}` : '/accounts', { replace: true })
       } catch (err) {
         if (axios.isAxiosError(err) && err.response?.status === 409) {
           const detail = err.response.data?.detail as RestrictedDetail | string | undefined

@@ -673,6 +673,7 @@ async def handle_oauth_callback(
     provider_name: Optional[str] = None,
     state: Optional[str] = None,
     sync_assets: Optional[bool] = None,
+    account_allowlist: Optional[list[str]] = None,
     reconnect_connection_id: Optional[uuid.UUID] = None,
 ) -> BankConnection:
     state_payload: dict = {}
@@ -735,10 +736,23 @@ async def handle_oauth_callback(
         sync_assets = flow_sync_assets
     if sync_assets is not None:
         initial_settings["sync_assets"] = sync_assets
+    if account_allowlist is None and isinstance(flow_allowlist, list):
+        account_allowlist = [str(item) for item in flow_allowlist]
     # Chosen during the connect flow, so the very first import already honors
-    # it rather than creating accounts the user then has to clean up.
-    if isinstance(flow_allowlist, list):
-        initial_settings["account_allowlist"] = [str(item) for item in flow_allowlist]
+    # it rather than creating accounts the user then has to clean up. An empty
+    # one is the review-first connect: import nothing now, let the user pick
+    # from the account picker. It only holds for a provider that enumerates
+    # accounts at connect — with nothing to review the connection would sync
+    # nothing forever, so fall back to the legacy default rather than error.
+    review_first = False
+    if account_allowlist is not None and (account_allowlist or connection_data.accounts):
+        initial_settings["account_allowlist"] = [str(item) for item in account_allowlist]
+        review_first = not account_allowlist
+        if review_first:
+            # Nothing has been shown to the user yet, so every account the
+            # provider exposes must reach the picker as pending rather than as
+            # an exclusion they chose.
+            initial_settings["reviewed_account_ids"] = []
 
     connection = BankConnection(
         workspace_id=workspace_id,
@@ -763,10 +777,11 @@ async def handle_oauth_callback(
     syncable_accounts, synced_account_ids = _syncable_accounts(
         connection, connection_data.accounts
     )
-    if synced_account_ids is not None:
+    if synced_account_ids is not None and not review_first:
         # The connect widget showed this account list before the first sync, so
         # everything in it counts as reviewed — only accounts that turn up later
-        # are new to the user.
+        # are new to the user. Skipped for a review-first connect, which imports
+        # nothing precisely because the user has reviewed nothing.
         _record_reviewed_accounts(
             connection, {a.external_id for a in connection_data.accounts}
         )

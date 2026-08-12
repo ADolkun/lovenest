@@ -90,6 +90,12 @@ was configured, so the user has never had the chance to include or exclude it. I
 does not sync while it waits, and it is distinct from an account deliberately
 excluded.
 
+**Review-First Connect** — connecting an aggregator with an empty Account
+Allowlist, so the first import creates nothing and every provider account starts
+as a Pending Account for the user to choose from. Only available where the
+provider enumerates accounts at connect time; elsewhere the connection falls back
+to importing everything.
+
 ## Tenancy
 
 **Workspace** — the tenant boundary. Every financial record belongs to exactly one

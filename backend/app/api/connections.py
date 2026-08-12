@@ -115,6 +115,7 @@ async def oauth_callback(
             provider_name=data.provider,
             state=data.state,
             sync_assets=data.sync_assets,
+            account_allowlist=data.account_allowlist,
             reconnect_connection_id=data.reconnect_connection_id,
         )
         return connection
