@@ -120,6 +120,21 @@ export interface ConnectionSettings {
   payee_source?: 'auto' | 'merchant' | 'payment_data' | 'description' | 'none'
   import_pending?: boolean
   sync_assets?: boolean
+  // Absent means the connection syncs every provider account (legacy); an
+  // empty list means it syncs none. Written by the user, the other two are
+  // written by sync and by saving the allowlist.
+  account_allowlist?: string[]
+  seen_account_ids?: string[]
+  reviewed_account_ids?: string[]
+}
+
+export interface ProviderAccount {
+  external_id: string
+  name: string
+  balance: string
+  currency: string
+  has_holdings: boolean
+  status: 'included' | 'excluded' | 'pending'
 }
 
 export interface Account {

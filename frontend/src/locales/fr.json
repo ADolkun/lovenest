@@ -692,7 +692,16 @@
     "syncAssetsHint": "Lorsqu'il est désactivé, cette connexion synchronise les comptes et transactions mais ne touche pas aux positions d'investissement du fournisseur.",
     "initialSyncSettings": "Options de synchronisation",
     "initialSyncSettingsDesc": "Choisissez ce que Securo doit importer avant d'ouvrir le connecteur.",
-    "continueToConnector": "Continuer vers le connecteur"
+    "continueToConnector": "Continuer vers le connecteur",
+    "syncedAccounts": "Comptes à synchroniser",
+    "syncedAccountsHint": "Décocher un compte arrête ses prochaines synchronisations. Les données déjà importées restent — supprimez-les vous-même si vous n'en voulez plus.",
+    "selectAll": "Tout sélectionner",
+    "deselectAll": "Tout désélectionner",
+    "accountPending": "Nouveau",
+    "accountHasHoldings": "Contient des placements",
+    "accountsLoadError": "Impossible de joindre le fournisseur pour lister les comptes.",
+    "accountsEmpty": "Le fournisseur n'a renvoyé aucun compte.",
+    "accountsPending": "{{count}} à vérifier"
   },
   "settings": {
     "rules": "Règles",

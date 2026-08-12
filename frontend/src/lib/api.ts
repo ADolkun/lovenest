@@ -11,6 +11,7 @@ import type {
   CategoryGroup,
   BankConnection,
   ConnectionSettings,
+  ProviderAccount,
   Account,
   AccountSummary,
   Collection,
@@ -355,6 +356,11 @@ export const connections = {
   getReconnectToken: async (connectionId: string): Promise<string> => {
     const { data } = await api.post(`/connections/${connectionId}/reconnect-token`)
     return data.access_token
+  },
+  // Hits the provider, so only ever call it with the user waiting on a dialog.
+  listProviderAccounts: async (id: string): Promise<ProviderAccount[]> => {
+    const { data } = await api.get(`/connections/${id}/provider-accounts`)
+    return data
   },
   updateSettings: async (
     id: string,

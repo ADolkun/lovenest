@@ -734,7 +734,16 @@
     "syncAssetsHint": "Gdy wyłączone, to połączenie synchronizuje konta i transakcje, ale nie zmienia inwestycji dostawcy.",
     "initialSyncSettings": "Opcje synchronizacji",
     "initialSyncSettingsDesc": "Wybierz, co Securo ma zaimportować przed otwarciem konektora.",
-    "continueToConnector": "Przejdź do konektora"
+    "continueToConnector": "Przejdź do konektora",
+    "syncedAccounts": "Konta do synchronizacji",
+    "syncedAccountsHint": "Odznaczenie konta zatrzymuje jego kolejne synchronizacje. Już zaimportowane dane pozostają — usuń je samodzielnie, jeśli ich nie chcesz.",
+    "selectAll": "Zaznacz wszystkie",
+    "deselectAll": "Odznacz wszystkie",
+    "accountPending": "Nowe",
+    "accountHasHoldings": "Zawiera inwestycje",
+    "accountsLoadError": "Nie udało się połączyć z dostawcą, aby pobrać listę kont.",
+    "accountsEmpty": "Dostawca nie zwrócił żadnych kont.",
+    "accountsPending": "{{count}} do przejrzenia"
   },
   "settings": {
     "rules": "Reguły",

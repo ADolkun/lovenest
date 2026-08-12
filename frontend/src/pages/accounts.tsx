@@ -7,6 +7,7 @@ import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accounts, connections, currencies } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
+import { pendingAccountCount } from '@/lib/account-allowlist'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -336,6 +337,7 @@ export default function AccountsPage() {
                 const needsReconnect = conn.status === 'error' || conn.status === 'expired'
                 const failedAccount = connAccounts.find((a) => a.id === conn.last_sync_error_account_id)
                 const syncPending = syncMutation.isPending && syncMutation.variables === conn.id
+                const pendingAccounts = pendingAccountCount(conn.settings)
                 return (
                   <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
                     {/* Connection header */}
@@ -355,6 +357,11 @@ export default function AccountsPage() {
                             >
                               {t(`accounts.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
                             </Badge>
+                            {pendingAccounts > 0 && (
+                              <Badge className="h-4 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300">
+                                {t('connections.accountsPending', { count: pendingAccounts })}
+                              </Badge>
+                            )}
                           </div>
                           {conn.last_sync_at && (
                             <p className="text-[11px] text-muted-foreground mt-0.5">
