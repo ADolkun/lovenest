@@ -502,6 +502,45 @@ async def test_get_holdings_parses_investment_data():
     assert (h.metadata or {}).get("symbol") == "AAPL"
     # Also promoted to the dedicated column, not just the metadata blob.
     assert h.ticker == "AAPL"
+    # SimpleFIN nests holdings under their account, so the link is known.
+    assert h.account_external_id == "acc-1"
+
+
+@pytest.mark.asyncio
+async def test_get_accounts_reports_holdings_presence():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "accounts": [
+                    {
+                        "id": "acc-1",
+                        "name": "Brokerage",
+                        "currency": "USD",
+                        "balance": "10.00",
+                        "holdings": [{"id": "h-1", "market_value": "10.00"}],
+                    },
+                    {
+                        "id": "acc-2",
+                        "name": "Checking",
+                        "currency": "USD",
+                        "balance": "5.00",
+                        "holdings": [],
+                    },
+                    {
+                        "id": "acc-3",
+                        "name": "Savings",
+                        "currency": "USD",
+                        "balance": "5.00",
+                    },
+                ]
+            },
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        accounts = await SimpleFinProvider().get_accounts(creds)
+    assert [a.has_holdings for a in accounts] == [True, False, False]
 
 
 @pytest.mark.asyncio

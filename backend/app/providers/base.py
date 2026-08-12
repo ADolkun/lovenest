@@ -70,6 +70,10 @@ class AccountData:
     # provider exposes one. Disambiguates accounts a bank reports under an
     # identical name (issue #408). Never the full identifier — see mask_last4.
     masked_number: Optional[str] = None
+    # Whether the provider lists investment holdings under this account.
+    # Only a full account fetch can answer this — SimpleFIN's balances-only
+    # mode strips holdings, so it must not be used on a path that sets this.
+    has_holdings: bool = False
 
 
 @dataclass
@@ -158,6 +162,10 @@ class HoldingData:
     maturity_date: Optional[date] = None
     is_withdrawn: bool = False  # provider signaled the position was sold/transferred
     metadata: Optional[dict] = None
+    # The provider account this holding sits in, when the provider exposes the
+    # relationship. Stays None for providers whose holdings are connection-level
+    # (Pluggy investments), so an unset value means "unattributable", not "none".
+    account_external_id: Optional[str] = None
 
 
 @dataclass

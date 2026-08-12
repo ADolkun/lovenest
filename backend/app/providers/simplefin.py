@@ -388,6 +388,7 @@ class SimpleFinProvider(BankProvider):
                     type="checking",  # SimpleFIN doesn't expose an account type
                     balance=balance,
                     currency=currency,
+                    has_holdings=bool(raw.get("holdings")),
                 )
             )
         return institution_name or "SimpleFIN Connection", accounts
@@ -510,6 +511,7 @@ class SimpleFinProvider(BankProvider):
         holdings: list[HoldingData] = []
         for raw_acc in payload.get("accounts") or []:
             acc_currency = raw_acc.get("currency") or "USD"
+            account_id = str(raw_acc.get("id") or "") or None
             for raw in raw_acc.get("holdings") or []:
                 holding_id = str(raw.get("id") or "")
                 if not holding_id:
@@ -531,6 +533,7 @@ class SimpleFinProvider(BankProvider):
                         purchase_price=_to_decimal(raw.get("purchase_price")),
                         purchase_date=_epoch_to_date(raw.get("created")),
                         isin=raw.get("isin"),
+                        account_external_id=account_id,
                         metadata={
                             "symbol": raw.get("symbol"),
                             "cost_basis": str(raw.get("cost_basis"))

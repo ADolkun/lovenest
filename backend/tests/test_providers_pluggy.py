@@ -372,3 +372,11 @@ def test_build_account_data_without_number_leaves_mask_none():
     acc = {"id": "acc-2", "name": "Conta", "type": "BANK", "balance": 0}
     out = _build_account_data(acc, PluggyProvider._map_account_type)
     assert out.masked_number is None
+
+
+def test_build_holding_data_leaves_account_link_unset():
+    """Pluggy investments are item-level — no account to attribute them to."""
+    from app.providers.pluggy import _build_holding_data
+
+    out = _build_holding_data({"id": "inv-1", "name": "CDB", "balance": 100})
+    assert out.account_external_id is None
