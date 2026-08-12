@@ -253,6 +253,49 @@ async def auth_headers(auth_token: str) -> dict:
 
 
 @pytest_asyncio.fixture
+async def other_workspace_headers(
+    client: AsyncClient, session: AsyncSession, test_user: User
+) -> dict:
+    """Auth headers for a second user, in their own workspace.
+
+    For tenancy assertions: what this user asks for, they must not receive.
+    Depends on `test_user` so `clean_db` has already run — otherwise it wipes
+    this user out from under the test.
+    """
+    import bcrypt as _bcrypt
+
+    from app.services.workspace_service import create_personal_workspace_for_user
+
+    hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
+    other = User(
+        id=uuid.uuid4(),
+        email="other-workspace@example.com",
+        hashed_password=hashed,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+        preferences={
+            "language": "en",
+            "date_format": "MM/DD/YYYY",
+            "timezone": "UTC",
+            "currency_display": "USD",
+        },
+    )
+    session.add(other)
+    await session.flush()
+    await create_personal_workspace_for_user(session, other)
+    await session.commit()
+
+    response = await client.post(
+        "/api/auth/login",
+        data={"username": "other-workspace@example.com", "password": "otherpass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 200, f"Login failed: {response.text}"
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest_asyncio.fixture
 async def test_superuser(session: AsyncSession, clean_db) -> User:
     """Create a test superuser (admin)."""
     import bcrypt as _bcrypt
