@@ -123,6 +123,60 @@ async def test_unseen_unlisted_account_is_pending(
 
 
 @pytest.mark.asyncio
+async def test_a_sync_does_not_silence_a_pending_account(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """Pending is anchored to the last save, not the last sync.
+
+    Otherwise the first nightly sync after an account appears would demote it
+    to excluded before the user was ever shown it (issue #46, user story 7).
+    """
+    saved = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": ["acc-1"]},
+    )
+    assert saved.status_code == 200
+
+    # Stand in for a sync that ran after acc-new appeared at the provider.
+    await session.refresh(test_connection)
+    settings = dict(test_connection.settings or {})
+    settings["seen_account_ids"] = ["acc-1", "acc-new"]
+    await _set_settings(session, test_connection, settings)
+
+    provider = _provider([_account("acc-1"), _account("acc-new")])
+    resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
+
+    assert _by_id(resp.json())["acc-new"]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_account_unchecked_when_saving_reports_excluded(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """An account the user could see when they saved was a deliberate choice."""
+    await _set_settings(session, test_connection, {"seen_account_ids": ["acc-1", "acc-2"]})
+
+    saved = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": ["acc-1"]},
+    )
+    assert saved.status_code == 200
+
+    provider = _provider([_account("acc-1"), _account("acc-2")])
+    resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
+
+    assert _by_id(resp.json())["acc-2"]["status"] == "excluded"
+
+
+@pytest.mark.asyncio
 async def test_already_imported_account_is_excluded_without_seen_ids(
     client: AsyncClient,
     auth_headers,

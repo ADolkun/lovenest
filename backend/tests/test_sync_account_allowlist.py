@@ -400,6 +400,8 @@ async def test_first_connect_honors_an_allowlist_chosen_in_the_connect_flow(
 
     assert _settings(connection)["account_allowlist"] == ["acc-1"]
     assert _settings(connection)["seen_account_ids"] == ["acc-1", "acc-2"]
+    # The widget showed both, so neither is a discovery the user has yet to see.
+    assert _settings(connection)["reviewed_account_ids"] == ["acc-1", "acc-2"]
     assert _settings(connection)["flow_params"] == {}
     assert await _external_ids(session, connection) == ["acc-1"]
     assets = (await session.execute(select(Asset.external_id))).scalars().all()

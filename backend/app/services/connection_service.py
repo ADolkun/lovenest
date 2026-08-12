@@ -106,6 +106,24 @@ def _allowlist_ids(settings: Optional[dict]) -> Optional[set[str]]:
     return {str(item) for item in raw}
 
 
+def _record_reviewed_accounts(connection: BankConnection, known_ids: set[str]) -> None:
+    """Pin which provider accounts the user has already had a chance to see.
+
+    An account is pending review when it "appears at the provider after the
+    allowlist has been configured" (issue #46), so the comparison set has to be
+    frozen at the moment the allowlist is written. Sync's `seen_account_ids`
+    cannot serve as that set: it is rewritten on every run, so the first sync
+    after a new account appears would absorb it and quietly demote it from
+    pending to excluded before the user was ever shown it.
+    """
+    updated = dict(connection.settings or {})
+    reviewed = {str(item) for item in updated.get("seen_account_ids") or []}
+    reviewed |= known_ids
+    reviewed |= _allowlist_ids(updated) or set()
+    updated["reviewed_account_ids"] = sorted(reviewed)
+    connection.settings = updated
+
+
 def _syncable_accounts(
     connection: BankConnection, accounts: list[AccountData]
 ) -> tuple[list[AccountData], Optional[set[str]]]:
@@ -580,6 +598,11 @@ async def update_connection_settings(
             current[key] = value
     connection.settings = current
 
+    if settings_update.get("account_allowlist") is not None:
+        _record_reviewed_accounts(
+            connection, {a.external_id for a in connection.accounts if a.external_id}
+        )
+
     await session.commit()
     await session.refresh(connection)
     return connection
@@ -595,9 +618,18 @@ async def list_provider_accounts(
     token per day, with documented token disablement for sustained overuse) and
     SimpleFIN's per-account filter has its own bucket on top of that.
 
-    Read-only by design: nothing here writes the allowlist or the seen ids, so
-    an account the provider stops returning keeps its place in the user's
-    selection, and a `pending` account stays pending until a sync records it.
+    One call is what this layer guarantees; a provider whose own account fetch
+    is per-account (Enable Banking reads details and balances per uid, because
+    its session payload carries neither) still fans out underneath. That is
+    tolerable there and not on SimpleFIN: Enable Banking's PSD2 limits bind
+    unattended polling, and this endpoint only ever runs with the user waiting.
+
+    Read-only by design: nothing here writes the allowlist or the reviewed ids,
+    so an account the provider stops returning keeps its place in the user's
+    selection — but it is absent from this response, since it is a list of what
+    the provider exposes. A caller rebuilding the allowlist from this response
+    alone would drop it; the stored list on the connection read is the one to
+    merge against.
 
     Takes a loaded connection rather than an id: tenancy is the caller's to
     enforce, and it keeps "not found" out of this function's error surface.
@@ -623,10 +655,16 @@ async def list_provider_accounts(
 
     conn_settings = connection.settings or {}
     allowlist = _allowlist_ids(conn_settings)
-    # Sync records what the provider returned; the account rows are the older
-    # evidence of the same thing, for connections last synced before it did.
-    known = {str(item) for item in conn_settings.get("seen_account_ids") or []}
-    known |= {a.external_id for a in connection.accounts if a.external_id}
+    reviewed = conn_settings.get("reviewed_account_ids")
+    if reviewed is None:
+        # An allowlist configured before the reviewed set was pinned. Sync's
+        # rolling record and the account rows are the best evidence left of what
+        # the user has already seen; both err towards excluded, which is the
+        # quieter of the two wrong answers for an account they did unchecked.
+        known = {str(item) for item in conn_settings.get("seen_account_ids") or []}
+        known |= {a.external_id for a in connection.accounts if a.external_id}
+    else:
+        known = {str(item) for item in reviewed}
 
     def _status(external_id: str) -> Literal["included", "excluded", "pending"]:
         if allowlist is None or external_id in allowlist:
@@ -744,6 +782,13 @@ async def handle_oauth_callback(
     syncable_accounts, synced_account_ids = _syncable_accounts(
         connection, connection_data.accounts
     )
+    if synced_account_ids is not None:
+        # The connect widget showed this account list before the first sync, so
+        # everything in it counts as reviewed — only accounts that turn up later
+        # are new to the user.
+        _record_reviewed_accounts(
+            connection, {a.external_id for a in connection_data.accounts}
+        )
 
     for acc_data in syncable_accounts:
         is_cc = acc_data.type == "credit_card"
