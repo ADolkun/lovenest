@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatAccountMask, getAccountLabel, getAccountName } from '@/lib/account-utils'
 import { getConnectionName } from '@/lib/connection-utils'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -113,6 +113,21 @@ export default function AccountsPage() {
     queryKey: ['connections'],
     queryFn: connections.list,
   })
+
+  // Set by the OAuth callback after a review-first connect: the picker has to
+  // open here, since that flow leaves the app for the bank and comes back.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const reviewConnectionId = searchParams.get('review')
+  const openSettingsConnection =
+    settingsConnection ??
+    (reviewConnectionId
+      ? connectionsList?.find((c) => c.id === reviewConnectionId) ?? null
+      : null)
+
+  const closeSettingsDialog = () => {
+    setSettingsConnection(null)
+    if (reviewConnectionId) setSearchParams({}, { replace: true })
+  }
 
   const { data: providersList } = useQuery({
     queryKey: ['connections', 'providers'],
@@ -627,6 +642,7 @@ export default function AccountsPage() {
         onClose={() => setSelectedProvider(null)}
         provider={selectedProvider?.name}
         supportsAssetSync={selectedProvider?.supports_asset_sync ?? false}
+        onReviewAccounts={setSettingsConnection}
       />
 
       {/* OAuth Connect Dialog — institution-pickers (Enable Banking) */}
@@ -643,6 +659,7 @@ export default function AccountsPage() {
         onClose={() => setSelectedProvider(null)}
         provider={selectedProvider?.name ?? ''}
         supportsAssetSync={selectedProvider?.supports_asset_sync ?? false}
+        onReviewAccounts={setSettingsConnection}
       />
 
       {/* Reconnect Dialog — widget-based (Pluggy) */}
@@ -663,17 +680,17 @@ export default function AccountsPage() {
 
       {/* Connection Settings Dialog */}
       <ConnectionSettingsDialog
-        open={!!settingsConnection}
-        onClose={() => setSettingsConnection(null)}
+        open={!!openSettingsConnection}
+        onClose={closeSettingsDialog}
         onReconnect={() => {
-          const connection = settingsConnection
-          setSettingsConnection(null)
+          const connection = openSettingsConnection
+          closeSettingsDialog()
           if (connection) void handleReconnectClick(connection)
         }}
-        connection={settingsConnection}
+        connection={openSettingsConnection}
         supportsAssetSync={
-          settingsConnection
-            ? providersByName.get(settingsConnection.provider)?.supports_asset_sync ?? false
+          openSettingsConnection
+            ? providersByName.get(openSettingsConnection.provider)?.supports_asset_sync ?? false
             : false
         }
       />

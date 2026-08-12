@@ -693,6 +693,8 @@
     "initialSyncSettings": "Synchronisierungsoptionen",
     "initialSyncSettingsDesc": "Wähle aus, was Securo importieren soll, bevor der Connector geöffnet wird.",
     "continueToConnector": "Weiter zum Connector",
+    "reviewAccountsFirst": "Konten vor dem Import prüfen",
+    "reviewAccountsFirstHint": "Verbinden, ohne etwas zu importieren, und danach auswählen, welche Konten synchronisiert werden. Andernfalls wird jedes Konto importiert, das der Anbieter bereitstellt.",
     "syncedAccounts": "Zu synchronisierende Konten",
     "syncedAccountsHint": "Wird ein Konto abgewählt, wird es künftig nicht mehr synchronisiert. Bereits importierte Daten bleiben erhalten — lösche sie selbst, wenn du sie nicht mehr möchtest.",
     "selectAll": "Alle auswählen",

@@ -693,6 +693,8 @@
     "initialSyncSettings": "Opzioni di sincronizzazione",
     "initialSyncSettingsDesc": "Scegli cosa deve importare Securo prima di aprire il connettore.",
     "continueToConnector": "Continua al connettore",
+    "reviewAccountsFirst": "Rivedi i conti prima dell'importazione",
+    "reviewAccountsFirstHint": "Collega senza importare nulla, poi scegli quali conti sincronizzare. Altrimenti vengono importati tutti i conti esposti dal provider.",
     "syncedAccounts": "Conti da sincronizzare",
     "syncedAccountsHint": "Deselezionare un conto interrompe le sincronizzazioni future. I dati già importati restano: eliminali tu se non li vuoi più.",
     "selectAll": "Seleziona tutti",

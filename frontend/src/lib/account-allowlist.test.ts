@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildAllowlist, initialSelection, shouldSaveAllowlist } from './account-allowlist'
-import type { ProviderAccount } from '../types'
+import {
+  buildAllowlist,
+  initialSelection,
+  needsAccountReview,
+  shouldSaveAllowlist,
+} from './account-allowlist'
+import type { BankConnection, ConnectionSettings, ProviderAccount } from '../types'
 
 const account = (
   external_id: string,
@@ -51,6 +56,24 @@ describe('shouldSaveAllowlist', () => {
   it('ignores a tick that was undone', () => {
     const configured = [account('a', 'included'), account('b', 'excluded')]
     expect(shouldSaveAllowlist(new Set(['a']), configured, null)).toBe(false)
+  })
+})
+
+describe('needsAccountReview', () => {
+  const connection = (settings: ConnectionSettings | null) =>
+    ({ id: 'c1', settings }) as BankConnection
+
+  it('opens the picker for a review-first connect', () => {
+    expect(needsAccountReview(connection({ account_allowlist: [] }))).toBe(true)
+  })
+
+  it('leaves a connection that imported everything alone', () => {
+    expect(needsAccountReview(connection(null))).toBe(false)
+    expect(needsAccountReview(connection({ sync_assets: true }))).toBe(false)
+  })
+
+  it('leaves a connection that already picked accounts alone', () => {
+    expect(needsAccountReview(connection({ account_allowlist: ['a'] }))).toBe(false)
   })
 })
 

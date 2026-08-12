@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { PluggyConnect } from 'react-pluggy-connect'
 import { connections } from '@/lib/api'
+import { needsAccountReview } from '@/lib/account-allowlist'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import type { BankConnection } from '@/types'
 
 interface BankConnectDialogProps {
   open: boolean
@@ -22,6 +24,7 @@ interface BankConnectDialogProps {
   updateItemId?: string
   provider?: string
   supportsAssetSync?: boolean
+  onReviewAccounts?: (connection: BankConnection) => void
 }
 
 export function BankConnectDialog({
@@ -31,19 +34,22 @@ export function BankConnectDialog({
   updateItemId,
   provider = 'pluggy',
   supportsAssetSync = false,
+  onReviewAccounts,
 }: BankConnectDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [connectToken, setConnectToken] = useState<string | null>(null)
   const [syncAssets, setSyncAssets] = useState(true)
+  const [reviewAccounts, setReviewAccounts] = useState(false)
   const [optionsConfirmed, setOptionsConfirmed] = useState(false)
-  // Only prompt for asset-sync when the provider actually imports holdings.
-  const needsInitialOptions = !reconnectConnectionId && supportsAssetSync
+  // Reconnects keep the settings the connection already has, allowlist included.
+  const needsInitialOptions = !reconnectConnectionId
 
   useEffect(() => {
     if (!open) {
       setConnectToken(null)
       setSyncAssets(true)
+      setReviewAccounts(false)
       setOptionsConfirmed(false)
       return
     }
@@ -74,12 +80,17 @@ export function BankConnectDialog({
       if (reconnectConnectionId) {
         await connections.sync(reconnectConnectionId)
       } else {
-        await connections.handleCallback(
+        const connection = await connections.handleCallback(
           data.item.id,
           provider,
           undefined,
-          supportsAssetSync ? { sync_assets: syncAssets } : undefined,
+          {
+            ...(supportsAssetSync ? { sync_assets: syncAssets } : {}),
+            // Empty means "import nothing yet" — the picker opens next.
+            ...(reviewAccounts ? { account_allowlist: [] } : {}),
+          },
         )
+        if (needsAccountReview(connection)) onReviewAccounts?.(connection)
       }
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
@@ -104,16 +115,35 @@ export function BankConnectDialog({
             <DialogTitle>{t('connections.initialSyncSettings')}</DialogTitle>
             <p className="text-sm text-muted-foreground">{t('connections.initialSyncSettingsDesc')}</p>
           </DialogHeader>
+          {supportsAssetSync && (
+            <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+              <div className="space-y-1">
+                <Label htmlFor="initial-sync-assets">{t('connections.syncAssets')}</Label>
+                <p className="text-xs text-muted-foreground">{t('connections.syncAssetsHint')}</p>
+              </div>
+              <input
+                id="initial-sync-assets"
+                type="checkbox"
+                checked={syncAssets}
+                onChange={(e) => setSyncAssets(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              />
+            </div>
+          )}
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
             <div className="space-y-1">
-              <Label htmlFor="initial-sync-assets">{t('connections.syncAssets')}</Label>
-              <p className="text-xs text-muted-foreground">{t('connections.syncAssetsHint')}</p>
+              <Label htmlFor="initial-review-accounts">
+                {t('connections.reviewAccountsFirst')}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t('connections.reviewAccountsFirstHint')}
+              </p>
             </div>
             <input
-              id="initial-sync-assets"
+              id="initial-review-accounts"
               type="checkbox"
-              checked={syncAssets}
-              onChange={(e) => setSyncAssets(e.target.checked)}
+              checked={reviewAccounts}
+              onChange={(e) => setReviewAccounts(e.target.checked)}
               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
             />
           </div>
