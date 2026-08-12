@@ -1,21 +1,4 @@
-import type { ConnectionSettings, ProviderAccount } from '../types'
-
-/** How many provider accounts appeared after the allowlist was configured.
- *
- * Read from the connection's own settings — the same seen/reviewed sets sync
- * records — so the connections list can show it without a provider request.
- * Mirrors the backend's status derivation: no allowlist means everything syncs
- * and nothing is pending, and an unpinned reviewed set means the accounts have
- * all been seen once already.
- */
-export function pendingAccountCount(settings: ConnectionSettings | null): number {
-  const allowlist = settings?.account_allowlist
-  if (!Array.isArray(allowlist)) return 0
-  const reviewed = settings?.reviewed_account_ids
-  if (!Array.isArray(reviewed)) return 0
-  const known = new Set([...allowlist, ...reviewed])
-  return (settings?.seen_account_ids ?? []).filter((id) => !known.has(id)).length
-}
+import type { ProviderAccount } from '../types'
 
 /** The checkbox state a freshly opened dialog starts from.
  *

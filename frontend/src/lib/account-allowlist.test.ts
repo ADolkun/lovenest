@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildAllowlist,
-  initialSelection,
-  pendingAccountCount,
-  shouldSaveAllowlist,
-} from './account-allowlist'
+import { buildAllowlist, initialSelection, shouldSaveAllowlist } from './account-allowlist'
 import type { ProviderAccount } from '../types'
 
 const account = (
@@ -18,39 +13,6 @@ const account = (
   currency: 'USD',
   has_holdings,
   status,
-})
-
-describe('pendingAccountCount', () => {
-  it('is zero without an allowlist — every account syncs, nothing awaits review', () => {
-    expect(pendingAccountCount({ seen_account_ids: ['a', 'b'] })).toBe(0)
-    expect(pendingAccountCount(null)).toBe(0)
-  })
-
-  it('counts seen accounts that are neither allowlisted nor already reviewed', () => {
-    expect(
-      pendingAccountCount({
-        account_allowlist: ['a'],
-        seen_account_ids: ['a', 'b', 'c'],
-        reviewed_account_ids: ['a', 'b'],
-      }),
-    ).toBe(1)
-  })
-
-  it('is zero when the reviewed set was never pinned', () => {
-    expect(
-      pendingAccountCount({ account_allowlist: ['a'], seen_account_ids: ['a', 'b'] }),
-    ).toBe(0)
-  })
-
-  it('treats an empty allowlist as a real selection, not as absent', () => {
-    expect(
-      pendingAccountCount({
-        account_allowlist: [],
-        seen_account_ids: ['a'],
-        reviewed_account_ids: [],
-      }),
-    ).toBe(1)
-  })
 })
 
 describe('initialSelection', () => {

@@ -3,7 +3,29 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
+
+
+def allowlist_ids(settings: Optional[dict]) -> Optional[set[str]]:
+    """Read the tri-state `account_allowlist` out of a connection's settings.
+
+    The difference between the first two states is the compatibility contract:
+
+    - absent: sync every account the provider returns (what every connection
+      did before this setting existed), signalled by None;
+    - present: sync only the listed provider account ids;
+    - present and empty: sync nothing. A valid state, not an error.
+
+    A non-list value reads as absent — a malformed setting must not silently
+    stop a connection from syncing.
+
+    Lives in the schema layer, not the service, so the connection read can
+    derive allowlist state without the service importing it back.
+    """
+    raw = (settings or {}).get("account_allowlist")
+    if not isinstance(raw, list):
+        return None
+    return {str(item) for item in raw}
 
 
 class BankConnectionBase(BaseModel):
@@ -24,6 +46,28 @@ class BankConnectionRead(BankConnectionBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pending_account_count(self) -> int:
+        """How many provider accounts appeared after the allowlist was configured.
+
+        Derived from the connection's own settings so the connections list can
+        show it without a provider request, and matches the `pending` status
+        `list_provider_accounts` derives per account.
+
+        Without a pinned reviewed set the answer is 0, not an approximation:
+        there `list_provider_accounts` treats every seen id as known, so no
+        seen account can come out pending.
+        """
+        conn_settings = self.settings or {}
+        allowlist = allowlist_ids(conn_settings)
+        reviewed = conn_settings.get("reviewed_account_ids")
+        if allowlist is None or not isinstance(reviewed, list):
+            return 0
+        known = allowlist | {str(item) for item in reviewed}
+        seen = {str(item) for item in conn_settings.get("seen_account_ids") or []}
+        return len(seen - known)
 
 
 class OAuthUrlRequest(BaseModel):

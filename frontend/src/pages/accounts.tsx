@@ -7,7 +7,6 @@ import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accounts, connections, currencies } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
-import { pendingAccountCount } from '@/lib/account-allowlist'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -337,7 +336,7 @@ export default function AccountsPage() {
                 const needsReconnect = conn.status === 'error' || conn.status === 'expired'
                 const failedAccount = connAccounts.find((a) => a.id === conn.last_sync_error_account_id)
                 const syncPending = syncMutation.isPending && syncMutation.variables === conn.id
-                const pendingAccounts = pendingAccountCount(conn.settings)
+                const pendingAccounts = conn.pending_account_count
                 return (
                   <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
                     {/* Connection header */}
