@@ -87,6 +87,25 @@ PLUGGY_CATEGORY_MAP = {
 }
 
 
+def _allowlist_ids(settings: Optional[dict]) -> Optional[set[str]]:
+    """Read the tri-state `account_allowlist` out of a connection's settings.
+
+    The difference between the first two states is the compatibility contract:
+
+    - absent: sync every account the provider returns (what every connection
+      did before this setting existed), signalled by None;
+    - present: sync only the listed provider account ids;
+    - present and empty: sync nothing. A valid state, not an error.
+
+    A non-list value reads as absent — a malformed setting must not silently
+    stop a connection from syncing.
+    """
+    raw = (settings or {}).get("account_allowlist")
+    if not isinstance(raw, list):
+        return None
+    return {str(item) for item in raw}
+
+
 def _syncable_accounts(
     connection: BankConnection, accounts: list[AccountData]
 ) -> tuple[list[AccountData], Optional[set[str]]]:
@@ -95,17 +114,6 @@ def _syncable_accounts(
     The one place the allowlist is enforced: every entity a sync creates is
     derived from the accounts this returns, so a new entity type can't bypass
     the check by adding its own code path.
-
-    `account_allowlist` is tri-state, and the difference between the first two
-    states is the compatibility contract:
-
-    - absent: sync every account the provider returns (what every connection
-      did before this setting existed);
-    - present: sync only the listed provider account ids;
-    - present and empty: sync nothing. A valid state, not an error.
-
-    A non-list value is treated as absent — a malformed setting must not
-    silently stop a connection from syncing.
 
     Also records every id the provider returned, before filtering, so the
     account-discovery endpoint can tell an account that appeared after the
@@ -119,10 +127,9 @@ def _syncable_accounts(
     updated["seen_account_ids"] = sorted({a.external_id for a in accounts})
     connection.settings = updated
 
-    raw = updated.get("account_allowlist")
-    if not isinstance(raw, list):
+    allowlist = _allowlist_ids(updated)
+    if allowlist is None:
         return accounts, None
-    allowlist = {str(item) for item in raw}
     surviving = [a for a in accounts if a.external_id in allowlist]
     return surviving, {a.external_id for a in surviving}
 
@@ -579,34 +586,43 @@ async def update_connection_settings(
 
 
 async def list_provider_accounts(
-    session: AsyncSession,
-    connection_id: uuid.UUID,
-    workspace_id: uuid.UUID,
+    connection: BankConnection,
 ) -> list[ProviderAccountRead]:
     """List every account the provider exposes, annotated with allowlist state.
 
-    One provider request, filtered here. Asking the provider per account would
-    burn a rate-limit budget measured in requests per day (SimpleFIN Bridge:
-    24/token/day, with documented token disablement for sustained overuse) and
+    One call to the provider, filtered here. Asking it per account would burn a
+    rate-limit budget measured in requests per day (SimpleFIN Bridge: 24 per
+    token per day, with documented token disablement for sustained overuse) and
     SimpleFIN's per-account filter has its own bucket on top of that.
 
     Read-only by design: nothing here writes the allowlist or the seen ids, so
     an account the provider stops returning keeps its place in the user's
     selection, and a `pending` account stays pending until a sync records it.
+
+    Takes a loaded connection rather than an id: tenancy is the caller's to
+    enforce, and it keeps "not found" out of this function's error surface.
     """
-    connection = await get_connection(session, connection_id, workspace_id)
-    if not connection:
-        raise ValueError("Connection not found")
     if not connection.credentials:
         raise ValueError("Credentials not found")
 
-    provider = get_provider(connection.provider)
+    # Resolved separately from the read below: an unregistered provider is a
+    # server misconfiguration, not a provider outage, and the two answer with
+    # different status codes.
+    try:
+        provider = get_provider(connection.provider)
+    except ValueError as exc:
+        raise ProviderNotConfiguredError(
+            f"Provider '{connection.provider}' is not configured in this process."
+        ) from exc
+
+    # A validation gate here, not a rotation point — unlike sync, this read
+    # persists nothing, so a provider that ever starts rotating credentials
+    # needs sync to be the one that stores them.
     credentials = await provider.refresh_credentials(connection.credentials)
     accounts = await provider.get_accounts(credentials)
 
     conn_settings = connection.settings or {}
-    raw = conn_settings.get("account_allowlist")
-    allowlist = {str(item) for item in raw} if isinstance(raw, list) else None
+    allowlist = _allowlist_ids(conn_settings)
     # Sync records what the provider returned; the account rows are the older
     # evidence of the same thing, for connections last synced before it did.
     known = {str(item) for item in conn_settings.get("seen_account_ids") or []}

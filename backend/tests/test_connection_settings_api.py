@@ -1,12 +1,8 @@
 """Tests for connection settings PATCH endpoint (Phase 2)."""
-import uuid
-
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
-from app.models.user import User
 
 
 @pytest.mark.asyncio
@@ -137,40 +133,6 @@ async def test_settings_visible_in_connection_list(
     assert conn["settings"]["payee_source"] == "payment_data"
 
 
-async def _other_user_headers(client: AsyncClient, session: AsyncSession) -> dict:
-    """Register a second user in their own workspace and return their auth headers."""
-    import bcrypt as _bcrypt
-
-    from app.services.workspace_service import create_personal_workspace_for_user
-
-    hashed = _bcrypt.hashpw(b"otherpass123", _bcrypt.gensalt()).decode()
-    other = User(
-        id=uuid.uuid4(),
-        email="allowlist-other@example.com",
-        hashed_password=hashed,
-        is_active=True,
-        is_superuser=False,
-        is_verified=True,
-        preferences={
-            "language": "en",
-            "date_format": "MM/DD/YYYY",
-            "timezone": "UTC",
-            "currency_display": "USD",
-        },
-    )
-    session.add(other)
-    await session.flush()
-    await create_personal_workspace_for_user(session, other)
-    await session.commit()
-
-    login = await client.post(
-        "/api/auth/login",
-        data={"username": "allowlist-other@example.com", "password": "otherpass123"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    return {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-
 @pytest.mark.asyncio
 async def test_set_account_allowlist(
     client: AsyncClient, auth_headers, test_connection: BankConnection
@@ -243,14 +205,13 @@ async def test_invalid_account_allowlist_rejected(
 async def test_account_allowlist_hidden_from_non_member(
     client: AsyncClient,
     auth_headers,
-    session: AsyncSession,
+    other_workspace_headers,
     test_connection: BankConnection,
 ):
     """A non-member of the connection's workspace gets 404, not a write."""
-    other_headers = await _other_user_headers(client, session)
     resp = await client.patch(
         f"/api/connections/{test_connection.id}/settings",
-        headers=other_headers,
+        headers=other_workspace_headers,
         json={"account_allowlist": ["acc-1"]},
     )
     assert resp.status_code == 404

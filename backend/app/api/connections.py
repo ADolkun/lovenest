@@ -258,12 +258,14 @@ async def list_provider_accounts(
     session: AsyncSession = Depends(get_async_session),
 ):
     """List the provider's accounts for this connection, with allowlist state."""
+    connection = await connection_service.get_connection(session, connection_id, ctx.workspace.id)
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
     try:
-        return await connection_service.list_provider_accounts(
-            session, connection_id, ctx.workspace.id
-        )
+        return await connection_service.list_provider_accounts(connection)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except ProviderUserActionRequired as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

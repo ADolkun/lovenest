@@ -201,14 +201,13 @@ async def test_missing_provider_account_stays_in_the_allowlist(
 
 @pytest.mark.asyncio
 async def test_non_member_gets_404(
-    client: AsyncClient, session: AsyncSession, test_connection: BankConnection
+    client: AsyncClient, other_workspace_headers, test_connection: BankConnection
 ):
     """Tenancy convention: a connection outside your workspace does not exist."""
-    from tests.test_connection_settings_api import _other_user_headers
-
-    other_headers = await _other_user_headers(client, session)
     provider = _provider([_account("acc-1")])
 
-    resp = await _list_accounts(client, other_headers, test_connection.id, provider)
+    resp = await _list_accounts(
+        client, other_workspace_headers, test_connection.id, provider
+    )
 
     assert resp.status_code == 404

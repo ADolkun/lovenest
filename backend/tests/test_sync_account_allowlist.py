@@ -404,3 +404,24 @@ async def test_first_connect_honors_an_allowlist_chosen_in_the_connect_flow(
     assert await _external_ids(session, connection) == ["acc-1"]
     assets = (await session.execute(select(Asset.external_id))).scalars().all()
     assert assets == ["h-1"]
+
+
+@pytest.mark.asyncio
+async def test_allowlist_saved_through_the_api_is_enforced_by_the_next_sync(
+    client, auth_headers, session: AsyncSession, test_user, test_workspace
+):
+    """The settings write path and the sync filter meet: saving a selection changes the import."""
+    connection = await _make_connection(session, test_user.id, test_workspace.id)
+
+    resp = await client.patch(
+        f"/api/connections/{connection.id}/settings",
+        headers=auth_headers,
+        json={"account_allowlist": ["acc-1"]},
+    )
+    assert resp.status_code == 200
+    await session.refresh(connection)
+
+    provider = _fake_provider([_account("acc-1"), _account("acc-2")])
+    await _sync(session, connection, test_workspace, test_user, provider)
+
+    assert await _external_ids(session, connection) == ["acc-1"]
