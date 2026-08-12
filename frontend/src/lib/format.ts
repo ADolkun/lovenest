@@ -147,10 +147,16 @@ export function formatCurrency(
   locale = 'en-US',
 ): string {
   if (value == null) return '—'
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value)
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+  } catch {
+    // Intl rejects anything that isn't a 3-letter ISO 4217 code, and providers
+    // report crypto units that aren't (USDT, MATIC).
+    return `${value.toFixed(2)} ${currency}`
+  }
 }

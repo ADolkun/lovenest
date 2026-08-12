@@ -77,6 +77,19 @@ return figures are quietly wrong.
 staking reward, or an airdrop. Carried for completeness, excluded from allocation
 views so it does not bury real positions.
 
+## Connections
+
+**Account Allowlist** — the set of provider accounts a Connection is permitted to
+sync. Three states, not two: absent means sync everything the provider returns,
+present means sync only what it lists, and present-but-empty means sync nothing.
+Excluding an account stops future syncs of it; it never deletes what was already
+imported.
+
+**Pending Account** — a provider account that appeared after the Account Allowlist
+was configured, so the user has never had the chance to include or exclude it. It
+does not sync while it waits, and it is distinct from an account deliberately
+excluded.
+
 ## Tenancy
 
 **Workspace** — the tenant boundary. Every financial record belongs to exactly one

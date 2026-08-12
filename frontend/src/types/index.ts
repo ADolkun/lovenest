@@ -111,6 +111,7 @@ export interface BankConnection {
   external_id: string
   status: string
   settings: ConnectionSettings | null
+  pending_account_count: number
   last_sync_at: string | null
   last_sync_error_account_id: string | null
   created_at: string
@@ -120,6 +121,20 @@ export interface ConnectionSettings {
   payee_source?: 'auto' | 'merchant' | 'payment_data' | 'description' | 'none'
   import_pending?: boolean
   sync_assets?: boolean
+  // Absent means the connection syncs every provider account (legacy); an
+  // empty list means it syncs none. The connection also carries the seen and
+  // reviewed id sets sync records, but only the backend reads those — they
+  // reach the frontend already reduced to `pending_account_count`.
+  account_allowlist?: string[]
+}
+
+export interface ProviderAccount {
+  external_id: string
+  name: string
+  balance: string
+  currency: string
+  has_holdings: boolean
+  status: 'included' | 'excluded' | 'pending'
 }
 
 export interface Account {

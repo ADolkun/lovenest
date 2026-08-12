@@ -692,7 +692,16 @@
     "syncAssetsHint": "Quando desativado, esta conexão sincroniza contas e transações, mas não altera os investimentos do provedor.",
     "initialSyncSettings": "Opções de sincronização",
     "initialSyncSettingsDesc": "Escolha o que o Securo deve importar antes de abrir o conector.",
-    "continueToConnector": "Continuar para o conector"
+    "continueToConnector": "Continuar para o conector",
+    "syncedAccounts": "Contas a sincronizar",
+    "syncedAccountsHint": "Desmarcar uma conta interrompe as próximas sincronizações dela. Os dados já importados permanecem — exclua-os você mesmo se não quiser mais.",
+    "selectAll": "Selecionar todas",
+    "deselectAll": "Desmarcar todas",
+    "accountPending": "Nova",
+    "accountHasHoldings": "Tem investimentos",
+    "accountsLoadError": "Não foi possível acessar o provedor para listar as contas.",
+    "accountsEmpty": "O provedor não retornou nenhuma conta.",
+    "accountsPending": "{{count}} para revisar"
   },
   "settings": {
     "rules": "Regras",

@@ -29,7 +29,7 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
 )
-from app.schemas.bank_connection import ProviderAccountRead
+from app.schemas.bank_connection import ProviderAccountRead, allowlist_ids
 from app.services import oauth_state
 from app.services import admin_service
 from app.services import recurring_match_service
@@ -87,25 +87,6 @@ PLUGGY_CATEGORY_MAP = {
 }
 
 
-def _allowlist_ids(settings: Optional[dict]) -> Optional[set[str]]:
-    """Read the tri-state `account_allowlist` out of a connection's settings.
-
-    The difference between the first two states is the compatibility contract:
-
-    - absent: sync every account the provider returns (what every connection
-      did before this setting existed), signalled by None;
-    - present: sync only the listed provider account ids;
-    - present and empty: sync nothing. A valid state, not an error.
-
-    A non-list value reads as absent — a malformed setting must not silently
-    stop a connection from syncing.
-    """
-    raw = (settings or {}).get("account_allowlist")
-    if not isinstance(raw, list):
-        return None
-    return {str(item) for item in raw}
-
-
 def _record_reviewed_accounts(connection: BankConnection, known_ids: set[str]) -> None:
     """Pin which provider accounts the user has already had a chance to see.
 
@@ -119,7 +100,7 @@ def _record_reviewed_accounts(connection: BankConnection, known_ids: set[str]) -
     updated = dict(connection.settings or {})
     reviewed = {str(item) for item in updated.get("seen_account_ids") or []}
     reviewed |= known_ids
-    reviewed |= _allowlist_ids(updated) or set()
+    reviewed |= allowlist_ids(updated) or set()
     updated["reviewed_account_ids"] = sorted(reviewed)
     connection.settings = updated
 
@@ -145,7 +126,7 @@ def _syncable_accounts(
     updated["seen_account_ids"] = sorted({a.external_id for a in accounts})
     connection.settings = updated
 
-    allowlist = _allowlist_ids(updated)
+    allowlist = allowlist_ids(updated)
     if allowlist is None:
         return accounts, None
     surviving = [a for a in accounts if a.external_id in allowlist]
@@ -654,7 +635,7 @@ async def list_provider_accounts(
     accounts = await provider.get_accounts(credentials)
 
     conn_settings = connection.settings or {}
-    allowlist = _allowlist_ids(conn_settings)
+    allowlist = allowlist_ids(conn_settings)
     reviewed = conn_settings.get("reviewed_account_ids")
     if reviewed is None:
         # An allowlist configured before the reviewed set was pinned. Sync's

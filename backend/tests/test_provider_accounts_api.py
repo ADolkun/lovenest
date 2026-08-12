@@ -265,3 +265,105 @@ async def test_non_member_gets_404(
     )
 
     assert resp.status_code == 404
+
+
+async def _pending_count(client: AsyncClient, headers: dict) -> int:
+    resp = await client.get("/api/connections", headers=headers)
+    assert resp.status_code == 200
+    return resp.json()[0]["pending_account_count"]
+
+
+@pytest.mark.asyncio
+async def test_pending_count_is_zero_without_an_allowlist(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """A legacy connection syncs everything, so nothing awaits review."""
+    await _set_settings(session, test_connection, {"seen_account_ids": ["acc-1", "acc-2"]})
+
+    assert await _pending_count(client, auth_headers) == 0
+
+
+@pytest.mark.asyncio
+async def test_pending_count_is_zero_when_the_reviewed_set_was_never_pinned(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """Without a pinned reviewed set every seen account already reads as known."""
+    await _set_settings(
+        session,
+        test_connection,
+        {"account_allowlist": ["acc-1"], "seen_account_ids": ["acc-1", "acc-2"]},
+    )
+
+    assert await _pending_count(client, auth_headers) == 0
+
+
+@pytest.mark.asyncio
+async def test_pending_count_counts_an_account_seen_after_review(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    await _set_settings(
+        session,
+        test_connection,
+        {
+            "account_allowlist": ["acc-1"],
+            "seen_account_ids": ["acc-1", "acc-2", "acc-3"],
+            "reviewed_account_ids": ["acc-1", "acc-2"],
+        },
+    )
+
+    assert await _pending_count(client, auth_headers) == 1
+
+
+@pytest.mark.asyncio
+async def test_pending_count_treats_an_empty_allowlist_as_a_real_selection(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """"Sync nothing" still leaves a newly appeared account awaiting review."""
+    await _set_settings(
+        session,
+        test_connection,
+        {
+            "account_allowlist": [],
+            "seen_account_ids": ["acc-1"],
+            "reviewed_account_ids": [],
+        },
+    )
+
+    assert await _pending_count(client, auth_headers) == 1
+
+
+@pytest.mark.asyncio
+async def test_pending_count_matches_the_pending_rows_of_the_provider_listing(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """The badge on the connections list and the dialog must agree."""
+    await _set_settings(
+        session,
+        test_connection,
+        {
+            "account_allowlist": ["acc-1"],
+            "seen_account_ids": ["acc-1", "acc-2"],
+            "reviewed_account_ids": ["acc-1"],
+        },
+    )
+    provider = _provider([_account("acc-1"), _account("acc-2")])
+
+    resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
+
+    pending = [row for row in resp.json() if row["status"] == "pending"]
+    assert len(pending) == await _pending_count(client, auth_headers) == 1

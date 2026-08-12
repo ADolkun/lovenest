@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { connections } from '@/lib/api'
+import { buildAllowlist, initialSelection, shouldSaveAllowlist } from '@/lib/account-allowlist'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ProviderAccountPicker } from '@/components/provider-account-picker'
 import type { BankConnection, ConnectionSettings } from '@/types'
 
 type PayeeSource = NonNullable<ConnectionSettings['payee_source']>
@@ -39,6 +41,7 @@ export function ConnectionSettingsDialog({
   const [payeeSource, setPayeeSource] = useState<PayeeSource>('auto')
   const [importPending, setImportPending] = useState(true)
   const [syncAssets, setSyncAssets] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (connection) {
@@ -49,6 +52,37 @@ export function ConnectionSettingsDialog({
     }
   }, [connection])
 
+  // Only while the dialog is open, and exactly once per opening: this one costs
+  // a provider request against a daily budget, and a refetch behind the user's
+  // back would also reset the ticks they have not saved yet. gcTime 0 is what
+  // makes reopening fetch fresh rather than replay a cached list.
+  const providerAccounts = useQuery({
+    // Deliberately not under the 'connections' key: invalidating that list
+    // after a save or a sync would spend another provider request.
+    queryKey: ['provider-accounts', connection?.id],
+    queryFn: () => connections.listProviderAccounts(connection!.id),
+    enabled: open && !!connection,
+    staleTime: Infinity,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  })
+  const accountList = providerAccounts.data
+
+  useEffect(() => {
+    if (accountList) setSelected(initialSelection(accountList))
+  }, [accountList])
+
+  const allSelected = !!accountList?.length && accountList.every((a) => selected.has(a.external_id))
+
+  const toggle = (externalId: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(externalId)) next.add(externalId)
+      return next
+    })
+
   const mutation = useMutation({
     mutationFn: () =>
       connections.updateSettings(connection!.id, {
@@ -57,6 +91,18 @@ export function ConnectionSettingsDialog({
         import_pending: importPending,
         // Only persist asset-sync for connectors that actually import holdings.
         ...(supportsAssetSync ? { sync_assets: syncAssets } : {}),
+        // Omitted when the listing failed: an allowlist rebuilt from accounts
+        // we could not read would exclude everything the provider didn't return.
+        ...(accountList &&
+        shouldSaveAllowlist(selected, accountList, connection!.settings?.account_allowlist)
+          ? {
+              account_allowlist: buildAllowlist(
+                selected,
+                accountList,
+                connection!.settings?.account_allowlist,
+              ),
+            }
+          : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connections'] })
@@ -123,6 +169,20 @@ export function ConnectionSettingsDialog({
               />
             </div>
           )}
+          <ProviderAccountPicker
+            accounts={accountList}
+            selected={selected}
+            allSelected={allSelected}
+            isLoading={providerAccounts.isLoading}
+            isError={providerAccounts.isError}
+            onToggle={toggle}
+            onToggleAll={() =>
+              setSelected(
+                allSelected ? new Set() : new Set(accountList?.map((a) => a.external_id)),
+              )
+            }
+            onRetry={() => void providerAccounts.refetch()}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onReconnect}>
