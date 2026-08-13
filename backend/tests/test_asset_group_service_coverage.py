@@ -40,10 +40,10 @@ async def _add_asset(session, user_id, workspace_id, group_id, *, currency="BRL"
         session.add(AssetValue(
             id=uuid.uuid4(),
             asset_id=asset.id,
-            workspace_id=workspace_id,
+        workspace_id=workspace_id,
             amount=value_amount,
             date=date.today(),
-            source="manual",
+        source="manual",
         ))
         await session.flush()
     return asset
@@ -205,10 +205,18 @@ async def test_delete_group(session: AsyncSession, test_user, test_workspace):
 
 
 @pytest.mark.asyncio
-async def test_ensure_group_for_connection_creates_then_relinks(session: AsyncSession, test_user):
+async def test_ensure_group_for_connection_creates_then_relinks(
+    session: AsyncSession, test_user, test_workspace
+):
     conn_id = uuid.uuid4()
     g = await svc.ensure_group_for_connection(
-        session, test_user.id, conn_id, "pluggy", "ext-1", "MeuPluggy"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn_id,
+        source="pluggy",
+        external_id="ext-1",
+        default_name="MeuPluggy",
     )
     assert g.name == "MeuPluggy"
     assert g.connection_id == conn_id
@@ -217,7 +225,13 @@ async def test_ensure_group_for_connection_creates_then_relinks(session: AsyncSe
     # Same external_id, new connection -> relink, keep name.
     new_conn = uuid.uuid4()
     g2 = await svc.ensure_group_for_connection(
-        session, test_user.id, new_conn, "pluggy", "ext-1", "Renamed"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=new_conn,
+        source="pluggy",
+        external_id="ext-1",
+        default_name="Renamed",
     )
     assert g2.id == g.id
     assert g2.connection_id == new_conn
@@ -225,28 +239,62 @@ async def test_ensure_group_for_connection_creates_then_relinks(session: AsyncSe
 
 
 @pytest.mark.asyncio
-async def test_ensure_group_for_connection_matches_by_connection_id(session: AsyncSession, test_user):
+async def test_ensure_group_for_connection_matches_by_connection_id(
+    session: AsyncSession, test_user, test_workspace
+):
     conn_id = uuid.uuid4()
     g = await svc.ensure_group_for_connection(
-        session, test_user.id, conn_id, "pluggy", None, "NoExtId"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn_id,
+        source="pluggy",
+        external_id=None,
+        default_name="NoExtId",
     )
     g2 = await svc.ensure_group_for_connection(
-        session, test_user.id, conn_id, "pluggy", None, "Other"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn_id,
+        source="pluggy",
+        external_id=None,
+        default_name="Other",
     )
     assert g2.id == g.id
 
 
 @pytest.mark.asyncio
-async def test_ensure_group_for_connection_disambiguates_name(session: AsyncSession, test_user):
+async def test_ensure_group_for_connection_disambiguates_name(
+    session: AsyncSession, test_user, test_workspace
+):
     # Two distinct external ids, same default name -> " 2" suffix.
     g1 = await svc.ensure_group_for_connection(
-        session, test_user.id, uuid.uuid4(), "pluggy", "ext-a", "MeuPluggy"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=uuid.uuid4(),
+        source="pluggy",
+        external_id="ext-a",
+        default_name="MeuPluggy",
     )
     g2 = await svc.ensure_group_for_connection(
-        session, test_user.id, uuid.uuid4(), "pluggy", "ext-b", "MeuPluggy"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=uuid.uuid4(),
+        source="pluggy",
+        external_id="ext-b",
+        default_name="MeuPluggy",
     )
     g3 = await svc.ensure_group_for_connection(
-        session, test_user.id, uuid.uuid4(), "pluggy", "ext-c", "MeuPluggy"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=uuid.uuid4(),
+        source="pluggy",
+        external_id="ext-c",
+        default_name="MeuPluggy",
     )
     assert g1.name == "MeuPluggy"
     assert g2.name == "MeuPluggy 2"
@@ -274,10 +322,18 @@ async def test_tax_treatment_defaults_to_taxable_and_is_editable(
 
 
 @pytest.mark.asyncio
-async def test_synced_wallet_gets_default_tax_treatment(session: AsyncSession, test_user):
+async def test_synced_wallet_gets_default_tax_treatment(
+    session: AsyncSession, test_user, test_workspace
+):
     conn_id = uuid.uuid4()
     g = await svc.ensure_group_for_connection(
-        session, test_user.id, conn_id, "simplefin", "ext-tax", "Fidelity"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn_id,
+        source="simplefin",
+        external_id="ext-tax",
+        default_name="Fidelity",
     )
     assert g.tax_treatment == "taxable"
 
@@ -285,7 +341,13 @@ async def test_synced_wallet_gets_default_tax_treatment(session: AsyncSession, t
     g.tax_treatment = "roth"
     await session.commit()
     again = await svc.ensure_group_for_connection(
-        session, test_user.id, conn_id, "simplefin", "ext-tax", "Fidelity"
+        session,
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn_id,
+        source="simplefin",
+        external_id="ext-tax",
+        default_name="Fidelity",
     )
     assert again.id == g.id
     assert again.tax_treatment == "roth"

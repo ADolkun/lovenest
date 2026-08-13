@@ -174,12 +174,10 @@ async def get_group(
     return _group_to_read(group, count, cv, cvp, institution)
 
 
-async def _next_position(session: AsyncSession, user_id: uuid.UUID) -> int:
-    # Position is per-user for sync compatibility — the connection sync path
-    # also calls this, and isn't yet workspace-scoped.
+async def _next_position(session: AsyncSession, workspace_id: uuid.UUID) -> int:
     row = await session.execute(
         select(func.coalesce(func.max(AssetGroup.position), -1) + 1).where(
-            AssetGroup.user_id == user_id
+            AssetGroup.workspace_id == workspace_id
         )
     )
     return int(row.scalar() or 0)
@@ -195,7 +193,7 @@ async def create_group(
     # groups don't fight with existing drag-ordered ones.
     position = data.position
     if position == 0:
-        position = await _next_position(session, user_id)
+        position = await _next_position(session, workspace_id)
     group = AssetGroup(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -250,6 +248,7 @@ async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id:
 async def ensure_group_for_connection(
     session: AsyncSession,
     user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     connection_id: uuid.UUID,
     source: str,
     external_id: Optional[str],
@@ -259,14 +258,21 @@ async def ensure_group_for_connection(
 
     Called during sync before holdings are upserted so newly-created
     Assets can attach to the group in the same transaction. Matching
-    prefers (user_id, source, external_id) when external_id is set;
-    otherwise (user_id, source, connection_id). The name is only applied
-    on creation — users are free to rename synced groups later.
+    prefers (user_id, workspace_id, source, external_id) when external_id is
+    set; otherwise (user_id, workspace_id, source, connection_id). The name is
+    only applied on creation — users are free to rename synced groups later.
+
+    `workspace_id` is load-bearing: one user can link the same provider item
+    once per workspace, so (user_id, source, external_id) is not unique and
+    would otherwise match the other workspace's wallet. `user_id` is kept
+    alongside it, so two members of a shared workspace who each link the same
+    institution get a wallet apiece rather than sharing one row.
     """
     # Prefer matching by external_id (Pluggy item id). Falls back to
     # connection_id which is less stable (connection can be deleted/recreated).
     query = select(AssetGroup).where(
         AssetGroup.user_id == user_id,
+        AssetGroup.workspace_id == workspace_id,
         AssetGroup.source == source,
     )
     if external_id:
@@ -282,15 +288,16 @@ async def ensure_group_for_connection(
             group.connection_id = connection_id
         return group
 
-    position = await _next_position(session, user_id)
+    position = await _next_position(session, workspace_id)
     # Disambiguate when the user has multiple connections from the same
     # institution (common with Pluggy sandbox, where every item comes back
     # as "MeuPluggy"). Appends " 2", " 3", etc. until we find a free name.
     # User can rename freely afterwards without affecting sync matching,
     # which keys on external_id, not on name.
-    unique_name = await _unique_default_name(session, user_id, default_name)
+    unique_name = await _unique_default_name(session, workspace_id, default_name)
     group = AssetGroup(
         user_id=user_id,
+        workspace_id=workspace_id,
         name=unique_name,
         icon="wallet",
         color="#0EA5E9",
@@ -305,11 +312,11 @@ async def ensure_group_for_connection(
 
 
 async def _unique_default_name(
-    session: AsyncSession, user_id: uuid.UUID, base: str
+    session: AsyncSession, workspace_id: uuid.UUID, base: str
 ) -> str:
-    """Return `base` or the first free `base N` for this user."""
+    """Return `base` or the first free `base N` in this workspace."""
     existing_rows = await session.execute(
-        select(AssetGroup.name).where(AssetGroup.user_id == user_id)
+        select(AssetGroup.name).where(AssetGroup.workspace_id == workspace_id)
     )
     taken = {row[0] for row in existing_rows.all()}
     if base not in taken:
