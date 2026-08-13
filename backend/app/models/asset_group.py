@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,19 @@ class AssetGroup(Base):
         CheckConstraint(
             "tax_treatment IN ('taxable', 'roth', 'traditional', 'hsa', 'other')",
             name="ck_asset_groups_tax_treatment",
+        ),
+        # Mirrors migration 071. Declared here so the SQLite test database
+        # enforces it too — while this index lived only in the migration, a
+        # cross-workspace duplicate passed every test and failed on Postgres.
+        Index(
+            "ux_asset_groups_workspace_source_external",
+            "workspace_id",
+            "user_id",
+            "source",
+            "external_id",
+            unique=True,
+            sqlite_where=text("external_id IS NOT NULL"),
+            postgresql_where=text("external_id IS NOT NULL"),
         ),
     )
 

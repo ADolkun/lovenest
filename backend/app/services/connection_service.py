@@ -162,9 +162,9 @@ async def _sync_holdings(
     """Fetch investment holdings from the provider and upsert them as Assets.
 
     Each holding becomes one Asset (type="investment") keyed by
-    (user_id, source, external_id). Every sync appends an AssetValue row
-    dated today; if a row for today already exists (same day re-sync) it
-    is updated in place rather than creating a duplicate.
+    (user_id, workspace_id, source, external_id). Every sync appends an
+    AssetValue row dated today; if a row for today already exists (same day
+    re-sync) it is updated in place rather than creating a duplicate.
 
     Holdings that disappear from the provider response (e.g. fully
     redeemed fixed income) get archived rather than deleted so the user
@@ -219,6 +219,7 @@ async def _sync_holdings(
         group = await ensure_group_for_connection(
             session,
             user_id=user_id,
+            workspace_id=connection.workspace_id,
             connection_id=connection.id,
             source=source,
             external_id=connection.external_id,
@@ -228,10 +229,13 @@ async def _sync_holdings(
     # Also pull orphans (connection_id IS NULL) with the same source —
     # those are assets archived by a prior disconnect. Re-matching on
     # external_id lets users re-link their investment history when they
-    # re-add a connection without creating duplicate rows.
+    # re-add a connection without creating duplicate rows. Confined to the
+    # connection's workspace: the same user can hold the same provider
+    # external_id in another workspace, and adoption must not cross over.
     existing_rows = await session.execute(
         select(Asset).where(
             Asset.user_id == user_id,
+            Asset.workspace_id == connection.workspace_id,
             Asset.source == source,
             or_(Asset.connection_id == connection.id, Asset.connection_id.is_(None)),
         )
@@ -2141,7 +2145,8 @@ async def delete_connection(
     # Archive synced investment assets rather than deleting them: the user
     # may still want to see their historical AssetValue trend, and if they
     # re-connect the same provider later we can un-archive by matching
-    # (user_id, source, external_id). The FK's ON DELETE SET NULL will
+    # (user_id, workspace_id, source, external_id) — re-adoption stays inside
+    # this workspace. The FK's ON DELETE SET NULL will
     # then clear connection_id when the row is removed below.
     await session.execute(
         update(Asset)

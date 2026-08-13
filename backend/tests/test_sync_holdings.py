@@ -24,6 +24,7 @@ from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.providers import register_provider
 from app.providers.base import (
     AccountData,
@@ -93,18 +94,23 @@ def _register_mock_provider():
 # ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture
-async def mock_connection(session: AsyncSession, test_user: User) -> BankConnection:
-    conn = BankConnection(
+def _connection(user_id, *, external_id: str = "item-abc", workspace_id=None) -> BankConnection:
+    return BankConnection(
         id=uuid.uuid4(),
-        user_id=test_user.id,
+        user_id=user_id,
+        workspace_id=workspace_id,
         provider="mock",
-        external_id="item-abc",
+        external_id=external_id,
         institution_name="Mock Bank",
-        credentials={"item_id": "item-abc"},
+        credentials={"item_id": external_id},
         status="active",
         created_at=datetime.now(timezone.utc),
     )
+
+
+@pytest_asyncio.fixture
+async def mock_connection(session: AsyncSession, test_user: User) -> BankConnection:
+    conn = _connection(test_user.id)
     session.add(conn)
     await session.commit()
     await session.refresh(conn)
@@ -641,3 +647,122 @@ async def test_next_day_sync_appends_new_asset_value(
     assert len(rows) == 2
     assert rows[0].date == yesterday and rows[0].amount == Decimal("100")
     assert rows[1].date == date.today() and rows[1].amount == Decimal("105")
+
+
+# ---------------------------------------------------------------------------
+# Workspace isolation (#75)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def second_workspace(session: AsyncSession, test_user: User) -> Workspace:
+    ws = Workspace(
+        id=uuid.uuid4(),
+        name="Casa",
+        kind="household",
+        created_by_user_id=test_user.id,
+        default_currency="BRL",
+        locale="pt-BR",
+    )
+    session.add(ws)
+    await session.flush()
+    session.add(
+        WorkspaceMember(id=uuid.uuid4(), workspace_id=ws.id, user_id=test_user.id, role="owner")
+    )
+    await session.commit()
+    return ws
+
+
+@pytest.mark.asyncio
+async def test_sync_never_touches_the_other_workspace_wallet(
+    session: AsyncSession,
+    test_user: User,
+    mock_connection: BankConnection,
+    second_workspace: Workspace,
+):
+    """One user, two workspaces, one provider external_id.
+
+    The real setup: the same SimpleFIN member linked once per workspace, so
+    both connections carry an identical (user_id, source, external_id). Syncing
+    the second workspace must build its own wallet, not adopt the first's.
+    """
+    # A wallet already exists in the first workspace for this external_id.
+    personal_wallet = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=mock_connection.workspace_id,
+        name="Mock Bank",
+        source="mock",
+        connection_id=mock_connection.id,
+        external_id="item-abc",
+    )
+    session.add(personal_wallet)
+
+    # Second connection: same user, same provider item, other workspace.
+    other_conn = _connection(test_user.id, workspace_id=second_workspace.id)
+    session.add(other_conn)
+    await session.commit()
+
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("500"))]
+    assert other_conn.credentials is not None
+    await _sync_holdings(session, test_user.id, other_conn, other_conn.credentials)
+    await session.commit()
+
+    await session.refresh(personal_wallet)
+    assert personal_wallet.connection_id == mock_connection.id
+    assert personal_wallet.workspace_id == mock_connection.workspace_id
+
+    assets = await _assets_for(session, test_user)
+    assert len(assets) == 1
+    asset = assets[0]
+    assert asset.workspace_id == second_workspace.id
+    assert asset.group_id is not None and asset.group_id != personal_wallet.id
+    wallet = await session.get(AssetGroup, asset.group_id)
+    assert wallet is not None and wallet.workspace_id == second_workspace.id
+    # Names and positions are per-workspace: neither the " 2" suffix nor the
+    # position counter may disclose the other workspace's wallet count.
+    assert wallet.name == "Mock Bank"
+    assert wallet.position == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_does_not_adopt_the_other_workspace_orphan_asset(
+    session: AsyncSession,
+    test_user: User,
+    mock_connection: BankConnection,
+    second_workspace: Workspace,
+):
+    """An asset orphaned by a disconnect in one workspace stays there."""
+    orphan = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=mock_connection.workspace_id,
+        connection_id=None,
+        source="mock",
+        external_id="h-1",
+        name="CDB NU",
+        type="investment",
+        currency="BRL",
+        is_archived=True,
+    )
+    session.add(orphan)
+    other_conn = _connection(
+        test_user.id, external_id="item-other", workspace_id=second_workspace.id
+    )
+    session.add(other_conn)
+    await session.commit()
+
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("500"))]
+    assert other_conn.credentials is not None
+    await _sync_holdings(session, test_user.id, other_conn, other_conn.credentials)
+    await session.commit()
+
+    await session.refresh(orphan)
+    assert orphan.connection_id is None
+    assert orphan.is_archived is True
+
+    assets = await _assets_for(session, test_user)
+    assert len(assets) == 2
+    fresh = [a for a in assets if a.id != orphan.id][0]
+    assert fresh.workspace_id == second_workspace.id
+    assert fresh.connection_id == other_conn.id
