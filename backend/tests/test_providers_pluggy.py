@@ -380,3 +380,23 @@ def test_build_holding_data_leaves_account_link_unset():
 
     out = _build_holding_data({"id": "inv-1", "name": "CDB", "balance": 100})
     assert out.account_external_id is None
+
+
+def test_build_holding_data_keeps_real_acquisition_date():
+    """For FIXED_INCOME, issueDate *is* when the user bought in."""
+    from app.providers.pluggy import _build_holding_data
+
+    out = _build_holding_data(
+        {"id": "inv-1", "name": "CDB", "type": "FIXED_INCOME", "issueDate": "2024-03-11"}
+    )
+    assert out.purchase_date == date(2024, 3, 11)
+
+
+def test_build_holding_data_leaves_acquisition_date_unset_for_equity():
+    """An equity's issueDate is the security's, not the user's — not a buy date."""
+    from app.providers.pluggy import _build_holding_data
+
+    out = _build_holding_data(
+        {"id": "inv-2", "name": "PETR4", "type": "EQUITY", "issueDate": "1997-05-20"}
+    )
+    assert out.purchase_date is None

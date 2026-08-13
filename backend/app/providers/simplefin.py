@@ -531,7 +531,12 @@ class SimpleFinProvider(BankProvider):
                         if (shares := _to_decimal(raw.get("shares")))
                         else None,
                         purchase_price=_to_decimal(raw.get("purchase_price")),
-                        purchase_date=_epoch_to_date(raw.get("created")),
+                        # No purchase_date: SimpleFIN exposes no acquisition
+                        # date. `created` is when the aggregator first saw the
+                        # holding, so using it stamps every synced position
+                        # with the sync date and silently breaks any
+                        # holding-period figure. Left unset instead; real
+                        # acquisition dates come from the one-time export.
                         isin=raw.get("isin"),
                         account_external_id=account_id,
                         metadata={
