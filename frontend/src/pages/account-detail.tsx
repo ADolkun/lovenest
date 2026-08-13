@@ -25,6 +25,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
+import { formatCurrency } from '@/lib/format'
 import {
   AreaChart,
   Area,
@@ -228,10 +229,6 @@ function creditCardCycleBoundaries(
     start: format(start, 'yyyy-MM-dd'),
     end: format(end, 'yyyy-MM-dd'),
   }
-}
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 function formatDateStr(dateStr: string, locale = 'pt-BR') {

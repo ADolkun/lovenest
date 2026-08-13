@@ -58,6 +58,7 @@ import { MobileTransactionRow } from '@/components/mobile-transaction-row'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
+import { formatCurrency } from '@/lib/format'
 
 type TransactionUpdatePayload = Partial<Transaction> & {
   apply_to_transfer_pair?: boolean
@@ -66,10 +67,6 @@ type TransactionUpdatePayload = Partial<Transaction> & {
 type PendingTransferCategoryUpdate = {
   id: string
   data: TransactionUpdatePayload
-}
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 function parseHashtags(notes: string | null): string[] {

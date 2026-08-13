@@ -16,10 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowRight, AlertTriangle, Info, ArrowLeft, Search, Sparkles } from 'lucide-react'
 import { transactions as transactionsApi } from '@/lib/api'
 import type { Account, Transaction } from '@/types'
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
-}
+import { formatCurrency } from '@/lib/format'
 
 type CounterpartCardProps = {
   label: string

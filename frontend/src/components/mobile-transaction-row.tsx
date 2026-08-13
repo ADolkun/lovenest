@@ -5,10 +5,7 @@ import type { Transaction, Account } from '@/types'
 import { AlertTriangle, ArrowLeftRight, Clock, EyeClosed, Paperclip } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useTranslation } from 'react-i18next'
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
-}
+import { formatCurrency } from '@/lib/format'
 
 interface MobileTransactionRowProps {
   tx: Transaction

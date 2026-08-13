@@ -10,13 +10,10 @@ import { getAccountName } from '@/lib/account-utils'
 import { activityChartData, dayActivity } from '@/lib/calendar-activity'
 import { weekdayShortLabels } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
+import { formatCurrency } from '@/lib/format'
 
 function parseLocalDate(value: string) {
   return new Date(`${value}T00:00:00`)
-}
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
 }
 
 function compactCurrency(value: number, currency = 'USD', locale = 'en-US') {

@@ -60,6 +60,7 @@ import { GlobalChatPanel } from '@/components/global-chat-panel'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { Bot, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { formatCurrency } from '@/lib/format'
 
 /** Placeholder rows shown while the workspace's module list is in flight. */
 function NavSkeleton() {
@@ -79,12 +80,6 @@ function NavSkeleton() {
         </div>
       ))}
     </div>
-  )
-}
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(
-    value,
   )
 }
 

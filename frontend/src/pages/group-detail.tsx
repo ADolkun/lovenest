@@ -50,10 +50,7 @@ import { CategoryIcon } from '@/components/category-icon'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { PageHeader } from '@/components/page-header'
 import type { GroupMember, GroupSettlement, Transaction } from '@/types'
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
-}
+import { formatCurrency } from '@/lib/format'
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
