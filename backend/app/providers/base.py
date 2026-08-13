@@ -73,7 +73,11 @@ class AccountData:
     # Whether the provider lists investment holdings under this account.
     # Only a full account fetch can answer this — SimpleFIN's balances-only
     # mode strips holdings, so it must not be used on a path that sets this.
-    has_holdings: bool = False
+    # None means the provider does not report the relationship at all (Pluggy's
+    # investments are item-level; Enable Banking has none), which is an
+    # abstention: answering False there would tell the user an investment
+    # account holds nothing.
+    has_holdings: Optional[bool] = None
 
 
 @dataclass

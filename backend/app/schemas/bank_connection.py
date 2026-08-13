@@ -5,27 +5,12 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-
-def allowlist_ids(settings: Optional[dict]) -> Optional[set[str]]:
-    """Read the tri-state `account_allowlist` out of a connection's settings.
-
-    The difference between the first two states is the compatibility contract:
-
-    - absent: sync every account the provider returns (what every connection
-      did before this setting existed), signalled by None;
-    - present: sync only the listed provider account ids;
-    - present and empty: sync nothing. A valid state, not an error.
-
-    A non-list value reads as absent — a malformed setting must not silently
-    stop a connection from syncing.
-
-    Lives in the schema layer, not the service, so the connection read can
-    derive allowlist state without the service importing it back.
-    """
-    raw = (settings or {}).get("account_allowlist")
-    if not isinstance(raw, list):
-        return None
-    return {str(item) for item in raw}
+from app.core.connection_settings import (
+    AccountStatus,
+    account_status,
+    known_account_ids,
+    seen_account_ids,
+)
 
 
 class BankConnectionBase(BaseModel):
@@ -53,21 +38,16 @@ class BankConnectionRead(BankConnectionBase):
         """How many provider accounts appeared after the allowlist was configured.
 
         Derived from the connection's own settings so the connections list can
-        show it without a provider request, and matches the `pending` status
-        `list_provider_accounts` derives per account.
-
-        Without a pinned reviewed set the answer is 0, not an approximation:
-        there `list_provider_accounts` treats every seen id as known, so no
-        seen account can come out pending.
+        show it without a provider request, over the same rule
+        `list_provider_accounts` applies per account — the accounts here are the
+        ones the last sync saw rather than a fresh provider read.
         """
-        conn_settings = self.settings or {}
-        allowlist = allowlist_ids(conn_settings)
-        reviewed = conn_settings.get("reviewed_account_ids")
-        if allowlist is None or not isinstance(reviewed, list):
-            return 0
-        known = allowlist | {str(item) for item in reviewed}
-        seen = {str(item) for item in conn_settings.get("seen_account_ids") or []}
-        return len(seen - known)
+        known = known_account_ids(self.settings)
+        return sum(
+            1
+            for external_id in seen_account_ids(self.settings)
+            if account_status(self.settings, external_id, known) == "pending"
+        )
 
 
 class OAuthUrlRequest(BaseModel):
@@ -131,6 +111,13 @@ class ConnectionSettingsUpdate(BaseModel):
     # connection on legacy behaviour (sync everything); an empty list is a
     # valid selection meaning "sync nothing", not a reset.
     account_allowlist: Optional[list[str]] = None
+    # Provider account ids the picker had on screen when the allowlist was
+    # saved. Only the client knows this: an account that turned up at the
+    # provider since the last sync is in no set the server holds yet, so
+    # without it an account the user deliberately unchecked comes back as
+    # pending on the next sync. Read only alongside `account_allowlist`, and
+    # never stored verbatim — it feeds the reviewed set.
+    reviewed_account_ids: Optional[list[str]] = None
 
 
 class ProviderAccountRead(BaseModel):
@@ -144,5 +131,6 @@ class ProviderAccountRead(BaseModel):
     name: str
     balance: Decimal
     currency: str
-    has_holdings: bool
-    status: Literal["included", "excluded", "pending"]
+    # None where the provider does not say — an abstention, not "no holdings".
+    has_holdings: Optional[bool]
+    status: AccountStatus

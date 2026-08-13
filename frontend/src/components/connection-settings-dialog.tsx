@@ -101,6 +101,9 @@ export function ConnectionSettingsDialog({
                 accountList,
                 connection!.settings?.account_allowlist,
               ),
+              // What the user was shown, so an account they unchecked here is
+              // not offered again as pending after the next sync.
+              reviewed_account_ids: accountList.map((a) => a.external_id),
             }
           : {}),
       }),

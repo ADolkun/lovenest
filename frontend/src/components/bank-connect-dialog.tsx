@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { ReviewAccountsToggle } from '@/components/review-accounts-toggle'
 import type { BankConnection } from '@/types'
 
 interface BankConnectDialogProps {
@@ -130,23 +131,11 @@ export function BankConnectDialog({
               />
             </div>
           )}
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
-            <div className="space-y-1">
-              <Label htmlFor="initial-review-accounts">
-                {t('connections.reviewAccountsFirst')}
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                {t('connections.reviewAccountsFirstHint')}
-              </p>
-            </div>
-            <input
-              id="initial-review-accounts"
-              type="checkbox"
-              checked={reviewAccounts}
-              onChange={(e) => setReviewAccounts(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
-            />
-          </div>
+          <ReviewAccountsToggle
+            id="initial-review-accounts"
+            checked={reviewAccounts}
+            onChange={setReviewAccounts}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={handleClose}>{t('common.cancel')}</Button>
             <Button onClick={() => setOptionsConfirmed(true)}>{t('connections.continueToConnector')}</Button>
