@@ -152,6 +152,54 @@ def _ticker(value: Any) -> Optional[str]:
     return value.strip().upper()[:32] or None
 
 
+def _build_holding_data(
+    raw: dict, account_currency: str, account_external_id: Optional[str]
+) -> Optional[HoldingData]:
+    """Map one SimpleFIN holding row to HoldingData.
+
+    Returns None for rows the sync must drop: no id to key an upsert on, or no
+    market value, which is the only figure SimpleFIN always reports — without
+    it there is no position to record.
+    """
+    holding_id = str(raw.get("id") or "")
+    if not holding_id:
+        return None
+    market_value = _to_decimal(raw.get("market_value"))
+    if market_value is None:
+        return None
+    shares = _to_decimal(raw.get("shares"))
+    cost_basis = _to_decimal(raw.get("cost_basis"))
+    return HoldingData(
+        external_id=holding_id,
+        name=raw.get("description") or raw.get("symbol") or holding_id,
+        currency=_iso_currency(raw.get("currency"), account_currency) or account_currency,
+        ticker=_ticker(raw.get("symbol")),
+        current_value=market_value,
+        quantity=shares,
+        unit_price=market_value / shares if shares else None,
+        # SimpleFIN's `purchase_price` is per share; ours is the total cost
+        # basis, which is `cost_basis` here. Without one the holding records no
+        # basis at all: deriving from shares × per-share price would read as a
+        # reported total (issue #72). A zero counts as missing — bridges send
+        # 0.00 for "not populated", and a real zero basis would report the
+        # whole market value as gain.
+        purchase_price=cost_basis or None,
+        # No purchase_date: SimpleFIN exposes no acquisition date. `created` is
+        # when the aggregator first saw the holding, so using it stamps every
+        # synced position with the sync date and silently breaks any
+        # holding-period figure. Left unset instead; real acquisition dates
+        # come from the one-time export.
+        isin=raw.get("isin"),
+        account_external_id=account_external_id,
+        metadata={
+            "symbol": raw.get("symbol"),
+            "cost_basis": str(raw.get("cost_basis"))
+            if raw.get("cost_basis") is not None
+            else None,
+        },
+    )
+
+
 def _surface_errors(
     errlist: list[dict], context: str, *, has_usable_data: bool = False
 ) -> list[dict]:
@@ -513,49 +561,9 @@ class SimpleFinProvider(BankProvider):
             acc_currency = raw_acc.get("currency") or "USD"
             account_id = str(raw_acc.get("id") or "") or None
             for raw in raw_acc.get("holdings") or []:
-                holding_id = str(raw.get("id") or "")
-                if not holding_id:
-                    continue
-                market_value = _to_decimal(raw.get("market_value"))
-                if market_value is None:
-                    continue
-                cost_basis = _to_decimal(raw.get("cost_basis"))
-                holdings.append(
-                    HoldingData(
-                        external_id=holding_id,
-                        name=raw.get("description") or raw.get("symbol") or holding_id,
-                        currency=_iso_currency(raw.get("currency"), acc_currency) or acc_currency,
-                        ticker=_ticker(raw.get("symbol")),
-                        current_value=market_value,
-                        quantity=_to_decimal(raw.get("shares")),
-                        unit_price=market_value / shares
-                        if (shares := _to_decimal(raw.get("shares")))
-                        else None,
-                        # SimpleFIN's `purchase_price` is per share; ours is
-                        # the total cost basis, which is `cost_basis` here.
-                        # Without one the holding records no basis at all:
-                        # deriving from shares × per-share price would read as
-                        # a reported total (issue #72). A zero counts as
-                        # missing — bridges send 0.00 for "not populated", and
-                        # a real zero basis would report the whole market
-                        # value as gain.
-                        purchase_price=cost_basis or None,
-                        # No purchase_date: SimpleFIN exposes no acquisition
-                        # date. `created` is when the aggregator first saw the
-                        # holding, so using it stamps every synced position
-                        # with the sync date and silently breaks any
-                        # holding-period figure. Left unset instead; real
-                        # acquisition dates come from the one-time export.
-                        isin=raw.get("isin"),
-                        account_external_id=account_id,
-                        metadata={
-                            "symbol": raw.get("symbol"),
-                            "cost_basis": str(raw.get("cost_basis"))
-                            if raw.get("cost_basis") is not None
-                            else None,
-                        },
-                    )
-                )
+                parsed = _build_holding_data(raw, acc_currency, account_id)
+                if parsed is not None:
+                    holdings.append(parsed)
         return holdings
 
     async def refresh_credentials(self, credentials: dict) -> dict:

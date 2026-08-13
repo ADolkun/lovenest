@@ -18,6 +18,7 @@ from app.providers.base import ProviderUserActionRequired, SessionExpiredError
 from app.providers.simplefin import (
     SimpleFinProvider,
     _accounts_url_and_auth,
+    _build_holding_data,
     _decode_setup_token,
     _epoch_to_date,
 )
@@ -455,6 +456,102 @@ async def test_get_transactions_followup_rewinds_one_valid_full_window():
 
     assert len(calls) == 1
     assert calls[0][1] - calls[0][0] == 45 * 24 * 60 * 60
+
+
+# ----- holding mapping (pure) -------------------------------------------------
+
+
+def test_build_holding_data_maps_a_full_row():
+    holding = _build_holding_data(
+        {
+            "id": "h-1",
+            "description": "Apple",
+            "symbol": "AAPL",
+            "currency": "EUR",
+            "market_value": "105884.80",
+            "shares": "550.0",
+            "purchase_price": "0.10",
+            "cost_basis": "55.00",
+            "created": 1735689600,
+            "isin": "US0378331005",
+        },
+        "USD",
+        "acc-1",
+    )
+    assert holding is not None
+    assert holding.external_id == "h-1"
+    assert holding.name == "Apple"
+    assert holding.currency == "EUR"
+    assert holding.ticker == "AAPL"
+    assert holding.current_value == Decimal("105884.80")
+    assert holding.quantity == Decimal("550.0")
+    assert holding.unit_price == Decimal("105884.80") / Decimal("550.0")
+    # purchase_price is a total on our side: cost_basis, not the 0.10 per share.
+    assert holding.purchase_price == Decimal("55.00")
+    assert holding.isin == "US0378331005"
+    assert holding.account_external_id == "acc-1"
+    assert (holding.metadata or {}).get("cost_basis") == "55.00"
+
+
+def test_build_holding_data_drops_a_row_with_no_market_value():
+    assert _build_holding_data({"id": "h-2", "shares": "1"}, "USD", "acc-1") is None
+
+
+def test_build_holding_data_drops_a_row_with_no_id():
+    assert _build_holding_data({"market_value": "10.00"}, "USD", "acc-1") is None
+
+
+def test_build_holding_data_promotes_the_symbol_to_a_ticker():
+    holding = _build_holding_data(
+        {"id": "h-8", "symbol": " aapl ", "market_value": "10.00"}, "USD", "acc-1"
+    )
+    assert holding is not None
+    assert holding.ticker == "AAPL"
+    assert (holding.metadata or {}).get("symbol") == " aapl "
+
+
+def test_build_holding_data_falls_back_to_the_account_currency():
+    """A crypto ticker in `currency` overflows a VARCHAR(3) — the account wins."""
+    holding = _build_holding_data(
+        {"id": "h-3", "symbol": "doge", "currency": "DOGECOIN", "market_value": "10.00"},
+        "USD",
+        "acc-1",
+    )
+    assert holding is not None
+    assert holding.currency == "USD"
+    assert holding.ticker == "DOGE"
+
+
+def test_build_holding_data_leaves_the_acquisition_date_unset():
+    """`created` is the aggregator's first sighting, never an acquisition date."""
+    holding = _build_holding_data(
+        {"id": "h-4", "market_value": "10.00", "created": 1735689600},
+        "USD",
+        "acc-1",
+    )
+    assert holding is not None
+    assert holding.purchase_date is None
+
+
+def test_build_holding_data_treats_a_zero_cost_basis_as_missing():
+    holding = _build_holding_data(
+        {"id": "h-5", "market_value": "90.00", "shares": "3", "cost_basis": "0.00"},
+        "USD",
+        "acc-1",
+    )
+    assert holding is not None
+    assert holding.purchase_price is None
+
+
+def test_build_holding_data_names_a_row_by_symbol_then_id():
+    by_symbol = _build_holding_data(
+        {"id": "h-6", "symbol": "VTI", "market_value": "10.00"}, "USD", None
+    )
+    bare = _build_holding_data({"id": "h-7", "market_value": "10.00"}, "USD", None)
+    assert by_symbol is not None and bare is not None
+    assert by_symbol.name == "VTI"
+    assert bare.name == "h-7"
+    assert bare.account_external_id is None
 
 
 # ----- holdings ---------------------------------------------------------------
