@@ -11,6 +11,9 @@ a valuable, or an investment holding. Cash lives in Accounts; everything else is
 quantity and cost basis are *derived* by replaying its Trades, never entered directly.
 
 **Wallet** — a grouping of Holdings, normally corresponding to one brokerage account.
+A Wallet carries the tax character of the account it stands for — Taxable,
+Tax-Advantaged (Roth, Traditional, HSA), or other. No provider reports it, so it
+is always set by the user; wallets default to Taxable.
 
 **Trade** — a single buy or sell of a quantity of a ticker at a price on a date.
 Trades are the source of truth for a Holding; the Holding's cached figures are an

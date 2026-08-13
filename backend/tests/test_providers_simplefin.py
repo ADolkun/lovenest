@@ -479,6 +479,7 @@ async def test_get_holdings_parses_investment_data():
                                 "shares": "550.0",
                                 "purchase_price": "0.10",
                                 "cost_basis": "55.00",
+                                "created": 1735689600,
                             },
                             {  # no market value → dropped
                                 "id": "h-2",
@@ -504,6 +505,9 @@ async def test_get_holdings_parses_investment_data():
     assert h.ticker == "AAPL"
     # SimpleFIN nests holdings under their account, so the link is known.
     assert h.account_external_id == "acc-1"
+    # `created` is when the aggregator first saw the holding. SimpleFIN gives
+    # no acquisition date, so the holding must carry none.
+    assert h.purchase_date is None
 
 
 @pytest.mark.asyncio

@@ -1140,6 +1140,15 @@
     "walletName": "Название",
     "walletNamePlaceholder": "например, Акции США, Долгосрочные облигации",
     "walletColor": "Цвет",
+    "walletTaxTreatment": "Налоговый режим",
+    "walletTaxTreatmentHint": "Как облагается налогом реальный счёт. Провайдеры это не передают, укажите сами.",
+    "taxTreatment": {
+      "taxable": "Налогооблагаемый",
+      "roth": "Roth",
+      "traditional": "Традиционный (до налогов)",
+      "hsa": "HSA",
+      "other": "Другое"
+    },
     "walletCreated": "Кошелёк создан",
     "walletUpdated": "Кошелёк обновлён",
     "walletDeleted": "Кошелёк удалён",

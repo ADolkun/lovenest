@@ -1,7 +1,11 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
+
+# Roth, traditional and HSA are the tax-advantaged treatments; `other` covers
+# accounts whose character is neither (e.g. a foreign or trust account).
+TaxTreatment = Literal["taxable", "roth", "traditional", "hsa", "other"]
 
 
 class AssetGroupBase(BaseModel):
@@ -9,6 +13,7 @@ class AssetGroupBase(BaseModel):
     icon: str = "wallet"
     color: str = "#0EA5E9"
     position: int = 0
+    tax_treatment: TaxTreatment = "taxable"
 
 
 class AssetGroupCreate(AssetGroupBase):
@@ -20,6 +25,7 @@ class AssetGroupUpdate(BaseModel):
     icon: Optional[str] = None
     color: Optional[str] = None
     position: Optional[int] = None
+    tax_treatment: Optional[TaxTreatment] = None
 
 
 class AssetGroupRead(AssetGroupBase):

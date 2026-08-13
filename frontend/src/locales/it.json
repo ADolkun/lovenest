@@ -1134,6 +1134,15 @@
     "walletName": "Nome",
     "walletNamePlaceholder": "es. Azioni USA, Reddito fisso a lungo termine",
     "walletColor": "Colore",
+    "walletTaxTreatment": "Trattamento fiscale",
+    "walletTaxTreatmentHint": "Come è tassato il conto reale. Nessun provider lo comunica, quindi impostalo tu.",
+    "taxTreatment": {
+      "taxable": "Tassabile",
+      "roth": "Roth",
+      "traditional": "Tradizionale (al lordo delle imposte)",
+      "hsa": "HSA",
+      "other": "Altro"
+    },
     "walletCreated": "Portafoglio creato",
     "walletUpdated": "Portafoglio aggiornato",
     "walletDeleted": "Portafoglio eliminato",

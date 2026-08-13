@@ -674,6 +674,8 @@ export interface MarketSymbolQuote {
   quote_type: string | null
 }
 
+export type TaxTreatment = 'taxable' | 'roth' | 'traditional' | 'hsa' | 'other'
+
 export interface AssetGroup {
   id: string
   user_id: string
@@ -681,6 +683,7 @@ export interface AssetGroup {
   icon: string
   color: string
   position: number
+  tax_treatment: TaxTreatment
   source: string
   connection_id: string | null
   institution_name: string | null

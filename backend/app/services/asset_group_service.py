@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,12 @@ from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.user import User
-from app.schemas.asset_group import AssetGroupCreate, AssetGroupRead, AssetGroupUpdate
+from app.schemas.asset_group import (
+    AssetGroupCreate,
+    AssetGroupRead,
+    AssetGroupUpdate,
+    TaxTreatment,
+)
 from app.services.fx_rate_service import convert
 
 
@@ -40,6 +45,9 @@ def _group_to_read(
         icon=group.icon,
         color=group.color,
         position=group.position,
+        # The column is a plain String; the check constraint is what keeps it
+        # inside the Literal's set.
+        tax_treatment=cast(TaxTreatment, group.tax_treatment),
         source=group.source,
         connection_id=group.connection_id,
         institution_name=institution_name,
@@ -195,6 +203,7 @@ async def create_group(
         icon=data.icon,
         color=data.color,
         position=position,
+        tax_treatment=data.tax_treatment,
         source="manual",
     )
     session.add(group)

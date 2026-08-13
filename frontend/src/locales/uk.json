@@ -1140,6 +1140,15 @@
     "walletName": "Назва",
     "walletNamePlaceholder": "наприклад, Акції США, Довгострокові облігації",
     "walletColor": "Колір",
+    "walletTaxTreatment": "Податковий режим",
+    "walletTaxTreatmentHint": "Як оподатковується реальний рахунок. Провайдери цього не передають, тож укажіть самі.",
+    "taxTreatment": {
+      "taxable": "Оподатковуваний",
+      "roth": "Roth",
+      "traditional": "Традиційний (до податків)",
+      "hsa": "HSA",
+      "other": "Інше"
+    },
     "walletCreated": "Гаманець створено",
     "walletUpdated": "Гаманець оновлено",
     "walletDeleted": "Гаманець видалено",
