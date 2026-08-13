@@ -1209,6 +1209,15 @@
     "walletName": "Nazwa",
     "walletNamePlaceholder": "np. Akcje USA, Obligacje długoterminowe",
     "walletColor": "Kolor",
+    "walletTaxTreatment": "Traktowanie podatkowe",
+    "walletTaxTreatmentHint": "Jak opodatkowane jest rzeczywiste konto. Żaden dostawca tego nie podaje, więc ustaw to samodzielnie.",
+    "taxTreatment": {
+      "taxable": "Opodatkowane",
+      "roth": "Roth",
+      "traditional": "Tradycyjne (przed opodatkowaniem)",
+      "hsa": "HSA",
+      "other": "Inne"
+    },
     "walletCreated": "Utworzono portfel",
     "walletUpdated": "Zaktualizowano portfel",
     "walletDeleted": "Usunięto portfel",

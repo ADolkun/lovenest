@@ -251,3 +251,41 @@ async def test_ensure_group_for_connection_disambiguates_name(session: AsyncSess
     assert g1.name == "MeuPluggy"
     assert g2.name == "MeuPluggy 2"
     assert g3.name == "MeuPluggy 3"
+
+
+@pytest.mark.asyncio
+async def test_tax_treatment_defaults_to_taxable_and_is_editable(
+    session: AsyncSession, test_user, test_workspace
+):
+    g = await svc.create_group(
+        session, test_workspace.id, test_user.id, AssetGroupCreate(name="Brokerage")
+    )
+    assert g.tax_treatment == "taxable"
+
+    updated = await svc.update_group(
+        session, g.id, test_workspace.id, test_user.id,
+        AssetGroupUpdate(tax_treatment="roth"),
+    )
+    assert updated is not None
+    assert updated.tax_treatment == "roth"
+    # Survives a reread — it is persisted, not just echoed back.
+    reread = await svc.get_group(session, g.id, test_workspace.id, test_user.id)
+    assert reread is not None and reread.tax_treatment == "roth"
+
+
+@pytest.mark.asyncio
+async def test_synced_wallet_gets_default_tax_treatment(session: AsyncSession, test_user):
+    conn_id = uuid.uuid4()
+    g = await svc.ensure_group_for_connection(
+        session, test_user.id, conn_id, "simplefin", "ext-tax", "Fidelity"
+    )
+    assert g.tax_treatment == "taxable"
+
+    # A user-set treatment is theirs — a later sync must not reset it.
+    g.tax_treatment = "roth"
+    await session.commit()
+    again = await svc.ensure_group_for_connection(
+        session, test_user.id, conn_id, "simplefin", "ext-tax", "Fidelity"
+    )
+    assert again.id == g.id
+    assert again.tax_treatment == "roth"

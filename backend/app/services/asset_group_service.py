@@ -40,6 +40,7 @@ def _group_to_read(
         icon=group.icon,
         color=group.color,
         position=group.position,
+        tax_treatment=group.tax_treatment,
         source=group.source,
         connection_id=group.connection_id,
         institution_name=institution_name,
@@ -195,6 +196,7 @@ async def create_group(
         icon=data.icon,
         color=data.color,
         position=position,
+        tax_treatment=data.tax_treatment,
         source="manual",
     )
     session.add(group)

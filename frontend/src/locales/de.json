@@ -1134,6 +1134,15 @@
     "walletName": "Name",
     "walletNamePlaceholder": "z.B. US-Aktien, Langfristige Zinsanlagen",
     "walletColor": "Farbe",
+    "walletTaxTreatment": "Steuerliche Behandlung",
+    "walletTaxTreatmentHint": "Wie das reale Konto besteuert wird. Kein Anbieter meldet dies, also selbst festlegen.",
+    "taxTreatment": {
+      "taxable": "Steuerpflichtig",
+      "roth": "Roth",
+      "traditional": "Traditionell (vorsteuerlich)",
+      "hsa": "HSA",
+      "other": "Andere"
+    },
     "walletCreated": "Portfolio erstellt",
     "walletUpdated": "Portfolio aktualisiert",
     "walletDeleted": "Portfolio gelöscht",

@@ -19,7 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
-import type { Asset, AssetGroup, AssetTransaction, AssetValue, MarketSymbolMatch, MarketSymbolQuote } from '@/types'
+import type { Asset, AssetGroup, AssetTransaction, AssetValue, MarketSymbolMatch, MarketSymbolQuote, TaxTreatment } from '@/types'
 import {
   Home,
   Car,
@@ -150,6 +150,14 @@ const ASSET_TYPES = [
   'other',
 ] as const
 
+const TAX_TREATMENTS: readonly TaxTreatment[] = [
+  'taxable',
+  'roth',
+  'traditional',
+  'hsa',
+  'other',
+]
+
 // Map a yfinance `quoteType` to Securo's asset type. Lives here (not the
 // backend) so if we ever swap the market-price provider the service stays
 // clean — all provider-specific vocabulary is translated at the edge.
@@ -220,6 +228,7 @@ export default function AssetsPage() {
   const [editingWallet, setEditingWallet] = useState<AssetGroup | null>(null)
   const [walletFormName, setWalletFormName] = useState('')
   const [walletFormColor, setWalletFormColor] = useState('#0EA5E9')
+  const [walletFormTaxTreatment, setWalletFormTaxTreatment] = useState<TaxTreatment>('taxable')
   const [deletingWalletId, setDeletingWalletId] = useState<string | null>(null)
   // Collapsed wallet IDs — default is expanded (empty set), user can collapse manually
   const [collapsedWallets, setCollapsedWallets] = useState<Set<string>>(new Set())
@@ -412,8 +421,8 @@ export default function AssetsPage() {
   }, [rawWalletsList, activeWalletIds])
 
   const createWalletMutation = useMutation({
-    mutationFn: (data: { name: string; color: string }) =>
-      assetGroups.create({ name: data.name, color: data.color, icon: 'wallet' }),
+    mutationFn: (data: { name: string; color: string; tax_treatment: TaxTreatment }) =>
+      assetGroups.create({ ...data, icon: 'wallet' }),
     onSuccess: (created) => {
       queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setWalletDialogOpen(false)
@@ -428,8 +437,8 @@ export default function AssetsPage() {
   })
 
   const updateWalletMutation = useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name: string; color: string }) =>
-      assetGroups.update(id, { name: data.name, color: data.color }),
+    mutationFn: ({ id, ...data }: { id: string; name: string; color: string; tax_treatment: TaxTreatment }) =>
+      assetGroups.update(id, data),
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       setWalletDialogOpen(false)
@@ -912,6 +921,7 @@ export default function AssetsPage() {
     setEditingWallet(null)
     setWalletFormName('')
     setWalletFormColor('#0EA5E9')
+    setWalletFormTaxTreatment('taxable')
     setWalletDialogOpen(true)
   }
 
@@ -919,16 +929,18 @@ export default function AssetsPage() {
     setEditingWallet(wallet)
     setWalletFormName(wallet.name)
     setWalletFormColor(wallet.color)
+    setWalletFormTaxTreatment(wallet.tax_treatment)
     setWalletDialogOpen(true)
   }
 
   function handleSaveWallet() {
     const name = walletFormName.trim()
     if (!name) return
+    const fields = { name, color: walletFormColor, tax_treatment: walletFormTaxTreatment }
     if (editingWallet) {
-      updateWalletMutation.mutate({ id: editingWallet.id, name, color: walletFormColor })
+      updateWalletMutation.mutate({ id: editingWallet.id, ...fields })
     } else {
-      createWalletMutation.mutate({ name, color: walletFormColor })
+      createWalletMutation.mutate(fields)
     }
   }
 
@@ -970,6 +982,12 @@ export default function AssetsPage() {
                 <span className="text-xs text-muted-foreground shrink-0">
                   · {walletAssets.length} {t('assets.itemsCount')}
                 </span>
+                {/* Taxable is the default; labelling every wallet would be noise. */}
+                {wallet.tax_treatment !== 'taxable' && (
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                    {t(`assets.taxTreatment.${wallet.tax_treatment}`)}
+                  </Badge>
+                )}
               </div>
               {showInstitutionSubtitle && (
                 <span className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
@@ -1583,6 +1601,21 @@ export default function AssetsPage() {
                   {t('assets.syncedFromHint', { source: editingWallet.institution_name })}
                 </p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label>{t('assets.walletTaxTreatment')}</Label>
+              <select
+                className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
+                value={walletFormTaxTreatment}
+                onChange={e => setWalletFormTaxTreatment(e.target.value as TaxTreatment)}
+              >
+                {TAX_TREATMENTS.map(tt => (
+                  <option key={tt} value={tt}>{t(`assets.taxTreatment.${tt}`)}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                {t('assets.walletTaxTreatmentHint')}
+              </p>
             </div>
             <div className="space-y-2">
               <Label>{t('assets.walletColor')}</Label>

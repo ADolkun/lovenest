@@ -1134,6 +1134,15 @@
     "walletName": "Name",
     "walletNamePlaceholder": "e.g. US Stocks, Long-term fixed income",
     "walletColor": "Color",
+    "walletTaxTreatment": "Tax treatment",
+    "walletTaxTreatmentHint": "How the real account is taxed. No provider reports this, so set it yourself.",
+    "taxTreatment": {
+      "taxable": "Taxable",
+      "roth": "Roth",
+      "traditional": "Traditional (pre-tax)",
+      "hsa": "HSA",
+      "other": "Other"
+    },
     "walletCreated": "Wallet created",
     "walletUpdated": "Wallet updated",
     "walletDeleted": "Wallet deleted",

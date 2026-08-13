@@ -1134,6 +1134,15 @@
     "walletName": "Nome",
     "walletNamePlaceholder": "ex: Ações EUA, Renda Fixa Longo Prazo",
     "walletColor": "Cor",
+    "walletTaxTreatment": "Tratamento tributário",
+    "walletTaxTreatmentHint": "Como a conta real é tributada. Nenhum provedor informa isso, então defina você mesmo.",
+    "taxTreatment": {
+      "taxable": "Tributável",
+      "roth": "Roth",
+      "traditional": "Tradicional (antes dos impostos)",
+      "hsa": "HSA",
+      "other": "Outro"
+    },
     "walletCreated": "Carteira criada",
     "walletUpdated": "Carteira atualizada",
     "walletDeleted": "Carteira excluída",

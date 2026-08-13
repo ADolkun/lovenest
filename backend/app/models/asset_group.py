@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,12 @@ class AssetGroup(Base):
     """
 
     __tablename__ = "asset_groups"
+    __table_args__ = (
+        CheckConstraint(
+            "tax_treatment IN ('taxable', 'roth', 'traditional', 'hsa', 'other')",
+            name="ck_asset_groups_tax_treatment",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
@@ -35,6 +41,14 @@ class AssetGroup(Base):
     icon: Mapped[str] = mapped_column(String(50), default="wallet")
     color: Mapped[str] = mapped_column(String(7), default="#0EA5E9")
     position: Mapped[int] = mapped_column(Integer, default=0)
+
+    # The tax character of the real account this wallet stands for. No provider
+    # exposes it, so it is user-set. Existing and synced wallets default to
+    # `taxable` — the treatment that keeps lot tracking and gain figures on;
+    # defaulting the other way would silently hide tax consequences.
+    tax_treatment: Mapped[str] = mapped_column(
+        String(20), default="taxable", server_default="taxable"
+    )
 
     # Provenance fields — mirror Asset's sync fields so sync code can
     # upsert groups idempotently by (user_id, source, external_id).

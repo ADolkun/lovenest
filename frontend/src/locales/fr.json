@@ -1134,6 +1134,15 @@
     "walletName": "Nom",
     "walletNamePlaceholder": "ex. Actions US, Obligations long terme",
     "walletColor": "Couleur",
+    "walletTaxTreatment": "Traitement fiscal",
+    "walletTaxTreatmentHint": "Comment le compte réel est imposé. Aucun fournisseur ne le communique, définissez-le vous-même.",
+    "taxTreatment": {
+      "taxable": "Imposable",
+      "roth": "Roth",
+      "traditional": "Traditionnel (avant impôt)",
+      "hsa": "HSA",
+      "other": "Autre"
+    },
     "walletCreated": "Portefeuille créé",
     "walletUpdated": "Portefeuille mis à jour",
     "walletDeleted": "Portefeuille supprimé",
