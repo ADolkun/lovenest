@@ -519,6 +519,7 @@ class SimpleFinProvider(BankProvider):
                 market_value = _to_decimal(raw.get("market_value"))
                 if market_value is None:
                     continue
+                cost_basis = _to_decimal(raw.get("cost_basis"))
                 holdings.append(
                     HoldingData(
                         external_id=holding_id,
@@ -530,7 +531,15 @@ class SimpleFinProvider(BankProvider):
                         unit_price=market_value / shares
                         if (shares := _to_decimal(raw.get("shares")))
                         else None,
-                        purchase_price=_to_decimal(raw.get("purchase_price")),
+                        # SimpleFIN's `purchase_price` is per share; ours is
+                        # the total cost basis, which is `cost_basis` here.
+                        # Without one the holding records no basis at all:
+                        # deriving from shares × per-share price would read as
+                        # a reported total (issue #72). A zero counts as
+                        # missing — bridges send 0.00 for "not populated", and
+                        # a real zero basis would report the whole market
+                        # value as gain.
+                        purchase_price=cost_basis or None,
                         # No purchase_date: SimpleFIN exposes no acquisition
                         # date. `created` is when the aggregator first saw the
                         # holding, so using it stamps every synced position

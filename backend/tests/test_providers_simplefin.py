@@ -486,6 +486,21 @@ async def test_get_holdings_parses_investment_data():
                                 "description": "Mystery",
                                 "shares": "1",
                             },
+                            {  # per-share price but no cost basis
+                                "id": "h-3",
+                                "description": "Tesla",
+                                "market_value": "200.00",
+                                "shares": "2",
+                                "purchase_price": "50.00",
+                            },
+                            {  # bridge sends 0.00 when it has no cost basis
+                                "id": "h-4",
+                                "description": "Ford",
+                                "market_value": "90.00",
+                                "shares": "3",
+                                "purchase_price": "17.72",
+                                "cost_basis": "0.00",
+                            },
                         ],
                     }
                 ]
@@ -495,7 +510,7 @@ async def test_get_holdings_parses_investment_data():
     creds = {"access_url": "https://u:p@bridge.example/simplefin"}
     with _patched_client(handler):
         holdings = await SimpleFinProvider().get_holdings(creds)
-    assert len(holdings) == 1
+    assert len(holdings) == 3
     h = holdings[0]
     assert h.external_id == "h-1"
     assert h.current_value == Decimal("105884.80")
@@ -508,6 +523,14 @@ async def test_get_holdings_parses_investment_data():
     # `created` is when the aggregator first saw the holding. SimpleFIN gives
     # no acquisition date, so the holding must carry none.
     assert h.purchase_date is None
+    # purchase_price is a total on our side: cost_basis, not the 0.10 per share.
+    assert h.purchase_price == Decimal("55.00")
+    # No cost_basis reported → no total, rather than the per-share price.
+    assert holdings[1].external_id == "h-3"
+    assert holdings[1].purchase_price is None
+    # A 0.00 cost basis is the bridge saying it has none, not a free position.
+    assert holdings[2].external_id == "h-4"
+    assert holdings[2].purchase_price is None
 
 
 @pytest.mark.asyncio
