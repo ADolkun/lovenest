@@ -1644,7 +1644,7 @@
       "saving": "Enregistrement…",
       "saved": "Outils mis à jour",
       "saveFailed": "Échec de l'enregistrement de la sélection d'outils",
-      "empty": "Aucun outil découvert. Le serveur MCP est-il en cours d'exécution ? (`docker compose --profile agents up -d`)",
+      "empty": "Aucun outil découvert. Le serveur MCP est-il en cours d'exécution ? Avec Docker : `docker compose --profile agents up -d`.",
       "proposeBadge": "proposer",
       "loading": "Chargement des outils…"
     },

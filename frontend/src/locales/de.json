@@ -1644,7 +1644,7 @@
       "saving": "Wird gespeichert…",
       "saved": "Werkzeuge aktualisiert",
       "saveFailed": "Fehler beim Speichern der Werkzeugauswahl",
-      "empty": "Keine Werkzeuge gefunden. Läuft der MCP-Server? (`docker compose --profile agents up -d`)",
+      "empty": "Keine Werkzeuge gefunden. Läuft der MCP-Server? Mit Docker: `docker compose --profile agents up -d`.",
       "proposeBadge": "vorschlagen",
       "loading": "Werkzeuge werden geladen…"
     },

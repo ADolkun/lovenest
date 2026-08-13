@@ -1644,7 +1644,7 @@
       "saving": "Saving…",
       "saved": "Tools updated",
       "saveFailed": "Failed to save tool selection",
-      "empty": "No tools discovered. Is the MCP server running? (`docker compose --profile agents up -d`)",
+      "empty": "No tools discovered. Is the MCP server running? With Docker: `docker compose --profile agents up -d`.",
       "proposeBadge": "propose",
       "loading": "Loading tools…"
     },

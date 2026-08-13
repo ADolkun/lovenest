@@ -1650,7 +1650,7 @@
       "saving": "Збереження…",
       "saved": "Інструменти оновлено",
       "saveFailed": "Не вдалося зберегти вибір інструментів",
-      "empty": "Інструменти не знайдено. MCP-сервер запущено? (`docker compose --profile agents up -d`)",
+      "empty": "Інструменти не знайдено. MCP-сервер запущено? У Docker: `docker compose --profile agents up -d`.",
       "proposeBadge": "запропонувати",
       "loading": "Завантаження інструментів…"
     },
