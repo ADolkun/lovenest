@@ -558,7 +558,7 @@
     "typeSavings": "Sparkonto",
     "typeCreditCard": "Kreditkarte",
     "typeInvestment": "Depot",
-    "typeWallet": "Bargeld",
+    "typeCash": "Bargeld",
     "creditLimit": "Kreditlimit",
     "statementCloseDay": "Abrechnungsstichtag",
     "paymentDueDay": "Zahlungstermin",

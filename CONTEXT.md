@@ -4,6 +4,12 @@ Glossary for lovenest. Domain terms only — no implementation detail.
 
 ## Portfolio
 
+**Account** — a place money sits, in one of five kinds: Checking, Savings, Credit
+Card, Investment, Cash. Cash is pocket money — notes in a drawer, an unbanked
+balance — and is not a Wallet: a Wallet is the asset-side grouping below. Crypto is
+an asset class, not a kind of Account, because one exchange account can hold spot,
+stablecoins and staking positions at once.
+
 **Asset** — anything with a value that is not a cash Account: real estate, a vehicle,
 a valuable, or an investment holding. Cash lives in Accounts; everything else is an Asset.
 

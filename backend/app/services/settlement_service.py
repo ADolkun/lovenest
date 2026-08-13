@@ -112,7 +112,7 @@ async def _create_payment_transaction(
 async def _pick_default_account_for_user(
     session: AsyncSession, user_id: uuid.UUID
 ) -> Optional[Account]:
-    """Return the user's first non-archived checking/savings account
+    """Return the user's first non-archived checking/savings/cash account
     across any workspace they belong to. Used as the auto-target for
     receiver-side settlement credits — the receiver may sit in a
     different workspace than where the settlement was recorded."""
@@ -128,7 +128,9 @@ async def _pick_default_account_for_user(
         .where(
             Account.workspace_id.in_(user_workspaces_subq),
             Account.is_closed.is_(False),
-            Account.type.in_(("checking", "savings")),
+            # Allowlist, not a denylist: this writes into a workspace the actor
+            # is not a member of, so only spendable-cash types may be targets.
+            Account.type.in_(("checking", "savings", "cash")),
         )
         .order_by(Account.name)
     )

@@ -558,7 +558,7 @@
     "typeSavings": "Savings",
     "typeCreditCard": "Credit Card",
     "typeInvestment": "Investment",
-    "typeWallet": "Wallet",
+    "typeCash": "Cash",
     "creditLimit": "Credit limit",
     "statementCloseDay": "Statement close day",
     "paymentDueDay": "Payment due day",

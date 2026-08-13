@@ -45,7 +45,7 @@ const ACCOUNT_TYPE_OPTIONS = [
   { value: 'savings', labelKey: 'accounts.typeSavings' },
   { value: 'credit_card', labelKey: 'accounts.typeCreditCard' },
   { value: 'investment', labelKey: 'accounts.typeInvestment' },
-  { value: 'wallet', labelKey: 'accounts.typeWallet' },
+  { value: 'cash', labelKey: 'accounts.typeCash' },
 ] as const
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
