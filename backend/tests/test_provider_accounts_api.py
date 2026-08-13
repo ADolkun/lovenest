@@ -13,7 +13,9 @@ from app.models.user import User
 from app.providers.base import AccountData
 
 
-def _account(external_id: str, name: str = "Checking", has_holdings: bool = False) -> AccountData:
+def _account(
+    external_id: str, name: str = "Checking", has_holdings: bool | None = None
+) -> AccountData:
     return AccountData(
         external_id=external_id,
         name=name,
@@ -66,6 +68,18 @@ async def test_lists_every_provider_account_with_details(
     assert Decimal(str(row["balance"])) == Decimal("12.34")
     assert row["currency"] == "USD"
     assert row["has_holdings"] is True
+
+
+@pytest.mark.asyncio
+async def test_holdings_indication_abstains_for_providers_that_do_not_report_it(
+    client: AsyncClient, auth_headers, test_connection: BankConnection
+):
+    """Pluggy's investments are item-level: "we don't know", not "holds nothing"."""
+    provider = _provider([_account("acc-1")])
+
+    resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
+
+    assert resp.json()[0]["has_holdings"] is None
 
 
 @pytest.mark.asyncio
@@ -174,6 +188,57 @@ async def test_account_unchecked_when_saving_reports_excluded(
     resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
 
     assert _by_id(resp.json())["acc-2"]["status"] == "excluded"
+
+
+@pytest.mark.asyncio
+async def test_unchecking_a_newly_appeared_account_survives_the_next_sync(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_connection: BankConnection,
+):
+    """An account offered by the picker stays reviewed once the user decides on it.
+
+    The account turned up at the provider after the last sync, so it is in none
+    of the sets the connection carries — only the picker knows it was shown. Miss
+    that and the next sync files it under "seen but never reviewed" and offers it
+    as pending again, forever.
+    """
+    await _set_settings(
+        session,
+        test_connection,
+        {
+            "account_allowlist": ["acc-1"],
+            "seen_account_ids": ["acc-1"],
+            "reviewed_account_ids": ["acc-1"],
+        },
+    )
+    provider = _provider([_account("acc-1"), _account("acc-2")])
+
+    listed = await _list_accounts(client, auth_headers, test_connection.id, provider)
+    assert _by_id(listed.json())["acc-2"]["status"] == "pending"
+
+    saved = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        headers=auth_headers,
+        json={
+            "account_allowlist": ["acc-1"],
+            "reviewed_account_ids": ["acc-1", "acc-2"],
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["settings"]["account_allowlist"] == ["acc-1"]
+
+    await session.refresh(test_connection)
+    await _set_settings(
+        session,
+        test_connection,
+        {**(test_connection.settings or {}), "seen_account_ids": ["acc-1", "acc-2"]},
+    )
+
+    resp = await _list_accounts(client, auth_headers, test_connection.id, provider)
+    assert _by_id(resp.json())["acc-2"]["status"] == "excluded"
+    assert await _pending_count(client, auth_headers) == 0
 
 
 @pytest.mark.asyncio

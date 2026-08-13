@@ -126,6 +126,11 @@ export interface ConnectionSettings {
   // reviewed id sets sync records, but only the backend reads those — they
   // reach the frontend already reduced to `pending_account_count`.
   account_allowlist?: string[]
+  // Write-only, and only alongside account_allowlist: the ids the picker had on
+  // screen when the user saved. An account that turned up at the provider since
+  // the last sync is in no set the backend holds, so without this one the user
+  // unchecked would come back as pending. Never read back.
+  reviewed_account_ids?: string[]
 }
 
 export interface ProviderAccount {
@@ -133,7 +138,8 @@ export interface ProviderAccount {
   name: string
   balance: string
   currency: string
-  has_holdings: boolean
+  // null where the provider does not say — not the same as "no holdings".
+  has_holdings: boolean | null
   status: 'included' | 'excluded' | 'pending'
 }
 

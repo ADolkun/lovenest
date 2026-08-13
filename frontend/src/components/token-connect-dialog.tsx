@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { ReviewAccountsToggle } from '@/components/review-accounts-toggle'
 import { ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import type { BankConnection } from '@/types'
@@ -138,24 +139,12 @@ export function TokenConnectDialog({
         )}
 
         {!isReconnect && (
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
-            <div className="space-y-1">
-              <label htmlFor="token-review-accounts" className="text-sm font-medium text-foreground">
-                {t('connections.reviewAccountsFirst')}
-              </label>
-              <p className="text-xs text-muted-foreground">
-                {t('connections.reviewAccountsFirstHint')}
-              </p>
-            </div>
-            <input
-              id="token-review-accounts"
-              type="checkbox"
-              checked={reviewAccounts}
-              onChange={(e) => setReviewAccounts(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
-              disabled={submitting}
-            />
-          </div>
+          <ReviewAccountsToggle
+            id="token-review-accounts"
+            checked={reviewAccounts}
+            onChange={setReviewAccounts}
+            disabled={submitting}
+          />
         )}
 
         <div className="space-y-1.5">

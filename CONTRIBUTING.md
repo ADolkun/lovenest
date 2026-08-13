@@ -140,6 +140,7 @@ cd frontend
 npm ci
 npm run lint                   # ESLint (must be clean)
 npm run build                  # type-check + production build (must succeed)
+npm test                       # Vitest (must pass)
 ```
 
 ## Commit messages
@@ -159,7 +160,7 @@ PR titles follow the same convention.
 
 - Open PRs against **`lovenest`** (never `main`).
 - Keep PRs focused — one feature or fix each.
-- Make sure both CI jobs pass: `ruff` + `ty` + `pytest` clean, frontend lint + build green.
+- Make sure both CI jobs pass: `ruff` + `ty` + `pytest` clean, frontend lint + build + tests green.
 - Add tests for new backend functionality.
 - Update translations if you add user-facing strings (EN + PT-BR).
 - The PR template asks **"Could this also benefit upstream Securo?"** — answer honestly (see below).

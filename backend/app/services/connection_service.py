@@ -2,13 +2,18 @@ import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Literal, Optional
+from typing import Optional
 
 from sqlalchemy import delete, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
+from app.core.connection_settings import (
+    account_status,
+    allowlist_ids,
+    known_account_ids,
+)
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
@@ -29,7 +34,7 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
 )
-from app.schemas.bank_connection import ProviderAccountRead, allowlist_ids
+from app.schemas.bank_connection import ProviderAccountRead
 from app.services import oauth_state
 from app.services import admin_service
 from app.services import recurring_match_service
@@ -105,6 +110,20 @@ def _record_reviewed_accounts(connection: BankConnection, known_ids: set[str]) -
     connection.settings = updated
 
 
+def _record_seen_accounts(
+    connection: BankConnection, accounts: list[AccountData]
+) -> None:
+    """Record every id the provider returned, before any allowlist filtering.
+
+    Lets the account-discovery endpoint tell an account that appeared after the
+    allowlist was configured from one the user deliberately unchecked, without
+    spending a provider request.
+    """
+    updated = dict(connection.settings or {})
+    updated["seen_account_ids"] = sorted({a.external_id for a in accounts})
+    connection.settings = updated
+
+
 def _syncable_accounts(
     connection: BankConnection, accounts: list[AccountData]
 ) -> tuple[list[AccountData], Optional[set[str]]]:
@@ -114,19 +133,10 @@ def _syncable_accounts(
     derived from the accounts this returns, so a new entity type can't bypass
     the check by adding its own code path.
 
-    Also records every id the provider returned, before filtering, so the
-    account-discovery endpoint can tell an account that appeared after the
-    allowlist was configured from one the user deliberately unchecked, without
-    spending a provider request.
-
     Returns the surviving accounts and their ids, or None for "no allowlist" —
     the signal holdings sync keys off.
     """
-    updated = dict(connection.settings or {})
-    updated["seen_account_ids"] = sorted({a.external_id for a in accounts})
-    connection.settings = updated
-
-    allowlist = allowlist_ids(updated)
+    allowlist = allowlist_ids(connection.settings)
     if allowlist is None:
         return accounts, None
     surviving = [a for a in accounts if a.external_id in allowlist]
@@ -573,6 +583,10 @@ async def update_connection_settings(
         trimmed = raw.strip() if isinstance(raw, str) else raw
         connection.display_name = trimmed or None
 
+    # Evidence about what the picker showed, not a setting of its own: it is
+    # folded into the reviewed set below and never stored as sent.
+    shown_ids = settings_update.pop("reviewed_account_ids", None)
+
     current = dict(connection.settings or {})
     for key, value in settings_update.items():
         if value is not None:
@@ -580,9 +594,13 @@ async def update_connection_settings(
     connection.settings = current
 
     if settings_update.get("account_allowlist") is not None:
-        _record_reviewed_accounts(
-            connection, {a.external_id for a in connection.accounts if a.external_id}
-        )
+        # An account the provider started returning since the last sync is in
+        # none of the sets on the connection, so unchecking it here would leave
+        # it unreviewed and the next sync would put it back to pending. What the
+        # picker had on screen is the only record that it was ever offered.
+        reviewed = {a.external_id for a in connection.accounts if a.external_id}
+        reviewed |= {str(item) for item in shown_ids or []}
+        _record_reviewed_accounts(connection, reviewed)
 
     await session.commit()
     await session.refresh(connection)
@@ -635,22 +653,9 @@ async def list_provider_accounts(
     accounts = await provider.get_accounts(credentials)
 
     conn_settings = connection.settings or {}
-    allowlist = allowlist_ids(conn_settings)
-    reviewed = conn_settings.get("reviewed_account_ids")
-    if reviewed is None:
-        # An allowlist configured before the reviewed set was pinned. Sync's
-        # rolling record and the account rows are the best evidence left of what
-        # the user has already seen; both err towards excluded, which is the
-        # quieter of the two wrong answers for an account they did unchecked.
-        known = {str(item) for item in conn_settings.get("seen_account_ids") or []}
-        known |= {a.external_id for a in connection.accounts if a.external_id}
-    else:
-        known = {str(item) for item in reviewed}
-
-    def _status(external_id: str) -> Literal["included", "excluded", "pending"]:
-        if allowlist is None or external_id in allowlist:
-            return "included"
-        return "excluded" if external_id in known else "pending"
+    known = known_account_ids(
+        conn_settings, {a.external_id for a in connection.accounts if a.external_id}
+    )
 
     return [
         ProviderAccountRead(
@@ -659,7 +664,7 @@ async def list_provider_accounts(
             balance=account.balance,
             currency=account.currency,
             has_holdings=account.has_holdings,
-            status=_status(account.external_id),
+            status=account_status(conn_settings, account.external_id, known),
         )
         for account in accounts
     ]
@@ -774,6 +779,7 @@ async def handle_oauth_callback(
 
     use_provider_cats = await admin_service.use_provider_categories(session)
 
+    _record_seen_accounts(connection, connection_data.accounts)
     syncable_accounts, synced_account_ids = _syncable_accounts(
         connection, connection_data.accounts
     )
@@ -1716,6 +1722,7 @@ async def sync_connection(
         synced_account_row_ids: list[uuid.UUID] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
+        _record_seen_accounts(connection, accounts_data)
         accounts_data, synced_account_ids = _syncable_accounts(connection, accounts_data)
         for acc_data in accounts_data:
             syncing_account_id = None
