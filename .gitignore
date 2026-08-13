@@ -12,6 +12,7 @@ secrets/
 CLAUDE.md
 docs/plans/
 tmp/
+*scratch/
 docker-compose.override.yml
 
 # Ignore local configuration files
