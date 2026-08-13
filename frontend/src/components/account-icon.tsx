@@ -12,7 +12,7 @@ export const ACCOUNT_TYPE_CONFIG: Record<
   savings:     { icon: PiggyBank,   color: 'text-emerald-600', bg: 'bg-emerald-100', label: 'accounts.typeSavings' },
   credit_card: { icon: CreditCard,  color: 'text-violet-600',  bg: 'bg-violet-100',  label: 'accounts.typeCreditCard' },
   investment:  { icon: TrendingUp,  color: 'text-amber-600',   bg: 'bg-amber-100',   label: 'accounts.typeInvestment' },
-  wallet:      { icon: Wallet,      color: 'text-rose-600',    bg: 'bg-rose-100',    label: 'accounts.typeWallet' },
+  cash:        { icon: Wallet,      color: 'text-rose-600',    bg: 'bg-rose-100',    label: 'accounts.typeCash' },
 }
 
 export function getAccountTypeConfig(type: string) {

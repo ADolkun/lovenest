@@ -564,7 +564,7 @@
     "typeSavings": "Сберегательный",
     "typeCreditCard": "Кредитная карта",
     "typeInvestment": "Инвестиционный",
-    "typeWallet": "Кошелёк",
+    "typeCash": "Наличные",
     "creditLimit": "Кредитный лимит",
     "statementCloseDay": "Дата закрытия выписки",
     "paymentDueDay": "Дата платежа",

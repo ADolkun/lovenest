@@ -302,11 +302,11 @@ async def test_receiver_credit_skipped_when_to_member_is_shadow(
 
 
 @pytest.mark.asyncio
-async def test_receiver_credit_skipped_when_linked_user_has_no_cash_account(
+async def test_receiver_credit_skipped_when_linked_user_has_no_spendable_account(
     session: AsyncSession, test_user, test_workspace
 ):
     """Linked receiver, but their only account is a credit card (not
-    checking/savings). The mirror credit can't be placed and is silently
+    checking/savings/cash). The mirror credit can't be placed and is silently
     skipped — settlement is still recorded."""
     receiver, _receiver_ws = await _make_user_with_workspace(
         session, "rx-cc-only@example.com"
@@ -349,6 +349,58 @@ async def test_receiver_credit_skipped_when_linked_user_has_no_cash_account(
     )
     assert s is not None
     assert s.receiver_transaction_id is None
+
+
+@pytest.mark.asyncio
+async def test_receiver_credit_lands_on_cash_account(
+    session: AsyncSession, test_user, test_workspace
+):
+    """`cash` is spendable money like checking/savings, so it is a valid
+    auto-target for the mirror credit."""
+    receiver, _receiver_ws = await _make_user_with_workspace(
+        session, "rx-cash-only@example.com"
+    )
+    cash_account = await _make_account(session, receiver.id, account_type="cash")
+    payer_account = await _make_account(session, test_user.id)
+
+    group = await group_service.create_group(
+        session, test_workspace.id, test_user.id, GroupCreate(name="CashOnly")
+    )
+    me = await group_service.create_member(
+        session,
+        group.id,
+        test_workspace.id,
+        GroupMemberCreate(name="Me", is_self=True),
+    )
+    bob = await group_service.create_member(
+        session,
+        group.id,
+        test_workspace.id,
+        GroupMemberCreate(name="Bob", linked_user_id=receiver.id),
+    )
+
+    assert me is not None
+    assert bob is not None
+
+    s = await settlement_service.create_settlement(
+        session,
+        group.id,
+        test_workspace.id,
+        test_user.id,
+        GroupSettlementCreate(
+            from_member_id=me.id,
+            to_member_id=bob.id,
+            amount=Decimal("10.00"),
+            currency="USD",
+            date=date.today(),
+            account_id=payer_account.id,
+        ),
+    )
+    assert s is not None
+    assert s.receiver_transaction_id is not None
+    receiver_tx = await session.get(Transaction, s.receiver_transaction_id)
+    assert receiver_tx is not None
+    assert receiver_tx.account_id == cash_account.id
 
 
 @pytest.mark.asyncio

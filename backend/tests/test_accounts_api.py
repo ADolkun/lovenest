@@ -151,7 +151,7 @@ async def test_create_account_with_balance_creates_opening_transaction(
     response = await client.post(
         "/api/accounts",
         headers=auth_headers,
-        json={"name": "Carteira", "type": "wallet", "balance": "500.00", "currency": "BRL"},
+        json={"name": "Carteira", "type": "cash", "balance": "500.00", "currency": "BRL"},
     )
     assert response.status_code == 201
     account_id = response.json()["id"]

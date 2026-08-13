@@ -40,7 +40,7 @@ from mcp_server.tools._helpers import num, parse_date, parse_uuid, parse_uuid_li
             "account_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "description": "Filter to specific accounts (by id)"},
             "account_types": {
                 "type": "array",
-                "items": {"type": "string", "enum": ["checking", "savings", "credit_card", "wallet", "investment", "loan", "other"]},
+                "items": {"type": "string", "enum": ["checking", "savings", "credit_card", "investment", "cash"]},
                 "description": "Filter by account type — e.g. ['credit_card'] for 'all my credit-card transactions'",
             },
             "category_ids": {"type": "array", "items": {"type": "string", "format": "uuid"}, "description": "Filter to specific categories"},
