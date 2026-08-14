@@ -1082,6 +1082,7 @@ export default function AssetsPage() {
             wallets={sortedWallets}
             currency={userCurrency}
             locale={locale}
+            dateLocale={dateLocale}
             mask={mask}
             canWrite={canWrite}
             onClassify={(id, type) => updateMutation.mutate({ id, type })}

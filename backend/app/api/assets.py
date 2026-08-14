@@ -31,7 +31,7 @@ from app.schemas.asset import (
     MarketSymbolMatch,
     MarketSymbolQuote,
 )
-from app.services import asset_service, asset_transaction_service
+from app.services import asset_service, asset_transaction_service, tax_lots
 from app.services.fx_rate_service import convert
 
 logger = logging.getLogger(__name__)
@@ -262,6 +262,23 @@ async def list_asset_transactions(
     if txs is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return txs
+
+
+@router.get("/{asset_id}/tax-lots")
+async def asset_tax_lots(
+    asset_id: uuid.UUID,
+    as_of: date | None = Query(None, description="Defaults to today — what an open lot is aged against"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """The Holding's Tax Lots and its Realised Gain split by holding period.
+
+    Empty for a Holding whose wallet is not Taxable: the gains there are never
+    Reportable, so they have no tax character to show (CONTEXT.md)."""
+    result = await tax_lots.asset_tax_lots(session, asset_id, ctx.workspace.id, as_of=as_of)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return result
 
 
 @router.post(

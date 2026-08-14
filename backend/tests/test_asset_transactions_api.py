@@ -251,3 +251,66 @@ async def test_reportable_gain_endpoint_excludes_tax_advantaged(
     )
     # The 2026 sell is outside the window, so the year bounds really bind.
     assert r.json()["non_reportable_gain"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_tax_lots_endpoint_lists_lots_for_a_taxable_wallet(
+    client: AsyncClient, auth_headers: dict, market_asset_api: Asset
+):
+    """Lots, their holding period, and the realised split (issue #65)."""
+    wallet = await client.post(
+        "/api/asset-groups",
+        headers=auth_headers,
+        json={"name": "Brokerage", "tax_treatment": "taxable"},
+    )
+    assert wallet.status_code in (200, 201)
+    assert (await client.patch(
+        f"/api/assets/{market_asset_api.id}",
+        headers=auth_headers,
+        json={"group_id": wallet.json()["id"]},
+    )).status_code == 200
+
+    for tx in [
+        {"kind": "buy", "quantity": 10, "price": 20, "date": "2025-01-01"},
+        {"kind": "buy", "quantity": 10, "price": 40, "date": "2026-03-01"},
+        {"kind": "sell", "quantity": 12, "price": 50, "date": "2026-06-01"},
+    ]:
+        assert (await client.post(
+            f"/api/assets/{market_asset_api.id}/transactions", headers=auth_headers, json=tx
+        )).status_code == 201
+
+    r = await client.get(
+        f"/api/assets/{market_asset_api.id}/tax-lots",
+        headers=auth_headers,
+        params={"as_of": "2026-06-01"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tax_character"] is True
+    # FIFO took the whole 2025 lot plus 2 of the 2026 one; 8 short units remain.
+    assert body["lots"] == [
+        {
+            "acquired": "2026-03-01",
+            "quantity": 8.0,
+            "unit_price": 40.0,
+            "cost": 320.0,
+            "holding_days": 92,
+            "long_term": False,
+            "days_until_long_term": 273,
+        }
+    ]
+    assert body["short_quantity"] == 8.0 and body["long_quantity"] == 0.0
+    # Sold 12 @ 50 against an average of 30 → 240, of which 10/12 is long.
+    assert body["realised_long"] == 200.0
+    assert body["realised_short"] == 40.0
+
+
+@pytest.mark.asyncio
+async def test_tax_lots_endpoint_404s_for_an_unknown_asset(client: AsyncClient, auth_headers: dict):
+    r = await client.get(f"/api/assets/{uuid.uuid4()}/tax-lots", headers=auth_headers)
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_tax_lots_require_auth(client: AsyncClient, market_asset_api: Asset):
+    assert (await client.get(f"/api/assets/{market_asset_api.id}/tax-lots")).status_code == 401

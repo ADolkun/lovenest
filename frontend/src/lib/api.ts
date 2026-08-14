@@ -36,6 +36,7 @@ import type {
   AssetGroup,
   AssetTransaction,
   AssetValue,
+  TaxLots,
   MarketSymbolMatch,
   MarketSymbolQuote,
   Attachment,
@@ -1062,6 +1063,11 @@ export const assets = {
   // Transaction ledger (issue #235)
   transactions: async (id: string): Promise<AssetTransaction[]> => {
     const { data } = await api.get(`/assets/${id}/transactions`)
+    return data
+  },
+  // Tax Lots and holding period, derived from the ledger (issue #65)
+  taxLots: async (id: string): Promise<TaxLots> => {
+    const { data } = await api.get(`/assets/${id}/tax-lots`)
     return data
   },
   allTransactions: async (params?: { ticker?: string; kind?: 'buy' | 'sell' }): Promise<AssetTransaction[]> => {
