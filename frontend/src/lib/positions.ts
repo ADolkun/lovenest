@@ -76,6 +76,13 @@ function hasValue(asset: Asset): boolean {
   return (asset.current_value_primary ?? asset.current_value) !== null
 }
 
+// Quantities are stored at six decimals, so summing legs in binary floating
+// point can surface digits the holding never had (24183.95 + 25252.29 reading
+// as 49436.240000000005). Round back to the precision the column actually has.
+function roundQuantity(quantity: number): number {
+  return Math.round(quantity * 1e6) / 1e6
+}
+
 /**
  * Cost basis in the primary currency. `total_invested` is in the holding's own
  * currency and has no converted twin, but value and gain are both converted at
@@ -146,7 +153,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
     })
 
     const value = legs.reduce((sum, leg) => sum + leg.value, 0)
-    const quantity = legs.reduce((sum, leg) => sum + leg.quantity, 0)
+    const quantity = roundQuantity(legs.reduce((sum, leg) => sum + leg.quantity, 0))
     // A position's basis is only meaningful when every account reported one —
     // summing the known half would overstate the gain by the unknown half.
     const basisKnown = legs.every((leg) => leg.costBasis !== null)

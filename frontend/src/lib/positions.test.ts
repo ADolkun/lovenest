@@ -93,6 +93,18 @@ describe('consolidation across accounts', () => {
     expect(voo.value).toBe(7000)
   })
 
+  it('sums quantities without leaking binary floating-point digits', () => {
+    const { positions } = buildPortfolio(
+      [
+        holding({ ticker: 'SPAXX', units: 24183.95, value: 24183.95, groupId: 'w1' }),
+        holding({ ticker: 'SPAXX', units: 25252.29, value: 25252.29, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'investment')],
+    )
+
+    expect(positions[0].quantity).toBe(49436.24)
+  })
+
   it('breaks a position down per account', () => {
     const { positions } = buildPortfolio(
       [
