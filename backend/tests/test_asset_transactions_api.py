@@ -211,3 +211,43 @@ async def test_oversell_rejected_via_api(client: AsyncClient, auth_headers: dict
 @pytest.mark.asyncio
 async def test_transactions_require_auth(client: AsyncClient):
     assert (await client.get("/api/assets/transactions")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_reportable_gain_endpoint_excludes_tax_advantaged(
+    client: AsyncClient, auth_headers: dict, market_asset_api: Asset
+):
+    """A profitable Roth sale is Realised Gain but never Reportable (issue #78)."""
+    wallet = await client.post(
+        "/api/asset-groups", headers=auth_headers, json={"name": "Roth IRA", "tax_treatment": "roth"}
+    )
+    assert wallet.status_code in (200, 201)
+    r = await client.patch(
+        f"/api/assets/{market_asset_api.id}", headers=auth_headers, json={"group_id": wallet.json()["id"]}
+    )
+    assert r.status_code == 200
+
+    for tx in [
+        {"kind": "buy", "quantity": 10, "price": 20, "date": "2026-01-01"},
+        {"kind": "sell", "quantity": 4, "price": 30, "date": "2026-03-01"},
+    ]:
+        assert (await client.post(
+            f"/api/assets/{market_asset_api.id}/transactions", headers=auth_headers, json=tx
+        )).status_code == 201
+
+    r = await client.get("/api/assets/reportable-gain", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.json() == {
+        "reportable_gain": 0.0,
+        "non_reportable_gain": 40.0,
+        "start": None,
+        "end": None,
+    }
+
+    r = await client.get(
+        "/api/assets/reportable-gain",
+        headers=auth_headers,
+        params={"start": "2027-01-01", "end": "2028-01-01"},
+    )
+    # The 2026 sell is outside the window, so the year bounds really bind.
+    assert r.json()["non_reportable_gain"] == 0.0

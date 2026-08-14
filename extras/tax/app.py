@@ -5,6 +5,7 @@ Tax math lives in tax_engine (owned elsewhere); this module only wires HTTP
 endpoints and read-only Postgres reporting for the write-off tab.
 """
 
+import json
 import os
 import re
 import urllib.error
@@ -109,12 +110,13 @@ def require_auth(
         raise HTTPException(status_code=401, detail="Sign in to Lovenest first")
     if HUB_WORKSPACE_ID and workspace_id != HUB_WORKSPACE_ID:
         raise HTTPException(status_code=403, detail="Select the configured tax workspace")
+    headers = {
+        "Authorization": authorization,
+        **({"X-Workspace-Id": workspace_id} if workspace_id else {}),
+    }
     request = urllib.request.Request(
         f"{BACKEND_URL}/api/workspaces/current" if HUB_WORKSPACE_ID else f"{BACKEND_URL}/api/users/me",
-        headers={
-            "Authorization": authorization,
-            **({"X-Workspace-Id": workspace_id} if workspace_id else {}),
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
@@ -124,6 +126,7 @@ def require_auth(
         raise HTTPException(status_code=401, detail="Invalid Lovenest session") from exc
     except urllib.error.URLError as exc:
         raise HTTPException(status_code=503, detail="Lovenest authentication unavailable") from exc
+    return headers
 
 
 @app.post("/api/tax/estimate")
@@ -279,18 +282,43 @@ def writeoffs(_auth=Depends(require_auth)):
         return empty
 
 
+def _reportable_gain(auth):
+    """YTD capital gains for the estimator, from the backend rather than this
+    app's own SQL: the Taxable-Wallet allowlist that decides what is Reportable
+    lives there, and duplicating it here is how a Roth gain ends up taxed.
+
+    `non_reportable_gain` is the rest of the Realised Gain — tax-advantaged
+    wallets, wallets marked `other`, and wallet-less holdings — carried only so
+    the UI can say what it left out. It must never reach a tax figure.
+    """
+    url = f"{BACKEND_URL}/api/assets/reportable-gain?start={YTD_START}&end={_ytd_end()}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=auth), timeout=5) as response:
+            data = json.load(response)
+        return {
+            "reportable_gain": float(data.get("reportable_gain") or 0.0),
+            "non_reportable_gain": float(data.get("non_reportable_gain") or 0.0),
+        }
+    except (OSError, ValueError) as exc:
+        # OSError covers URLError and the bare TimeoutError a read timeout
+        # raises: a slow backend must degrade to a hint, not 500 the whole form.
+        return {"gain_error": f"capital gains unavailable: {exc}"}
+
+
 @app.get("/api/prefill")
-def prefill(_auth=Depends(require_auth)):
+def prefill(auth=Depends(require_auth)):
     """Best-effort 2026 YTD figures to seed the estimator form.
 
     total_income: sum of non-transfer, non-ignored credits.
     interest_income: credits in a category named 'Income' or whose description
     mentions 'interest' — heuristic, surfaced as a suggestion only.
+    reportable_gain: Realised Gain arising in Taxable Wallets only.
     """
     result = {
         "year": 2026,
         "total_income": 0.0,
         "interest_income": 0.0,
+        **_reportable_gain(auth),
     }
 
     if not DATABASE_URL:
