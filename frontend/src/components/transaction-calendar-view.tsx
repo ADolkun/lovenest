@@ -11,6 +11,7 @@ import { activityChartData, dayActivity } from '@/lib/calendar-activity'
 import { weekdayShortLabels } from '@/lib/date-utils'
 import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
+import { shouldShowPendingBadge } from '@/lib/transaction-status'
 
 function parseLocalDate(value: string) {
   return new Date(`${value}T00:00:00`)
@@ -1233,7 +1234,7 @@ function CalendarItemRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <p className="text-sm font-semibold text-foreground truncate leading-tight">{item.description}</p>
-          {item.kind === 'projected' && (
+          {item.kind === 'projected' && item.source === 'recurring' && item.status !== 'pending' && (
             <span className="inline-flex items-center text-[9px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1 py-0.5 rounded-full shrink-0">
               {t('transactions.calendarProjected')}
             </span>
@@ -1244,8 +1245,13 @@ function CalendarItemRow({
           {item.is_ignored && (
             <EyeClosed className="h-3 w-3 text-gray-500 shrink-0" />
           )}
-          {item.status === 'pending' && (
-            <Clock size={12} className="text-muted-foreground shrink-0" />
+          {shouldShowPendingBadge(item) && (
+            <span
+              title={t('transactions.pending')}
+              className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-200 bg-amber-50 p-0.5 dark:border-amber-500/30 dark:bg-amber-500/10"
+            >
+              <Clock size={12} className="text-amber-500" role="img" aria-label={t('transactions.pending')} />
+            </span>
           )}
         </div>
         {(account || item.account_name) && (

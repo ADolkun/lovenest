@@ -8,11 +8,13 @@ import { format, addDays, addMonths, parseISO } from 'date-fns'
 import { accounts, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
+import { shouldShowPendingBadge } from '@/lib/transaction-status'
 import { toast } from 'sonner'
 import type { CreditCardBill, Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, ArrowLeftRight, CalendarClock, ChevronLeft, ChevronRight, Clock, EyeClosed, HelpCircle, Paperclip, Pencil, X } from 'lucide-react'
+import { MobileTransactionRow } from '@/components/mobile-transaction-row'
 import { CategoryIcon } from '@/components/category-icon'
 import { TransactionDialog, extractApiError, type TransactionSavePayload } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
@@ -22,6 +24,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
@@ -29,6 +32,7 @@ import { formatCurrency } from '@/lib/format'
 import {
   AreaChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -270,6 +274,7 @@ export default function AccountDetailPage() {
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
+  const isMobile = useIsMobile()
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTx, setEditingTx] = useState<Transaction | null>(null)
@@ -462,19 +467,19 @@ export default function AccountDetailPage() {
       if (account.statement_close_day) {
         cycles.push(creditCardCycleBoundaries(account.statement_close_day, new Date()))
       }
-      return cycles.slice(-6)
+      return cycles.slice(isMobile ? -4 : -6)
     }
 
     if (!account.statement_close_day) return []
     const cycles: { start: string; end: string }[] = []
     let ref = new Date()
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < (isMobile ? 4 : 6); i++) {
       const c = creditCardCycleBoundaries(account.statement_close_day, ref)
       cycles.unshift(c)
       ref = new Date(parseISO(c.start + 'T00:00:00').getTime() - 86400000)
     }
     return cycles
-  }, [account, billsAsc])
+  }, [account, billsAsc, isMobile])
 
   const timelineQueries = useQueries({
     queries: timelineCycles.map(c => ({
@@ -725,6 +730,30 @@ export default function AccountDetailPage() {
     : { start: defaultFrom(), end: defaultTo() }
   const hasFilters = filterFrom !== resolvedDefaultRange.start || filterTo !== resolvedDefaultRange.end
 
+  // The mobile transaction view is intentionally grouped by day so the date
+  // remains visible without spending a full column on every row.
+  const groupedByDate = useMemo(() => {
+    const groups: { date: string; label: string; items: TxWithBalance[] }[] = []
+    let current: { date: string; label: string; items: TxWithBalance[] } | null = null
+    for (const tx of txWithRunningBalance) {
+      if (!current || current.date !== tx.date) {
+        current = {
+          date: tx.date,
+          label: new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale, {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          }),
+          items: [],
+        }
+        groups.push(current)
+      }
+      current.items.push(tx)
+    }
+    return groups
+  }, [txWithRunningBalance, dateLocale])
+
   const isLoading = accountLoading || summaryLoading
 
   if (isLoading) {
@@ -760,7 +789,7 @@ export default function AccountDetailPage() {
             <h1 className="text-2xl sm:text-3xl font-semibold text-foreground tracking-tight truncate">
               {getAccountName(account)}
             </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <div className="flex items-center gap-2 mt-1 overflow-hidden">
               <span className="text-xs font-medium text-muted-foreground">
                 {t(`accounts.type${account.type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join('')}`, account.type)}
               </span>
@@ -811,7 +840,7 @@ export default function AccountDetailPage() {
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3">
           {isCreditCard ? (
             <div className="flex items-center gap-1">
               <button
@@ -887,7 +916,7 @@ export default function AccountDetailPage() {
             <Button
               variant="ghost"
               size="sm"
-              className="text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground min-h-[44px] min-w-[44px] px-3 shrink-0"
               onClick={() => {
                 filterTouched.current = false
                 if (account?.type === 'credit_card') {
@@ -904,8 +933,8 @@ export default function AccountDetailPage() {
                 }
               }}
             >
-              <X className="h-3.5 w-3.5 mr-1" />
-              {t('transactions.clearFilters')}
+              <X className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">{t('transactions.clearFilters')}</span>
             </Button>
           )}
           {isForeignCurrency && (
@@ -1072,11 +1101,11 @@ export default function AccountDetailPage() {
             : null
         return (
           <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
-            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
                 {t('accounts.cycleBillTotal')}
               </p>
-              <p className="text-base sm:text-2xl font-bold tabular-nums text-foreground">
+              <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-foreground">
                 {mask(formatCurrency(billTotal, displayCurrency, locale))}
               </p>
               {deltaPct != null && prevCycleLabel && (
@@ -1085,24 +1114,24 @@ export default function AccountDetailPage() {
                 </p>
               )}
             </div>
-            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1 truncate">
                 {t('accounts.availableCredit')}
-                <span className="inline-flex items-center px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wide bg-muted text-muted-foreground">
+                <span className="inline-flex items-center px-1 py-0 rounded text-[8px] sm:text-[9px] font-bold uppercase tracking-wide bg-muted text-muted-foreground shrink-0">
                   {t('accounts.currentTag')}
                 </span>
               </p>
-              <p className="text-base sm:text-2xl font-bold tabular-nums text-emerald-600">
+              <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-emerald-600">
                 {account.available_credit != null
                   ? mask(formatCurrency(Number(account.available_credit), account.currency, locale))
                   : '—'}
               </p>
             </div>
-            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+              <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
                 {t('accounts.dueDate')}
               </p>
-              <p className="text-base sm:text-2xl font-bold tabular-nums text-foreground">
+              <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-foreground">
                 {cycleDueDate ? formatFriendlyDate(cycleDueDate, dateLocale) : '—'}
               </p>
               {dueSubtitle && (
@@ -1114,34 +1143,34 @@ export default function AccountDetailPage() {
           </div>
         )
       })() : (
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
-          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
+          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
               {t('accounts.currentBalance')}
             </p>
-            <p className={`text-base sm:text-2xl font-bold tabular-nums ${(summary?.current_balance ?? 0) < 0 ? 'text-rose-500' : 'text-foreground'}`}>
+            <p className={`text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums ${(summary?.current_balance ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
               {mask(formatCurrency(
                 (showPrimary ? summary?.current_balance_primary : undefined) ?? summary?.current_balance ?? 0,
                 displayCurrency, locale
               ))}
             </p>
           </div>
-          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1">
+          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
               {t('accounts.income')}
             </p>
-            <p className="text-base sm:text-2xl font-bold tabular-nums text-emerald-600">
+            <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-emerald-600">
               {mask(formatCurrency(
                 (showPrimary ? summary?.monthly_income_primary : undefined) ?? summary?.monthly_income ?? 0,
                 displayCurrency, locale
               ))}
             </p>
           </div>
-          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1">
+          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
               {t('accounts.expenses')}
             </p>
-            <p className="text-base sm:text-2xl font-bold tabular-nums text-rose-500">
+            <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-rose-500">
               {mask(formatCurrency(
                 (showPrimary ? summary?.monthly_expenses_primary : undefined) ?? summary?.monthly_expenses ?? 0,
                 displayCurrency, locale
@@ -1246,6 +1275,22 @@ export default function AccountDetailPage() {
       {/* Balance / Cycle spending chart */}
       {(() => {
         const cycleEmpty = isCreditCard && chartData.length > 0 && chartData[chartData.length - 1].balance === 0
+        const balances = chartData.map(d => d.balance)
+        const chartMin = Math.min(0, ...balances)
+        const chartMax = Math.max(0, ...balances)
+        const dataMin = balances.length > 0 ? Math.min(...balances) : 0
+        const dataMax = balances.length > 0 ? Math.max(...balances) : 0
+        const flat = chartMin === chartMax
+        const zeroFrac = flat
+          ? 1
+          : Math.min(1, Math.max(0, chartMax / (chartMax - chartMin)))
+        const crossesZero = dataMin < 0 && dataMax > 0
+        const strokeSplit = crossesZero
+          ? Math.min(1, Math.max(0, dataMax / (dataMax - dataMin)))
+          : 1
+        const strokeSplitFrac = flat ? 1 : Math.min(1, strokeSplit + 0.01)
+        const strokeSolid = dataMin >= 0 ? '#10B981' : '#F43F5E'
+        const lastBalance = balances.length > 0 ? balances[balances.length - 1] : 0
         return (
       <div className="bg-card rounded-xl border border-border shadow-sm mb-6">
         <div className="px-5 pt-5 pb-3">
@@ -1268,10 +1313,35 @@ export default function AccountDetailPage() {
                 margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
               >
                 <defs>
-                  <linearGradient id="acctBalGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={isCreditCard ? '#F43F5E' : '#10B981'} stopOpacity={0.18} />
-                    <stop offset="95%" stopColor={isCreditCard ? '#F43F5E' : '#10B981'} stopOpacity={0.02} />
-                  </linearGradient>
+                  {isCreditCard ? (
+                    <linearGradient id="acctBalGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.18} />
+                      <stop offset="95%" stopColor="#F43F5E" stopOpacity={0.02} />
+                    </linearGradient>
+                  ) : (
+                    <>
+                      <linearGradient id="acctBalGrad" x1="0" y1="0" x2="0" y2="1">
+                        {crossesZero || dataMin >= 0 ? (
+                          <>
+                            <stop offset="0%" stopColor="#10B981" stopOpacity={0.18} />
+                            <stop offset={`${zeroFrac * 100}%`} stopColor="#10B981" stopOpacity={0.02} />
+                          </>
+                        ) : null}
+                        {crossesZero || dataMax <= 0 ? (
+                          <>
+                            <stop offset={`${zeroFrac * 100}%`} stopColor="#F43F5E" stopOpacity={0.02} />
+                            <stop offset="100%" stopColor="#F43F5E" stopOpacity={0.18} />
+                          </>
+                        ) : null}
+                      </linearGradient>
+                      {crossesZero && (
+                        <linearGradient id="acctBalStroke" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset={`${strokeSplitFrac * 100}%`} stopColor="#10B981" />
+                          <stop offset={`${strokeSplitFrac * 100}%`} stopColor="#F43F5E" />
+                        </linearGradient>
+                      )}
+                    </>
+                  )}
                 </defs>
                 <XAxis
                   dataKey="label"
@@ -1294,7 +1364,7 @@ export default function AccountDetailPage() {
                   tickCount={5}
                   domain={[
                     (dataMin: number) => dataMin < 0 ? Math.floor(dataMin / 100) * 100 : 0,
-                    (dataMax: number) => Math.ceil(dataMax / 100) * 100,
+                    (dataMax: number) => dataMax === 0 ? 100 : Math.ceil(dataMax / 100) * 100,
                   ]}
                 />
                 <Tooltip
@@ -1315,11 +1385,17 @@ export default function AccountDetailPage() {
                 <Area
                   type="monotone"
                   dataKey="balance"
-                  stroke={isCreditCard ? '#F43F5E' : '#10B981'}
+                  stroke="none"
+                  tooltipType="none"
+                  fill={flat ? '#10B981' : 'url(#acctBalGrad)'}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="balance"
+                  stroke={isCreditCard ? '#F43F5E' : (crossesZero ? 'url(#acctBalStroke)' : strokeSolid)}
                   strokeWidth={2}
-                  fill="url(#acctBalGrad)"
                   dot={false}
-                  activeDot={{ r: 3, fill: isCreditCard ? '#F43F5E' : '#10B981' }}
+                  activeDot={{ r: 3, fill: isCreditCard ? '#F43F5E' : (lastBalance >= 0 ? '#10B981' : '#F43F5E') }}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1343,16 +1419,53 @@ export default function AccountDetailPage() {
             </div>
           ) : txWithRunningBalance.length === 0 ? (
             <p className="p-6 text-center text-muted-foreground">{t('accounts.noTransactions')}</p>
+          ) : isMobile ? (
+            <div>
+              {groupedByDate.map((group) => (
+                <div key={group.date}>
+                  <div className="bg-muted/80 px-4 py-1.5 border-b border-border">
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      {group.label}
+                    </span>
+                  </div>
+                  {group.items.map((tx) => (
+                    <MobileTransactionRow
+                      key={tx.id}
+                      tx={tx}
+                      account={account}
+                      groupName={undefined}
+                      selected={false}
+                      selectable={false}
+                      canWrite={canWrite}
+                      highlighted={false}
+                      locale={locale}
+                      userCurrency={userCurrency}
+                      onSelect={() => {}}
+                      showPayee
+                      onClick={(clickedTx) => {
+                        // The opening-balance row is synthetic; the desktop
+                        // table makes it non-clickable and mobile must match.
+                        if (clickedTx.source === 'opening_balance') return
+                        if (!clickedTx.is_shared && canWrite) {
+                          setEditingTx(clickedTx)
+                          setDialogOpen(true)
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="px-3 sm:px-4 py-3 text-left font-medium">{t('transactions.date')}</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-medium">{t('transactions.description')}</th>
-                    <th className="px-4 py-3 text-left font-medium hidden md:table-cell">{t('transactions.category')}</th>
-                    <th className="px-3 sm:px-4 py-3 text-right font-medium">{t('transactions.amount')}</th>
-                    <th className="px-4 py-3 text-right font-medium hidden sm:table-cell">{t('accounts.runningBalance')}</th>
+                    <th className="px-2 sm:px-4 py-3 text-left font-medium whitespace-nowrap">{t('transactions.date')}</th>
+                    <th className="px-2 sm:px-4 py-3 text-left font-medium">{t('transactions.description')}</th>
+                    <th className="px-2 sm:px-4 py-3 text-left font-medium hidden md:table-cell">{t('transactions.category')}</th>
+                    <th className="px-2 sm:px-4 py-3 text-right font-medium whitespace-nowrap">{t('transactions.amount')}</th>
+                    <th className="px-2 sm:px-4 py-3 text-right font-medium hidden sm:table-cell whitespace-nowrap">{t('accounts.runningBalance')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1375,9 +1488,10 @@ export default function AccountDetailPage() {
                         <td className="px-3 sm:px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {formatDateStr(tx.date, dateLocale)}
                         </td>
-                        <td className="px-3 sm:px-4 py-3">
-                          <div>
-                            <span className="font-semibold text-foreground text-sm">{tx.description}</span>
+                        <td className="px-3 sm:px-4 py-3 w-full max-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-foreground text-sm truncate">{tx.description}</span>
+                            <div className="flex items-center gap-1 shrink-0">
                             {isOpening && (
                               <span className="ml-2 text-xs text-muted-foreground font-normal border border-border rounded px-1.5 py-0.5">
                                 {t('accounts.openingBalance')}
@@ -1390,17 +1504,19 @@ export default function AccountDetailPage() {
                                 <span title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
                               </span>
                             )}
-                            {isPending && (
-                              <span className="ml-2 inline-flex items-center gap-1 text-xs text-amber-600 font-normal bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                                <Clock className="h-3 w-3" />
-                                {t('transactions.pending')}
-                              </span>
-                            )}
                             {isIgnored && (
                               <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-600 font-normal bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
                                 <EyeClosed className="h-3 w-3" />
                                 {t('transactions.ignored')}
                                 <span title={t('transactions.ignoreTransferHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
+                              </span>
+                            )}
+                            {tx.recurring_transaction_id != null && (
+                              <span
+                                className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full shrink-0"
+                                title={t('transactions.recurringLinkedTooltip')}
+                              >
+                                {t('transactions.recurringBadge')}
                               </span>
                             )}
                             {tx.installment_number != null && tx.total_installments != null && (
@@ -1411,6 +1527,14 @@ export default function AccountDetailPage() {
                                   : undefined}
                               >
                                 {tx.installment_number}/{tx.total_installments}
+                              </span>
+                            )}
+                            {shouldShowPendingBadge(tx) && (
+                              <span
+                                title={t('transactions.pending')}
+                                className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-200 bg-amber-50 p-0.5 dark:border-amber-500/30 dark:bg-amber-500/10"
+                              >
+                                <Clock size={12} className="text-amber-500" role="img" aria-label={t('transactions.pending')} />
                               </span>
                             )}
                             {tx.effective_bill_date && (
@@ -1425,9 +1549,10 @@ export default function AccountDetailPage() {
                             {(tx.attachment_count ?? 0) > 0 && (
                               <Paperclip size={12} className="ml-2 inline text-muted-foreground" />
                             )}
+                            </div>
                           </div>
                           {(tx.payee_name || tx.payee) && (tx.payee_name || tx.payee) !== tx.description && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{tx.payee_name || tx.payee}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{tx.payee_name || tx.payee}</p>
                           )}
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
@@ -1440,7 +1565,7 @@ export default function AccountDetailPage() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className={`px-3 sm:px-4 py-3 text-right text-xs sm:text-sm font-semibold tabular-nums ${tx.is_ignored ? 'text-gray-500' : tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        <td className={`px-2 sm:px-4 py-3 text-right text-xs sm:text-sm font-semibold tabular-nums whitespace-nowrap ${tx.is_ignored ? 'text-gray-500' : tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
                           {mask(`${tx.is_ignored ? ' ' : tx.type === 'credit' ? '+' : '-'}${formatCurrency(Math.abs(Number(tx.amount)), tx.currency, locale)}`)}
                           {tx.currency !== userCurrency && tx.amount_primary != null && (
                             <span className="block text-[10px] text-muted-foreground tabular-nums">
@@ -1448,7 +1573,7 @@ export default function AccountDetailPage() {
                             </span>
                           )}
                         </td>
-                        <td className={`px-4 py-3 text-right tabular-nums text-sm hidden sm:table-cell ${(account.type === 'credit_card' ? tx.runningBalance > 0 : tx.runningBalance < 0) ? 'text-rose-500' : 'text-muted-foreground'}`}>
+                        <td className={`px-4 py-3 text-right tabular-nums text-sm hidden sm:table-cell whitespace-nowrap ${(account.type === 'credit_card' ? tx.runningBalance > 0 : tx.runningBalance < 0) ? 'text-rose-500' : 'text-muted-foreground'}`}>
                           {mask(formatCurrency(tx.runningBalance, displayCurrency, locale))}
                         </td>
                       </tr>

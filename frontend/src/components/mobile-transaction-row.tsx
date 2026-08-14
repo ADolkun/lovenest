@@ -6,6 +6,12 @@ import { AlertTriangle, ArrowLeftRight, Clock, EyeClosed, Paperclip } from 'luci
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useTranslation } from 'react-i18next'
 import { formatCurrency } from '@/lib/format'
+import { shouldShowPendingBadge } from '@/lib/transaction-status'
+
+/** Keep long merchant references on one line when there are no word breaks. */
+function hasWordBreaks(text: string): boolean {
+  return /\s/.test(text)
+}
 
 interface MobileTransactionRowProps {
   tx: Transaction
@@ -20,6 +26,8 @@ interface MobileTransactionRowProps {
   userCurrency: string
   onSelect: (id: string, shiftKey: boolean) => void
   onClick: (tx: Transaction) => void
+  /** Show the payee instead of the account name in an account-scoped view. */
+  showPayee?: boolean
 }
 
 export function MobileTransactionRow({
@@ -35,6 +43,7 @@ export function MobileTransactionRow({
   userCurrency,
   onSelect,
   onClick,
+  showPayee = false,
 }: MobileTransactionRowProps) {
   const { mask } = usePrivacyMode()
   const { t } = useTranslation()
@@ -88,7 +97,7 @@ export function MobileTransactionRow({
       <div className="min-w-0 flex-1">
         {/* Description row */}
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-semibold text-foreground truncate leading-tight">
+          <p className={`text-sm font-semibold text-foreground leading-tight min-w-0 ${hasWordBreaks(tx.description) ? 'break-words whitespace-normal' : 'truncate'}`}>
             {tx.description}
           </p>
           {tx.group_id && (
@@ -112,22 +121,35 @@ export function MobileTransactionRow({
               {tx.installment_number}/{tx.total_installments}
             </span>
           )}
-          {tx.status === 'pending' && (
-            <Clock size={12} className="text-muted-foreground shrink-0" />
+          {shouldShowPendingBadge(tx) && (
+            <span
+              title={t('transactions.pending')}
+              className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-200 bg-amber-50 p-0.5 dark:border-amber-500/30 dark:bg-amber-500/10"
+            >
+              <Clock size={12} className="text-amber-500" role="img" aria-label={t('transactions.pending')} />
+            </span>
           )}
           {(tx.attachment_count ?? 0) > 0 && (
             <Paperclip size={11} className="text-muted-foreground shrink-0" />
           )}
         </div>
 
-        {/* Account row */}
-        {account && (
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <AccountIcon account={account} size="xs" />
-            <span className="text-xs text-muted-foreground truncate">
-              {getAccountName(account)}
-            </span>
-          </div>
+        {/* Account row or payee row */}
+        {showPayee ? (
+          (tx.payee_name || tx.payee) && (tx.payee_name || tx.payee) !== tx.description ? (
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              {tx.payee_name || tx.payee}
+            </p>
+          ) : null
+        ) : (
+          account && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <AccountIcon account={account} size="xs" />
+              <span className="text-xs text-muted-foreground truncate">
+                {getAccountName(account)}
+              </span>
+            </div>
+          )
         )}
       </div>
 
