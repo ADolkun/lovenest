@@ -41,6 +41,14 @@ KNOWN_PROVIDERS = [
         "requires_institution_select": False,
         "supports_asset_sync": True,
     },
+    {
+        "name": "coinbase",
+        "display_name": "Coinbase",
+        "description": "Crypto balances from a read-only Coinbase API key",
+        "flow_type": "token",
+        "requires_institution_select": False,
+        "supports_asset_sync": True,
+    },
 ]
 
 
@@ -93,6 +101,10 @@ def _auto_register_providers() -> None:
     if settings.simplefin_enabled:
         from app.providers.simplefin import SimpleFinProvider
         register_provider("simplefin", SimpleFinProvider)
+
+    if settings.coinbase_enabled:
+        from app.providers.coinbase import CoinbaseProvider
+        register_provider("coinbase", CoinbaseProvider)
 
 
 _auto_register_providers()

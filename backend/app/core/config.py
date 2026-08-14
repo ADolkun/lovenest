@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     simplefin_enabled: bool = False
     simplefin_api_url: str = "https://beta-bridge.simplefin.org"
 
+    # Coinbase (crypto balances, paste-a-key flow). Off by default.
+    coinbase_enabled: bool = False
+    coinbase_api_url: str = "https://api.coinbase.com"
+
     # Frontend
     frontend_url: str = "http://localhost:5173"
 

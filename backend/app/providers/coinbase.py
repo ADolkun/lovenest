@@ -1,0 +1,480 @@
+"""Coinbase provider — crypto balances from the retail v2 API.
+
+Connects with the paste-a-token flow: the user downloads a CDP API key from
+https://portal.cdp.coinbase.com/access/api and pastes the JSON file in. The
+key name and its EC private key are stored encrypted; nothing else is kept.
+
+Auth is a fresh short-lived JWT per request, signed with that private key.
+Two details are easy to get wrong:
+
+  * **ES256, not EdDSA.** Coinbase's general CDP guidance names Ed25519 for
+    newer secret keys, but ``api.coinbase.com``'s retail v2 surface only
+    accepts ES256 over the ECDSA P-256 key the portal hands out.
+  * **The signed ``uri`` claim excludes the query string** — it is
+    ``"<METHOD> <host><path>"`` and nothing more. Signing the query too would
+    invalidate the token on every page of a cursor walk.
+
+Only read-only keys are accepted: ``/api/v3/brokerage/key_permissions``
+reports what the key can do, and one carrying trade or transfer permission is
+refused at connect time rather than stored.
+
+Prices come from Coinbase's own public exchange-rate table, never from the
+equity quote source. Crypto tickers collide with listed companies — AMP, ACH,
+PRO and VET are all real NYSE symbols as well as tokens — so asking a stock
+API for "AMP" returns a confidently wrong number. Holdings are therefore
+valued here, at sync time, and carry a price the equity source never sees.
+
+No new dependency: ``jose`` signs the token, ``cryptography`` backs it, and
+``httpx`` makes the calls — all three already ship with the app.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import secrets
+import time
+from datetime import date, datetime, timezone
+from decimal import Decimal, DivisionByZero, InvalidOperation
+from typing import Any, Optional
+from urllib.parse import urlsplit
+
+import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from jose import jwt
+
+from app.agents.services.crypto import decrypt, encrypt
+from app.core.config import get_settings
+from app.providers.base import (
+    AccountData,
+    BankProvider,
+    ConnectionData,
+    HoldingData,
+    ProviderRateLimited,
+    ProviderUserActionRequired,
+    SessionExpiredError,
+    TransactionData,
+    iso_currency as _iso_currency,
+    normalize_ticker as _ticker,
+    to_decimal as _to_decimal,
+)
+from app.providers.favicon import favicon_url_for
+
+logger = logging.getLogger(__name__)
+
+COINBASE_HTTP_TIMEOUT = 30.0
+# Coinbase rejects tokens older than two minutes; mint one per request well
+# inside that so clock skew on a self-hosted box can't expire it in flight.
+TOKEN_LIFETIME_SECONDS = 110
+ACCOUNTS_PATH = "/v2/accounts"
+KEY_PERMISSIONS_PATH = "/api/v3/brokerage/key_permissions"
+EXCHANGE_RATES_PATH = "/v2/exchange-rates"
+# A cursor walk over a personal exchange account is a few pages; the cap only
+# exists so a server that keeps handing out fresh cursors can't spin forever.
+MAX_ACCOUNT_PAGES = 100
+COINBASE_HELP_URL = "https://portal.cdp.coinbase.com/access/api"
+
+
+def _parse_api_key(raw: str) -> tuple[str, str]:
+    """Pull the key name and PEM private key out of a pasted CDP key file.
+
+    The portal downloads ``{"name": "organizations/../apiKeys/..",
+    "privateKey": "-----BEGIN EC PRIVATE KEY-----.."}``; older exports use
+    ``apiKeyName``/``privateKey``. Both are accepted, nothing else is.
+    """
+    cleaned = (raw or "").strip()
+    if not cleaned:
+        raise ValueError("Coinbase API key is empty")
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "Coinbase API key must be the JSON file downloaded from the CDP portal"
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("Coinbase API key JSON must be an object")
+    key_name = parsed.get("name") or parsed.get("apiKeyName")
+    private_key = parsed.get("privateKey") or parsed.get("private_key")
+    if not isinstance(key_name, str) or not key_name.strip():
+        raise ValueError("Coinbase API key JSON is missing 'name'")
+    if not isinstance(private_key, str) or "-----BEGIN" not in private_key:
+        raise ValueError("Coinbase API key JSON is missing a PEM 'privateKey'")
+    private_key = private_key.strip()
+    # Prove the PEM is the ECDSA key ES256 needs while we can still answer
+    # "bad key". Past this point a signing failure surfaces as an expired
+    # session, which is the wrong thing to tell someone connecting for the
+    # first time.
+    try:
+        loaded = serialization.load_pem_private_key(private_key.encode(), password=None)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("Coinbase private key is not a readable PEM private key") from exc
+    if not isinstance(loaded, ec.EllipticCurvePrivateKey):
+        raise ValueError("Coinbase private key must be an ECDSA key, not RSA or Ed25519")
+    return key_name.strip(), private_key
+
+
+def _api_host() -> str:
+    """Host the JWT claim is bound to, derived from the configured base URL."""
+    return urlsplit(get_settings().coinbase_api_url).netloc or "api.coinbase.com"
+
+
+def _sign_request(key_name: str, private_key: str, method: str, path: str) -> str:
+    """Mint a request-scoped ES256 bearer token.
+
+    The ``uri`` claim pins the token to one method, host and path. The query
+    string is deliberately left out — Coinbase does not sign it, and folding
+    it in would break paging, where only ``starting_after`` changes.
+    """
+    now = int(time.time())
+    try:
+        return jwt.encode(
+            {
+                "sub": key_name,
+                "iss": "cdp",
+                "nbf": now,
+                "exp": now + TOKEN_LIFETIME_SECONDS,
+                "uri": f"{method.upper()} {_api_host()}{path}",
+            },
+            private_key,
+            algorithm="ES256",
+            headers={"kid": key_name, "nonce": secrets.token_hex(16)},
+        )
+    except Exception as exc:  # noqa: BLE001 — jose raises a wide family here
+        raise SessionExpiredError(
+            f"Coinbase API key could not sign a request: {exc}"
+        ) from exc
+
+
+def _rows(payload: Any, key: str = "data") -> list[dict]:
+    """Read a list of objects out of a payload, tolerating a malformed shape.
+
+    Coinbase wraps everything in ``{"data": [...]}``, but an error page or a
+    proxy can put a string or an object there instead. Non-dict entries are
+    dropped rather than allowed to raise mid-walk.
+    """
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+class CoinbaseProvider(BankProvider):
+    """Coinbase retail connector — one exchange account holding many positions."""
+
+    @property
+    def name(self) -> str:
+        return "coinbase"
+
+    @property
+    def flow_type(self) -> str:
+        return "token"
+
+    # ----- credentials -------------------------------------------------------
+
+    @staticmethod
+    def _key_pair(credentials: dict) -> tuple[str, str]:
+        creds = credentials or {}
+        key_name = creds.get("key_name") or ""
+        private_key = decrypt(creds.get("private_key_enc")) or creds.get("private_key") or ""
+        if not key_name or not private_key:
+            raise SessionExpiredError("Coinbase API key is missing")
+        return key_name, private_key
+
+    # ----- HTTP --------------------------------------------------------------
+
+    async def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=get_settings().coinbase_api_url.rstrip("/"),
+            timeout=COINBASE_HTTP_TIMEOUT,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Securo/0.1 (+https://usesecuro.com)",
+            },
+        )
+
+    async def _get(
+        self,
+        path: str,
+        *,
+        credentials: Optional[dict] = None,
+        params: Optional[dict] = None,
+    ) -> dict:
+        """One signed (or public) GET, with Coinbase's failure modes mapped.
+
+        ``credentials=None`` is the public path — the exchange-rate table
+        needs no key, so we don't mint a token for it.
+        """
+        headers: dict[str, str] = {}
+        if credentials is not None:
+            key_name, private_key = self._key_pair(credentials)
+            headers["Authorization"] = f"Bearer {_sign_request(key_name, private_key, 'GET', path)}"
+        async with await self._client() as client:
+            resp = await client.get(path, params=params, headers=headers)
+        if resp.status_code in (401, 403):
+            raise ProviderUserActionRequired(
+                f"Coinbase refused the request ({resp.status_code}). The API key may have "
+                "been revoked — create a new read-only key and reconnect.",
+                code="credentials_invalid",
+                help_url=COINBASE_HELP_URL,
+            )
+        if resp.status_code == 429:
+            raise ProviderRateLimited("Coinbase rate-limited the request")
+        resp.raise_for_status()
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise RuntimeError(f"Coinbase returned a non-JSON response for {path}") from exc
+        return payload if isinstance(payload, dict) else {}
+
+    # ----- connection flow ---------------------------------------------------
+
+    def get_oauth_url(self, *args, **kwargs):  # type: ignore[override]
+        raise NotImplementedError("Coinbase uses paste-a-key flow, not OAuth redirect")
+
+    async def _assert_read_only(self, credentials: dict) -> str:
+        """Reject a key that can do anything but look, and return its portfolio id.
+
+        A connection exists to read balances. A key that can trade or move
+        funds hands the app authority it never needs, and the user cannot tell
+        from the pasted file which kind they downloaded — so we ask Coinbase
+        and say plainly what is wrong when the answer is the wrong one.
+        """
+        payload = await self._get(KEY_PERMISSIONS_PATH, credentials=credentials)
+        granted = [
+            label
+            for label, key in (("trade", "can_trade"), ("transfer", "can_transfer"))
+            if payload.get(key)
+        ]
+        if granted:
+            raise ProviderUserActionRequired(
+                "This Coinbase API key grants "
+                + " and ".join(granted)
+                + " permission. Securo only reads balances — create a View-only key "
+                "and paste that one instead.",
+                code="credentials_not_read_only",
+                help_url=COINBASE_HELP_URL,
+            )
+        if not payload.get("can_view"):
+            raise ProviderUserActionRequired(
+                "This Coinbase API key cannot view balances. Create a key with View "
+                "permission and paste that one instead.",
+                code="credentials_not_read_only",
+                help_url=COINBASE_HELP_URL,
+            )
+        return str(payload.get("portfolio_uuid") or "")
+
+    async def handle_oauth_callback(self, code: str) -> ConnectionData:
+        """Turn a pasted CDP key file into a connection.
+
+        Named for the OAuth flow it shares an endpoint with; the contract
+        ("given an opaque code, produce a ConnectionData") fits the
+        paste-a-token providers unchanged.
+        """
+        key_name, private_key = _parse_api_key(code)
+        credentials: dict[str, Any] = {
+            "key_name": key_name,
+            "private_key_enc": encrypt(private_key) or private_key,
+            "connected_at": datetime.now(timezone.utc).isoformat(),
+        }
+        portfolio_uuid = await self._assert_read_only(credentials)
+        accounts = await self.get_accounts(credentials)
+        return ConnectionData(
+            external_id=portfolio_uuid or f"coinbase-{key_name.rsplit('/', 1)[-1]}",
+            institution_name="Coinbase",
+            credentials=credentials,
+            accounts=accounts,
+            logo_url=favicon_url_for("https://www.coinbase.com"),
+        )
+
+    async def refresh_credentials(self, credentials: dict) -> dict:
+        self._key_pair(credentials)
+        return credentials
+
+    # ----- reads -------------------------------------------------------------
+
+    async def _walk_accounts(self, credentials: dict) -> list[dict]:
+        """Every Coinbase account, following the cursor to exhaustion.
+
+        Zero-balance wallets are kept: Coinbase mints one per asset the user
+        has ever touched, and per-account transaction history (issue #69)
+        needs to know they exist.
+        """
+        accounts: list[dict] = []
+        seen_cursors: set[str] = set()
+        params: dict[str, str] = {}
+        for _ in range(MAX_ACCOUNT_PAGES):
+            payload = await self._get(ACCOUNTS_PATH, credentials=credentials, params=params)
+            accounts.extend(_rows(payload))
+            pagination = payload.get("pagination")
+            cursor = pagination.get("next_starting_after") if isinstance(pagination, dict) else None
+            if not cursor or cursor in seen_cursors:
+                return accounts
+            seen_cursors.add(str(cursor))
+            params = {"starting_after": str(cursor)}
+        logger.warning("Coinbase account walk hit the %d-page cap", MAX_ACCOUNT_PAGES)
+        return accounts
+
+    @staticmethod
+    def _balance(raw: dict) -> dict:
+        balance = raw.get("balance")
+        return balance if isinstance(balance, dict) else {}
+
+    @staticmethod
+    def _is_fiat(raw: dict) -> bool:
+        currency = raw.get("currency")
+        return isinstance(currency, dict) and currency.get("type") == "fiat"
+
+    @staticmethod
+    def _asset_code(raw: dict) -> Optional[str]:
+        currency = raw.get("currency")
+        if isinstance(currency, dict):
+            return _ticker(currency.get("code"))
+        return _ticker(currency)
+
+    @staticmethod
+    def _portfolio_id(raw_accounts: list[dict]) -> str:
+        for raw in raw_accounts:
+            portfolio = raw.get("portfolio_id")
+            if isinstance(portfolio, str) and portfolio:
+                return portfolio
+        return "portfolio"
+
+    async def get_accounts(self, credentials: dict) -> list[AccountData]:
+        """The exchange account, plus one account per fiat wallet.
+
+        Coinbase mints a "wallet" per asset the user has ever touched, but
+        those are positions, not accounts — "Crypto is an asset class, not a
+        kind of Account, because one exchange account can hold spot,
+        stablecoins and staking positions at once" (CONTEXT.md). Mapping each
+        coin to its own Account would mint a Wallet per coin, and tax
+        character attaches to a Wallet, so the user would be asked to classify
+        the same exchange account dozens of times.
+
+        So every crypto wallet folds into one investment account carrying no
+        cash balance — its value arrives as holdings, and counting it here too
+        would double it in net worth. A fiat wallet is the opposite: it is
+        cash, it is genuinely its own account, and it has no holding.
+        """
+        raw_accounts = await self._walk_accounts(credentials)
+        identified = [raw for raw in raw_accounts if str(raw.get("id") or "")]
+        accounts: list[AccountData] = []
+        if any(not self._is_fiat(raw) for raw in identified):
+            accounts.append(
+                AccountData(
+                    external_id=self._portfolio_id(identified),
+                    name="Coinbase",
+                    type="investment",
+                    balance=Decimal("0"),
+                    currency="USD",
+                    has_holdings=True,
+                )
+            )
+        for raw in identified:
+            if not self._is_fiat(raw):
+                continue
+            balance = self._balance(raw)
+            accounts.append(
+                AccountData(
+                    external_id=str(raw["id"]),
+                    name=raw.get("name") or self._asset_code(raw) or "Coinbase Wallet",
+                    type="cash",
+                    balance=_to_decimal(balance.get("amount")) or Decimal("0"),
+                    currency=_iso_currency(balance.get("currency")) or "USD",
+                    has_holdings=False,
+                )
+            )
+        return accounts
+
+    async def _usd_prices(self) -> dict[str, Decimal]:
+        """USD spot price per asset code, from Coinbase's own rate table.
+
+        One unauthenticated request covers every asset Coinbase lists, which
+        is both cheaper than a spot call per wallet and the reason this
+        provider never has to ask an equity API what "AMP" is worth. The
+        endpoint reports how much of each asset one USD buys, so the price is
+        its reciprocal.
+        """
+        payload = await self._get(EXCHANGE_RATES_PATH, params={"currency": "USD"})
+        data = payload.get("data")
+        rates = data.get("rates") if isinstance(data, dict) else None
+        if not isinstance(rates, dict):
+            logger.warning("Coinbase exchange-rate payload carried no rates")
+            return {}
+        prices: dict[str, Decimal] = {}
+        for code, raw_rate in rates.items():
+            rate = _to_decimal(raw_rate)
+            if rate is None or not isinstance(code, str):
+                continue
+            try:
+                prices[code.upper()] = Decimal(1) / rate
+            except (DivisionByZero, InvalidOperation):
+                continue
+        return prices
+
+    async def get_holdings(self, credentials: dict) -> list[HoldingData]:
+        """One holding per crypto wallet, valued in USD at sync time.
+
+        All of them are attributed to the single exchange account
+        ``get_accounts`` reports, so they land in one Wallet with one tax
+        character. The wallet's own id stays the holding's ``external_id``:
+        it is the stable upsert key, and the handle per-account transaction
+        history is fetched by (issue #69).
+
+        A wallet whose asset Coinbase cannot price is skipped rather than
+        recorded at an unknown value — except an empty one, which is worth
+        zero whatever the price turns out to be, and is kept so a
+        fully-sold position stays on the books instead of being archived.
+        """
+        raw_accounts = await self._walk_accounts(credentials)
+        prices = await self._usd_prices()
+        portfolio_id = self._portfolio_id(
+            [raw for raw in raw_accounts if str(raw.get("id") or "")]
+        )
+        holdings: list[HoldingData] = []
+        for raw in raw_accounts:
+            account_id = str(raw.get("id") or "")
+            if not account_id or self._is_fiat(raw):
+                continue
+            code = self._asset_code(raw)
+            quantity = _to_decimal(self._balance(raw).get("amount"))
+            if code is None or quantity is None:
+                continue
+            price = prices.get(code)
+            if price is None and quantity != 0:
+                logger.warning("Coinbase has no USD price for %s; skipping holding", code)
+                continue
+            holdings.append(
+                HoldingData(
+                    external_id=account_id,
+                    name=raw.get("name") or code,
+                    currency="USD",
+                    ticker=code,
+                    quantity=quantity,
+                    unit_price=price,
+                    current_value=quantity * price if price is not None else Decimal("0"),
+                    # No purchase_price or purchase_date: the balance endpoint
+                    # reports neither. Real cost basis comes from transaction
+                    # history (issue #69), not from a guess made here.
+                    account_external_id=portfolio_id,
+                    metadata={"asset_code": code, "account_type": raw.get("type")},
+                )
+            )
+        return holdings
+
+    async def get_transactions(
+        self,
+        credentials: dict,
+        account_external_id: str,
+        since: Optional[date] = None,
+        payee_source: str = "auto",
+    ) -> list[TransactionData]:
+        """No cash transactions.
+
+        Coinbase's per-account transactions are buys, sells and transfers of
+        an asset, not movements of money in a cash account. They belong in the
+        trade ledger, which issue #69 wires up; importing them here would
+        double-count every position against its own holding.
+        """
+        return []

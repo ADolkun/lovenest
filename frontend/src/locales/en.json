@@ -659,6 +659,14 @@
         "title": "Connect via SimpleFIN",
         "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
       },
+      "coinbase": {
+        "title": "Connect Coinbase",
+        "description": "Create a read-only (View) API key in the Coinbase Developer Platform, download the JSON file, and paste its contents below.",
+        "openBridge": "Create an API key at Coinbase",
+        "tokenLabel": "API key file",
+        "tokenPlaceholder": "{\"name\": \"organizations/…/apiKeys/…\", \"privateKey\": \"-----BEGIN EC PRIVATE KEY-----…\"}",
+        "tokenHelp": "Paste the whole cdp_api_key.json file. Securo stores the private key encrypted and rejects any key that can trade or transfer."
+      },
       "reconnectTitle": "Reconnect with a fresh token",
       "reconnectDescription": "Paste a new setup token to refresh this connection in place. Existing accounts, transactions, categories, and rules are preserved.",
       "reconnect": "Reconnect"
