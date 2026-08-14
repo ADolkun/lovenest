@@ -665,6 +665,14 @@
         "title": "Подключение через SimpleFIN",
         "description": "SimpleFIN — это протокол банковских данных только для чтения. Перейдите в SimpleFIN Bridge, выберите свой банк и скопируйте установочный токен сюда."
       },
+      "coinbase": {
+        "title": "Подключить Coinbase",
+        "description": "Создайте API-ключ только для чтения (View) в Coinbase Developer Platform, скачайте файл JSON и вставьте его содержимое ниже.",
+        "openBridge": "Создать API-ключ в Coinbase",
+        "tokenLabel": "Файл API-ключа",
+        "tokenPlaceholder": "{\"name\": \"organizations/…/apiKeys/…\", \"privateKey\": \"-----BEGIN EC PRIVATE KEY-----…\"}",
+        "tokenHelp": "Вставьте файл cdp_api_key.json целиком. Securo хранит закрытый ключ в зашифрованном виде и отклоняет любой ключ с правом торговли или перевода."
+      },
       "reconnectTitle": "Переподключить с новым токеном",
       "reconnectDescription": "Вставьте новый setup-токен, чтобы обновить это подключение на месте. Существующие счета, транзакции, категории и правила сохранятся.",
       "reconnect": "Переподключить"

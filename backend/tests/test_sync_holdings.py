@@ -961,3 +961,84 @@ async def test_holding_follows_the_account_the_provider_moves_it_to(
 
     assert asset.account_external_id == "acc-roth"
     assert (await _wallet_of(session, asset)).external_id == "acc-roth"
+
+
+@pytest.mark.asyncio
+async def test_allowlist_gates_which_accounts_holdings_sync_from(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """The allowlist reaches holdings, not just accounts.
+
+    `_syncable_accounts` hands down the surviving account ids and holdings
+    filter on them, so excluding an account stops its positions importing too.
+    """
+    _MockProvider._holdings = [
+        _holding(external_id="h-tod", account_external_id="acc-tod"),
+        _holding(external_id="h-roth", account_external_id="acc-roth"),
+    ]
+
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session,
+        test_user.id,
+        brokerage_connection,
+        brokerage_connection.credentials,
+        synced_account_ids={"acc-tod"},
+    )
+    await session.commit()
+
+    assets = await _assets_for(session, test_user)
+    assert [a.external_id for a in assets] == ["h-tod"]
+
+
+@pytest.mark.asyncio
+async def test_excluding_an_account_later_does_not_archive_what_it_already_imported(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """Excluding stops future syncs of an account; it never deletes history.
+
+    The archive sweep drops anything the provider stopped reporting, so a
+    holding filtered out by the allowlist has to be held back from it.
+    """
+    _MockProvider._holdings = [
+        _holding(external_id="h-tod", account_external_id="acc-tod"),
+        _holding(external_id="h-roth", account_external_id="acc-roth"),
+    ]
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    await _sync_holdings(
+        session,
+        test_user.id,
+        brokerage_connection,
+        brokerage_connection.credentials,
+        synced_account_ids={"acc-tod"},
+    )
+    await session.commit()
+
+    assets = {a.external_id: a for a in await _assets_for(session, test_user)}
+    assert assets["h-roth"].is_archived is False
+
+
+@pytest.mark.asyncio
+async def test_unattributable_holdings_do_not_sync_under_an_allowlist(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """Deny by default: a holding the provider cannot place in an account
+    cannot be shown to belong to an allowed one."""
+    _MockProvider._holdings = [_holding(external_id="h-1", account_external_id=None)]
+
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session,
+        test_user.id,
+        brokerage_connection,
+        brokerage_connection.credentials,
+        synced_account_ids={"acc-tod"},
+    )
+    await session.commit()
+
+    assert await _assets_for(session, test_user) == []

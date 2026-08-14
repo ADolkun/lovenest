@@ -659,6 +659,14 @@
         "title": "Verbindung über SimpleFIN",
         "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
       },
+      "coinbase": {
+        "title": "Coinbase verbinden",
+        "description": "Erstelle in der Coinbase Developer Platform einen API-Schlüssel mit reinem Lesezugriff (View), lade die JSON-Datei herunter und füge ihren Inhalt unten ein.",
+        "openBridge": "API-Schlüssel bei Coinbase erstellen",
+        "tokenLabel": "API-Schlüsseldatei",
+        "tokenPlaceholder": "{\"name\": \"organizations/…/apiKeys/…\", \"privateKey\": \"-----BEGIN EC PRIVATE KEY-----…\"}",
+        "tokenHelp": "Füge die vollständige Datei cdp_api_key.json ein. Securo speichert den privaten Schlüssel verschlüsselt und lehnt jeden Schlüssel ab, der handeln oder überweisen darf."
+      },
       "reconnectTitle": "Mit einem neuen Token erneut verbinden",
       "reconnectDescription": "Füge ein neues Setup-Token ein, um diese Verbindung direkt zu aktualisieren. Bestehende Konten, Transaktionen, Kategorien und Regeln bleiben erhalten.",
       "reconnect": "Erneut verbinden"

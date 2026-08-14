@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
-from typing import Literal, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal, Optional
 
 
 # Outcome of asking a provider to pull fresh data from the underlying institution
@@ -51,6 +51,51 @@ def mask_last4(value: Optional[str]) -> Optional[str]:
     if len(cleaned) < 4:
         return None
     return cleaned[-4:]
+
+
+def to_decimal(value: Any) -> Optional[Decimal]:
+    """Parse a provider-supplied number, returning None when it isn't one.
+
+    Providers send amounts as strings, floats, or nulls interchangeably, and
+    an unparseable one has to read as absent rather than take down the sync.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def iso_currency(value: Any, fallback: Optional[str] = None) -> Optional[str]:
+    """Normalize a connector-supplied currency, guarding against non-ISO values.
+
+    Currency fields are populated by the connector, and for crypto/brokerage
+    positions some put the asset's ticker there instead (e.g. ``"DOGE"``,
+    ``"CORECHAIN"``) rather than an ISO 4217 code. Every column these land in
+    — ``accounts.currency``, ``transactions.currency``, ``assets.currency`` —
+    is ``VARCHAR(3)``, so anything longer overflows the write and takes down
+    the whole connection's sync (issue #448).
+
+    This is a shape check, not a validity check: a 3-letter ticker like
+    ``BTC`` still passes. It exists to keep an oversized value from ever
+    reaching the DB, so use it at every site that forwards a raw provider
+    currency.
+    """
+    if isinstance(value, str) and len(value) == 3 and value.isalpha():
+        return value.upper()
+    return fallback
+
+
+def normalize_ticker(value: Any) -> Optional[str]:
+    """Normalize a holding's symbol for the ``assets.ticker`` column.
+
+    Truncated to the column's 32 chars so an unexpectedly long symbol can't
+    reproduce the overflow ``iso_currency`` already guards against.
+    """
+    if not isinstance(value, str):
+        return None
+    return value.strip().upper()[:32] or None
 
 
 @dataclass

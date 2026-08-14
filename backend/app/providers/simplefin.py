@@ -23,7 +23,7 @@ import base64
 import binascii
 import logging
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Optional
 from urllib.parse import unquote, urlsplit, urlunsplit
 
@@ -39,6 +39,9 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
     TransactionData,
+    iso_currency as _iso_currency,
+    normalize_ticker as _ticker,
+    to_decimal as _to_decimal,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,46 +113,6 @@ def _redact_userinfo(url: str) -> str:
     if parsed.port:
         host = f"{host}:{parsed.port}"
     return urlunsplit((parsed.scheme, f"***:***@{host}", parsed.path, parsed.query, parsed.fragment))
-
-
-def _to_decimal(value: Any) -> Optional[Decimal]:
-    if value is None or value == "":
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return None
-
-
-def _iso_currency(value: Any, fallback: Optional[str]) -> Optional[str]:
-    """Normalize a connector-supplied currency, guarding against non-ISO values.
-
-    SimpleFIN's ``currency`` fields are populated by the bank connector, and
-    for crypto/brokerage positions some connectors put the asset's ticker
-    there instead (e.g. ``"DOGE"``) rather than an ISO 4217 code. Every
-    column these land in — ``accounts.currency``, ``transactions.currency``,
-    ``assets.currency`` — is ``VARCHAR(3)``, so anything longer overflows the
-    write and takes down the whole connection's sync (issue #448).
-
-    This is a shape check, not a validity check: a 3-letter ticker like
-    ``BTC`` still passes. It exists to keep an oversized value from ever
-    reaching the DB, so use it at every site that forwards a raw
-    provider currency.
-    """
-    if isinstance(value, str) and len(value) == 3 and value.isalpha():
-        return value.upper()
-    return fallback
-
-
-def _ticker(value: Any) -> Optional[str]:
-    """Normalize a holding's symbol for the ``assets.ticker`` column.
-
-    Truncated to the column's 32 chars so an unexpectedly long symbol can't
-    reproduce the overflow this module already guards against for currency.
-    """
-    if not isinstance(value, str):
-        return None
-    return value.strip().upper()[:32] or None
 
 
 def _build_holding_data(
