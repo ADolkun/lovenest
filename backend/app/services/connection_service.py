@@ -43,6 +43,7 @@ from app.services.account_service import (
     sync_opening_balance_for_connected_account,
 )
 from app.services.asset_group_service import ensure_group_for_connection
+from app.services.cash_equivalent import CASH_EQUIVALENT_TYPE, is_cash_equivalent_ticker
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
@@ -390,7 +391,13 @@ async def _upsert_asset_from_holding(
             external_id=holding.external_id,
             account_external_id=holding.account_external_id,
             name=holding.name,
-            type="investment",
+            # Seeded on create only — a later sync must not undo the user's
+            # own classification (app/services/cash_equivalent.py).
+            type=(
+                CASH_EQUIVALENT_TYPE
+                if is_cash_equivalent_ticker(holding.ticker)
+                else "investment"
+            ),
             currency=holding.currency,
             units=holding.quantity,
             purchase_price=holding.purchase_price,

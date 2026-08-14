@@ -1,10 +1,18 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import PositionsTab from '@/components/positions-tab'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
+import {
+  ASSET_TYPES,
+  assetTypeFromQuoteType,
+  assetTypeI18nKey,
+  getTypeConfig,
+} from '@/lib/asset-types'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,9 +29,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import type { Asset, AssetGroup, AssetTransaction, AssetValue, MarketSymbolMatch, MarketSymbolQuote, TaxTreatment } from '@/types'
 import {
-  Home,
-  Car,
-  Gem,
   TrendingUp,
   Package,
   Plus,
@@ -35,10 +40,6 @@ import {
   RefreshCw,
   Wallet,
   FolderInput,
-  LineChart,
-  Layers,
-  Bitcoin,
-  PieChart,
   AlertTriangle,
 } from 'lucide-react'
 import {
@@ -122,33 +123,35 @@ function formatRelativeTime(dateInput: string | null | undefined, locale: string
   return rtf.format(Math.round(diffSec / 86400), 'day')
 }
 
-const ASSET_TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
-  real_estate: { icon: Home, color: 'text-blue-600', bg: 'bg-blue-100' },
-  vehicle: { icon: Car, color: 'text-violet-600', bg: 'bg-violet-100' },
-  valuable: { icon: Gem, color: 'text-amber-600', bg: 'bg-amber-100' },
-  investment: { icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-100' },
-  stock: { icon: LineChart, color: 'text-sky-600', bg: 'bg-sky-100' },
-  etf: { icon: Layers, color: 'text-teal-600', bg: 'bg-teal-100' },
-  crypto: { icon: Bitcoin, color: 'text-orange-600', bg: 'bg-orange-100' },
-  fund: { icon: PieChart, color: 'text-indigo-600', bg: 'bg-indigo-100' },
-  other: { icon: Package, color: 'text-slate-600', bg: 'bg-slate-100' },
-}
+const ASSET_TABS = ['holdings', 'positions', 'transactions'] as const
+type AssetTab = (typeof ASSET_TABS)[number]
 
-function getTypeConfig(type: string) {
-  return ASSET_TYPE_CONFIG[type] ?? ASSET_TYPE_CONFIG['other']
-}
+type PortfolioTrend = Awaited<ReturnType<typeof assets.portfolioTrend>>
 
-const ASSET_TYPES = [
-  'stock',
-  'etf',
-  'crypto',
-  'fund',
-  'real_estate',
-  'vehicle',
-  'valuable',
-  'investment',
-  'other',
-] as const
+// Trend rows are keyed by asset id, so narrowing the chart to a subset means
+// dropping the other columns and recomputing each row's `_total`.
+function narrowPortfolioTrend(
+  data: PortfolioTrend,
+  keep: (asset: PortfolioTrend['assets'][number]) => boolean,
+): PortfolioTrend {
+  const keptAssets = data.assets.filter(keep)
+  const keptIds = new Set(keptAssets.map((a) => a.id))
+  const trend = data.trend.map((row) => {
+    const next: Record<string, unknown> = { date: (row as { date: unknown }).date }
+    let total = 0
+    for (const [k, v] of Object.entries(row)) {
+      if (k === 'date' || k === '_total') continue
+      if (keptIds.has(k)) {
+        next[k] = v
+        total += Number(v) || 0
+      }
+    }
+    next._total = total
+    return next
+  })
+  const lastTotal = trend.length ? Number((trend[trend.length - 1] as { _total?: number })._total) || 0 : 0
+  return { ...data, assets: keptAssets, trend, total: lastTotal }
+}
 
 const TAX_TREATMENTS: readonly TaxTreatment[] = [
   'taxable',
@@ -158,24 +161,6 @@ const TAX_TREATMENTS: readonly TaxTreatment[] = [
   'other',
 ]
 
-// Map a yfinance `quoteType` to Securo's asset type. Lives here (not the
-// backend) so if we ever swap the market-price provider the service stays
-// clean — all provider-specific vocabulary is translated at the edge.
-function assetTypeFromQuoteType(quoteType: string | null | undefined): string {
-  switch ((quoteType || '').toUpperCase()) {
-    case 'EQUITY':
-      return 'stock'
-    case 'ETF':
-      return 'etf'
-    case 'CRYPTOCURRENCY':
-      return 'crypto'
-    case 'MUTUALFUND':
-    case 'INDEX':
-      return 'fund'
-    default:
-      return 'investment'
-  }
-}
 const VALUATION_METHODS = ['manual', 'growth_rule', 'market_price'] as const
 const GROWTH_TYPES = ['percentage', 'absolute'] as const
 const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
@@ -212,7 +197,15 @@ export default function AssetsPage() {
     staleTime: Infinity,
   })
 
-  const [activeTab, setActiveTab] = useState<'holdings' | 'transactions'>('holdings')
+  // The URL is the tab state (ADR 0001) — a shared link opens where the sender was.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = ASSET_TABS.find((tab) => tab === searchParams.get('tab')) ?? 'holdings'
+  const setActiveTab = (tab: AssetTab) => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'holdings') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
   // Holding id for the lightweight "add transaction to this holding" dialog,
   // opened from the holdings table ("+ add buys") and the inline ledger.
   const [addTxAssetId, setAddTxAssetId] = useState<string | null>(null)
@@ -286,29 +279,19 @@ export default function AssetsPage() {
     queryFn: () => assets.portfolioTrend(),
   })
   // Scope the portfolio chart + total to the active collection's wallets too.
-  // Trend rows are keyed by asset id, so we keep only the in-collection asset
-  // columns and recompute each row's `_total`.
   const portfolioData = useMemo(() => {
     if (!activeWalletIds || !rawPortfolioData) return rawPortfolioData
     const allowed = new Set(activeWalletIds)
-    const keptAssets = rawPortfolioData.assets.filter((a) => a.group_id && allowed.has(a.group_id))
-    const keptIds = new Set(keptAssets.map((a) => a.id))
-    const trend = rawPortfolioData.trend.map((row) => {
-      const next: Record<string, unknown> = { date: (row as { date: unknown }).date }
-      let total = 0
-      for (const [k, v] of Object.entries(row)) {
-        if (k === 'date' || k === '_total') continue
-        if (keptIds.has(k)) {
-          next[k] = v
-          total += Number(v) || 0
-        }
-      }
-      next._total = total
-      return next
-    })
-    const lastTotal = trend.length ? Number((trend[trend.length - 1] as { _total?: number })._total) || 0 : 0
-    return { ...rawPortfolioData, assets: keptAssets, trend, total: lastTotal }
+    return narrowPortfolioTrend(rawPortfolioData, (a) => !!a.group_id && allowed.has(a.group_id))
   }, [rawPortfolioData, activeWalletIds])
+
+  // The positions view answers what the user *holds*, so its chart drops the
+  // house and the car that the page-wide portfolio chart deliberately carries.
+  const positionsTrendData = useMemo(() => {
+    if (!portfolioData) return portfolioData
+    const tickerIds = new Set((assetsList ?? []).filter((a) => a.ticker).map((a) => a.id))
+    return narrowPortfolioTrend(portfolioData, (a) => tickerIds.has(a.id))
+  }, [portfolioData, assetsList])
 
   // Publish a snapshot of what's on the Assets page so the global chat
   // (⌘J) can answer "what does this chart mean / what are these
@@ -768,7 +751,7 @@ export default function AssetsPage() {
                   <Badge variant="outline" className="text-[9px] px-1 py-0 text-sky-600 border-sky-200">{t('assets.synced')}</Badge>
                 )}
               </div>
-              <span className="text-[11px] text-muted-foreground truncate block">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.name : (asset.ticker?.startsWith('TD:') ? 'Tesouro Direto' : t(`assets.type${asset.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`))}</span>
+              <span className="text-[11px] text-muted-foreground truncate block">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.name : (asset.ticker?.startsWith('TD:') ? 'Tesouro Direto' : t(assetTypeI18nKey(asset.type)))}</span>
             </div>
           </div>
           {/* Quant. */}
@@ -1035,6 +1018,18 @@ export default function AssetsPage() {
     )
   }
 
+  const renderPortfolioChart = (data: PortfolioTrend | undefined) =>
+    data && data.trend.length > 0 ? (
+      <PortfolioChart
+        data={data}
+        wallets={sortedWallets}
+        currency={userCurrency}
+        locale={locale}
+        dateLocale={dateLocale}
+        mask={mask}
+      />
+    ) : null
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1056,20 +1051,17 @@ export default function AssetsPage() {
         }
       />
 
-      {/* Holdings (consolidated by ticker) vs. the buy/sell ledger (#235) */}
+      {/* Per wallet · consolidated per ticker (#64) · the buy/sell ledger (#235) */}
       <div className="inline-flex items-center rounded-lg border border-border p-0.5 bg-muted/40">
-        <button
-          onClick={() => setActiveTab('holdings')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'holdings' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-        >
-          {t('assets.tabHoldings')}
-        </button>
-        <button
-          onClick={() => setActiveTab('transactions')}
-          className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === 'transactions' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-        >
-          {t('assets.tabTransactions')}
-        </button>
+        {ASSET_TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === tab ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            {t(`assets.tab${tab.charAt(0).toUpperCase()}${tab.slice(1)}`)}
+          </button>
+        ))}
       </div>
 
       {activeTab === 'transactions' ? (
@@ -1082,19 +1074,22 @@ export default function AssetsPage() {
           canWrite={canWrite}
           onChanged={refetchAssetViews}
         />
+      ) : activeTab === 'positions' ? (
+        <>
+          {renderPortfolioChart(positionsTrendData)}
+          <PositionsTab
+            holdings={assetsList ?? []}
+            wallets={sortedWallets}
+            currency={userCurrency}
+            locale={locale}
+            mask={mask}
+            canWrite={canWrite}
+            onClassify={(id, type) => updateMutation.mutate({ id, type })}
+          />
+        </>
       ) : (
       <>
-      {/* Portfolio Chart */}
-      {portfolioData && portfolioData.trend.length > 0 && (
-        <PortfolioChart
-          data={portfolioData}
-          wallets={sortedWallets}
-          currency={userCurrency}
-          locale={locale}
-          dateLocale={dateLocale}
-          mask={mask}
-        />
-      )}
+      {renderPortfolioChart(portfolioData)}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -1193,7 +1188,7 @@ export default function AssetsPage() {
                 >
                   {ASSET_TYPES.map(at => (
                     <option key={at} value={at}>
-                      {t(`assets.type${at.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())}`)}
+                      {t(assetTypeI18nKey(at))}
                     </option>
                   ))}
                 </select>
