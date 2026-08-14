@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict
 # accounts whose character is neither (e.g. a foreign or trust account).
 TaxTreatment = Literal["taxable", "roth", "traditional", "hsa", "other"]
 
+# Wallets whose Realised Gain is also Reportable Gain (CONTEXT.md). An
+# allowlist, deliberately: a treatment added later — and a holding with no
+# wallet at all — is non-reportable until someone decides otherwise, where a
+# blocklist would silently tax it.
+REPORTABLE_TAX_TREATMENTS = frozenset({"taxable"})
+
 
 class AssetGroupBase(BaseModel):
     name: str

@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.providers.market_price import MarketPriceProvider, get_market_price_provider
 from app.schemas.asset import (
@@ -28,6 +29,7 @@ from app.schemas.asset import (
     AssetTransactionRead,
     AssetTransactionUpdate,
 )
+from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
 from app.services import asset_service
 
 logger = logging.getLogger(__name__)
@@ -43,12 +45,15 @@ def _recompute(transactions: list[AssetTransaction]) -> dict:
     """Replay a holding's ledger in date order → derived position.
 
     Returns units (current quantity), average_price (per unit, None when flat),
-    cost_basis (of held units), realized_gain, first_buy/last_sell dates.
+    cost_basis (of held units), realized_gain, first_buy/last_sell dates, and
+    realized_events — the per-sell (date, gain) pairs the cumulative figure is
+    made of, so a caller can restrict the gain to a tax year.
     """
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or datetime.min.replace(tzinfo=timezone.utc)))
     qty = Decimal("0")
     cost = Decimal("0")
     realized = Decimal("0")
+    realized_events: list[tuple[date, Decimal]] = []
     first_buy: Optional[date] = None
     last_sell: Optional[date] = None
 
@@ -64,7 +69,9 @@ def _recompute(transactions: list[AssetTransaction]) -> dict:
         elif tx.kind == "sell":
             avg = (cost / qty) if qty > 0 else Decimal("0")
             sell_qty = q if q <= qty else qty  # clamp oversell defensively
-            realized += (p - avg) * sell_qty - fee
+            gain = (p - avg) * sell_qty - fee
+            realized += gain
+            realized_events.append((tx.date, gain))
             cost -= avg * sell_qty
             qty -= sell_qty
             last_sell = tx.date
@@ -75,6 +82,7 @@ def _recompute(transactions: list[AssetTransaction]) -> dict:
         "average_price": avg_price,
         "cost_basis": cost if qty > 0 else Decimal("0"),
         "realized_gain": realized,
+        "realized_events": realized_events,
         "first_buy": first_buy,
         "last_sell": last_sell,
     }
@@ -228,6 +236,73 @@ async def list_workspace_transactions(
     ).limit(limit)
     result = await session.execute(query)
     return [_tx_to_read(tx, asset) for tx, asset in result.all()]
+
+
+async def reportable_gain(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    *,
+    start: Optional[date] = None,
+    end: Optional[date] = None,
+) -> dict:
+    """Reportable Gain for a workspace: the Realised Gain arising in Taxable
+    Wallets, and nothing else. The only gain figure a tax calculation may
+    consume (CONTEXT.md).
+
+    `start`/`end` bound the sell dates (end exclusive) so a tax year can be
+    asked for; the whole ledger is replayed regardless, because the average
+    cost a sell books against depends on every buy before it.
+
+    `non_reportable_gain` is the rest of the Realised Gain — tax-advantaged
+    wallets, `other`, and holdings sitting in no wallet — reported so a caller
+    can say what it left out instead of silently dropping it.
+
+    Tax character is read from the wallet a holding sits in *now*, so moving a
+    holding between wallets re-characterises gains already closed in earlier
+    years. Fixing that needs the wallet a trade happened in, which the ledger
+    does not record.
+    """
+    rows = (
+        await session.execute(
+            select(AssetTransaction, AssetGroup.tax_treatment)
+            .join(Asset, AssetTransaction.asset_id == Asset.id)
+            .outerjoin(
+                AssetGroup,
+                (Asset.group_id == AssetGroup.id)
+                & (AssetGroup.workspace_id == workspace_id),
+            )
+            .where(AssetTransaction.workspace_id == workspace_id)
+        )
+    ).all()
+
+    ledgers: dict[uuid.UUID, list[AssetTransaction]] = {}
+    treatments: dict[uuid.UUID, Optional[str]] = {}
+    for tx, treatment in rows:
+        ledgers.setdefault(tx.asset_id, []).append(tx)
+        treatments[tx.asset_id] = treatment
+
+    reportable = Decimal("0")
+    non_reportable = Decimal("0")
+    for asset_id, txs in ledgers.items():
+        gain = sum(
+            (
+                g
+                for d, g in _recompute(txs)["realized_events"]
+                if (start is None or d >= start) and (end is None or d < end)
+            ),
+            Decimal("0"),
+        )
+        if treatments[asset_id] in REPORTABLE_TAX_TREATMENTS:
+            reportable += gain
+        else:
+            non_reportable += gain
+
+    return {
+        "reportable_gain": float(reportable.quantize(Decimal("0.01"))),
+        "non_reportable_gain": float(non_reportable.quantize(Decimal("0.01"))),
+        "start": start.isoformat() if start else None,
+        "end": end.isoformat() if end else None,
+    }
 
 
 def _validate(kind: str, quantity: Decimal, price: Decimal) -> None:

@@ -380,3 +380,108 @@ async def test_buy_into_holding_consolidates_by_ticker(session, test_workspace, 
         )
     ).scalars().all()
     assert len(all_vale) == 1
+
+
+def test_recompute_dates_each_realized_gain():
+    pos = _recompute([
+        _tx("buy", "10", "20", date(2026, 1, 1)),
+        _tx("sell", "3", "30", date(2026, 2, 1)),
+        _tx("sell", "2", "25", date(2027, 3, 1)),
+    ])
+    assert pos["realized_events"] == [
+        (date(2026, 2, 1), Decimal("30")),
+        (date(2027, 3, 1), Decimal("10")),
+    ]
+    assert sum(g for _, g in pos["realized_events"]) == pos["realized_gain"]
+
+
+async def _wallet(session, test_user, test_workspace, name: str, treatment: str):
+    from app.models.asset_group import AssetGroup
+
+    wallet = AssetGroup(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name=name, icon="wallet", color="#0EA5E9", position=0, source="manual",
+        tax_treatment=treatment,
+    )
+    session.add(wallet)
+    await session.commit()
+    return wallet
+
+
+async def _sell_at_profit(session, test_workspace, test_user, ticker: str, group_id, when=date(2026, 6, 1)):
+    """Buy 10 @ 20 then sell 5 @ 30 → 50.00 of Realised Gain."""
+    provider = _FakeProvider({ticker: _quote(ticker, 30.0)})
+    holding = await asset_transaction_service.buy_into_holding(
+        session, test_workspace.id, test_user.id,
+        AssetBuyCreate(
+            ticker=ticker, quantity=Decimal("10"), price=Decimal("20"),
+            date=date(2026, 1, 1), group_id=group_id,
+        ),
+        market_provider=provider,
+    )
+    return await asset_transaction_service.add_transaction(
+        session, holding.id, test_workspace.id,
+        AssetTransactionCreate(kind="sell", quantity=Decimal("5"), price=Decimal("30"), date=when),
+    )
+
+
+@pytest.mark.asyncio
+async def test_roth_profit_is_realised_but_never_reportable(session, test_workspace, test_user):
+    roth = await _wallet(session, test_user, test_workspace, "Roth IRA", "roth")
+    read = await _sell_at_profit(session, test_workspace, test_user, "PETR4.SA", roth.id)
+
+    # The trade made real money and the performance figure says so...
+    assert read is not None and read.realized_gain is not None
+    assert round(read.realized_gain, 2) == 50.00
+
+    # ...and none of it reaches a tax calculation.
+    totals = await asset_transaction_service.reportable_gain(session, test_workspace.id)
+    assert totals["reportable_gain"] == 0.0
+    assert totals["non_reportable_gain"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_taxable_wallet_gain_is_reportable(session, test_workspace, test_user):
+    taxable = await _wallet(session, test_user, test_workspace, "Brokerage", "taxable")
+    await _sell_at_profit(session, test_workspace, test_user, "VALE3.SA", taxable.id)
+
+    totals = await asset_transaction_service.reportable_gain(session, test_workspace.id)
+    assert totals["reportable_gain"] == 50.0
+    assert totals["non_reportable_gain"] == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("treatment", ["traditional", "hsa", "other"])
+async def test_only_taxable_is_allowlisted(session, test_workspace, test_user, treatment):
+    wallet = await _wallet(session, test_user, test_workspace, treatment, treatment)
+    await _sell_at_profit(session, test_workspace, test_user, "ITUB4.SA", wallet.id)
+
+    totals = await asset_transaction_service.reportable_gain(session, test_workspace.id)
+    assert totals["reportable_gain"] == 0.0
+    assert totals["non_reportable_gain"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_holding_without_a_wallet_is_not_reportable(session, test_workspace, test_user):
+    await _sell_at_profit(session, test_workspace, test_user, "BBAS3.SA", None)
+
+    totals = await asset_transaction_service.reportable_gain(session, test_workspace.id)
+    assert totals["reportable_gain"] == 0.0
+    assert totals["non_reportable_gain"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_reportable_gain_bounds_by_sell_date(session, test_workspace, test_user):
+    taxable = await _wallet(session, test_user, test_workspace, "Brokerage", "taxable")
+    await _sell_at_profit(
+        session, test_workspace, test_user, "WEGE3.SA", taxable.id, when=date(2027, 2, 1)
+    )
+
+    in_2026 = await asset_transaction_service.reportable_gain(
+        session, test_workspace.id, start=date(2026, 1, 1), end=date(2027, 1, 1)
+    )
+    in_2027 = await asset_transaction_service.reportable_gain(
+        session, test_workspace.id, start=date(2027, 1, 1), end=date(2028, 1, 1)
+    )
+    assert in_2026["reportable_gain"] == 0.0
+    assert in_2027["reportable_gain"] == 50.0

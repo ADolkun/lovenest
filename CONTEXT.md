@@ -48,7 +48,8 @@ money and the figure says so.
 for: the part arising in a Taxable Wallet. It is the *only* figure any tax
 calculation may consume. A gain realised in a Tax-Advantaged Wallet — Roth,
 Traditional, HSA — is never Reportable, and neither is one in a Wallet marked
-`other`, since only a Wallet explicitly known to be Taxable can produce one.
+`other`, nor one in a Holding sitting in no Wallet at all, since only a Wallet
+explicitly known to be Taxable can produce one.
 
 ## Tax character
 

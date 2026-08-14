@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -213,6 +214,20 @@ async def list_workspace_transactions(
     """All buy/sell transactions in the workspace — powers the Transactions tab."""
     return await asset_transaction_service.list_workspace_transactions(
         session, ctx.workspace.id, ticker=ticker, kind=kind, limit=limit
+    )
+
+
+@router.get("/reportable-gain")
+async def reportable_gain(
+    start: date | None = Query(None),
+    end: date | None = Query(None, description="Exclusive upper bound on sell date"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Realised Gain arising in Taxable Wallets only — the sole gain figure a
+    tax calculation may consume (CONTEXT.md)."""
+    return await asset_transaction_service.reportable_gain(
+        session, ctx.workspace.id, start=start, end=end
     )
 
 

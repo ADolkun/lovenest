@@ -1305,12 +1305,25 @@ function taxApp() {
         // can't be dropped straight into `wages` (the engine treats that as
         // strictly W-2). Surface it as a labeled hint instead and let the user
         // enter their actual wages. interest_income is a fair mapping — prefill.
+        const hints = [];
         if (typeof d.total_income === "number" && d.total_income > 0) {
-          this.prefillHint = `YTD deposits: ${this.usd(d.total_income)} — set Wages (W-2) to your actual W-2 amount.`;
+          hints.push(`YTD deposits: ${this.usd(d.total_income)} — set Wages (W-2) to your actual W-2 amount.`);
         }
         if (typeof d.interest_income === "number" && d.interest_income > 0) {
           this.est.interest_income = Math.round(d.interest_income);
         }
+        // Reportable Gain arrives as one total: nothing tracks holding period
+        // yet, so the short/long split is the user's to make. Filling either
+        // field with the total would guess at the rate.
+        if (d.gain_error) {
+          hints.push(`Capital gains not loaded — ${d.gain_error}.`);
+        } else if (d.reportable_gain) {
+          hints.push(`YTD reportable gains (taxable wallets only): ${this.usd(d.reportable_gain)} — split it across short- and long-term yourself.`);
+        }
+        if (d.non_reportable_gain) {
+          hints.push(`${this.usd(d.non_reportable_gain)} of gains sit outside taxable wallets (tax-advantaged, "other", or no wallet) — not reportable, not counted.`);
+        }
+        this.prefillHint = hints.join(" ");
         this.prefillMsg = `Loaded YTD ${d.year || ""}: interest ${this.usd(d.interest_income || 0)}. Review before calculating.`;
       } catch (e) {
         this.prefillMsg = "Couldn't reach the data endpoint.";
