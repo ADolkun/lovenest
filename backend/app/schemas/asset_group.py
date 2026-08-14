@@ -43,6 +43,10 @@ class AssetGroupRead(AssetGroupBase):
     # renames the wallet to something like "Renda Fixa Longo Prazo".
     # Null for manual wallets, a bank/broker name for synced ones.
     institution_name: Optional[str] = None
+    # The `type` of the provider account this wallet mirrors (#76: one wallet
+    # per provider account) — what allocation by account type groups on. Null
+    # for a manual wallet, or a synced one no account could be matched to.
+    account_type: Optional[str] = None
     # Convenience rollup — filled by the service. Expressed in the group's
     # asset currencies without conversion; the frontend already handles
     # multi-currency totals.

@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
@@ -37,6 +38,7 @@ def _group_to_read(
     current_value: Decimal,
     current_value_primary: Decimal,
     institution_name: Optional[str] = None,
+    account_type: Optional[str] = None,
 ) -> AssetGroupRead:
     return AssetGroupRead(
         id=group.id,
@@ -51,6 +53,7 @@ def _group_to_read(
         source=group.source,
         connection_id=group.connection_id,
         institution_name=institution_name,
+        account_type=account_type,
         asset_count=asset_count,
         # Decimal → round to 2dp → float at the API boundary. Precision is
         # preserved inside the sum; the float conversion is only for the
@@ -123,6 +126,27 @@ async def _institution_name_for(
     return row.scalar_one_or_none()
 
 
+async def _account_type_for(session: AsyncSession, group: AssetGroup) -> Optional[str]:
+    """The type of the provider account a synced wallet mirrors.
+
+    One wallet per provider account (#76), so the wallet's `external_id` is
+    the account's — the join that lets allocation be grouped by account type.
+    None for manual wallets, and for a connection-level wallet holding
+    positions the provider attributed to no account.
+    """
+    if not group.external_id:
+        return None
+    row = await session.execute(
+        select(Account.type)
+        .where(
+            Account.workspace_id == group.workspace_id,
+            Account.external_id == group.external_id,
+        )
+        .limit(1)
+    )
+    return row.scalar_one_or_none()
+
+
 async def _primary_currency_for(session: AsyncSession, user_id: uuid.UUID) -> str:
     user = await session.get(User, user_id)
     if user:
@@ -152,7 +176,8 @@ async def get_groups(
         if g.source != "manual" and count == 0:
             continue
         institution = await _institution_name_for(session, g.connection_id)
-        reads.append(_group_to_read(g, count, cv, cvp, institution))
+        account_type = await _account_type_for(session, g)
+        reads.append(_group_to_read(g, count, cv, cvp, institution, account_type))
     return reads
 
 
@@ -171,7 +196,8 @@ async def get_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    return _group_to_read(group, count, cv, cvp, institution)
+    account_type = await _account_type_for(session, group)
+    return _group_to_read(group, count, cv, cvp, institution, account_type)
 
 
 async def _next_position(session: AsyncSession, workspace_id: uuid.UUID) -> int:
@@ -230,7 +256,8 @@ async def update_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    return _group_to_read(group, count, cv, cvp, institution)
+    account_type = await _account_type_for(session, group)
+    return _group_to_read(group, count, cv, cvp, institution, account_type)
 
 
 async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:

@@ -31,6 +31,7 @@ from app.schemas.asset import (
 )
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
 from app.services import asset_service
+from app.services.cash_equivalent import CASH_EQUIVALENT_TYPE, is_cash_equivalent_ticker
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +455,7 @@ async def buy_into_holding(
             user_id=user_id,
             workspace_id=workspace_id,
             name=data.name or quote.name or ticker,
-            type=_type_from_quote(quote.quote_type),
+            type=_type_from_quote(quote.quote_type, ticker),
             currency=quote.currency,
             valuation_method="market_price",
             group_id=data.group_id,
@@ -490,14 +491,17 @@ async def buy_into_holding(
     return result
 
 
-def _type_from_quote(quote_type: Optional[str]) -> str:
+def _type_from_quote(quote_type: Optional[str], ticker: Optional[str] = None) -> str:
     """Mirror the frontend's quoteType → asset type mapping so a holding
     created from the ledger lands on a sensible icon/type."""
+    if is_cash_equivalent_ticker(ticker):
+        return CASH_EQUIVALENT_TYPE
     mapping = {
         "EQUITY": "stock",
         "ETF": "etf",
         "CRYPTOCURRENCY": "crypto",
         "MUTUALFUND": "fund",
         "INDEX": "fund",
+        "MONEYMARKET": CASH_EQUIVALENT_TYPE,
     }
     return mapping.get((quote_type or "").upper(), "investment")

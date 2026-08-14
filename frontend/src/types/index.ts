@@ -687,6 +687,9 @@ export interface AssetGroup {
   source: string
   connection_id: string | null
   institution_name: string | null
+  // `type` of the provider account this wallet mirrors — what allocation by
+  // account type groups on. Null for manual wallets.
+  account_type: string | null
   asset_count: number
   current_value: number
   current_value_primary: number
