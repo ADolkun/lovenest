@@ -49,6 +49,12 @@ class Asset(Base):
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(50), default="manual")
+    # The provider account this holding sits in, when the provider reports the
+    # relationship. NULL means unattributable (Pluggy's investments are
+    # item-level), never "no account" — it is the record of which brokerage
+    # account a holding belongs to, independent of the wallet the user may
+    # later move it to.
+    account_external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     isin: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     maturity_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     external_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)

@@ -19,6 +19,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
@@ -127,6 +128,7 @@ def _holding(
     quantity: Optional[Decimal] = Decimal("1"),
     is_withdrawn: bool = False,
     metadata: Optional[dict] = None,
+    account_external_id: Optional[str] = None,
 ) -> HoldingData:
     return HoldingData(
         external_id=external_id,
@@ -138,6 +140,7 @@ def _holding(
         purchase_date=purchase_date,
         is_withdrawn=is_withdrawn,
         metadata=metadata or {"status": "ACTIVE"},
+        account_external_id=account_external_id,
     )
 
 
@@ -766,3 +769,195 @@ async def test_sync_does_not_adopt_the_other_workspace_orphan_asset(
     fresh = [a for a in assets if a.id != orphan.id][0]
     assert fresh.workspace_id == second_workspace.id
     assert fresh.connection_id == other_conn.id
+
+
+# ---------------------------------------------------------------------------
+# One wallet per provider account (#76)
+# ---------------------------------------------------------------------------
+
+
+def _account_row(connection: BankConnection, user: User, external_id: str, name: str) -> Account:
+    return Account(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        workspace_id=connection.workspace_id,
+        connection_id=connection.id,
+        external_id=external_id,
+        name=name,
+        type="investment",
+        balance=Decimal("0"),
+        currency="USD",
+    )
+
+
+@pytest_asyncio.fixture
+async def brokerage_connection(
+    session: AsyncSession, test_user: User, test_workspace: Workspace
+) -> BankConnection:
+    """A connection whose provider attributes holdings to four accounts."""
+    conn = _connection(test_user.id, workspace_id=test_workspace.id)
+    session.add(conn)
+    session.add_all(
+        [
+            _account_row(conn, test_user, "acc-tod", "Individual - TOD (5044)"),
+            _account_row(conn, test_user, "acc-roth", "ROTH IRA (6548)"),
+        ]
+    )
+    await session.commit()
+    await session.refresh(conn)
+    return conn
+
+
+async def _wallet_of(session: AsyncSession, asset: Asset) -> AssetGroup:
+    assert asset.group_id is not None
+    wallet = await session.get(AssetGroup, asset.group_id)
+    assert wallet is not None
+    return wallet
+
+
+@pytest.mark.asyncio
+async def test_holdings_land_in_a_wallet_per_provider_account(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """Two accounts, three holdings → two wallets named after the accounts.
+
+    Same ticker in two accounts is two Holdings with different basis, so they
+    must not collapse into one wallet.
+    """
+    _MockProvider._holdings = [
+        _holding(external_id="h-1", account_external_id="acc-tod"),
+        _holding(external_id="h-2", account_external_id="acc-roth"),
+        _holding(external_id="h-3", account_external_id="acc-tod"),
+    ]
+
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    assets = {a.external_id: a for a in await _assets_for(session, test_user)}
+    assert assets["h-1"].group_id == assets["h-3"].group_id
+    assert assets["h-1"].group_id != assets["h-2"].group_id
+
+    tod = await _wallet_of(session, assets["h-1"])
+    roth = await _wallet_of(session, assets["h-2"])
+    assert tod.name == "Individual - TOD (5044)"
+    assert roth.name == "ROTH IRA (6548)"
+    assert tod.external_id == "acc-tod" and roth.external_id == "acc-roth"
+    # Tax character is user-set: no provider reports it, so a wallet named
+    # "ROTH IRA" is still born taxable.
+    assert roth.tax_treatment == "taxable"
+
+    assert assets["h-1"].account_external_id == "acc-tod"
+    assert assets["h-2"].account_external_id == "acc-roth"
+
+
+@pytest.mark.asyncio
+async def test_unattributed_holdings_keep_a_connection_level_wallet(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """Unset account attribution means *unattributable*, not *none*.
+
+    Pluggy reports investments at item level, so those holdings stay in the
+    connection's own wallet instead of being forced into an account's.
+    """
+    _MockProvider._holdings = [
+        _holding(external_id="h-1", account_external_id=None),
+        _holding(external_id="h-2", account_external_id="acc-tod"),
+    ]
+
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    assets = {a.external_id: a for a in await _assets_for(session, test_user)}
+    unattributed = await _wallet_of(session, assets["h-1"])
+    assert unattributed.external_id == brokerage_connection.external_id
+    assert unattributed.name == "Mock Bank"
+    assert assets["h-1"].account_external_id is None
+    assert assets["h-2"].group_id != assets["h-1"].group_id
+
+
+@pytest.mark.asyncio
+async def test_existing_connection_wallet_splits_by_account(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """The pre-#76 wallet spanning every account splits on the next sync."""
+    legacy = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=brokerage_connection.workspace_id,
+        name="Mock Bank",
+        source="mock",
+        connection_id=brokerage_connection.id,
+        external_id=brokerage_connection.external_id,
+    )
+    session.add(legacy)
+    await session.flush()
+    session.add_all(
+        [
+            Asset(
+                id=uuid.uuid4(),
+                user_id=test_user.id,
+                workspace_id=brokerage_connection.workspace_id,
+                connection_id=brokerage_connection.id,
+                source="mock",
+                external_id=ext,
+                name=f"Holding {ext}",
+                type="investment",
+                currency="USD",
+                group_id=legacy.id,
+            )
+            for ext in ("h-1", "h-2")
+        ]
+    )
+    await session.commit()
+
+    _MockProvider._holdings = [
+        _holding(external_id="h-1", account_external_id="acc-tod"),
+        _holding(external_id="h-2", account_external_id="acc-roth"),
+    ]
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    assets = {a.external_id: a for a in await _assets_for(session, test_user)}
+    assert assets["h-1"].group_id != legacy.id
+    assert assets["h-2"].group_id != legacy.id
+    assert (await _wallet_of(session, assets["h-1"])).external_id == "acc-tod"
+    assert (await _wallet_of(session, assets["h-2"])).external_id == "acc-roth"
+
+
+@pytest.mark.asyncio
+async def test_holding_follows_the_account_the_provider_moves_it_to(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """Attribution is the provider's to state, and to restate.
+
+    A position transferred between two of the same broker's accounts changes
+    tax character, so the wallet has to follow it — the deliberate cost being
+    that a re-file by hand between two synced wallets does not survive a sync.
+    """
+    _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-tod")]
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+    [asset] = await _assets_for(session, test_user)
+    assert (await _wallet_of(session, asset)).external_id == "acc-tod"
+
+    _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-roth")]
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+    await session.refresh(asset)
+
+    assert asset.account_external_id == "acc-roth"
+    assert (await _wallet_of(session, asset)).external_id == "acc-roth"

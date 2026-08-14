@@ -211,20 +211,21 @@ async def _sync_holdings(
             h for h in holdings if h.account_external_id in synced_account_ids
         ]
 
-    # Find-or-create the wallet that will own this connection's holdings.
-    # Name defaults to the institution; users can rename freely without
-    # breaking future syncs (matching is by external_id).
-    group: Optional[AssetGroup] = None
-    if holdings:
-        group = await ensure_group_for_connection(
-            session,
-            user_id=user_id,
-            workspace_id=connection.workspace_id,
-            connection_id=connection.id,
-            source=source,
-            external_id=connection.external_id,
-            default_name=connection.institution_name,
+    # Find-or-create one wallet per provider account. Names default to the
+    # account's; users can rename freely without breaking future syncs
+    # (matching is by external_id). Withdrawn holdings are left out: a fully
+    # redeemed account would otherwise mint an empty wallet.
+    wallets: dict[Optional[str], AssetGroup] = {}
+    for account_external_id in dict.fromkeys(
+        h.account_external_id for h in holdings if not h.is_withdrawn
+    ):
+        wallets[account_external_id] = await _wallet_for_account(
+            session, user_id, connection, account_external_id
         )
+
+    sync_owned_wallet_ids = (
+        await _sync_owned_wallet_ids(session, user_id, connection) if wallets else set()
+    )
 
     # Also pull orphans (connection_id IS NULL) with the same source —
     # those are assets archived by a prior disconnect. Re-matching on
@@ -272,12 +273,15 @@ async def _sync_holdings(
         asset = await _upsert_asset_from_holding(
             session, existing, holding, user_id, connection.id, source,
         )
-        # Attach to the connection's wallet. We only set group_id when
-        # it's currently null so a user who moved this holding to a
-        # custom wallet ("US Stocks") doesn't get overridden back on
-        # every sync.
-        if group is not None and asset.group_id is None:
-            asset.group_id = group.id
+        # Attach to the account's wallet. Only when the asset is ungrouped or
+        # sits in a wallet sync itself created, so a user who moved this
+        # holding to a custom wallet ("US Stocks") doesn't get overridden back
+        # on every sync.
+        wallet = wallets.get(holding.account_external_id)
+        if wallet is not None and (
+            asset.group_id is None or asset.group_id in sync_owned_wallet_ids
+        ):
+            asset.group_id = wallet.id
         # Seed a historical value at purchase_date so users get a real
         # evolution curve from day one — not just today's snapshot.
         # Idempotent: skips if any AssetValue already exists at that date.
@@ -295,6 +299,71 @@ async def _sync_holdings(
     for ext_id, asset in existing_by_external.items():
         if ext_id not in seen and not asset.is_archived:
             asset.is_archived = True
+
+
+async def _wallet_for_account(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    connection: BankConnection,
+    account_external_id: Optional[str],
+) -> AssetGroup:
+    """Find-or-create the wallet that owns one provider account's holdings.
+
+    A Wallet stands for exactly one brokerage account because it is the unit
+    tax character attaches to, and one spanning a taxable account and a Roth
+    IRA cannot state either truthfully (issue #76).
+
+    An unset `account_external_id` is unattributable (see
+    ``Asset.account_external_id``), so those holdings keep a connection-level
+    wallet rather than being filed under an account they may not sit in.
+    """
+    if account_external_id is None:
+        external_id = connection.external_id
+        name = connection.institution_name
+    else:
+        external_id = account_external_id
+        name = await session.scalar(
+            select(Account.name).where(
+                Account.connection_id == connection.id,
+                Account.external_id == account_external_id,
+            )
+        ) or connection.institution_name
+    return await ensure_group_for_connection(
+        session,
+        user_id=user_id,
+        workspace_id=connection.workspace_id,
+        connection_id=connection.id,
+        source=connection.provider,
+        external_id=external_id,
+        default_name=name,
+    )
+
+
+async def _sync_owned_wallet_ids(
+    session: AsyncSession, user_id: uuid.UUID, connection: BankConnection
+) -> set[uuid.UUID]:
+    """The wallets this connection's sync created, and may therefore re-file.
+
+    Provider attribution wins inside this set — that is what splits the
+    pre-#76 connection-level wallet into one wallet per account, and what
+    follows a holding the provider moves between accounts. The trade is that a
+    holding moved by hand from one synced wallet to another goes back; a wallet
+    the user made themselves is outside the set and is never touched.
+    """
+    owned = [AssetGroup.connection_id == connection.id]
+    if connection.external_id:
+        # A wallet orphaned by a disconnect (connection_id SET NULL) still
+        # holds real assets; matching its external_id reclaims them.
+        owned.append(AssetGroup.external_id == connection.external_id)
+    rows = await session.execute(
+        select(AssetGroup.id).where(
+            AssetGroup.user_id == user_id,
+            AssetGroup.workspace_id == connection.workspace_id,
+            AssetGroup.source == connection.provider,
+            or_(*owned),
+        )
+    )
+    return set(rows.scalars().all())
 
 
 async def _upsert_asset_from_holding(
@@ -319,6 +388,7 @@ async def _upsert_asset_from_holding(
             connection_id=connection_id,
             source=source,
             external_id=holding.external_id,
+            account_external_id=holding.account_external_id,
             name=holding.name,
             type="investment",
             currency=holding.currency,
@@ -338,6 +408,9 @@ async def _upsert_asset_from_holding(
     # Fields Pluggy consistently returns — safe to overwrite each sync.
     asset.name = holding.name
     asset.currency = holding.currency
+    # Provider-owned: the account a holding sits in is the provider's to state,
+    # including when it stops stating one.
+    asset.account_external_id = holding.account_external_id
     # external_metadata is a snapshot blob: we want the latest every time.
     asset.external_metadata = holding.metadata
     previous_connection_id = asset.connection_id
