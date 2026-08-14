@@ -42,11 +42,24 @@ import { CategorySelect } from '@/components/category-select'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import { TransactionSplitsSection } from '@/components/transaction-splits-section'
+import { buildInstallmentSeriesInput, hasNonStatusChange, isManualInstallmentSeriesRow } from '@/lib/installment-series'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
-import type { Transaction, RecurringTransaction, TransactionSplitsInput, CategoryGroup, Category, Rule, RuleCondition } from '@/types'
+import type { Transaction, RecurringTransaction, TransactionSplitsInput, TransactionEditPayload, InstallmentSeriesInput, TransactionApplyScope, CategoryGroup, Category, Rule, RuleCondition } from '@/types'
 import { toast } from 'sonner'
 
 export type SaveAction = 'save' | 'saveAndNew' | 'saveAndDuplicate'
+
+export type TransactionSavePayload = TransactionEditPayload & {
+  apply_to?: TransactionApplyScope
+}
+
+type PendingInstallmentEdit = {
+  data: TransactionEditPayload
+  recurringData?: { frequency: string; end_date?: string }
+  installmentData?: InstallmentSeriesInput
+  pendingFiles?: File[]
+  action?: SaveAction
+}
 
 export function extractApiError(error: unknown): string {
   if (
@@ -110,7 +123,7 @@ export function TransactionDialog({
   categoryGroups: CategoryGroup[]
   accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
   recurringMatch?: RecurringTransaction
-  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
+  onSave: (data: TransactionSavePayload, recurringData?: { frequency: string; end_date?: string }, installmentData?: InstallmentSeriesInput, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
   onUnlinkTransfer?: (pairId: string) => void
   onIgnoreChanged?: () => void
@@ -118,11 +131,13 @@ export function TransactionDialog({
   loading: boolean
   error: string | null
   isSynced?: boolean
-  duplicateDraft?: Partial<Transaction> | null
+  duplicateDraft?: TransactionEditPayload | null
   formResetKey?: number
 }) {
   const { t } = useTranslation()
   const [preview, setPreview] = useState<AttachmentPreview | null>(null)
+  const [pendingInstallmentEdit, setPendingInstallmentEdit] =
+    useState<PendingInstallmentEdit | null>(null)
 
   const handlePreviewChange = useCallback((newPreview: AttachmentPreview | null) => {
     setPreview(prev => {
@@ -160,8 +175,39 @@ export function TransactionDialog({
   const isEditing = !!transaction
   const hasPreview = isEditing && !!preview
 
+  const handleClose = () => {
+    setPendingInstallmentEdit(null)
+    onClose()
+  }
+
+  const handleSave = (
+    data: TransactionEditPayload,
+    recurringData?: { frequency: string; end_date?: string },
+    installmentData?: InstallmentSeriesInput,
+    pendingFiles?: File[],
+    action?: SaveAction,
+  ) => {
+    if (
+      transaction &&
+      isManualInstallmentSeriesRow(transaction) &&
+      hasNonStatusChange(data, transaction)
+    ) {
+      setPendingInstallmentEdit({ data, recurringData, installmentData, pendingFiles, action })
+      return
+    }
+    onSave(data, recurringData, installmentData, pendingFiles, action)
+  }
+
+  const submitInstallmentEdit = (scope: TransactionApplyScope) => {
+    if (!pendingInstallmentEdit) return
+    const { data, recurringData, installmentData, pendingFiles, action } = pendingInstallmentEdit
+    onSave({ ...data, apply_to: scope }, recurringData, installmentData, pendingFiles, action)
+    setPendingInstallmentEdit(null)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className={cn(
         // Bound the dialog to the viewport (dvh accounts for mobile browser
         // chrome) and make it a flex column so the inner scroll region works
@@ -189,12 +235,12 @@ export function TransactionDialog({
               categoryGroups={categoryGroups}
               accounts={accounts}
               recurringMatch={recurringMatch}
-              onSave={onSave}
+              onSave={handleSave}
               onDelete={onDelete}
               onUnlinkTransfer={onUnlinkTransfer}
               onIgnoreChanged={onIgnoreChanged}
               onCreateRule={onCreateRule}
-              onCancel={onClose}
+              onCancel={handleClose}
               loading={loading}
               error={error}
               isSynced={isSynced}
@@ -297,6 +343,49 @@ export function TransactionDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    <Dialog
+      open={!!pendingInstallmentEdit}
+      onOpenChange={(scopeOpen) => {
+        if (!scopeOpen) setPendingInstallmentEdit(null)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('transactions.installmentScopeTitle')}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {t('transactions.installmentScopeEditDesc')}
+        </p>
+        <DialogFooter className="flex-col sm:flex-row sm:justify-end gap-2">
+          <Button
+            autoFocus
+            onClick={() => submitInstallmentEdit('this')}
+            disabled={loading}
+            className="justify-center"
+          >
+            {loading ? t('common.loading') : t('transactions.installmentScopeThis')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => submitInstallmentEdit('future')}
+            disabled={loading}
+            className="justify-center"
+          >
+            {t('transactions.installmentScopeFuture')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => submitInstallmentEdit('all')}
+            disabled={loading}
+            className="justify-center"
+          >
+            {t('transactions.installmentScopeAll')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 
@@ -321,12 +410,12 @@ function TransactionForm({
   hasPreview,
 }: {
   transaction: Transaction | null
-  duplicateDraft: Partial<Transaction> | null
+  duplicateDraft: TransactionEditPayload | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
   accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
   recurringMatch?: RecurringTransaction
-  onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
+  onSave: (data: TransactionEditPayload, recurringData?: { frequency: string; end_date?: string }, installmentData?: InstallmentSeriesInput, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
   onUnlinkTransfer?: (pairId: string) => void
   onIgnoreChanged?: () => void
@@ -381,6 +470,13 @@ function TransactionForm({
   const [isRecurring, setIsRecurring] = useState(false)
   const [frequency, setFrequency] = useState<RecurringTransaction['frequency']>('monthly')
   const [endDate, setEndDate] = useState('')
+  // Manual installment series: when checked, the save handler
+  // builds an InstallmentSeriesInput payload that repeats the transaction
+  // as N parcels. Only count and frequency are asked for: each parcel uses
+  // the transaction's own amount and status.
+  const [isInstallment, setIsInstallment] = useState(false)
+  const [installmentCount, setInstallmentCount] = useState('2')
+  const [installmentFrequency, setInstallmentFrequency] = useState<RecurringTransaction['frequency']>('monthly')
   // Optional split-with-group payload. `null` = leave splits as-is on
   // update, or no splits on create. The dedicated section component
   // owns its own UI state and surfaces a normalized payload here.
@@ -662,7 +758,7 @@ function TransactionForm({
               is_ignored: isIgnored,
               ...overridePayload,
               ...splitsPayload,
-            } as Partial<Transaction>
+            } as TransactionEditPayload
           : {
               description,
               amount: parseFloat(amount),
@@ -680,11 +776,29 @@ function TransactionForm({
               ...fxFields,
               ...overridePayload,
               ...splitsPayload,
-            } as Partial<Transaction>
+            } as TransactionEditPayload
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
           : undefined
-        onSave(txData, recurringData, isCreating && pendingFiles.length > 0 ? pendingFiles : undefined, action)
+        const installmentData = isCreating && isInstallment && !isSynced
+          ? buildInstallmentSeriesInput({
+              accountId,
+              categoryId,
+              payeeId,
+              description,
+              amount,
+              date,
+              type,
+              currency,
+              notes,
+              fxFields,
+              splits,
+              installmentCount,
+              installmentFrequency,
+              status,
+            })
+          : undefined
+        onSave(txData, recurringData, installmentData, isCreating && pendingFiles.length > 0 ? pendingFiles : undefined, action)
       }}
       className={cn(
         // Always a bounded flex column; the DialogContent caps the overall
@@ -1057,18 +1171,37 @@ function TransactionForm({
         />
       )}
 
-      {/* Recurring toggle — only shown when creating non-synced */}
+      {/* Create options — recurring and installment toggles share one row
+          when creating non-synced transactions. "Repeat as installments"
+          mirrors the transaction N times for debits and receivables. */}
       {isCreating && !isSynced && (
         <div className="space-y-3 border rounded-md p-3">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isRecurring}
-              onChange={(e) => setIsRecurring(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            <span className="text-sm font-medium">{t('transactions.makeRecurring')}</span>
-          </label>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isRecurring}
+                onChange={(e) => {
+                  setIsRecurring(e.target.checked)
+                  if (e.target.checked) setIsInstallment(false)
+                }}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm font-medium">{t('transactions.makeRecurring')}</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isInstallment}
+                onChange={(e) => {
+                  setIsInstallment(e.target.checked)
+                  if (e.target.checked) setIsRecurring(false)
+                }}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm font-medium">{t('transactions.makeInstallment')}</span>
+            </label>
+          </div>
           {isRecurring && (
             <div className="grid grid-cols-2 gap-4 pt-1">
               <div className="space-y-2">
@@ -1091,6 +1224,34 @@ function TransactionForm({
                   onChange={setEndDate}
                   placeholder={t('recurring.endDate')}
                   className="w-full justify-start"
+                />
+              </div>
+            </div>
+          )}
+          {isInstallment && (
+            <div className="grid grid-cols-2 gap-4 pt-1">
+              <div className="space-y-2">
+                <Label>{t('transactions.installmentFrequency')}</Label>
+                <select
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                  value={installmentFrequency}
+                  onChange={(e) => setInstallmentFrequency(e.target.value as RecurringTransaction['frequency'])}
+                >
+                  <option value="monthly">{t('recurring.monthly')}</option>
+                  <option value="quarterly">{t('recurring.quarterly')}</option>
+                  <option value="weekly">{t('recurring.weekly')}</option>
+                  <option value="yearly">{t('recurring.yearly')}</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('transactions.installmentCount')}</Label>
+                <input
+                  type="number"
+                  min={2}
+                  max={360}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                  value={installmentCount}
+                  onChange={(e) => setInstallmentCount(e.target.value)}
                 />
               </div>
             </div>

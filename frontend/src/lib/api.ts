@@ -53,6 +53,9 @@ import type {
   GroupSettlement,
   GroupBalances,
   TransactionSplitsInput,
+  TransactionEditPayload,
+  InstallmentSeriesInput,
+  TransactionApplyScope,
 } from '@/types'
 
 const api = axios.create({
@@ -471,19 +474,26 @@ export const transactions = {
     const { data } = await api.get(`/transactions/${id}`)
     return data
   },
-  create: async (transaction: Partial<Transaction>): Promise<Transaction> => {
+  create: async (transaction: TransactionEditPayload): Promise<Transaction> => {
     const { data } = await api.post('/transactions', transaction)
+    return data
+  },
+  createInstallments: async (payload: InstallmentSeriesInput): Promise<Transaction[]> => {
+    const { data } = await api.post('/transactions/installments', payload)
     return data
   },
   update: async (
     id: string,
-    transaction: Partial<Transaction> & { apply_to_transfer_pair?: boolean },
+    transaction: TransactionEditPayload & {
+      apply_to_transfer_pair?: boolean
+      apply_to?: TransactionApplyScope
+    },
   ): Promise<Transaction> => {
     const { data } = await api.patch(`/transactions/${id}`, transaction)
     return data
   },
-  delete: async (id: string): Promise<void> => {
-    await api.delete(`/transactions/${id}`)
+  delete: async (id: string, applyTo: TransactionApplyScope = 'this'): Promise<void> => {
+    await api.delete(`/transactions/${id}`, { params: { apply_to: applyTo } })
   },
   toggleIgnore: async (id: string): Promise<Transaction> => {
     const { data } = await api.patch(`/transactions/${id}/ignore`)

@@ -68,6 +68,12 @@ class Transaction(Base):
         Numeric(precision=15, scale=2), nullable=True
     )
     installment_purchase_date: Mapped[Optional[_date]] = mapped_column(Date, nullable=True)
+    # Stable identity for rows created by the manual installment-series
+    # endpoint. Provider-synced installment rows leave this null because their
+    # metadata is only a deduplication fingerprint, not a series identifier.
+    installment_series_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
     # User-set manual override for which bill cycle this tx belongs to. Null
     # by default; only meaningful for credit-card accounts. When set, beats
     # both Pluggy's billId and the cycle-math fallback (issue #92, the

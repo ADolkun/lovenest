@@ -36,14 +36,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { CheckCircle2, CalendarIcon, Paperclip, Target, ArrowUpDown, HelpCircle, EyeClosed } from 'lucide-react'
+import { CheckCircle2, CalendarIcon, Clock, Paperclip, Target, ArrowUpDown, HelpCircle, EyeClosed } from 'lucide-react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ICON_MAP } from '@/lib/category-icons'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
 import { AccountIcon } from '@/components/account-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
-import { TransactionDialog, extractApiError } from '@/components/transaction-dialog'
+import { TransactionDialog, extractApiError, type TransactionSavePayload } from '@/components/transaction-dialog'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -52,6 +52,7 @@ import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
 import type { Rule, Transaction } from '@/types'
 import { formatCurrency } from '@/lib/format'
+import { shouldShowPendingBadge } from '@/lib/transaction-status'
 
 function formatDate(dateStr: string, locale = 'pt-BR') {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString(locale)
@@ -243,7 +244,7 @@ export default function DashboardPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...data }: Partial<Transaction> & { id: string }) =>
+    mutationFn: ({ id, ...data }: TransactionSavePayload & { id: string }) =>
       transactions.update(id, data),
     onSuccess: () => {
       invalidateFinancialQueries(queryClient)
@@ -424,6 +425,9 @@ export default function DashboardPage() {
     parentOwnerName: string | null
     groupName: string | null
     isIgnored: boolean
+    installmentNumber: number | null
+    totalInstallments: number | null
+    showPendingBadge: boolean
   }
 
   const [txPerPage, setTxPerPage] = useState<number>(() => {
@@ -470,7 +474,10 @@ export default function DashboardPage() {
         groupId,
         parentOwnerName: isShared ? tx.parent_owner_name ?? null : null,
         groupName: groupId ? groupNameById.get(groupId) ?? null : null,
-        isIgnored: tx.is_ignored
+        isIgnored: tx.is_ignored,
+        installmentNumber: tx.installment_number,
+        totalInstallments: tx.total_installments,
+        showPendingBadge: shouldShowPendingBadge(tx),
       })
     }
     for (const pt of projectedTxs ?? []) {
@@ -494,7 +501,10 @@ export default function DashboardPage() {
         groupId: null,
         parentOwnerName: null,
         groupName: null,
-        isIgnored: false
+        isIgnored: false,
+        installmentNumber: null,
+        totalInstallments: null,
+        showPendingBadge: false,
       })
     }
     rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
@@ -1090,6 +1100,19 @@ export default function DashboardPage() {
                               {t('transactions.recurringBadge')}
                             </span>
                           )}
+                          {row.installmentNumber != null && row.totalInstallments != null && (
+                            <span className="inline-flex items-center text-[9px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1 py-0.5 rounded-full shrink-0">
+                              {row.installmentNumber}/{row.totalInstallments}
+                            </span>
+                          )}
+                          {row.showPendingBadge && (
+                            <span
+                              title={t('transactions.pending')}
+                              className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-200 bg-amber-50 p-0.5 dark:border-amber-500/30 dark:bg-amber-500/10"
+                            >
+                              <Clock size={12} className="text-amber-500" role="img" aria-label={t('transactions.pending')} />
+                            </span>
+                          )}
                           {row.isIgnored && (
                             <EyeClosed className="h-3 w-3 text-gray-500 shrink-0" />
                           )}
@@ -1192,6 +1215,19 @@ export default function DashboardPage() {
                               {row.isProjected && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
                                   {t('transactions.recurringBadge')}
+                                </span>
+                              )}
+                              {row.installmentNumber != null && row.totalInstallments != null && (
+                                <span className="inline-flex items-center text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">
+                                  {row.installmentNumber}/{row.totalInstallments}
+                                </span>
+                              )}
+                              {row.showPendingBadge && (
+                                <span
+                                  title={t('transactions.pending')}
+                                  className="shrink-0 inline-flex items-center justify-center rounded-full border border-amber-200 bg-amber-50 p-0.5 dark:border-amber-500/30 dark:bg-amber-500/10"
+                                >
+                                  <Clock size={12} className="text-amber-500" role="img" aria-label={t('transactions.pending')} />
                                 </span>
                               )}
                               {row.isIgnored && (
