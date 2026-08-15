@@ -37,6 +37,7 @@ import type {
   AssetTransaction,
   AssetValue,
   TaxLots,
+  WashSaleExposure,
   MarketSymbolMatch,
   MarketSymbolQuote,
   Attachment,
@@ -1068,6 +1069,11 @@ export const assets = {
   // Tax Lots and holding period, derived from the ledger (issue #65)
   taxLots: async (id: string): Promise<TaxLots> => {
     const { data } = await api.get(`/assets/${id}/tax-lots`)
+    return data
+  },
+  // Cross-account Wash Sale exposure of a candidate sale (issue #66)
+  washSale: async (id: string): Promise<WashSaleExposure> => {
+    const { data } = await api.get(`/assets/${id}/wash-sale`)
     return data
   },
   allTransactions: async (params?: { ticker?: string; kind?: 'buy' | 'sell' }): Promise<AssetTransaction[]> => {

@@ -89,3 +89,27 @@ async def test_a_later_sync_never_overwrites_the_users_classification(
     )
 
     assert resynced.type == CASH_EQUIVALENT_TYPE
+
+
+@pytest.mark.asyncio
+async def test_sync_types_a_crypto_exchange_holding_as_crypto(
+    session: AsyncSession, test_user, test_workspace
+):
+    """A crypto exchange reports nothing but crypto, and asset class is what
+    decides whether the Wash Sale rule reaches a holding at all (ADR 0004)."""
+    asset = await _upsert_asset_from_holding(
+        session, None, _holding("BTC"), test_user.id, uuid.uuid4(), "coinbase"
+    )
+
+    assert asset.type == "crypto"
+
+
+@pytest.mark.asyncio
+async def test_a_stablecoin_on_a_crypto_exchange_is_still_cash(
+    session: AsyncSession, test_user, test_workspace
+):
+    asset = await _upsert_asset_from_holding(
+        session, None, _holding("USDC"), test_user.id, uuid.uuid4(), "coinbase"
+    )
+
+    assert asset.type == CASH_EQUIVALENT_TYPE

@@ -103,6 +103,48 @@ function PositionIcon({ logoUrl, type }: { logoUrl: string | null; type: string 
 const LOTS_GRID = 'minmax(0,1.4fr) 0.9fr 1fr 1.1fr 1.6fr'
 
 /**
+ * Warns before a candidate sale forfeits a deduction. Silent unless the sale
+ * would be at a loss and the same instrument was bought inside the window —
+ * a warning that fires on a non-risk teaches the user to ignore it.
+ */
+function WashSaleWarning({ assetId, dateLocale }: { assetId: string; dateLocale: string }) {
+  const { t } = useTranslation()
+  const { data } = useQuery({
+    queryKey: ['asset-wash-sale', assetId],
+    queryFn: () => assetsApi.washSale(assetId),
+  })
+
+  if (!data?.warning) return null
+
+  const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale)
+
+  return (
+    <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-900">
+      <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+        {t('assets.washSaleTitle')}
+      </p>
+      <p className="text-[11px] text-amber-800 dark:text-amber-300">
+        {t('assets.washSaleBody', { start: day(data.window_start), end: day(data.window_end) })}
+      </p>
+      <div className="flex flex-wrap gap-1 pt-1">
+        {data.wallets.map((wallet) => (
+          <Badge
+            key={wallet.wallet_id}
+            variant="outline"
+            className={`text-[9px] px-1 py-0 ${
+              wallet.unrecoverable ? 'text-rose-600 border-rose-300' : 'text-amber-700 border-amber-300'
+            }`}
+          >
+            {wallet.wallet ?? t('assets.noWallet')}
+            {wallet.unrecoverable ? ` · ${t('assets.washSaleUnrecoverable')}` : ''}
+          </Badge>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
  * The Tax Lots of one Holding, fetched on demand — they are derived by
  * replaying its ledger, so they are not part of the holdings list.
  */
@@ -390,6 +432,7 @@ export default function PositionsTab({
             {/* Per wallet, not per ticker: tax character attaches to the wallet,
                 so a split blending a taxable leg with a Roth one would be a
                 figure no tax return could use. */}
+            <WashSaleWarning assetId={leg.assetId} dateLocale={dateLocale} />
             <TaxLotsPanel
               assetId={leg.assetId}
               currency={currency}

@@ -392,10 +392,16 @@ async def _upsert_asset_from_holding(
             account_external_id=holding.account_external_id,
             name=holding.name,
             # Seeded on create only — a later sync must not undo the user's
-            # own classification (app/services/cash_equivalent.py).
+            # own classification (app/services/cash_equivalent.py). A crypto
+            # exchange reports nothing but crypto, so its holdings are typed as
+            # such rather than landing in the generic bucket: asset class is
+            # what decides whether the Wash Sale rule reaches a holding at all
+            # (docs/adr/0004), and the rule does not reach crypto.
             type=(
                 CASH_EQUIVALENT_TYPE
                 if is_cash_equivalent_ticker(holding.ticker)
+                else "crypto"
+                if source == "coinbase"
                 else "investment"
             ),
             currency=holding.currency,
