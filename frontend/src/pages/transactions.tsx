@@ -52,6 +52,7 @@ import { LinkTransferDialog } from '@/components/link-transfer-dialog'
 import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/components/bulk-add-to-group-dialog'
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { TransactionCalendarView } from '@/components/transaction-calendar-view'
+import { Badge } from '@/components/ui/badge'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { MobileTransactionRow } from '@/components/mobile-transaction-row'
@@ -1084,14 +1085,15 @@ export default function TransactionsPage() {
               </span>
             )}
             {tx.installment_number != null && tx.total_installments != null && (
-              <span
-                className="inline-flex items-center text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded-full"
+              <Badge
+                variant="warning"
+                className="px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
                 title={tx.installment_total_amount != null
                   ? t('transactions.installmentTooltip', { count: tx.total_installments, total: tx.installment_total_amount })
                   : undefined}
               >
                 {tx.installment_number}/{tx.total_installments}
-              </span>
+              </Badge>
             )}
             {(tx.attachment_count ?? 0) > 0 && (
               <Paperclip size={12} className="text-muted-foreground shrink-0" />

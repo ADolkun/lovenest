@@ -102,7 +102,7 @@ function OnTrackBadge({ status, t }: { status: string | null; t: (key: string) =
   const config: Record<string, { bg: string; text: string; key: string }> = {
     ahead: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-400', key: 'goals.onTrackAhead' },
     on_track: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-400', key: 'goals.onTrackOnTrack' },
-    behind: { bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-400', key: 'goals.onTrackBehind' },
+    behind: { bg: 'bg-warning/15', text: 'text-warning-foreground', key: 'goals.onTrackBehind' },
     overdue: { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', key: 'goals.onTrackOverdue' },
     achieved: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-400', key: 'goals.onTrackAchieved' },
   }
@@ -119,7 +119,7 @@ function StatusBadge({ status, t }: { status: string; t: (key: string) => string
   const config: Record<string, { bg: string; text: string; key: string }> = {
     active: { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-400', key: 'goals.statusActive' },
     completed: { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-400', key: 'goals.statusCompleted' },
-    paused: { bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-400', key: 'goals.statusPaused' },
+    paused: { bg: 'bg-warning/15', text: 'text-warning-foreground', key: 'goals.statusPaused' },
     archived: { bg: 'bg-muted', text: 'text-muted-foreground', key: 'goals.statusArchived' },
   }
   const c = config[status] ?? config.active

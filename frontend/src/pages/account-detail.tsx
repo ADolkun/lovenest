@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
@@ -839,7 +840,7 @@ export default function AccountDetailPage() {
                     ? { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', label: t('accounts.dueToday') }
                     : d <= 3
                       ? { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-400', label: t('accounts.dueIn', { count: d }) }
-                      : { bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-400', label: t('accounts.dueIn', { count: d }) }
+                      : { bg: 'bg-warning/15', text: 'text-warning-foreground', label: t('accounts.dueIn', { count: d }) }
                 return (
                   <>
                     <span className="text-muted-foreground text-xs">·</span>
@@ -852,15 +853,16 @@ export default function AccountDetailPage() {
               {isCreditCard && canWrite && (!account.statement_close_day || !account.payment_due_day) && (
                 <>
                   <span className="text-muted-foreground text-xs">·</span>
-                  <button
-                    type="button"
-                    onClick={() => setCcSettingsOpen(true)}
-                    title={t('accounts.cycleMissingHint')}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors cursor-pointer"
-                  >
-                    <HelpCircle className="h-3 w-3" />
-                    {t('accounts.cycleMissing')}
-                  </button>
+                  <Badge asChild variant="warning" className="px-2 py-0.5 text-[10px] font-bold hover:bg-warning/20 cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => setCcSettingsOpen(true)}
+                      title={t('accounts.cycleMissingHint')}
+                    >
+                      <HelpCircle className="h-3 w-3" />
+                      {t('accounts.cycleMissing')}
+                    </button>
+                  </Badge>
                 </>
               )}
             </div>
@@ -1456,10 +1458,10 @@ export default function AccountDetailPage() {
                               </span>
                             )}
                             {isPending && (
-                              <span className="ml-2 inline-flex items-center gap-1 text-xs text-amber-600 font-normal bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                              <Badge variant="warning" className="ml-2 rounded px-1.5 py-0.5 text-xs font-normal">
                                 <Clock className="h-3 w-3" />
                                 {t('transactions.pending')}
-                              </span>
+                              </Badge>
                             )}
                             {isIgnored && (
                               <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-600 font-normal bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
@@ -1469,14 +1471,15 @@ export default function AccountDetailPage() {
                               </span>
                             )}
                             {tx.installment_number != null && tx.total_installments != null && (
-                              <span
-                                className="ml-2 inline-flex items-center text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded-full"
+                              <Badge
+                                variant="warning"
+                                className="ml-2 px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
                                 title={tx.installment_total_amount != null
                                   ? t('transactions.installmentTooltip', { count: tx.total_installments, total: tx.installment_total_amount })
                                   : undefined}
                               >
                                 {tx.installment_number}/{tx.total_installments}
-                              </span>
+                              </Badge>
                             )}
                             {tx.effective_bill_date && (
                               <span

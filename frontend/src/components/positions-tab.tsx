@@ -119,11 +119,11 @@ function WashSaleWarning({ assetId, dateLocale }: { assetId: string; dateLocale:
   const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale)
 
   return (
-    <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-900">
-      <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+    <div className="px-3 py-2 bg-warning/10 border-t border-warning/30">
+      <p className="text-[11px] font-semibold text-warning-foreground">
         {t('assets.washSaleTitle')}
       </p>
-      <p className="text-[11px] text-amber-800 dark:text-amber-300">
+      <p className="text-[11px] text-warning-foreground">
         {t('assets.washSaleBody', { start: day(data.window_start), end: day(data.window_end) })}
       </p>
       <div className="flex flex-wrap gap-1 pt-1">
@@ -132,7 +132,7 @@ function WashSaleWarning({ assetId, dateLocale }: { assetId: string; dateLocale:
             key={wallet.wallet_id}
             variant="outline"
             className={`text-[9px] px-1 py-0 ${
-              wallet.unrecoverable ? 'text-rose-600 border-rose-300' : 'text-amber-700 border-amber-300'
+              wallet.unrecoverable ? 'text-rose-600 border-rose-300' : 'text-warning-foreground border-warning/40'
             }`}
           >
             {wallet.wallet ?? t('assets.noWallet')}
@@ -217,7 +217,7 @@ function TaxLotsPanel({
               <div className="text-right">
                 <Badge
                   variant="outline"
-                  className={`text-[9px] px-1 py-0 ${lot.long_term ? 'text-emerald-600' : 'text-amber-600'}`}
+                  className={`text-[9px] px-1 py-0 ${lot.long_term ? 'text-emerald-600' : 'text-warning-foreground'}`}
                 >
                   {character(lot.long_term)}
                 </Badge>

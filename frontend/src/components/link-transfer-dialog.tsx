@@ -3,6 +3,7 @@ import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery } from '@tanstack/react-query'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -353,10 +354,10 @@ export function LinkTransferDialog({
           </div>
 
           {amountMismatch && (
-            <div className="flex items-start gap-2 p-3 text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-md text-amber-800 dark:text-amber-300">
-              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+            <Alert variant="warning" className="gap-2 rounded-md p-3 text-xs">
+              <AlertTriangle size={14} className="mt-0.5" />
               <span>{t('transactions.linkTransferAmountMismatch')}</span>
-            </div>
+            </Alert>
           )}
 
           <div className="flex items-start gap-2 p-3 text-xs bg-muted/50 border border-border rounded-md text-muted-foreground">

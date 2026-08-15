@@ -429,7 +429,7 @@ export default function AccountsPage() {
                       )}
                     </div>
                     {needsAttention && (
-                      <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-5 py-2 text-xs text-amber-700 dark:text-amber-300">
+                      <div className="flex items-center gap-2 border-b border-warning/20 bg-warning/5 px-5 py-2 text-xs text-warning-foreground">
                         <TriangleAlert size={14} className="shrink-0" />
                         <p>
                           {conn.status === 'expired'

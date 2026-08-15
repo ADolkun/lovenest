@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -114,10 +115,10 @@ export function PasskeyManagementDialog({ open, onClose }: PasskeyManagementDial
           <p className="text-sm text-muted-foreground">{t('auth.passkeysDescription')}</p>
 
           {blocker && (
-            <div className="flex items-start gap-2.5 rounded-lg bg-amber-500/10 px-3 py-2.5 text-sm text-amber-700 dark:text-amber-300">
-              <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+            <Alert variant="warning" className="border-transparent px-3 py-2.5">
+              <TriangleAlert size={16} className="mt-0.5" />
               <p>{t(FAILURE_KEYS[blocker])}</p>
-            </div>
+            </Alert>
           )}
 
           <form onSubmit={handleRegister} className="space-y-3 rounded-lg border p-3">
