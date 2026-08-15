@@ -362,17 +362,13 @@ export default function AccountsPage() {
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
                             <Badge
-                              variant={conn.status === 'active' ? 'default' : 'secondary'}
-                              className={
-                                conn.status === 'active'
-                                  ? 'text-[10px] px-1.5 py-0 h-4'
-                                  : 'text-[10px] px-1.5 py-0 h-4 border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                              }
+                              variant={conn.status === 'active' ? 'default' : 'warning'}
+                              className="text-[10px] px-1.5 py-0 h-4"
                             >
                               {t(`accounts.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
                             </Badge>
                             {pendingAccounts > 0 && (
-                              <Badge className="h-4 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300">
+                              <Badge variant="warning" className="h-4 px-1.5 py-0 text-[10px]">
                                 {t('connections.accountsPending', { count: pendingAccounts })}
                               </Badge>
                             )}

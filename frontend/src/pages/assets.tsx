@@ -736,8 +736,8 @@ export default function AssetsPage() {
                 <span className="font-semibold text-foreground truncate">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.ticker : asset.name}</span>
                 {needsBuys && (
                   <Badge
-                    variant="outline"
-                    className="text-[9px] px-1 py-0 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 gap-0.5 shrink-0"
+                    variant="warning"
+                    className="text-[9px] px-1 py-0 gap-0.5 shrink-0"
                     title={t('assets.noPriceWarning')}
                   >
                     <AlertTriangle size={9} />

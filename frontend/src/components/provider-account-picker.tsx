@@ -71,7 +71,7 @@ export function ProviderAccountPicker({
                 <div className="flex items-center gap-2">
                   <p className="truncate text-sm text-foreground">{account.name}</p>
                   {account.status === 'pending' && (
-                    <Badge className="h-4 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300">
+                    <Badge variant="warning" className="h-4 px-1.5 py-0 text-[10px]">
                       {t('connections.accountPending')}
                     </Badge>
                   )}
