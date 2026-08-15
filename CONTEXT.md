@@ -87,6 +87,12 @@ Period and any per-lot sale decision need them kept apart. A Lot is always
 Snapshot Holding has no Lots at all, which is a different thing from having one
 Lot of unknown date.
 
+**Lot Matching** — deciding which Lots a sell consumed, which is what gives the
+Realised Gain its holding-period character. Oldest first (FIFO), the broker
+default. It settles *which* units left, never *what* they cost: the amount stays
+the Average Price figure, so one sell has one Realised Gain and the long and
+short parts always add back up to it.
+
 **Wash Sale** — selling at a loss and acquiring the same or a substantially
 identical security within 30 days either side, which disallows the loss. The
 disallowed amount normally moves into the basis of the replacement shares — but

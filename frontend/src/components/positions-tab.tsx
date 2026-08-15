@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { assets as assetsApi } from '@/lib/api'
 import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
 import { formatCurrency } from '@/lib/format'
 import {
@@ -18,6 +20,7 @@ interface PositionsTabProps {
   wallets: AssetGroup[]
   currency: string
   locale: string
+  dateLocale: string
   mask: (value: string) => string
   canWrite: boolean
   /** Reclassify one Holding — the user's verdict on what counts as cash. */
@@ -97,11 +100,126 @@ function PositionIcon({ logoUrl, type }: { logoUrl: string | null; type: string 
   )
 }
 
+const LOTS_GRID = 'minmax(0,1.4fr) 0.9fr 1fr 1.1fr 1.6fr'
+
+/**
+ * The Tax Lots of one Holding, fetched on demand — they are derived by
+ * replaying its ledger, so they are not part of the holdings list.
+ */
+function TaxLotsPanel({
+  assetId,
+  currency,
+  locale,
+  dateLocale,
+  mask,
+}: {
+  assetId: string
+  currency: string
+  locale: string
+  dateLocale: string
+  mask: (value: string) => string
+}) {
+  const { t } = useTranslation()
+  const { data, isError } = useQuery({
+    queryKey: ['asset-tax-lots', assetId],
+    queryFn: () => assetsApi.taxLots(assetId),
+  })
+
+  const money = (value: number) => mask(formatCurrency(value, currency, locale))
+  const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale)
+  const hint = (text: string) => (
+    <div className="px-3 py-2 bg-background/60 border-t border-border">
+      <p className="text-[11px] text-muted-foreground italic">{text}</p>
+    </div>
+  )
+
+  if (!data) return hint(isError ? t('common.error') : t('common.loading'))
+  // A gain in a Tax-Advantaged wallet is never Reportable, so it has no
+  // long-versus-short answer to give.
+  if (!data.tax_character) return hint(t('assets.lotsNoTaxCharacter'))
+  if (data.snapshot) return hint(t('assets.lotsSnapshot'))
+  if (data.lots.length === 0 && data.sales.length === 0) return hint(t('assets.lotsNone'))
+
+  const character = (long: boolean) => (long ? t('assets.lotsLong') : t('assets.lotsShort'))
+
+  return (
+    <div className="px-3 py-2 bg-background/60 border-t border-border">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        {t('assets.lotsTitle')}
+      </p>
+      {data.lots.length > 0 && (
+        <>
+          <div
+            className="grid items-center gap-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
+            style={{ gridTemplateColumns: LOTS_GRID }}
+          >
+            <div>{t('assets.lotsColAcquired')}</div>
+            <div className="text-right">{t('assets.posColQuantity')}</div>
+            <div className="text-right">{t('assets.lotsColUnitPrice')}</div>
+            {/* Not "Cost Basis": a lot is carried at what it actually cost,
+                while the position's Cost Basis is the blended average, so the
+                two legitimately differ after a partial sale (ADR 0003). */}
+            <div className="text-right">{t('assets.lotsColCost')}</div>
+            <div className="text-right">{t('assets.lotsColHoldingPeriod')}</div>
+          </div>
+          {data.lots.map((lot, i) => (
+            <div
+              key={`${lot.acquired}-${i}`}
+              className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
+              style={{ gridTemplateColumns: LOTS_GRID }}
+            >
+              <div className="text-foreground">{day(lot.acquired)}</div>
+              <div className="text-right tabular-nums text-muted-foreground">{mask(`${lot.quantity}`)}</div>
+              <div className="text-right tabular-nums text-muted-foreground">{money(lot.unit_price)}</div>
+              <div className="text-right tabular-nums text-muted-foreground">{money(lot.cost)}</div>
+              <div className="text-right">
+                <Badge
+                  variant="outline"
+                  className={`text-[9px] px-1 py-0 ${lot.long_term ? 'text-emerald-600' : 'text-amber-600'}`}
+                >
+                  {character(lot.long_term)}
+                </Badge>
+                <span className="block text-[10px] text-muted-foreground tabular-nums">
+                  {lot.long_term
+                    ? t('assets.lotsHeldDays', { count: lot.holding_days })
+                    : t('assets.lotsLongIn', { count: lot.days_until_long_term })}
+                </span>
+              </div>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-[11px] text-muted-foreground">
+            <span>
+              {t('assets.lotsLong')}: <span className="tabular-nums">{mask(`${data.long_quantity}`)}</span> ·{' '}
+              {money(data.long_cost)}
+            </span>
+            <span>
+              {t('assets.lotsShort')}: <span className="tabular-nums">{mask(`${data.short_quantity}`)}</span> ·{' '}
+              {money(data.short_cost)}
+            </span>
+          </div>
+        </>
+      )}
+      {data.sales.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-border/50 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+          <span className="text-muted-foreground">{t('assets.lotsRealised')}:</span>
+          <span className={gainClass(data.realised_long)}>
+            {t('assets.lotsLong')} {money(data.realised_long)}
+          </span>
+          <span className={gainClass(data.realised_short)}>
+            {t('assets.lotsShort')} {money(data.realised_short)}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PositionsTab({
   holdings,
   wallets,
   currency,
   locale,
+  dateLocale,
   mask,
   canWrite,
   onClassify,
@@ -227,47 +345,58 @@ export default function PositionsTab({
           <div className="text-right">{t('assets.posColGain')}</div>
         </div>
         {position.legs.map((leg) => (
-          <div
-            key={leg.assetId}
-            className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
-            style={{ gridTemplateColumns: LEGS_GRID }}
-          >
-            <div className="min-w-0">
-              <span className="font-medium text-foreground truncate block">
-                {leg.walletName ?? t('assets.noWallet')}
-              </span>
-              <span className="text-[10px] text-muted-foreground">
-                {accountTypeLabel(leg.accountType)}
-              </span>
+          <div key={leg.assetId}>
+            <div
+              className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
+              style={{ gridTemplateColumns: LEGS_GRID }}
+            >
+              <div className="min-w-0">
+                <span className="font-medium text-foreground truncate block">
+                  {leg.walletName ?? t('assets.noWallet')}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {accountTypeLabel(leg.accountType)}
+                </span>
+              </div>
+              <div className="text-right tabular-nums text-muted-foreground">{mask(`${leg.quantity}`)}</div>
+              <div className="text-right text-[10px] text-muted-foreground">
+                {leg.taxTreatment ? t(`assets.taxTreatment.${leg.taxTreatment}`) : DASH}
+              </div>
+              <div className="text-right tabular-nums text-muted-foreground">{money(leg.costBasis)}</div>
+              <div className="text-right tabular-nums text-foreground">{money(leg.value)}</div>
+              <div className="text-right tabular-nums">
+                {leg.gain === null ? (
+                  <span className="text-muted-foreground">{DASH}</span>
+                ) : (
+                  <span className={gainClass(leg.gain)}>{money(leg.gain)}</span>
+                )}
+                {canWrite && (
+                  <button
+                    onClick={() =>
+                      onClassify(
+                        leg.assetId,
+                        leg.assetType === CASH_EQUIVALENT_TYPE ? 'investment' : CASH_EQUIVALENT_TYPE,
+                      )
+                    }
+                    className="block ml-auto text-[10px] font-medium text-primary hover:underline"
+                  >
+                    {leg.assetType === CASH_EQUIVALENT_TYPE
+                      ? t('assets.posMarkInvestment')
+                      : t('assets.posMarkCashEquivalent')}
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="text-right tabular-nums text-muted-foreground">{mask(`${leg.quantity}`)}</div>
-            <div className="text-right text-[10px] text-muted-foreground">
-              {leg.taxTreatment ? t(`assets.taxTreatment.${leg.taxTreatment}`) : DASH}
-            </div>
-            <div className="text-right tabular-nums text-muted-foreground">{money(leg.costBasis)}</div>
-            <div className="text-right tabular-nums text-foreground">{money(leg.value)}</div>
-            <div className="text-right tabular-nums">
-              {leg.gain === null ? (
-                <span className="text-muted-foreground">{DASH}</span>
-              ) : (
-                <span className={gainClass(leg.gain)}>{money(leg.gain)}</span>
-              )}
-              {canWrite && (
-                <button
-                  onClick={() =>
-                    onClassify(
-                      leg.assetId,
-                      leg.assetType === CASH_EQUIVALENT_TYPE ? 'investment' : CASH_EQUIVALENT_TYPE,
-                    )
-                  }
-                  className="block ml-auto text-[10px] font-medium text-primary hover:underline"
-                >
-                  {leg.assetType === CASH_EQUIVALENT_TYPE
-                    ? t('assets.posMarkInvestment')
-                    : t('assets.posMarkCashEquivalent')}
-                </button>
-              )}
-            </div>
+            {/* Per wallet, not per ticker: tax character attaches to the wallet,
+                so a split blending a taxable leg with a Roth one would be a
+                figure no tax return could use. */}
+            <TaxLotsPanel
+              assetId={leg.assetId}
+              currency={currency}
+              locale={locale}
+              dateLocale={dateLocale}
+              mask={mask}
+            />
           </div>
         ))}
       </div>

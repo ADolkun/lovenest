@@ -658,6 +658,46 @@ export interface AssetTransaction {
   logo_url: string | null
 }
 
+/** One acquisition, derived by replaying the ledger — never a stored record. */
+export interface TaxLot {
+  acquired: string
+  quantity: number
+  unit_price: number
+  cost: number
+  holding_days: number
+  long_term: boolean
+  /** Zero once the lot is long-term. */
+  days_until_long_term: number
+}
+
+export interface TaxLotSale {
+  date: string
+  quantity: number
+  gain: number
+  long_quantity: number
+  short_quantity: number
+  long_gain: number
+  short_gain: number
+}
+
+export interface TaxLots {
+  asset_id: string
+  ticker: string | null
+  /** False when the wallet is not Taxable — the gain there has no tax character, so no lots are reported. */
+  tax_character: boolean
+  /** Provider-reported position with no trades behind it: holding period is unknown, not short. */
+  snapshot: boolean
+  as_of: string
+  lots: TaxLot[]
+  long_quantity: number
+  short_quantity: number
+  long_cost: number
+  short_cost: number
+  sales: TaxLotSale[]
+  realised_long: number
+  realised_short: number
+}
+
 export interface MarketSymbolMatch {
   symbol: string
   name: string | null
