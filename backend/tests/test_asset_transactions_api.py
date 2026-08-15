@@ -4,6 +4,7 @@ Exercises the HTTP surface: per-asset CRUD, the workspace-wide list + filters,
 the find-or-create buy endpoint, validation, 404s and auth.
 """
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -12,6 +13,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.asset_transaction import AssetTransaction
 from app.models.user import User
 
 
@@ -314,3 +316,70 @@ async def test_tax_lots_endpoint_404s_for_an_unknown_asset(client: AsyncClient, 
 @pytest.mark.asyncio
 async def test_tax_lots_require_auth(client: AsyncClient, market_asset_api: Asset):
     assert (await client.get(f"/api/assets/{market_asset_api.id}/tax-lots")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_wash_sale_endpoint_warns_across_wallets(
+    client: AsyncClient, auth_headers: dict, session: AsyncSession,
+    test_user: User, market_asset_api: Asset,
+):
+    """Selling the taxable holding at a loss while the IRA bought the same
+    ticker inside the window (issue #66)."""
+    taxable = await client.post(
+        "/api/asset-groups",
+        headers=auth_headers,
+        json={"name": "Individual", "tax_treatment": "taxable"},
+    )
+    ira = await client.post(
+        "/api/asset-groups", headers=auth_headers, json={"name": "ROTH IRA", "tax_treatment": "roth"}
+    )
+    assert (await client.patch(
+        f"/api/assets/{market_asset_api.id}",
+        headers=auth_headers,
+        json={"group_id": taxable.json()["id"]},
+    )).status_code == 200
+    # Bought at 40, last quoted at 30 — a candidate sale is at a loss.
+    assert (await client.post(
+        f"/api/assets/{market_asset_api.id}/transactions",
+        headers=auth_headers,
+        json={"kind": "buy", "quantity": 10, "price": 40, "date": "2025-01-01"},
+    )).status_code == 201
+
+    replacement = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=market_asset_api.workspace_id,
+        name="Petrobras", type="stock", currency="BRL", valuation_method="market_price",
+        ticker="PETR4.SA", group_id=uuid.UUID(ira.json()["id"]), units=Decimal("3"), position=0,
+    )
+    session.add(replacement)
+    session.add(
+        AssetTransaction(
+            id=uuid.uuid4(), asset_id=replacement.id, workspace_id=market_asset_api.workspace_id,
+            kind="buy", quantity=Decimal("3"), price=Decimal("31"), fee=Decimal("0"),
+            date=date(2026, 6, 20), source="manual",
+        )
+    )
+    await session.commit()
+
+    r = await client.get(
+        f"/api/assets/{market_asset_api.id}/wash-sale",
+        headers=auth_headers,
+        params={"sell_date": "2026-06-15"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["warning"] is True
+    assert body["at_loss"] is True
+    assert body["window_start"] == "2026-05-16" and body["window_end"] == "2026-07-15"
+    assert [(a["wallet"], a["date"]) for a in body["acquisitions"]] == [("ROTH IRA", "2026-06-20")]
+    assert [(w["wallet"], w["unrecoverable"]) for w in body["wallets"]] == [("ROTH IRA", True)]
+
+
+@pytest.mark.asyncio
+async def test_wash_sale_endpoint_404s_for_an_unknown_asset(client: AsyncClient, auth_headers: dict):
+    r = await client.get(f"/api/assets/{uuid.uuid4()}/wash-sale", headers=auth_headers)
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_wash_sale_requires_auth(client: AsyncClient, market_asset_api: Asset):
+    assert (await client.get(f"/api/assets/{market_asset_api.id}/wash-sale")).status_code == 401

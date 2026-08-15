@@ -31,7 +31,7 @@ from app.schemas.asset import (
     MarketSymbolMatch,
     MarketSymbolQuote,
 )
-from app.services import asset_service, asset_transaction_service, tax_lots
+from app.services import asset_service, asset_transaction_service, tax_lots, wash_sale
 from app.services.fx_rate_service import convert
 
 logger = logging.getLogger(__name__)
@@ -276,6 +276,26 @@ async def asset_tax_lots(
     Empty for a Holding whose wallet is not Taxable: the gains there are never
     Reportable, so they have no tax character to show (CONTEXT.md)."""
     result = await tax_lots.asset_tax_lots(session, asset_id, ctx.workspace.id, as_of=as_of)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return result
+
+
+@router.get("/{asset_id}/wash-sale")
+async def asset_wash_sale(
+    asset_id: uuid.UUID,
+    sell_date: date | None = Query(None, description="Candidate sale date — defaults to today"),
+    price: Decimal | None = Query(None, description="Candidate sale price — defaults to the last quote"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Wash Sale exposure of selling this Holding, across every wallet.
+
+    Reports exposure only: no disallowed loss is rolled into replacement-share
+    basis and no adjusted basis is returned (CONTEXT.md)."""
+    result = await wash_sale.wash_sale_exposure(
+        session, asset_id, ctx.workspace.id, sell_date=sell_date, price=price
+    )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
     return result

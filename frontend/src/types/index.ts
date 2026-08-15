@@ -698,6 +698,43 @@ export interface TaxLots {
   realised_short: number
 }
 
+/** A wallet the warning names: it bought inside the window, or it holds the instrument now. */
+export interface WashSaleWallet {
+  wallet: string | null
+  wallet_id: string
+  tax_treatment: string | null
+  /** The wallet is tax-advantaged, so a loss disallowed against it is forfeited outright rather than deferred. */
+  unrecoverable: boolean
+}
+
+export interface WashSaleAcquisition extends WashSaleWallet {
+  date: string
+  quantity: number
+  /** The buy sits in the wallet being sold from — a wash sale, but a recoverable one. */
+  same_wallet: boolean
+}
+
+/** Exposure only — no disallowed loss is rolled into replacement-share basis (issue #66). */
+export interface WashSaleExposure {
+  asset_id: string
+  ticker: string | null
+  asset_type: string | null
+  /** False for asset classes the rule does not reach, such as crypto. */
+  covered: boolean
+  /** The selling wallet is Taxable, so a loss there is a deduction to lose. */
+  reportable: boolean
+  at_loss: boolean
+  warning: boolean
+  sell_date: string
+  window_start: string
+  window_end: string
+  price: number | null
+  average_price: number | null
+  acquisitions: WashSaleAcquisition[]
+  /** Every wallet the warning names — bought inside the window, or holds the instrument now. */
+  wallets: WashSaleWallet[]
+}
+
 export interface MarketSymbolMatch {
   symbol: string
   name: string | null

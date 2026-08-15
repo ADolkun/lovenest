@@ -98,7 +98,8 @@ identical security within 30 days either side, which disallows the loss. The
 disallowed amount normally moves into the basis of the replacement shares — but
 when the replacement is bought inside an IRA, the loss is lost outright.
 Crucially the rule spans *all* accounts a person holds, so detecting it is
-never a single-account question.
+never a single-account question. It does not reach every asset class: crypto is
+property rather than a security, so no wash sale arises there.
 
 **Liquid Cash** — settled, uninvested cash sitting inside a brokerage account.
 Part of the account's total, but not part of any Holding.
