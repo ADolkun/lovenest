@@ -1108,6 +1108,7 @@
     "lotsTitle": "Lotes fiscales",
     "lotsColAcquired": "Adquirido",
     "lotsColUnitPrice": "Precio unitario",
+    "lotsColCost": "Coste del lote",
     "lotsColHoldingPeriod": "Periodo de tenencia",
     "lotsLong": "Largo plazo",
     "lotsShort": "Corto plazo",

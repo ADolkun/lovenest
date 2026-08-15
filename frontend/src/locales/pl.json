@@ -1183,6 +1183,7 @@
     "lotsTitle": "Partie podatkowe",
     "lotsColAcquired": "Nabyto",
     "lotsColUnitPrice": "Cena jednostkowa",
+    "lotsColCost": "Koszt partii",
     "lotsColHoldingPeriod": "Okres posiadania",
     "lotsLong": "Długoterminowe",
     "lotsShort": "Krótkoterminowe",

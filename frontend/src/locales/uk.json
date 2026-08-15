@@ -1114,6 +1114,7 @@
     "lotsTitle": "Податкові лоти",
     "lotsColAcquired": "Придбано",
     "lotsColUnitPrice": "Ціна за одиницю",
+    "lotsColCost": "Вартість лоту",
     "lotsColHoldingPeriod": "Строк володіння",
     "lotsLong": "Довгостроковий",
     "lotsShort": "Короткостроковий",

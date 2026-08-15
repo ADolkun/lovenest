@@ -1108,6 +1108,7 @@
     "lotsTitle": "Lotti fiscali",
     "lotsColAcquired": "Acquistato",
     "lotsColUnitPrice": "Prezzo unitario",
+    "lotsColCost": "Costo del lotto",
     "lotsColHoldingPeriod": "Periodo di detenzione",
     "lotsLong": "Lungo termine",
     "lotsShort": "Breve termine",

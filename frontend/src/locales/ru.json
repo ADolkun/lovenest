@@ -1114,6 +1114,7 @@
     "lotsTitle": "Налоговые лоты",
     "lotsColAcquired": "Приобретено",
     "lotsColUnitPrice": "Цена за единицу",
+    "lotsColCost": "Стоимость лота",
     "lotsColHoldingPeriod": "Срок владения",
     "lotsLong": "Долгосрочный",
     "lotsShort": "Краткосрочный",
