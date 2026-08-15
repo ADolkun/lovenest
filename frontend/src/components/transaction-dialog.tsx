@@ -10,6 +10,7 @@ import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { normalizeRuleMatchValue } from '@/lib/rule-match-utils'
 import { cn, normalizeText } from '@/lib/utils'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -701,9 +702,9 @@ function TransactionForm({
         </div>
       )}
       {isSynced && (
-        <div className="flex items-center gap-2 p-3 text-sm bg-amber-50 border border-amber-200 rounded-md text-amber-700">
+        <Alert variant="warning" className="items-center gap-2 rounded-md p-3">
           {t('transactions.syncedInfo')}
-        </div>
+        </Alert>
       )}
       {!!transaction?.transfer_pair_id && (
         <div className="p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300 space-y-2">
@@ -872,10 +873,10 @@ function TransactionForm({
       {showConversion && (
         <div className="border border-border rounded-md p-3 space-y-2">
           {transaction?.fx_fallback && (
-            <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400">
-              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <Alert variant="warning" className="gap-2 rounded-md border-transparent p-2">
+              <AlertTriangle size={14} className="mt-0.5" />
               <span className="text-xs">{t('transactions.fxFallbackBanner')}</span>
-            </div>
+            </Alert>
           )}
           <div>
             <span className="text-sm font-medium">{t('transactions.conversion')}</span>

@@ -1,4 +1,5 @@
 import { getAccountName } from '@/lib/account-utils'
+import { Badge } from '@/components/ui/badge'
 import { AccountIcon } from '@/components/account-icon'
 import { CategoryIcon } from '@/components/category-icon'
 import type { Transaction, Account } from '@/types'
@@ -110,9 +111,9 @@ export function MobileTransactionRow({
             </span>
           )}
           {tx.installment_number != null && tx.total_installments != null && (
-            <span className="text-[9px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1 py-0.5 rounded-full shrink-0">
+            <Badge variant="warning" className="px-1 py-0.5 text-[9px] font-bold tabular-nums shrink-0">
               {tx.installment_number}/{tx.total_installments}
-            </span>
+            </Badge>
           )}
           {tx.status === 'pending' && (
             <Clock size={12} className="text-muted-foreground shrink-0" />

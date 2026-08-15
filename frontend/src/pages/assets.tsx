@@ -14,6 +14,7 @@ import {
   getTypeConfig,
 } from '@/lib/asset-types'
 import { toast } from 'sonner'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -736,8 +737,8 @@ export default function AssetsPage() {
                 <span className="font-semibold text-foreground truncate">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.ticker : asset.name}</span>
                 {needsBuys && (
                   <Badge
-                    variant="outline"
-                    className="text-[9px] px-1 py-0 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30 gap-0.5 shrink-0"
+                    variant="warning"
+                    className="text-[9px] px-1 py-0 gap-0.5 shrink-0"
                     title={t('assets.noPriceWarning')}
                   >
                     <AlertTriangle size={9} />
@@ -2307,7 +2308,7 @@ function AssetTransactionsTab({
     () => holdings.filter((h) => h.valuation_method === 'market_price' && !h.sell_date),
     [holdings],
   )
-  // Market holdings that exist but have no recorded buys → flagged in amber so
+  // Market holdings that exist but have no recorded buys → flagged as a warning so
   // the user knows their average price / return can't be computed yet.
   const holdingsWithoutCost = useMemo(
     () => marketHoldings.filter((h) => h.average_price == null && h.units != null),
@@ -2441,35 +2442,28 @@ function AssetTransactionsTab({
         )}
       </div>
 
-      {/* Holdings with no recorded buys — flagged in amber so the user knows
+      {/* Holdings with no recorded buys — flagged as a warning so the user knows
           the average price / return is missing until they add their purchases. */}
       {holdingsWithoutCost.length > 0 && (
         <div className="space-y-1.5">
           {holdingsWithoutCost.map((h) => (
-            <div
-              key={h.id}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20"
-            >
-              <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+            <Alert key={h.id} variant="warning" className="items-center gap-3 px-4 py-2.5">
+              <AlertTriangle size={16} />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-amber-900 dark:text-amber-200 truncate">
-                  {h.ticker || h.name}
-                </p>
-                <p className="text-[11px] text-amber-700 dark:text-amber-300/80">
-                  {t('assets.noPriceWarning')}
-                </p>
+                <p className="text-sm font-medium truncate">{h.ticker || h.name}</p>
+                <p className="text-[11px] opacity-80">{t('assets.noPriceWarning')}</p>
               </div>
               {canWrite && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2.5 text-xs border-amber-400 text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40 shrink-0"
+                  className="h-7 px-2.5 text-xs border-warning/40 text-warning-foreground hover:bg-warning/15 shrink-0"
                   onClick={() => openAddForHolding(h.id)}
                 >
                   {t('assets.addBuys')}
                 </Button>
               )}
-            </div>
+            </Alert>
           ))}
         </div>
       )}

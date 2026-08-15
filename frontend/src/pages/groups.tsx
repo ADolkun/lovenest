@@ -8,6 +8,7 @@ import { groups as groupsApi, type GroupCreatePayload } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -189,10 +190,10 @@ export default function GroupsPage() {
                       {t(`splitGroups.kind.${group.kind}`)}
                     </span>
                     {group.is_archived && (
-                      <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                      <Badge variant="warning" className="px-2 py-0.5 text-xs font-normal">
                         <Archive size={10} />
                         {t('splitGroups.archived')}
-                      </span>
+                      </Badge>
                     )}
                     {!group.is_owner && (
                       <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">

@@ -362,17 +362,13 @@ export default function AccountsPage() {
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
                             <Badge
-                              variant={conn.status === 'active' ? 'default' : 'secondary'}
-                              className={
-                                conn.status === 'active'
-                                  ? 'text-[10px] px-1.5 py-0 h-4'
-                                  : 'text-[10px] px-1.5 py-0 h-4 border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                              }
+                              variant={conn.status === 'active' ? 'default' : 'warning'}
+                              className="text-[10px] px-1.5 py-0 h-4"
                             >
                               {t(`accounts.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
                             </Badge>
                             {pendingAccounts > 0 && (
-                              <Badge className="h-4 border border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300">
+                              <Badge variant="warning" className="h-4 px-1.5 py-0 text-[10px]">
                                 {t('connections.accountsPending', { count: pendingAccounts })}
                               </Badge>
                             )}
@@ -433,7 +429,7 @@ export default function AccountsPage() {
                       )}
                     </div>
                     {needsAttention && (
-                      <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/5 px-5 py-2 text-xs text-amber-700 dark:text-amber-300">
+                      <div className="flex items-center gap-2 border-b border-warning/20 bg-warning/5 px-5 py-2 text-xs text-warning-foreground">
                         <TriangleAlert size={14} className="shrink-0" />
                         <p>
                           {conn.status === 'expired'

@@ -20,6 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Alert } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { APP_VERSION } from '@/lib/build-info'
 import { useAutoUpdateCheck } from '@/hooks/use-auto-update-check'
@@ -74,10 +75,10 @@ export function UpdateAvailableDialog({
 
         <div className="space-y-5">
           {!enabled && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-700 dark:text-amber-400">
-              <BellOff size={16} className="shrink-0 mt-0.5" />
+            <Alert variant="warning">
+              <BellOff size={16} className="mt-0.5" />
               <p className="leading-relaxed">{t('update.autoCheckDisabled')}</p>
-            </div>
+            </Alert>
           )}
 
           {enabled && isFetching && !data && (

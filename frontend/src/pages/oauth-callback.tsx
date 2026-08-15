@@ -88,10 +88,10 @@ export default function OAuthCallbackPage() {
   if (restricted) {
     return (
       <div className="mx-auto max-w-md py-16 px-4">
-        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-900/20 p-6 space-y-4">
+        <div className="rounded-xl border border-warning/30 bg-warning/10 p-6 space-y-4">
           <div className="flex items-start gap-3">
-            <div className="rounded-lg bg-amber-100 dark:bg-amber-800/30 p-2 shrink-0">
-              <Building2 size={18} className="text-amber-700 dark:text-amber-300" />
+            <div className="rounded-lg bg-warning/15 p-2 shrink-0">
+              <Building2 size={18} className="text-warning-foreground" />
             </div>
             <div className="space-y-1">
               <h2 className="text-base font-semibold">

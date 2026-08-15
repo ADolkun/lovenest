@@ -7,6 +7,7 @@ import { transactions as transactionsApi, accounts as accountsApi, importLogs as
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { formatCurrency } from '@/lib/format'
 import { toast } from 'sonner'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { ImportPreviewTransaction, ImportReviewTransaction, ImportLog } from '@/types'
@@ -399,10 +400,10 @@ export default function ImportPage() {
                 ))}
               </select>
               {!selectedAccount && (
-                <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-100 px-2.5 py-1.5 rounded-lg shrink-0">
+                <Alert variant="warning" className="items-center gap-1.5 px-2.5 py-1.5 text-xs shrink-0">
                   <AlertCircle size={12} />
                   {t('import.selectAccountWarning')}
-                </div>
+                </Alert>
               )}
             </div>
           </div>
@@ -418,10 +419,10 @@ export default function ImportPage() {
               </div>
 
               {previewData.parse_error && (
-                <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg mb-3">
-                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                <Alert variant="warning" className="gap-2 px-3 py-2 text-xs mb-3">
+                  <AlertCircle size={14} className="mt-0.5" />
                   <span>{t('import.mappingNeeded')}</span>
-                </div>
+                </Alert>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
