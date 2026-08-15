@@ -8,6 +8,7 @@ promise that nothing here adjusts a basis.
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,17 +52,21 @@ def _elsewhere(when: date, wallet: str = "ROTH IRA", treatment: str = "roth") ->
     return _buy(when, wallet, treatment, wallet_id=f"wallet-{wallet}")
 
 
-def _assess(acquisitions: list[dict], **kwargs) -> dict:
+def _assess(
+    acquisitions: list[dict],
+    *,
+    asset_type: Optional[str] = "stock",
+    reportable: bool = True,
+    at_loss: bool = True,
+    holdings: Optional[list[dict]] = None,
+) -> dict:
     return assess(
-        **{
-            "asset_type": "stock",
-            "reportable": True,
-            "at_loss": True,
-            "sell_date": SELL,
-            "acquisitions": acquisitions,
-            "holdings": [],
-            **kwargs,
-        }
+        asset_type=asset_type,
+        reportable=reportable,
+        at_loss=at_loss,
+        sell_date=SELL,
+        acquisitions=acquisitions,
+        holdings=holdings or [],
     )
 
 
@@ -286,6 +291,7 @@ async def test_the_same_buy_outside_the_window_does_not_warn(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["warning"] is False
     assert result["acquisitions"] == []
     # Still named: it is where a replacement would come from.
@@ -304,6 +310,7 @@ async def test_a_repurchase_in_the_selling_wallet_warns_too(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["warning"] is True
     assert [(a["wallet"], a["same_wallet"]) for a in result["acquisitions"]] == [
         ("Individual", True)
@@ -332,6 +339,7 @@ async def test_a_synced_holding_in_the_generic_bucket_is_covered(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["covered"] is True
     assert result["warning"] is True
 
@@ -353,6 +361,7 @@ async def test_crypto_held_in_two_wallets_does_not_warn(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["covered"] is False
     assert result["warning"] is False
     assert result["acquisitions"] == []
@@ -372,6 +381,7 @@ async def test_a_candidate_price_above_average_is_not_a_loss(
         session, selling.id, test_workspace.id, sell_date=SELL, price=Decimal("140")
     )
 
+    assert result is not None
     assert result["at_loss"] is False
     assert result["warning"] is False
 
@@ -394,6 +404,7 @@ async def test_no_basis_is_adjusted_by_the_check(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["warning"] is True
     await session.refresh(selling)
     await session.refresh(replacement)
@@ -422,6 +433,7 @@ async def test_another_workspaces_holding_of_the_same_ticker_is_invisible(
 
     result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
 
+    assert result is not None
     assert result["warning"] is False
     assert result["wallets"] == []
 
