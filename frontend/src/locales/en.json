@@ -1117,7 +1117,6 @@
     "lotsNone": "No lots — no trades recorded for this holding.",
     "lotsSnapshot": "Imported position with no trades behind it — holding period unknown.",
     "lotsNoTaxCharacter": "Tax-advantaged wallet — a gain here has no holding period to report.",
-    "lotsExpandHint": "Show tax lots",
     "valuationMethod": "Valuation Method",
     "manual": "Manual",
     "growthRule": "Growth Rule",

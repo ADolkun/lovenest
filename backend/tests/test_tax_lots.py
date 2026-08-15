@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.asset_transaction import AssetTransaction
 from app.services.asset_transaction_service import _recompute
 from app.services.tax_lots import (
+    _serialise,
     asset_tax_lots,
     build_lots,
     days_until_long_term,
@@ -189,6 +190,12 @@ def test_the_split_always_sums_back_to_the_ledgers_realised_gain():
     assert pos["realised_long"] + pos["realised_short"] == _recompute(ledger)["realized_gain"]
 
 
+def test_a_future_dated_buy_has_been_held_no_time_at_all():
+    pos = build_lots([_tx("buy", "10", "100", date(2026, 9, 1))], as_of=date(2026, 6, 1))
+    assert pos["lots"][0]["holding_days"] == 0
+    assert pos["lots"][0]["long_term"] is False
+
+
 def test_a_full_exit_leaves_no_open_lots():
     pos = build_lots(
         [_tx("buy", "10", "100", date(2025, 1, 1)), _tx("sell", "10", "150", date(2026, 6, 1))],
@@ -209,6 +216,21 @@ def test_a_re_bought_position_lots_from_the_new_buy_date():
         as_of=date(2026, 6, 1),
     )
     assert [(lot["acquired"], lot["long_term"]) for lot in pos["lots"]] == [(date(2026, 5, 1), False)]
+
+
+def test_the_split_still_sums_after_rounding_to_cents():
+    # An exact 50/50 split of an odd number of cents: rounding each half on its
+    # own reports 4.50 + 4.50 against a gain of 9.01.
+    ledger = [
+        _tx("buy", "1", "10", date(2025, 1, 1)),
+        _tx("buy", "1", "20", date(2026, 1, 1)),
+        _tx("sell", "2", "20", date(2026, 6, 1), fee="0.99"),
+    ]
+    body = _serialise(build_lots(ledger, as_of=date(2026, 6, 1)))
+    sale = body["sales"][0]
+    assert sale["gain"] == 9.01
+    assert sale["long_gain"] + sale["short_gain"] == 9.01
+    assert body["realised_long"] + body["realised_short"] == 9.01
 
 
 # ---------------------------------------------------------------------------

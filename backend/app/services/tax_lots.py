@@ -29,12 +29,13 @@ from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
+from app.services.asset_transaction_service import _d, _recompute
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
-
-def _d(value) -> Decimal:
-    return Decimal(str(value or 0))
+# Per-unit prices are carried at the scale `Asset.average_price` is stored at,
+# so a lot price divided out of a fee is not reported to 28 digits.
+_UNIT_PRICE = Decimal("0.000001")
 
 
 def long_term_on(acquired: date) -> date:
@@ -63,9 +64,13 @@ def _lot_view(acquired: date, quantity: Decimal, unit_price: Decimal, as_of: dat
     return {
         "acquired": acquired,
         "quantity": quantity,
-        "unit_price": unit_price,
+        "unit_price": unit_price.quantize(_UNIT_PRICE),
+        # From the unrounded price, so a partially sold lot still reports the
+        # cost of what is left of it rather than a rounded multiple.
         "cost": quantity * unit_price,
-        "holding_days": (as_of - acquired).days,
+        # A buy dated in the future has been held no time at all, not a
+        # negative one; `days_until_long_term` still counts from its own date.
+        "holding_days": max((as_of - acquired).days, 0),
         "long_term": is_long_term(acquired, as_of),
         "days_until_long_term": days_until_long_term(acquired, as_of),
     }
@@ -83,26 +88,23 @@ def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
     and cost, and one record per `sale`.
     """
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or _EPOCH))
+    # The ledger owns what a sell gained; this replay only decides which units
+    # it took. Both sort on (date, created_at), so the nth sell reached here is
+    # the nth realised event — asserted below rather than assumed.
+    realised = _recompute(transactions)["realized_events"]
     open_lots: list[dict] = []  # {acquired, quantity, unit_price}
-    cost = Decimal("0")
-    qty = Decimal("0")
     sales: list[dict] = []
 
     for tx in txs:
         q = _d(tx.quantity)
-        price = _d(tx.price)
-        fee = _d(tx.fee)
         if tx.kind == "buy":
-            gross = q * price + fee
+            gross = q * _d(tx.price) + _d(tx.fee)
             open_lots.append({"acquired": tx.date, "quantity": q, "unit_price": gross / q})
-            cost += gross
-            qty += q
         elif tx.kind == "sell":
-            avg = (cost / qty) if qty > 0 else Decimal("0")
-            sell_qty = q if q <= qty else qty  # clamp oversell, as the ledger does
-            gain = (price - avg) * sell_qty - fee
+            sold_on, gain = realised[len(sales)]
+            assert sold_on == tx.date, "ledger and lot replay disagree on sell order"
 
-            remaining = sell_qty
+            remaining = q
             long_qty = Decimal("0")
             short_qty = Decimal("0")
             while remaining > 0 and open_lots:
@@ -117,6 +119,9 @@ def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
                 if lot["quantity"] == 0:
                     open_lots.pop(0)
 
+            # What FIFO could actually take — the ledger clamps an oversell the
+            # same way, by holding the position at zero rather than going short.
+            sell_qty = long_qty + short_qty
             long_gain = (gain * long_qty / sell_qty) if sell_qty > 0 else Decimal("0")
             sales.append({
                 "date": tx.date,
@@ -129,9 +134,6 @@ def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
                 # back to the gain even where the ratio does not divide evenly.
                 "short_gain": gain - long_gain,
             })
-
-            cost -= avg * sell_qty
-            qty -= sell_qty
 
     lots = [_lot_view(lot["acquired"], lot["quantity"], lot["unit_price"], as_of) for lot in open_lots]
     return {
@@ -151,17 +153,39 @@ def _money(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01")))
 
 
-def _quantity(value: Decimal) -> float:
-    return float(value)
+def _split_to_cents(total: Decimal, long_part: Decimal) -> tuple[float, float]:
+    """Round a gain and its long half to cents, then take the short half as
+    what is left — so the two parts still add up to the whole after rounding.
+    Rounding each half on its own loses a cent on any 50/50 split of an odd
+    number of them, which is the invariant ADR 0003 rests on."""
+    whole = _money(total)
+    long_cents = _money(long_part)
+    return long_cents, round(whole - long_cents, 2)
 
 
 def _serialise(position: dict) -> dict:
+    realised_long, realised_short = _split_to_cents(
+        sum((sale["gain"] for sale in position["sales"]), Decimal("0")),
+        position["realised_long"],
+    )
+    sales = []
+    for sale in position["sales"]:
+        long_gain, short_gain = _split_to_cents(sale["gain"], sale["long_gain"])
+        sales.append({
+            "date": sale["date"].isoformat(),
+            "quantity": float(sale["quantity"]),
+            "gain": _money(sale["gain"]),
+            "long_quantity": float(sale["long_quantity"]),
+            "short_quantity": float(sale["short_quantity"]),
+            "long_gain": long_gain,
+            "short_gain": short_gain,
+        })
     return {
         "as_of": position["as_of"].isoformat(),
         "lots": [
             {
                 "acquired": lot["acquired"].isoformat(),
-                "quantity": _quantity(lot["quantity"]),
+                "quantity": float(lot["quantity"]),
                 "unit_price": float(lot["unit_price"]),
                 "cost": _money(lot["cost"]),
                 "holding_days": lot["holding_days"],
@@ -170,24 +194,13 @@ def _serialise(position: dict) -> dict:
             }
             for lot in position["lots"]
         ],
-        "long_quantity": _quantity(position["long_quantity"]),
-        "short_quantity": _quantity(position["short_quantity"]),
+        "long_quantity": float(position["long_quantity"]),
+        "short_quantity": float(position["short_quantity"]),
         "long_cost": _money(position["long_cost"]),
         "short_cost": _money(position["short_cost"]),
-        "sales": [
-            {
-                "date": sale["date"].isoformat(),
-                "quantity": _quantity(sale["quantity"]),
-                "gain": _money(sale["gain"]),
-                "long_quantity": _quantity(sale["long_quantity"]),
-                "short_quantity": _quantity(sale["short_quantity"]),
-                "long_gain": _money(sale["long_gain"]),
-                "short_gain": _money(sale["short_gain"]),
-            }
-            for sale in position["sales"]
-        ],
-        "realised_long": _money(position["realised_long"]),
-        "realised_short": _money(position["realised_short"]),
+        "sales": sales,
+        "realised_long": realised_long,
+        "realised_short": realised_short,
     }
 
 
@@ -247,7 +260,6 @@ async def asset_tax_lots(
     head = {
         "asset_id": str(asset.id),
         "ticker": asset.ticker,
-        "tax_treatment": treatment,
         "tax_character": treatment in REPORTABLE_TAX_TREATMENTS,
         "snapshot": not txs and _d(asset.units) > 0,
     }

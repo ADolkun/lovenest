@@ -1117,7 +1117,6 @@
     "lotsNone": "Keine Lose — für diese Position sind keine Trades erfasst.",
     "lotsSnapshot": "Importierte Position ohne zugrunde liegende Trades — Haltedauer unbekannt.",
     "lotsNoTaxCharacter": "Steuerbegünstigtes Wallet — ein Gewinn hier hat keine relevante Haltedauer.",
-    "lotsExpandHint": "Steuerliche Lose anzeigen",
     "valuationMethod": "Bewertungsmethode",
     "manual": "Manuell",
     "growthRule": "Wachstumsregel",

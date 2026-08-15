@@ -18,6 +18,9 @@ default and the only consumption order that asks nothing of the user.
 
 `realised_long + realised_short` always equals the Realised Gain the ledger
 reports; a test pins that, including where the ratio does not divide into cents.
+It holds at the API boundary too, which needs its own care: rounding each half
+to cents on its own loses a cent whenever an odd number of them splits evenly,
+so the short half is taken as the rounded whole minus the rounded long half.
 
 An open Lot's `unit_price` is what that acquisition actually cost, not the
 average, because a Lot is one acquisition at one price (CONTEXT.md). After a

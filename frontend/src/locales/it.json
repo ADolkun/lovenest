@@ -1117,7 +1117,6 @@
     "lotsNone": "Nessun lotto — nessuna operazione registrata per questa posizione.",
     "lotsSnapshot": "Posizione importata senza operazioni alle spalle — periodo di detenzione sconosciuto.",
     "lotsNoTaxCharacter": "Portafoglio fiscalmente agevolato — un guadagno qui non ha periodo di detenzione da dichiarare.",
-    "lotsExpandHint": "Mostra i lotti fiscali",
     "valuationMethod": "Metodo di valutazione",
     "manual": "Manuale",
     "growthRule": "Regola di crescita",

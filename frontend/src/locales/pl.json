@@ -1198,7 +1198,6 @@
     "lotsNone": "Brak partii — dla tej pozycji nie zapisano transakcji.",
     "lotsSnapshot": "Pozycja zaimportowana bez transakcji — okres posiadania nieznany.",
     "lotsNoTaxCharacter": "Portfel z ulgą podatkową — zysk tutaj nie ma okresu posiadania do wykazania.",
-    "lotsExpandHint": "Pokaż partie podatkowe",
     "valuationMethod": "Metoda wyceny",
     "manual": "Ręczna",
     "growthRule": "Reguła wzrostu",

@@ -1117,7 +1117,6 @@
     "lotsNone": "Sem lotes — nenhuma operação registrada para esta posição.",
     "lotsSnapshot": "Posição importada sem operações por trás — prazo de custódia desconhecido.",
     "lotsNoTaxCharacter": "Carteira com vantagem fiscal — um ganho aqui não tem prazo de custódia a declarar.",
-    "lotsExpandHint": "Mostrar lotes fiscais",
     "valuationMethod": "Método de Valuação",
     "manual": "Manual",
     "growthRule": "Regra de Crescimento",

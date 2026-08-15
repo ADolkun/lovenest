@@ -120,7 +120,7 @@ function TaxLotsPanel({
   mask: (value: string) => string
 }) {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ['asset-tax-lots', assetId],
     queryFn: () => assetsApi.taxLots(assetId),
   })
@@ -133,7 +133,7 @@ function TaxLotsPanel({
     </div>
   )
 
-  if (isLoading || !data) return hint(t('common.loading'))
+  if (!data) return hint(isError ? t('common.error') : t('common.loading'))
   // A gain in a Tax-Advantaged wallet is never Reportable, so it has no
   // long-versus-short answer to give.
   if (!data.tax_character) return hint(t('assets.lotsNoTaxCharacter'))
@@ -223,7 +223,6 @@ export default function PositionsTab({
 }: PositionsTabProps) {
   const { t } = useTranslation()
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
-  const [expandedLegId, setExpandedLegId] = useState<string | null>(null)
 
   const portfolio = useMemo(() => buildPortfolio(holdings, wallets), [holdings, wallets])
 
@@ -344,58 +343,50 @@ export default function PositionsTab({
         </div>
         {position.legs.map((leg) => (
           <div key={leg.assetId}>
-          <div
-            className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
-            style={{ gridTemplateColumns: LEGS_GRID }}
-            onClick={() => setExpandedLegId(expandedLegId === leg.assetId ? null : leg.assetId)}
-            title={t('assets.lotsExpandHint')}
-          >
-            <div className="min-w-0 flex items-center gap-1">
-              {expandedLegId === leg.assetId ? (
-                <ChevronUp size={12} className="text-muted-foreground shrink-0" />
-              ) : (
-                <ChevronDown size={12} className="text-muted-foreground shrink-0" />
-              )}
-              <span className="min-w-0">
+            <div
+              className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
+              style={{ gridTemplateColumns: LEGS_GRID }}
+            >
+              <div className="min-w-0">
                 <span className="font-medium text-foreground truncate block">
                   {leg.walletName ?? t('assets.noWallet')}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
                   {accountTypeLabel(leg.accountType)}
                 </span>
-              </span>
+              </div>
+              <div className="text-right tabular-nums text-muted-foreground">{mask(`${leg.quantity}`)}</div>
+              <div className="text-right text-[10px] text-muted-foreground">
+                {leg.taxTreatment ? t(`assets.taxTreatment.${leg.taxTreatment}`) : DASH}
+              </div>
+              <div className="text-right tabular-nums text-muted-foreground">{money(leg.costBasis)}</div>
+              <div className="text-right tabular-nums text-foreground">{money(leg.value)}</div>
+              <div className="text-right tabular-nums">
+                {leg.gain === null ? (
+                  <span className="text-muted-foreground">{DASH}</span>
+                ) : (
+                  <span className={gainClass(leg.gain)}>{money(leg.gain)}</span>
+                )}
+                {canWrite && (
+                  <button
+                    onClick={() =>
+                      onClassify(
+                        leg.assetId,
+                        leg.assetType === CASH_EQUIVALENT_TYPE ? 'investment' : CASH_EQUIVALENT_TYPE,
+                      )
+                    }
+                    className="block ml-auto text-[10px] font-medium text-primary hover:underline"
+                  >
+                    {leg.assetType === CASH_EQUIVALENT_TYPE
+                      ? t('assets.posMarkInvestment')
+                      : t('assets.posMarkCashEquivalent')}
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="text-right tabular-nums text-muted-foreground">{mask(`${leg.quantity}`)}</div>
-            <div className="text-right text-[10px] text-muted-foreground">
-              {leg.taxTreatment ? t(`assets.taxTreatment.${leg.taxTreatment}`) : DASH}
-            </div>
-            <div className="text-right tabular-nums text-muted-foreground">{money(leg.costBasis)}</div>
-            <div className="text-right tabular-nums text-foreground">{money(leg.value)}</div>
-            <div className="text-right tabular-nums">
-              {leg.gain === null ? (
-                <span className="text-muted-foreground">{DASH}</span>
-              ) : (
-                <span className={gainClass(leg.gain)}>{money(leg.gain)}</span>
-              )}
-              {canWrite && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onClassify(
-                      leg.assetId,
-                      leg.assetType === CASH_EQUIVALENT_TYPE ? 'investment' : CASH_EQUIVALENT_TYPE,
-                    )
-                  }}
-                  className="block ml-auto text-[10px] font-medium text-primary hover:underline"
-                >
-                  {leg.assetType === CASH_EQUIVALENT_TYPE
-                    ? t('assets.posMarkInvestment')
-                    : t('assets.posMarkCashEquivalent')}
-                </button>
-              )}
-            </div>
-          </div>
-          {expandedLegId === leg.assetId && (
+            {/* Per wallet, not per ticker: tax character attaches to the wallet,
+                so a split blending a taxable leg with a Roth one would be a
+                figure no tax return could use. */}
             <TaxLotsPanel
               assetId={leg.assetId}
               currency={currency}
@@ -403,7 +394,6 @@ export default function PositionsTab({
               dateLocale={dateLocale}
               mask={mask}
             />
-          )}
           </div>
         ))}
       </div>

@@ -683,7 +683,6 @@ export interface TaxLotSale {
 export interface TaxLots {
   asset_id: string
   ticker: string | null
-  tax_treatment: TaxTreatment | null
   /** False when the wallet is not Taxable — the gain there has no tax character, so no lots are reported. */
   tax_character: boolean
   /** Provider-reported position with no trades behind it: holding period is unknown, not short. */

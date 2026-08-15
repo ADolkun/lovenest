@@ -30,5 +30,13 @@ Period is merely *hidden* there, because the Wash Sale rule reaches into IRAs an
 that is the case where the disallowed loss is lost outright rather than moved
 into the replacement basis.
 
+Hidden turned out to mean *absent from the read surface*: `GET
+/assets/{id}/tax-lots` reports `tax_character: false` and no lots at all for a
+Wallet that is not Taxable, rather than lots stripped of their period. Lots
+without a Holding Period answer nothing a user asked, and half an answer on this
+figure invites the reader to supply the other half. The derivation stays
+wallet-agnostic — `build_lots` never sees a tax treatment — so Wash Sale can
+still replay an IRA's ledger when it arrives.
+
 If replaying the ledger ever measurably hurts, cache the derived figures on the
 Holding the way `average_price` already is. Do not promote the cache to a record.

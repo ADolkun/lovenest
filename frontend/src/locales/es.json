@@ -1117,7 +1117,6 @@
     "lotsNone": "Sin lotes — no hay operaciones registradas para esta posición.",
     "lotsSnapshot": "Posición importada sin operaciones detrás — periodo de tenencia desconocido.",
     "lotsNoTaxCharacter": "Cartera con ventaja fiscal — una ganancia aquí no tiene periodo de tenencia que declarar.",
-    "lotsExpandHint": "Mostrar lotes fiscales",
     "valuationMethod": "Método de valoración",
     "manual": "Manual",
     "growthRule": "Regla de crecimiento",
