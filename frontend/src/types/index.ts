@@ -186,11 +186,17 @@ export interface Collection {
 export interface AccountSummary {
   account_id: string
   current_balance: number
+  opening_balance: number
   monthly_income: number
   monthly_expenses: number
   current_balance_primary: number | null
+  opening_balance_primary: number | null
   monthly_income_primary: number | null
   monthly_expenses_primary: number | null
+  projected_income?: number
+  projected_expenses?: number
+  projected_income_primary?: number | null
+  projected_expenses_primary?: number | null
 }
 
 export interface Transaction {
@@ -242,6 +248,7 @@ export interface Transaction {
   parent_owner_name?: string | null
   // Flag to exclude this transaction from reports and dashboard aggregations
   is_ignored: boolean
+  virtual?: boolean
 }
 
 // Scope for installment-series edits/deletes: "this" (default) only touches
@@ -491,6 +498,7 @@ export interface RecurringTransaction {
 
 export interface ProjectedTransaction {
   recurring_id: string
+  account_id: string | null
   description: string
   amount: number
   amount_primary: number | null
@@ -558,11 +566,17 @@ export interface TransactionCalendarResponse {
 export interface DashboardSummary {
   total_balance: Record<string, number>
   total_balance_primary: number
+  projected_balance: Record<string, number>
+  projected_balance_primary: number
   balance_date: string
   monthly_income: number
   monthly_expenses: number
   monthly_income_primary: number
   monthly_expenses_primary: number
+  projected_income?: number
+  projected_expenses?: number
+  projected_income_primary?: number
+  projected_expenses_primary?: number
   accounts_count: number
   pending_categorization: number
   pending_categorization_amount: number
@@ -618,7 +632,9 @@ export interface BudgetVsActual {
   group_name: string | null
   budget_amount: number | null
   actual_amount: number
+  projected_amount: number
   prev_month_amount: number
+  projected_prev_month_amount: number
   percentage_used: number | null
   is_recurring: boolean
 }

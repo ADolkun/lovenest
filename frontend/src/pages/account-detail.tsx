@@ -5,17 +5,19 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addMonths, parseISO } from 'date-fns'
-import { accounts, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
+import { accounts, dashboard, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
+import { applyTransactionToBalance, excludeMaterializedProjections, transactionAmountForBalance } from '@/lib/account-detail-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { shouldShowPendingBadge } from '@/lib/transaction-status'
 import { toast } from 'sonner'
-import type { CreditCardBill, Transaction } from '@/types'
+import type { CreditCardBill, ProjectedTransaction, Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, ArrowLeftRight, CalendarClock, ChevronLeft, ChevronRight, Clock, EyeClosed, HelpCircle, Paperclip, Pencil, X } from 'lucide-react'
 import { MobileTransactionRow } from '@/components/mobile-transaction-row'
 import { CategoryIcon } from '@/components/category-icon'
+import { ProjectedTransactionBadge } from '@/components/projected-transaction-badge'
 import { TransactionDialog, extractApiError, type TransactionSavePayload } from '@/components/transaction-dialog'
 import { TransferDialog } from '@/components/transfer-dialog'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
@@ -45,7 +47,8 @@ function defaultFrom() {
 }
 
 function defaultTo() {
-  return localDateString()
+  const now = new Date()
+  return localDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0))
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -499,12 +502,6 @@ export default function AccountDetailPage() {
     })),
   })
 
-  const { data: balanceHistory, isLoading: balanceHistoryLoading } = useQuery({
-    queryKey: ['accounts', id, 'balance-history', filterFrom, filterTo],
-    queryFn: () => accounts.balanceHistory(id!, filterFrom || undefined, filterTo || undefined),
-    enabled: !!id,
-  })
-
   const { data: txData, isLoading: txLoading } = useQuery({
     queryKey: ['transactions', { account_id: id, bill_id: activeBill?.id, from: filterFrom, to: filterTo, limit: 500, include_opening_balance: true, unbilled_only: isInProgressCycle }],
     queryFn: () => transactions.list({
@@ -524,6 +521,15 @@ export default function AccountDetailPage() {
       include_opening_balance: true,
     }),
     enabled: !!id,
+  })
+
+  // Non-materialized recurring projections are forecast rows. They are kept
+  // separate from real transactions so pending and future commitments never
+  // alter the current balance.
+  const { data: projectedTxData } = useQuery({
+    queryKey: ['dashboard', 'projected-transactions', { account_id: id, from: filterFrom, to: filterTo }],
+    queryFn: () => dashboard.projectedTransactions({ account_id: id!, from: filterFrom, to: filterTo }),
+    enabled: !!id && account?.type !== 'credit_card',
   })
 
   const { data: categoriesList } = useQuery({
@@ -623,8 +629,74 @@ export default function AccountDetailPage() {
   const usePrimary = !isForeignCurrency || showPrimary
   const displayCurrency = (isForeignCurrency && !showPrimary) ? (account?.currency || userCurrency) : userCurrency
 
+  // Pseudo-transaction rows for non-materialized recurring projections.
+  // Virtual: rendered with a "Previsão" badge, non-clickable, and merged
+  // into displayRows where running balances are computed for them.
+  const projectedRows = useMemo((): TxWithBalance[] => {
+    if (!projectedTxData) return []
+    const unmaterialized = excludeMaterializedProjections(
+      projectedTxData,
+      txData?.items ?? [],
+    )
+    return unmaterialized.map((p: ProjectedTransaction): TxWithBalance => ({
+      id: `projected-${p.recurring_id}-${p.date}`,
+      user_id: '',
+      account_id: id ?? null,
+      category_id: p.category_id,
+      category: p.category_name || p.category_icon || p.category_color
+        ? {
+            id: p.category_id ?? '',
+            user_id: '',
+            group_id: null,
+            name: p.category_name ?? '',
+            icon: p.category_icon ?? '',
+            color: p.category_color ?? '',
+            is_system: false,
+            treat_as_transfer: false,
+            is_ignored: false,
+          }
+        : null,
+      external_id: null,
+      description: p.description,
+      amount: p.amount,
+      currency: p.currency,
+      date: p.date,
+      type: p.type,
+      source: 'projected',
+      status: 'posted',
+      payee: null,
+      payee_id: null,
+      payee_name: null,
+      notes: null,
+      transfer_pair_id: null,
+      amount_primary: p.amount_primary,
+      fx_rate_used: null,
+      fx_fallback: false,
+      installment_series_id: null,
+      installment_number: null,
+      total_installments: null,
+      installment_total_amount: null,
+      installment_purchase_date: null,
+      bill_id: null,
+      effective_bill_date: null,
+      recurring_transaction_id: p.recurring_id,
+      splits: [],
+      is_ignored: false,
+      virtual: true,
+      runningBalance: 0,
+    }))
+  }, [projectedTxData, txData?.items, id])
+
+  // Balance at the start of the period, used to seed the running-balance
+  // walk so that the last row's balance matches the projected balance at
+  // date_to. For CC accounts this is not used (cycle total starts from 0).
+  const openingBalance = usePrimary
+    ? (summary?.opening_balance_primary ?? summary?.opening_balance ?? 0)
+    : (summary?.opening_balance ?? 0)
+
   // Chart data:
-  // - Non-CC: daily running balance from /balance-history
+  // - Non-CC: daily running balance seeded from the current posted balance.
+  //   Pending and recurring rows are added only to this forecast walk.
   // - CC: cumulative charges within the current cycle, starting at 0
   //   (answers "how much have I spent this cycle", ignores bill payments/transfers)
   const chartData = useMemo(() => {
@@ -635,7 +707,8 @@ export default function AccountDetailPage() {
         if (tx.type !== 'debit') continue
         if (tx.source === 'opening_balance') continue
         if (tx.transfer_pair_id) continue
-        const amt = usePrimary && tx.amount_primary != null ? Number(tx.amount_primary) : Number(tx.amount)
+        const amt = transactionAmountForBalance(tx, usePrimary, displayCurrency)
+        if (amt == null) continue
         byDay.set(tx.date, (byDay.get(tx.date) ?? 0) + amt)
       }
       // Chart span: when a real bill is active, derive the range from the
@@ -672,58 +745,75 @@ export default function AccountDetailPage() {
       }
       return series
     }
-    if (!balanceHistory) return []
-    return balanceHistory.map(p => ({
-      label: formatDateStr(p.date, dateLocale),
-      date: p.date,
-      balance: usePrimary ? (p.balance_primary ?? p.balance) : p.balance,
-    }))
-  }, [isCreditCard, txData, filterFrom, filterTo, balanceHistory, locale, dateLocale, usePrimary, activeBill])
-
-  // Running balance computation for transaction table
-  const txWithRunningBalance = useMemo((): TxWithBalance[] => {
-    if (!txData?.items) return []
-
-    if (isCreditCard) {
-      // Cycle running total: debits add, refund credits subtract (net
-      // matches the bank's bill total). Excludes opening_balance and any
-      // transfer-paired tx (bill payments — those zero out separately).
-      // Computed oldest → newest, then reversed (not re-sorted) so
-      // same-day rows read monotonically top-down.
-      const ascending = [...txData.items].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      )
-      let running = 0
-      const withBalance = ascending.map((tx) => {
-        if (tx.source !== 'opening_balance' && !tx.transfer_pair_id) {
-          const amt = usePrimary && tx.amount_primary != null ? Number(tx.amount_primary) : Number(tx.amount)
-          if (tx.type === 'debit') running += amt
-          else if (tx.type === 'credit') running -= amt
-        }
-        return { ...tx, runningBalance: running }
-      })
-      return withBalance.reverse()
+    if (!txData?.items || !summary || !filterFrom || !filterTo) return []
+    const allTx = [...txData.items, ...projectedRows]
+    const txByDay = new Map<string, number>()
+    for (const tx of allTx) {
+      const previous = txByDay.get(tx.date) ?? 0
+      txByDay.set(tx.date, applyTransactionToBalance(previous, tx, usePrimary, displayCurrency))
     }
+    const series: { label: string; date: string; balance: number }[] = []
+    let balance = openingBalance
+    const cur = new Date(filterFrom + 'T00:00:00')
+    const end = new Date(filterTo + 'T00:00:00')
+    while (cur <= end) {
+      const key = cur.toLocaleDateString('sv-SE')
+      balance += txByDay.get(key) ?? 0
+      series.push({ label: formatDateStr(key, dateLocale), date: key, balance })
+      cur.setDate(cur.getDate() + 1)
+    }
+    return series
+  }, [isCreditCard, txData, projectedRows, filterFrom, filterTo, dateLocale, usePrimary, displayCurrency, summary, openingBalance, activeBill])
 
-    if (summary === undefined) return []
-    const endBalance = usePrimary
-      ? (balanceHistory?.length
-          ? (balanceHistory[balanceHistory.length - 1].balance_primary ?? balanceHistory[balanceHistory.length - 1].balance)
-          : (summary.current_balance_primary ?? summary.current_balance))
-      : (balanceHistory?.length
-          ? balanceHistory[balanceHistory.length - 1].balance
-          : summary.current_balance)
-    const sorted = [...txData.items].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  const ccRunningTotal = useMemo((): TxWithBalance[] => {
+    if (!isCreditCard || !txData?.items) return []
+    const ascending = [...txData.items].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     )
-    let running = endBalance
-    return sorted.map((tx) => {
-      const balanceAtPoint = running
-      const amt = usePrimary && tx.amount_primary != null ? Number(tx.amount_primary) : Number(tx.amount)
-      running -= tx.type === 'credit' ? amt : -amt
-      return { ...tx, runningBalance: balanceAtPoint }
+    let running = 0
+    const withBalance = ascending.map((tx) => {
+      if (!tx.is_ignored && tx.source !== 'opening_balance' && !tx.transfer_pair_id) {
+        const amt = transactionAmountForBalance(tx, usePrimary, displayCurrency)
+        if (amt == null) return { ...tx, runningBalance: running }
+        if (tx.type === 'debit') running += amt
+        else if (tx.type === 'credit') running -= amt
+      }
+      return { ...tx, runningBalance: running }
     })
-  }, [txData, summary, isCreditCard, balanceHistory, usePrimary])
+    return withBalance.reverse()
+  }, [txData, isCreditCard, usePrimary, displayCurrency])
+
+  // Merged list: real transactions, pending rows, and virtual recurring
+  // projections. The newest row is the forecast at the end of the range.
+  const displayRows = useMemo((): TxWithBalance[] => {
+    if (isCreditCard) return ccRunningTotal
+    if (!txData?.items || summary === undefined) return []
+
+    // Secondary sort by the original index in txData.items preserves the
+    // API's insertion order for same-day transactions (creation sequence).
+    const txIndex = new Map(txData.items.map((t, i) => [t.id, i]))
+    const merged = [...txData.items, ...projectedRows].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        || (txIndex.get(a.id) ?? Infinity) - (txIndex.get(b.id) ?? Infinity),
+    )
+
+    let balance = openingBalance
+    const withBalance = merged.map((tx) => ({
+      ...tx,
+      runningBalance: balance = applyTransactionToBalance(balance, tx, usePrimary, displayCurrency),
+    }))
+    return withBalance.reverse()
+  }, [txData, projectedRows, isCreditCard, summary, usePrimary, displayCurrency, openingBalance, ccRunningTotal])
+
+  const totalBalance = (usePrimary ? summary?.current_balance_primary : undefined) ?? summary?.current_balance ?? 0
+  const projectedBalance = displayRows.length > 0 ? displayRows[0].runningBalance : openingBalance
+
+  const actualIncome = (usePrimary ? summary?.monthly_income_primary : undefined) ?? summary?.monthly_income ?? 0
+  const actualExpenses = (usePrimary ? summary?.monthly_expenses_primary : undefined) ?? summary?.monthly_expenses ?? 0
+  const projectedIncome = (usePrimary ? summary?.projected_income_primary : undefined) ?? summary?.projected_income ?? actualIncome
+  const projectedExpenses = (usePrimary ? summary?.projected_expenses_primary : undefined) ?? summary?.projected_expenses ?? actualExpenses
+  const hasProjectedIncome = Math.abs(projectedIncome - actualIncome) > 0.005
+  const hasProjectedExpenses = Math.abs(projectedExpenses - actualExpenses) > 0.005
 
   const resolvedDefaultRange = account?.type === 'credit_card'
     ? defaultCycleForCreditCard(account.statement_close_day, account.payment_due_day, new Date())
@@ -735,7 +825,7 @@ export default function AccountDetailPage() {
   const groupedByDate = useMemo(() => {
     const groups: { date: string; label: string; items: TxWithBalance[] }[] = []
     let current: { date: string; label: string; items: TxWithBalance[] } | null = null
-    for (const tx of txWithRunningBalance) {
+    for (const tx of displayRows) {
       if (!current || current.date !== tx.date) {
         current = {
           date: tx.date,
@@ -752,7 +842,7 @@ export default function AccountDetailPage() {
       current.items.push(tx)
     }
     return groups
-  }, [txWithRunningBalance, dateLocale])
+  }, [displayRows, dateLocale])
 
   const isLoading = accountLoading || summaryLoading
 
@@ -981,7 +1071,7 @@ export default function AccountDetailPage() {
           // filtered by bill_id when the cycle has a bill (handles dynamic
           // close days) or by [start, end] otherwise. Same number whether
           // the bar is active or not — clicking doesn't shift the value.
-          const total = Number(q.data?.monthly_expenses ?? 0)
+          const total = Number(q.data?.projected_expenses ?? q.data?.monthly_expenses ?? 0)
           return {
             ...c,
             total,
@@ -1043,7 +1133,7 @@ export default function AccountDetailPage() {
         // can lag any charges added since the last sync). Otherwise use the
         // summary endpoint's monthly_expenses now nets refund credits against
         // debits for CC accounts (matches the bank's bill total).
-        const billTotal = (showPrimary ? summary?.monthly_expenses_primary : undefined) ?? summary?.monthly_expenses ?? 0
+        const billTotal = (showPrimary ? summary?.projected_expenses_primary : undefined) ?? summary?.projected_expenses ?? summary?.monthly_expenses ?? 0
         // "Default cycle" = the bill the user is here to pay (next due). The
         // AGORA tag on Limite disponível only shows when viewing a different cycle.
         const isDefaultCycle =
@@ -1149,33 +1239,51 @@ export default function AccountDetailPage() {
               {t('accounts.currentBalance')}
             </p>
             <p className={`text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums ${(summary?.current_balance ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-              {mask(formatCurrency(
-                (showPrimary ? summary?.current_balance_primary : undefined) ?? summary?.current_balance ?? 0,
-                displayCurrency, locale
-              ))}
+              {mask(formatCurrency(totalBalance, displayCurrency, locale))}
             </p>
+          </div>
+          <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
+              {t('accounts.projectedBalance', 'Projected balance')}
+            </p>
+            <p className={`text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums ${projectedBalance < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+              {mask(formatCurrency(projectedBalance, displayCurrency, locale))}
+            </p>
+            {/* Naming the gap keeps the two cards from reading as a
+                contradiction: the forecast is the current balance plus the
+                money that has not settled yet. Same "label: value" shape as
+                the projected income/expense sub-lines beside it. */}
+            {Math.abs(projectedBalance - totalBalance) > 0.005 && (
+              <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                {t('accounts.notSettled')}: {mask(formatCurrency(Math.abs(projectedBalance - totalBalance), displayCurrency, locale))}
+              </p>
+            )}
           </div>
           <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
               {t('accounts.income')}
             </p>
             <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-emerald-600">
-              {mask(formatCurrency(
-                (showPrimary ? summary?.monthly_income_primary : undefined) ?? summary?.monthly_income ?? 0,
-                displayCurrency, locale
-              ))}
+              {mask(formatCurrency(actualIncome, displayCurrency, locale))}
             </p>
+            {hasProjectedIncome && (
+              <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                {t('accounts.projectedIncome')}: {mask(formatCurrency(projectedIncome, displayCurrency, locale))}
+              </p>
+            )}
           </div>
           <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
               {t('accounts.expenses')}
             </p>
             <p className="text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums text-rose-500">
-              {mask(formatCurrency(
-                (showPrimary ? summary?.monthly_expenses_primary : undefined) ?? summary?.monthly_expenses ?? 0,
-                displayCurrency, locale
-              ))}
+              {mask(formatCurrency(actualExpenses, displayCurrency, locale))}
             </p>
+            {hasProjectedExpenses && (
+              <p className="text-[10px] sm:text-xs text-muted-foreground truncate">
+                {t('accounts.projectedExpenses')}: {mask(formatCurrency(projectedExpenses, displayCurrency, locale))}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1186,7 +1294,7 @@ export default function AccountDetailPage() {
         // currently being viewed. For the current cycle this matches the "current
         // open balance" since nothing has been paid yet; for past cycles it shows
         // that month's burn rate against the (current) limit.
-        const cycleBillTotal = (showPrimary ? summary?.monthly_expenses_primary : undefined) ?? summary?.monthly_expenses ?? 0
+        const cycleBillTotal = (showPrimary ? summary?.projected_expenses_primary : undefined) ?? summary?.projected_expenses ?? summary?.monthly_expenses ?? 0
         const utilized = limit != null ? cycleBillTotal : null
         const rawPct = limit != null && limit > 0 && utilized != null ? (utilized / limit) * 100 : null
         const pct = rawPct != null ? Math.min(100, rawPct) : null
@@ -1276,15 +1384,23 @@ export default function AccountDetailPage() {
       {(() => {
         const cycleEmpty = isCreditCard && chartData.length > 0 && chartData[chartData.length - 1].balance === 0
         const balances = chartData.map(d => d.balance)
-        const chartMin = Math.min(0, ...balances)
-        const chartMax = Math.max(0, ...balances)
         const dataMin = balances.length > 0 ? Math.min(...balances) : 0
         const dataMax = balances.length > 0 ? Math.max(...balances) : 0
-        const flat = chartMin === chartMax
-        const zeroFrac = flat
+        const flat = dataMin === 0 && dataMax === 0
+        // The Y axis rounds its bounds outward to hundreds and the area path
+        // is drawn down to that rounded floor, so the fill's gradient box
+        // spans the axis domain, not the data. Deriving the zero split from
+        // the data would put the colour flip at the wrong height: for a
+        // series of [-680, 105] the real zero sits at 22% of the domain while
+        // the data ratio says 13%. Keep both in step with the axis below.
+        const domainMin = dataMin < 0 ? Math.floor(dataMin / 100) * 100 : 0
+        const domainMax = dataMax === 0 ? 100 : Math.ceil(dataMax / 100) * 100
+        const zeroFrac = domainMax === domainMin
           ? 1
-          : Math.min(1, Math.max(0, chartMax / (chartMax - chartMin)))
+          : Math.min(1, Math.max(0, domainMax / (domainMax - domainMin)))
         const crossesZero = dataMin < 0 && dataMax > 0
+        // The line path never touches the baseline, so its gradient box is
+        // the data extent rather than the domain.
         const strokeSplit = crossesZero
           ? Math.min(1, Math.max(0, dataMax / (dataMax - dataMin)))
           : 1
@@ -1299,7 +1415,7 @@ export default function AccountDetailPage() {
           </p>
         </div>
         <div className="px-1 pb-4 h-[280px]">
-          {(isCreditCard ? txLoading : balanceHistoryLoading) ? (
+          {txLoading ? (
             <Skeleton className="h-full w-full" />
           ) : cycleEmpty ? (
             <div className="h-full w-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -1417,7 +1533,7 @@ export default function AccountDetailPage() {
             <div className="p-6 space-y-3">
               {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
             </div>
-          ) : txWithRunningBalance.length === 0 ? (
+          ) : displayRows.length === 0 ? (
             <p className="p-6 text-center text-muted-foreground">{t('accounts.noTransactions')}</p>
           ) : isMobile ? (
             <div>
@@ -1469,17 +1585,17 @@ export default function AccountDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {txWithRunningBalance.map((tx) => {
+                  {displayRows.map((tx) => {
                     const isOpening = tx.source === 'opening_balance'
                     const isTransfer = !!tx.transfer_pair_id
-                    const isPending = tx.status === 'pending'
                     const isIgnored = tx.is_ignored
+                    const isVirtual = tx.virtual === true
                     return (
                       <tr
                         key={tx.id}
-                        className={`border-b last:border-0 transition-colors ${isOpening ? 'bg-muted/60' : isPending ? 'opacity-60' : canWrite ? 'hover:bg-muted cursor-pointer' : ''}`}
+                        className={`border-b last:border-0 transition-colors ${isOpening ? 'bg-muted/60' : (canWrite && !isVirtual) ? 'hover:bg-muted cursor-pointer' : ''} ${isVirtual ? 'opacity-80' : ''}`}
                         onClick={() => {
-                          if (!isOpening && canWrite) {
+                          if (!isOpening && !isVirtual && canWrite) {
                             setEditingTx(tx)
                             setDialogOpen(true)
                           }
@@ -1511,7 +1627,10 @@ export default function AccountDetailPage() {
                                 <span title={t('transactions.ignoreTransferHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
                               </span>
                             )}
-                            {tx.recurring_transaction_id != null && (
+                            {isVirtual && (
+                              <ProjectedTransactionBadge />
+                            )}
+                            {tx.recurring_transaction_id != null && !isVirtual && (
                               <span
                                 className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full shrink-0"
                                 title={t('transactions.recurringLinkedTooltip')}

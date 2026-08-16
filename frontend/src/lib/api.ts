@@ -1000,8 +1000,8 @@ export const dashboard = {
     const { data } = await api.get('/dashboard/monthly-trend', { params: { months, ...(extra.params ?? {}) }, ...(extra.paramsSerializer ? { paramsSerializer: extra.paramsSerializer } : {}) })
     return data
   },
-  projectedTransactions: async (month?: string): Promise<ProjectedTransaction[]> => {
-    const { data } = await api.get('/dashboard/projected-transactions', { params: { month } })
+  projectedTransactions: async (params?: { month?: string; account_id?: string; from?: string; to?: string }): Promise<ProjectedTransaction[]> => {
+    const { data } = await api.get('/dashboard/projected-transactions', { params })
     return data
   },
   balanceHistory: async (month?: string, accountIds?: string[]): Promise<BalanceHistory> => {

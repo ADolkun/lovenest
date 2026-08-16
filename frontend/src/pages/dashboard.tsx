@@ -10,6 +10,7 @@ import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { ProjectedTransactionBadge } from '@/components/projected-transaction-badge'
 import {
   Select,
   SelectContent,
@@ -210,7 +211,7 @@ export default function DashboardPage() {
 
   const { data: projectedTxs, isLoading: projectedTxLoading } = useQuery({
     queryKey: ['dashboard', 'projected-transactions', selectedMonth],
-    queryFn: () => dashboard.projectedTransactions(monthParam),
+    queryFn: () => dashboard.projectedTransactions({ month: monthParam }),
   })
 
   const { data: budgetComparison } = useQuery({
@@ -343,11 +344,15 @@ export default function DashboardPage() {
 
   const primaryCurrency = summary?.primary_currency ?? userCurrency
   const totalBalance = summary?.total_balance_primary ?? Object.values(summary?.total_balance ?? {}).reduce((a, b) => a + Number(b), 0)
+  const projectedBalance = summary?.projected_balance_primary ?? Object.values(summary?.projected_balance ?? {}).reduce((a, b) => a + Number(b), 0)
+  const hasProjectedBalance = Math.abs(projectedBalance - totalBalance) >= 0.01
 
 
   // Savings rate & projection
   const income = Number(summary?.monthly_income_primary ?? summary?.monthly_income ?? 0)
   const expenses = Number(summary?.monthly_expenses_primary ?? summary?.monthly_expenses ?? 0)
+  const projectedIncome = Number(summary?.projected_income_primary ?? summary?.projected_income ?? income)
+  const projectedExpenses = Number(summary?.projected_expenses_primary ?? summary?.projected_expenses ?? expenses)
   const savingsRate = income > 0 ? ((income - expenses) / income) * 100 : 0
   const isCurrentMonth = selectedMonth === currentMonth()
   const daysElapsed = isCurrentMonth ? new Date().getDate() : monthLastDay(selectedMonth)
@@ -492,7 +497,7 @@ export default function DashboardPage() {
         categoryIcon: pt.category_icon,
         categoryName: pt.category_name,
         categoryColor: pt.category_color ?? null,
-        accountId: null,
+        accountId: pt.account_id,
         isProjected: true,
         attachmentCount: 0,
         isShared: false,
@@ -616,6 +621,11 @@ export default function DashboardPage() {
                         ))}
                       </div>
                     )}
+                    {hasProjectedBalance && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                        {t('dashboard.projectedBalance')} {mask(formatCurrency(projectedBalance, primaryCurrency, locale))}
+                      </p>
+                    )}
                     {/* Net of pending group shares — show only when
                         meaningfully nonzero so users without groups
                         see the same UI as before. */}
@@ -655,9 +665,16 @@ export default function DashboardPage() {
                 {summaryLoading ? (
                   <Skeleton className="h-7 w-24" />
                 ) : (
-                  <p className="text-lg font-bold tabular-nums text-emerald-600">
-                    +{mask(formatCurrency(income, primaryCurrency, locale))}
-                  </p>
+                  <>
+                    <p className="text-lg font-bold tabular-nums text-emerald-600">
+                      +{mask(formatCurrency(income, primaryCurrency, locale))}
+                    </p>
+                    {Math.abs(projectedIncome - income) >= 0.01 && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                        {t('dashboard.projectedIncome')} {mask(formatCurrency(projectedIncome, primaryCurrency, locale))}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -675,9 +692,16 @@ export default function DashboardPage() {
                 {summaryLoading ? (
                   <Skeleton className="h-7 w-24" />
                 ) : (
-                  <p className="text-lg font-bold tabular-nums text-rose-500">
-                    -{mask(formatCurrency(expenses, primaryCurrency, locale))}
-                  </p>
+                  <>
+                    <p className="text-lg font-bold tabular-nums text-rose-500">
+                      -{mask(formatCurrency(expenses, primaryCurrency, locale))}
+                    </p>
+                    {Math.abs(projectedExpenses - expenses) >= 0.01 && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                        {t('dashboard.projectedExpenses')} {mask(formatCurrency(projectedExpenses, primaryCurrency, locale))}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1096,9 +1120,7 @@ export default function DashboardPage() {
                             </span>
                           )}
                           {row.isProjected && (
-                            <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full shrink-0">
-                              {t('transactions.recurringBadge')}
-                            </span>
+                            <ProjectedTransactionBadge />
                           )}
                           {row.installmentNumber != null && row.totalInstallments != null && (
                             <span className="inline-flex items-center text-[9px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1 py-0.5 rounded-full shrink-0">
@@ -1213,9 +1235,7 @@ export default function DashboardPage() {
                                 </span>
                               )}
                               {row.isProjected && (
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-600 shrink-0">
-                                  {t('transactions.recurringBadge')}
-                                </span>
+                                <ProjectedTransactionBadge />
                               )}
                               {row.installmentNumber != null && row.totalInstallments != null && (
                                 <span className="inline-flex items-center text-[10px] font-bold tabular-nums text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/30 px-1.5 py-0.5 rounded-full shrink-0">

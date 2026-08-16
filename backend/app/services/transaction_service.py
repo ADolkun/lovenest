@@ -1370,6 +1370,15 @@ async def _apply_update_to_row(
     has_fx_override = "amount_primary" in update_data or "fx_rate_used" in update_data
     override_amount_primary = update_data.get("amount_primary")
     override_fx_rate = update_data.get("fx_rate_used")
+    heals_fx_on_post = (
+        tx.status == "pending"
+        and update_data.get("status") == "posted"
+        and (
+            tx.amount_primary is None
+            or tx.fx_rate_used is None
+            or tx.fx_rate_used == 1
+        )
+    )
 
     fx_keys = {"amount_primary", "fx_rate_used"}
     for key, value in update_data.items():
@@ -1392,7 +1401,7 @@ async def _apply_update_to_row(
                 override_amount_primary,
                 override_fx_rate,
             )
-    elif needs_restamp:
+    elif needs_restamp or heals_fx_on_post:
         await stamp_primary_amount(session, user_id, tx)
 
     # Refresh effective_date when the purchase date, account, or the manual
