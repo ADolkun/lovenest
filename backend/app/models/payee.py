@@ -15,6 +15,15 @@ if TYPE_CHECKING:
 
 class Payee(Base):
     __tablename__ = "payees"
+    __table_args__ = (
+        # Scoped to the workspace, not to the user. A payee belongs to a
+        # workspace and every lookup in the service layer says so, so the
+        # same counterparty legitimately exists once per workspace a person
+        # is a member of. The user-scoped constraint this replaces made
+        # that a duplicate key error, surfacing as a bank connection that
+        # refuses to sync a name the user already has somewhere else.
+        UniqueConstraint("workspace_id", "name", name="uq_payees_workspace_id_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
