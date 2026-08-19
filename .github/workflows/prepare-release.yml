@@ -72,11 +72,26 @@ jobs:
           sed -i -E "0,/^version:/s|^version:.*|version: $VERSION|" charts/securo/Chart.yaml
           sed -i -E "0,/^appVersion:/s|^appVersion:.*|appVersion: \"$VERSION\"|" charts/securo/Chart.yaml
 
+      - name: Regenerate uv.lock
+        run: |
+          set -euo pipefail
+
+          # uv.lock carries the project's own version, so CI's `uv lock --check`
+          # fails if the pyproject bump lands alone. Same pinned uv as ci.yml and
+          # the backend image.
+          # renovate: datasource=pypi depName=uv
+          pip install -q uv==0.12.5
+          cd backend
+          uv lock
+          uv lock --check
+
       - name: Verify the bump landed
         run: |
           set -euo pipefail
 
           grep -qx "version = \"$VERSION\"" backend/pyproject.toml
+          # the project's own entry in the lock, not one of its dependencies
+          grep -A1 -x 'name = "securo-backend"' backend/uv.lock | grep -qx "version = \"$VERSION\""
           grep -qx "  \"version\": \"$VERSION\"," frontend/package.json
           grep -qx "version: $VERSION" charts/securo/Chart.yaml
           grep -qx "appVersion: \"$VERSION\"" charts/securo/Chart.yaml
