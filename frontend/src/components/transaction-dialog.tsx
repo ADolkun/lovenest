@@ -906,6 +906,15 @@ function TransactionForm({
             className="bg-card"
           />
         )}
+        {transaction?.original_description &&
+          transaction.original_description !== transaction.description && (
+            <p className="text-xs text-muted-foreground">
+              {t('transactions.originalDescription')}: {transaction.original_description}
+            </p>
+          )}
+        {/* Rows that pre-date the original_description column have no
+            provenance to show, so the raw payee stays the only hint at what
+            the bank actually sent. */}
         {isSynced && transaction?.payee && transaction.payee !== transaction.description && (
           <p className="text-xs text-muted-foreground">{transaction.payee}</p>
         )}

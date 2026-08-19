@@ -125,12 +125,32 @@ def evaluate_conditions(conditions_op: str, conditions: list[dict], tx: "Transac
     return all(results)  # "and" is default
 
 
+def merge_notes(existing: str | None, incoming: str | None) -> str | None:
+    """Combine two note strings the way `append_notes` combines tags.
+
+    Used when an incoming charge is folded into a row that already has notes:
+    the existing text is never dropped, the incoming one is only appended when
+    it is not already in there.
+    """
+    incoming = (incoming or "").strip()
+    if not incoming:
+        return existing
+    existing = (existing or "").strip()
+    if not existing:
+        return incoming
+    if incoming in existing:
+        return existing
+    return f"{existing} {incoming}"
+
+
 def apply_rule_actions(
     actions: list[dict],
     tx: "Transaction",
     category_already_set: bool,
+    *,
+    skip_description: bool = False,
 ) -> bool:
-    """Apply actions to transaction in-place. Returns updated category_already_set flag."""
+    """Apply actions in-place and return the updated category-set flag."""
     for action in actions:
         op = action.get("op")
         value = action.get("value")
@@ -141,6 +161,17 @@ def apply_rule_actions(
                 category_already_set = True
             except (ValueError, AttributeError):
                 pass
+
+        elif op == "set_description":
+            if skip_description:
+                continue
+            description = str(value or "").strip()
+            if not description or description == tx.description:
+                continue
+            if getattr(tx, "original_description", None) is None:
+                tx.original_description = tx.description
+            tx.description = description
+            tx.description_is_rule_managed = True
 
         elif op == "set_payee":
             try:
