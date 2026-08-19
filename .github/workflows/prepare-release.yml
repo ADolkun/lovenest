@@ -53,7 +53,16 @@ jobs:
             exit 1
           fi
 
+          # An abandoned attempt leaves the branch behind (closing a PR does not
+          # delete it), and the push would then be rejected after all the work.
+          BRANCH="chore/release-v$VERSION"
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "::error::branch $BRANCH already exists. Delete it first: git push origin --delete $BRANCH"
+            exit 1
+          fi
+
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
 
       - name: Bump version files
         run: |
@@ -109,8 +118,6 @@ jobs:
           HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
         run: |
           set -euo pipefail
-
-          BRANCH="chore/release-v$VERSION"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
