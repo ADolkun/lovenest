@@ -36,6 +36,9 @@ import type {
   WorkspaceRole,
   Asset,
   AssetGroup,
+  AssetImportPreview,
+  AssetImportResult,
+  AssetOrderImport,
   AssetTransaction,
   AssetValue,
   MarketSymbolMatch,
@@ -1139,6 +1142,38 @@ export const assets = {
   ): Promise<Asset> => {
     const { data } = await api.post('/assets/buy', tx)
     return data
+  },
+  previewImport: async (
+    file: File,
+    options?: { column_mapping?: Record<string, string>; date_format?: string; group_id?: string | null },
+  ): Promise<AssetImportPreview> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (options?.date_format) formData.append('date_format', options.date_format)
+    if (options?.group_id) formData.append('group_id', options.group_id)
+    if (options?.column_mapping && Object.keys(options.column_mapping).length > 0) {
+      formData.append('column_mapping', JSON.stringify(options.column_mapping))
+    }
+    const { data } = await api.post('/assets/import/preview', formData)
+    return data
+  },
+  importOrders: async (
+    orders: AssetOrderImport[],
+    group_id?: string | null,
+  ): Promise<AssetImportResult> => {
+    const { data } = await api.post('/assets/import', { orders, group_id: group_id || null })
+    return data
+  },
+  importTemplate: async (): Promise<void> => {
+    const { data } = await api.get('/assets/import/template', { responseType: 'blob' })
+    const url = URL.createObjectURL(new Blob([data], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'securo-asset-orders.csv'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   },
 }
 

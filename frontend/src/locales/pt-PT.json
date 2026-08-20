@@ -1038,6 +1038,58 @@
     "suggested": "Sugerida",
     "page": "Página {{current}} de {{total}}"
   },
+  "assetImport": {
+    "title": "Importar ordens de investimento",
+    "action": "Importar ordens",
+    "choose": "Escolher um ficheiro CSV",
+    "chooseHint": "Ativo, data, quantidade e preço são obrigatórios. Quantidade negativa é lida como venda.",
+    "downloadTemplate": "Descarregar modelo",
+    "wallet": "Carteira",
+    "noWallet": "Sem carteira",
+    "reading": "A ler o ficheiro…",
+    "mapPrompt": "Não foi possível identificar as colunas. Aponte cada campo para uma coluna do seu ficheiro.",
+    "ignoreColumn": "Ignorar",
+    "previewError": "Não foi possível ler esse ficheiro",
+    "importError": "Não foi possível importar as ordens",
+    "imported": "{{count}} ordens importadas",
+    "importing": "A importar…",
+    "confirm": "Importar {{count}} ordens",
+    "summaryOrders": "{{count}} ordens prontas",
+    "summaryHoldings": "{{created}} ativos criados, {{matched}} encontrados",
+    "summarySkipped": "{{count}} já importadas",
+    "rowsSkipped": "{{count}} linhas serão ignoradas",
+    "rowError": "Linha {{row}} ({{ticker}}): {{reason}}",
+    "moreErrors": "e mais {{count}}",
+    "moreRows": "e mais {{count}} ordens",
+    "field": {
+      "ticker": "Ativo",
+      "date": "Data",
+      "quantity": "Quantidade",
+      "price": "Preço",
+      "fee": "Taxas",
+      "kind": "Compra/Venda",
+      "currency": "Moeda",
+      "notes": "Observações"
+    },
+    "walletWarningTitle": "Já está no seu património",
+    "warning": {
+      "exists_in_other_wallet": "{{ticker}} já existe em {{wallet}}. Importar aqui cria uma segunda posição.",
+      "orders_already_in_other_wallet": "{{ticker}}: estas mesmas ordens já estão em {{wallet}}. Importar aqui contaria as ações duas vezes."
+    },
+    "kind": {
+      "buy": "Compra",
+      "sell": "Venda"
+    },
+    "reason": {
+      "missing_ticker": "sem ativo",
+      "invalid_date": "data ilegível",
+      "invalid_quantity": "quantidade ilegível",
+      "invalid_price": "preço ilegível",
+      "invalid_kind": "compra/venda não reconhecida",
+      "unknown_ticker": "ativo não encontrado no fornecedor de cotações",
+      "oversell": "venda maior do que a posição"
+    }
+  },
   "assets": {
     "title": "Património",
     "addAsset": "Adicionar Ativo",

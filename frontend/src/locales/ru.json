@@ -1044,6 +1044,58 @@
     "mapExternalId": "Колонка ID транзакции",
     "mapNotes": "Колонка заметок"
   },
+  "assetImport": {
+    "title": "Импорт инвестиционных заявок",
+    "action": "Импорт заявок",
+    "choose": "Выбрать файл CSV",
+    "chooseHint": "Тикер, дата, количество и цена обязательны. Отрицательное количество читается как продажа.",
+    "downloadTemplate": "Скачать шаблон",
+    "wallet": "Портфель",
+    "noWallet": "Без портфеля",
+    "reading": "Чтение файла…",
+    "mapPrompt": "Не удалось определить колонки. Укажите, какой колонке соответствует каждое поле.",
+    "ignoreColumn": "Пропустить",
+    "previewError": "Не удалось прочитать файл",
+    "importError": "Не удалось импортировать заявки",
+    "imported": "Импортировано заявок: {{count}}",
+    "importing": "Импорт…",
+    "confirm": "Импортировать {{count}} заявок",
+    "summaryOrders": "Готово заявок: {{count}}",
+    "summaryHoldings": "создано позиций: {{created}}, найдено: {{matched}}",
+    "summarySkipped": "уже импортировано: {{count}}",
+    "rowsSkipped": "Строк будет пропущено: {{count}}",
+    "rowError": "Строка {{row}} ({{ticker}}): {{reason}}",
+    "moreErrors": "и ещё {{count}}",
+    "moreRows": "и ещё {{count}} заявок",
+    "field": {
+      "ticker": "Тикер",
+      "date": "Дата",
+      "quantity": "Количество",
+      "price": "Цена",
+      "fee": "Комиссия",
+      "kind": "Покупка/Продажа",
+      "currency": "Валюта",
+      "notes": "Заметки"
+    },
+    "walletWarningTitle": "Уже в вашем портфеле",
+    "warning": {
+      "exists_in_other_wallet": "{{ticker}} уже есть в {{wallet}}. Импорт сюда создаст вторую позицию.",
+      "orders_already_in_other_wallet": "{{ticker}}: эти же заявки уже есть в {{wallet}}. Импорт сюда посчитает бумаги дважды."
+    },
+    "kind": {
+      "buy": "Покупка",
+      "sell": "Продажа"
+    },
+    "reason": {
+      "missing_ticker": "нет тикера",
+      "invalid_date": "нечитаемая дата",
+      "invalid_quantity": "нечитаемое количество",
+      "invalid_price": "нечитаемая цена",
+      "invalid_kind": "не распознана покупка/продажа",
+      "unknown_ticker": "тикер не найден у поставщика котировок",
+      "oversell": "продажа больше позиции"
+    }
+  },
   "assets": {
     "title": "Активы",
     "addAsset": "Добавить актив",

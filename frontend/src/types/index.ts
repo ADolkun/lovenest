@@ -724,6 +724,54 @@ export interface Asset {
   transaction_count: number
 }
 
+/** One order read from a broker CSV, before it reaches a holding. */
+export interface AssetOrderImport {
+  row: number
+  ticker: string
+  date: string
+  kind: 'buy' | 'sell'
+  quantity: number
+  price: number
+  fee: number
+  currency: string | null
+  name: string | null
+  notes: string | null
+  external_id: string | null
+}
+
+export interface AssetImportRowError {
+  row: number
+  reason: string
+  ticker: string | null
+  detail: string | null
+}
+
+export interface AssetImportWarning {
+  ticker: string
+  reason: string
+  wallet: string | null
+}
+
+export interface AssetImportPreview {
+  orders: AssetOrderImport[]
+  errors: AssetImportRowError[]
+  warnings: AssetImportWarning[]
+  csv_columns: string[]
+  parse_error: string | null
+  holdings_created: number
+  holdings_matched: number
+  skipped: number
+}
+
+export interface AssetImportResult {
+  imported: number
+  skipped: number
+  holdings_created: number
+  holdings_matched: number
+  errors: AssetImportRowError[]
+  warnings: AssetImportWarning[]
+}
+
 export interface AssetTransaction {
   id: string
   asset_id: string

@@ -1038,6 +1038,58 @@
     "mapExternalId": "Spalte Transaktions-ID",
     "mapNotes": "Spalte Notizen"
   },
+  "assetImport": {
+    "title": "Wertpapierorders importieren",
+    "action": "Orders importieren",
+    "choose": "CSV-Datei auswählen",
+    "chooseHint": "Ticker, Datum, Stückzahl und Preis sind Pflicht. Eine negative Stückzahl gilt als Verkauf.",
+    "downloadTemplate": "Vorlage herunterladen",
+    "wallet": "Depot",
+    "noWallet": "Kein Depot",
+    "reading": "Datei wird gelesen…",
+    "mapPrompt": "Die Spalten konnten nicht erkannt werden. Ordnen Sie jedem Feld eine Spalte zu.",
+    "ignoreColumn": "Ignorieren",
+    "previewError": "Datei konnte nicht gelesen werden",
+    "importError": "Orders konnten nicht importiert werden",
+    "imported": "{{count}} Orders importiert",
+    "importing": "Wird importiert…",
+    "confirm": "{{count}} Orders importieren",
+    "summaryOrders": "{{count}} Orders bereit",
+    "summaryHoldings": "{{created}} Positionen angelegt, {{matched}} zugeordnet",
+    "summarySkipped": "{{count}} bereits importiert",
+    "rowsSkipped": "{{count}} Zeilen werden übersprungen",
+    "rowError": "Zeile {{row}} ({{ticker}}): {{reason}}",
+    "moreErrors": "und {{count}} weitere",
+    "moreRows": "und {{count}} weitere Orders",
+    "field": {
+      "ticker": "Ticker",
+      "date": "Datum",
+      "quantity": "Stückzahl",
+      "price": "Preis",
+      "fee": "Gebühr",
+      "kind": "Kauf/Verkauf",
+      "currency": "Währung",
+      "notes": "Notizen"
+    },
+    "walletWarningTitle": "Bereits im Portfolio",
+    "warning": {
+      "exists_in_other_wallet": "{{ticker}} liegt bereits in {{wallet}}. Ein Import hier legt eine zweite Position an.",
+      "orders_already_in_other_wallet": "{{ticker}}: dieselben Orders liegen bereits in {{wallet}}. Ein Import hier würde die Stücke doppelt zählen."
+    },
+    "kind": {
+      "buy": "Kauf",
+      "sell": "Verkauf"
+    },
+    "reason": {
+      "missing_ticker": "kein Ticker",
+      "invalid_date": "unlesbares Datum",
+      "invalid_quantity": "unlesbare Stückzahl",
+      "invalid_price": "unlesbarer Preis",
+      "invalid_kind": "Kauf/Verkauf nicht erkannt",
+      "unknown_ticker": "Ticker beim Kursanbieter nicht gefunden",
+      "oversell": "Verkauf größer als die Position"
+    }
+  },
   "assets": {
     "title": "Vermögenswerte",
     "addAsset": "Vermögenswert hinzufügen",

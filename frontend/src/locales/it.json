@@ -1038,6 +1038,58 @@
     "mapExternalId": "Colonna dell'ID transazione",
     "mapNotes": "Colonna delle note"
   },
+  "assetImport": {
+    "title": "Importa ordini di investimento",
+    "action": "Importa ordini",
+    "choose": "Scegli un file CSV",
+    "chooseHint": "Ticker, data, quantità e prezzo sono obbligatori. Una quantità negativa vale come vendita.",
+    "downloadTemplate": "Scarica il modello",
+    "wallet": "Portafoglio",
+    "noWallet": "Nessun portafoglio",
+    "reading": "Lettura del file…",
+    "mapPrompt": "Non siamo riusciti a riconoscere le colonne. Associa ogni campo a una colonna del file.",
+    "ignoreColumn": "Ignora",
+    "previewError": "Impossibile leggere il file",
+    "importError": "Impossibile importare gli ordini",
+    "imported": "{{count}} ordini importati",
+    "importing": "Importazione…",
+    "confirm": "Importa {{count}} ordini",
+    "summaryOrders": "{{count}} ordini pronti",
+    "summaryHoldings": "{{created}} titoli creati, {{matched}} trovati",
+    "summarySkipped": "{{count}} già importati",
+    "rowsSkipped": "{{count}} righe saranno saltate",
+    "rowError": "Riga {{row}} ({{ticker}}): {{reason}}",
+    "moreErrors": "e altri {{count}}",
+    "moreRows": "e altri {{count}} ordini",
+    "field": {
+      "ticker": "Ticker",
+      "date": "Data",
+      "quantity": "Quantità",
+      "price": "Prezzo",
+      "fee": "Commissioni",
+      "kind": "Acquisto/Vendita",
+      "currency": "Valuta",
+      "notes": "Note"
+    },
+    "walletWarningTitle": "Già nel tuo portafoglio",
+    "warning": {
+      "exists_in_other_wallet": "{{ticker}} è già presente in {{wallet}}. Importare qui crea una seconda posizione.",
+      "orders_already_in_other_wallet": "{{ticker}}: questi stessi ordini sono già in {{wallet}}. Importare qui conterebbe i titoli due volte."
+    },
+    "kind": {
+      "buy": "Acquisto",
+      "sell": "Vendita"
+    },
+    "reason": {
+      "missing_ticker": "nessun ticker",
+      "invalid_date": "data illeggibile",
+      "invalid_quantity": "quantità illeggibile",
+      "invalid_price": "prezzo illeggibile",
+      "invalid_kind": "acquisto/vendita non riconosciuto",
+      "unknown_ticker": "ticker non trovato dal fornitore di prezzi",
+      "oversell": "vendita superiore alla posizione"
+    }
+  },
   "assets": {
     "title": "Beni",
     "addAsset": "Aggiungi bene",
