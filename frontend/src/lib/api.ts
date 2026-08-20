@@ -455,6 +455,7 @@ export const transactions = {
     include_opening_balance?: boolean
     exclude_transfers?: boolean
     user_pnl_only?: boolean
+    exclude_ignored?: boolean
     tags?: string[]
     min_amount?: number
     max_amount?: number
@@ -646,6 +647,7 @@ export const transactions = {
     to?: string
     q?: string
     tags?: string[]
+    exclude_ignored?: boolean
     transaction_ids?: string[]
   }): Promise<void> => {
     const { data } = await api.get('/transactions/export', {
