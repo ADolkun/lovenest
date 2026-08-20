@@ -1599,7 +1599,14 @@
     "button": "Kopia zapasowa",
     "downloading": "Pobieranie...",
     "success": "Pomyślnie pobrano kopię zapasową",
-    "error": "Nie udało się pobrać kopii zapasowej"
+    "error": "Nie udało się pobrać kopii zapasowej",
+    "dialogTitle": "Pobierz kopię zapasową",
+    "dialogDescription": "Zip ze wszystkimi kontami, transakcjami i regułami tego workspace, w czystym JSON.",
+    "passwordLabel": "Hasło (opcjonalne)",
+    "passwordPlaceholder": "Zostaw puste, aby pobrać kopię bez szyfrowania",
+    "passwordTooShort": "Użyj co najmniej {{min}} znaków",
+    "encryptionNote": "Archiwum jest szyfrowane AES-256 i otwiera się w dowolnym programie do archiwów. Securo nie przechowuje tego hasła i bez niego nie odzyska pliku.",
+    "successEncrypted": "Pomyślnie pobrano zaszyfrowaną kopię zapasową"
   },
   "update": {
     "title": "Aktualizacja serwera",

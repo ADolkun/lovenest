@@ -1509,7 +1509,14 @@
     "button": "Sauvegarde",
     "downloading": "Téléchargement...",
     "success": "Sauvegarde téléchargée avec succès",
-    "error": "Échec du téléchargement de la sauvegarde"
+    "error": "Échec du téléchargement de la sauvegarde",
+    "dialogTitle": "Télécharger la sauvegarde",
+    "dialogDescription": "Un zip contenant tous les comptes, transactions et règles de cet espace, en JSON brut.",
+    "passwordLabel": "Mot de passe (facultatif)",
+    "passwordPlaceholder": "Laissez vide pour une sauvegarde non chiffrée",
+    "passwordTooShort": "Utilisez au moins {{min}} caractères",
+    "encryptionNote": "L'archive est chiffrée en AES-256 et s'ouvre avec n'importe quel logiciel d'archivage. Securo ne conserve pas ce mot de passe et ne peut pas récupérer le fichier sans lui.",
+    "successEncrypted": "Sauvegarde chiffrée téléchargée avec succès"
   },
   "update": {
     "title": "Mise à jour du serveur",

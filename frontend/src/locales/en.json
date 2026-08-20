@@ -1509,7 +1509,14 @@
     "button": "Backup",
     "downloading": "Downloading...",
     "success": "Backup downloaded successfully",
-    "error": "Failed to download backup"
+    "error": "Failed to download backup",
+    "dialogTitle": "Download backup",
+    "dialogDescription": "A zip with every account, transaction and rule in this workspace, as plain JSON.",
+    "passwordLabel": "Password (optional)",
+    "passwordPlaceholder": "Leave empty for an unencrypted backup",
+    "passwordTooShort": "Use at least {{min}} characters",
+    "encryptionNote": "The archive is encrypted with AES-256 and opens in any standard archiver. Securo does not store this password and cannot recover the file without it.",
+    "successEncrypted": "Encrypted backup downloaded successfully"
   },
   "update": {
     "title": "Server update",

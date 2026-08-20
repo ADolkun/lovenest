@@ -1509,7 +1509,14 @@
     "button": "Backup",
     "downloading": "Baixando...",
     "success": "Backup baixado com sucesso",
-    "error": "Erro ao baixar backup"
+    "error": "Erro ao baixar backup",
+    "dialogTitle": "Baixar backup",
+    "dialogDescription": "Um zip com todas as contas, transações e regras deste workspace, em JSON puro.",
+    "passwordLabel": "Senha (opcional)",
+    "passwordPlaceholder": "Deixe em branco para um backup sem criptografia",
+    "passwordTooShort": "Use pelo menos {{min}} caracteres",
+    "encryptionNote": "O arquivo é criptografado com AES-256 e abre em qualquer compactador. O Securo não guarda essa senha e não consegue recuperar o arquivo sem ela.",
+    "successEncrypted": "Backup criptografado baixado com sucesso"
   },
   "update": {
     "title": "Atualização do servidor",

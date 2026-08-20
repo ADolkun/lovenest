@@ -1509,7 +1509,14 @@
     "button": "Backup",
     "downloading": "Wird heruntergeladen...",
     "success": "Backup erfolgreich heruntergeladen",
-    "error": "Fehler beim Herunterladen des Backups"
+    "error": "Fehler beim Herunterladen des Backups",
+    "dialogTitle": "Backup herunterladen",
+    "dialogDescription": "Ein Zip mit allen Konten, Transaktionen und Regeln dieses Workspace, als reines JSON.",
+    "passwordLabel": "Passwort (optional)",
+    "passwordPlaceholder": "Leer lassen für ein unverschlüsseltes Backup",
+    "passwordTooShort": "Mindestens {{min}} Zeichen verwenden",
+    "encryptionNote": "Das Archiv wird mit AES-256 verschlüsselt und lässt sich mit jedem Packprogramm öffnen. Securo speichert dieses Passwort nicht und kann die Datei ohne es nicht wiederherstellen.",
+    "successEncrypted": "Verschlüsseltes Backup erfolgreich heruntergeladen"
   },
   "update": {
     "title": "Server-Update",

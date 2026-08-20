@@ -1509,7 +1509,14 @@
     "button": "Copia de seguridad",
     "downloading": "Descargando...",
     "success": "Copia de seguridad descargada correctamente",
-    "error": "No se pudo descargar la copia de seguridad"
+    "error": "No se pudo descargar la copia de seguridad",
+    "dialogTitle": "Descargar copia de seguridad",
+    "dialogDescription": "Un zip con todas las cuentas, transacciones y reglas de este workspace, en JSON plano.",
+    "passwordLabel": "Contraseña (opcional)",
+    "passwordPlaceholder": "Déjalo vacío para una copia sin cifrar",
+    "passwordTooShort": "Usa al menos {{min}} caracteres",
+    "encryptionNote": "El archivo se cifra con AES-256 y se abre con cualquier compresor. Securo no guarda esta contraseña y no puede recuperar el archivo sin ella.",
+    "successEncrypted": "Copia de seguridad cifrada descargada correctamente"
   },
   "update": {
     "title": "Actualización del servidor",
