@@ -38,6 +38,7 @@ export const CURRENCIES = [
   { code: 'PHP', flag: '\u{1F1F5}\u{1F1ED}', symbol: '₱' },
   { code: 'UAH', flag: '\u{1F1FA}\u{1F1E6}', symbol: '₴' },
   { code: 'NZD', flag: '\u{1F1F3}\u{1F1FF}', symbol: 'NZ$' },
+  { code: 'VND', flag: '\u{1F1FB}\u{1F1F3}', symbol: '₫' },
 ] as const
 
 interface CurrencySelectProps {

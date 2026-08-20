@@ -423,6 +423,16 @@ def validate_id_npwp(value: str) -> str | None:
     return _digits_len(value, 15, 16)
 
 
+def validate_vn_mst(value: str) -> str | None:
+    """Ten digits, or thirteen with the three-digit branch suffix.
+
+    The tenth digit is a check digit, but reissued and legacy codes are in
+    circulation that do not satisfy the published weighting, so refusing on
+    it would reject real tax codes.
+    """
+    return _digits_len(value, 10, 13)
+
+
 def validate_mx_rfc(value: str) -> str | None:
     """Twelve characters for a company, thirteen for a person.
 
@@ -501,6 +511,7 @@ VALIDATORS: dict[str, Callable[[str], str | None]] = {
     "jp_corporate": validate_jp_corporate,
     "ph_tin": validate_ph_tin,
     "id_npwp": validate_id_npwp,
+    "vn_mst": validate_vn_mst,
     "in_gstin": validate_in_gstin,
     "in_pan": validate_in_pan,
     "cn_uscc": validate_cn_uscc,

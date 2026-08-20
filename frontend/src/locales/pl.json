@@ -1414,6 +1414,7 @@
       "pan": "PAN",
       "npwp": "NPWP",
       "ph_tin": "TIN",
+      "vn_mst": "MST",
       "uscc": "USCC"
     },
     "otherCountries": "Inne kraje",
