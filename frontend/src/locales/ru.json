@@ -1345,6 +1345,7 @@
       "npwp": "NPWP",
       "ph_tin": "TIN",
       "vn_mst": "MST",
+      "sg_uen": "UEN",
       "uscc": "USCC"
     },
     "otherCountries": "Другие страны",

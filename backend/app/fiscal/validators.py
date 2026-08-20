@@ -466,6 +466,31 @@ def validate_in_pan(value: str) -> str | None:
     return None
 
 
+def validate_sg_uen(value: str) -> str | None:
+    """A UEN in one of the three shapes ACRA issues, each ending in a check
+    letter:
+
+      - business:      eight digits plus the letter (53012345A)
+      - local company: year, five digits, the letter (201012345A)
+      - other entity:  T/S/R, two year digits, two letters, four digits, letter
+
+    The check letter's algorithm is not published, so only the shape is
+    enforced: refusing on a reverse-engineered rule would reject real numbers.
+    """
+    if len(value) not in (9, 10):
+        return "length"
+    if not value[-1].isalpha():
+        return "invalid"
+    body = value[:-1]
+    if len(value) == 9:
+        return None if body.isdigit() else "invalid"
+    if body.isdigit():
+        return None
+    if value[0] in "TSR" and body[1:3].isdigit() and body[3:5].isalpha() and body[5:].isdigit():
+        return None
+    return "invalid"
+
+
 def validate_cn_uscc(value: str) -> str | None:
     """Eighteen characters from a restricted alphabet: I, O, S, V and Z are
     excluded to keep the code unambiguous when read aloud."""
@@ -515,4 +540,5 @@ VALIDATORS: dict[str, Callable[[str], str | None]] = {
     "in_gstin": validate_in_gstin,
     "in_pan": validate_in_pan,
     "cn_uscc": validate_cn_uscc,
+    "sg_uen": validate_sg_uen,
 }
