@@ -19,6 +19,7 @@ from app.providers.market_price import (
     get_market_price_provider,
 )
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetRead, AssetValueRead
+from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.fx_rate_service import convert, stamp_primary_amount
 
 logger = logging.getLogger(__name__)
@@ -423,6 +424,8 @@ async def create_asset(
     market_provider: Optional[MarketPriceProvider] = None,
 ) -> AssetRead:
     """Create an asset, optionally with an initial value."""
+    await ensure_group_in_workspace(session, data.group_id, workspace_id)
+
     # Market-priced path: fetch a live quote first so we can derive currency
     # and the initial value from the ticker. Validate up-front rather than
     # half-creating an asset and failing on a 5xx from Yahoo.
@@ -602,6 +605,8 @@ async def update_asset(
     update_data = data.model_dump(exclude_unset=True)
     # Prevent changing valuation_method on existing assets
     update_data.pop("valuation_method", None)
+    if "group_id" in update_data:
+        await ensure_group_in_workspace(session, update_data["group_id"], workspace_id)
     for key, value in update_data.items():
         setattr(asset, key, value)
 

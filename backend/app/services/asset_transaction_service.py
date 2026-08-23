@@ -31,6 +31,7 @@ from app.schemas.asset import (
 )
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
 from app.services import asset_service
+from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.cash_equivalent import CASH_EQUIVALENT_TYPE, is_cash_equivalent_ticker
 
 logger = logging.getLogger(__name__)
@@ -431,6 +432,7 @@ async def buy_into_holding(
     """Record a buy, consolidating onto the existing ticker holding in the
     chosen wallet (`group_id`) or creating a new market-priced holding."""
     _validate("buy", data.quantity, data.price)
+    await ensure_group_in_workspace(session, data.group_id, workspace_id)
     ticker = data.ticker.upper()
 
     result = await session.execute(
