@@ -37,6 +37,7 @@ import { ConnectionSettingsDialog } from '@/components/connection-settings-dialo
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { formatCurrency } from '@/lib/format'
 
 // Account types offered in the create/edit dialog. Shared between the manual
 // type selector and the connected-account override selector so the list stays
@@ -48,10 +49,6 @@ const ACCOUNT_TYPE_OPTIONS = [
   { value: 'investment', labelKey: 'accounts.typeInvestment' },
   { value: 'wallet', labelKey: 'accounts.typeWallet' },
 ] as const
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
-}
 
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null
