@@ -45,7 +45,8 @@ from app.services.account_service import (
 from app.services.asset_group_service import ensure_group_for_connection
 from app.services.cash_equivalent import CASH_EQUIVALENT_TYPE, is_cash_equivalent_ticker
 from app.services.credit_card_service import apply_effective_date
-from app.services.rule_service import apply_rules_to_transaction
+from app.services.rule_engine import merge_notes
+from app.services.rule_service import apply_rules_to_transaction, preview_rules_for_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
@@ -924,6 +925,8 @@ async def handle_oauth_callback(
             if synced_dup:
                 if synced_dup.status == "posted" and txn_data.status == "pending":
                     continue
+                if synced_dup.original_description is None:
+                    synced_dup.original_description = txn_data.description
                 if synced_dup.status == "pending" and txn_data.status == "posted":
                     await _promote_synced_transaction(
                         session, user_id, synced_dup, txn_data,
@@ -974,6 +977,7 @@ async def handle_oauth_callback(
                 account_id=account.id,
                 external_id=txn_data.external_id,
                 description=txn_data.description,
+                original_description=txn_data.description,
                 amount=txn_data.amount,
                 currency=txn_data.currency or acc_data.currency or user_currency,
                 date=txn_data.date,
@@ -996,8 +1000,7 @@ async def handle_oauth_callback(
             session.add(transaction)
             await session.flush()
             new_tx_ids.append(transaction.id)
-            if not category_id:
-                await apply_rules_to_transaction(session, user_id, transaction)
+            await apply_rules_to_transaction(session, user_id, transaction)
 
             await _stamp_synced_amount(
                 session, user_id, transaction, txn_data,
@@ -1133,7 +1136,10 @@ async def _fuzzy_match_manual(
     best_match = None
     best_score = 0.0
     for candidate in candidates:
-        score = _description_similarity(candidate.description, txn_data.description)
+        score = _description_similarity(
+            candidate.original_description or candidate.description,
+            txn_data.description,
+        )
         if score > best_score:
             best_score = score
             best_match = candidate
@@ -1320,7 +1326,10 @@ async def _find_synced_duplicate(
     for candidate in result.scalars():
         if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
             continue
-        if _description_similarity(candidate.description, txn_data.description) >= 0.7:
+        if _description_similarity(
+            candidate.original_description or candidate.description,
+            txn_data.description,
+        ) >= 0.7:
             return candidate
 
     # Path 3: exact transaction timestamp fingerprint. Some SimpleFIN
@@ -1463,7 +1472,10 @@ async def _cleanup_phantom_duplicates(
             )
         )
         for sibling in sibling_result.scalars():
-            if _description_similarity(sibling.description, tx.description) >= 0.9:
+            if _description_similarity(
+                sibling.original_description or sibling.description,
+                tx.original_description or tx.description,
+            ) >= 0.9:
                 await session.delete(tx)
                 deleted += 1
                 break
@@ -1936,6 +1948,8 @@ async def sync_connection(
                     # a re-sync can't revive a transaction the user hid.
                     if existing_tx.is_ignored:
                         continue
+                    if existing_tx.original_description is None:
+                        existing_tx.original_description = txn_data.description
                     if existing_tx.status == "pending" and txn_data.status == "posted":
                         await _promote_synced_transaction(
                             session, user_id, existing_tx, txn_data,
@@ -1977,6 +1991,8 @@ async def sync_connection(
                         continue
                     _merge_sync_metadata(fuzzy_match, txn_data)
                     fuzzy_match.source = "sync"
+                    if fuzzy_match.original_description is None:
+                        fuzzy_match.original_description = txn_data.description
                     merged_count += 1
                     continue
 
@@ -1991,6 +2007,8 @@ async def sync_connection(
                 if synced_dup:
                     if synced_dup.status == "posted" and txn_data.status == "pending":
                         continue
+                    if synced_dup.original_description is None:
+                        synced_dup.original_description = txn_data.description
                     if synced_dup.status == "pending" and txn_data.status == "posted":
                         # Posted truth wins: swap in the new id so subsequent
                         # syncs match by external_id and update raw_data.
@@ -2024,52 +2042,25 @@ async def sync_connection(
                         )
                     continue
 
-                # Pass 4: recurring bill placeholder. If generate_pending
-                # already materialized this bill's occurrence, merge the incoming
-                # charge into that placeholder instead of duplicating (issue
-                # #116). The recurring link is preserved by upgrading in place.
-                incoming_currency = txn_data.currency or acc_data.currency or user_currency
-                placeholder = await recurring_match_service.find_placeholder_for_incoming(
-                    session, account.id, txn_data.amount, incoming_currency,
-                    txn_data.type, txn_data.date, txn_data.description,
+                incoming_currency = (
+                    txn_data.currency or acc_data.currency or user_currency
                 )
-                if placeholder:
-                    if placeholder.is_ignored:
-                        continue
-                    placeholder.external_id = txn_data.external_id
-                    placeholder.source = "sync"
-                    placeholder.status = txn_data.status
-                    placeholder.raw_data = txn_data.raw_data
-                    if txn_data.payee:
-                        if not placeholder.payee:
-                            placeholder.payee = txn_data.payee
-                        placeholder.payee_id = (
-                            await get_or_create_payee(
-                                session, user_id, txn_data.payee, workspace_id=workspace_id
-                            )
-                        ).id
-                    merged_count += 1
-                    continue
-
                 category_id = await _match_pluggy_category(
-                    session, workspace_id, txn_data.pluggy_category, enabled=use_provider_cats
+                    session,
+                    workspace_id,
+                    txn_data.pluggy_category,
+                    enabled=use_provider_cats,
                 )
 
-                # Resolve payee entity from raw payee text
                 sync_payee_id = None
                 if txn_data.payee:
                     sync_payee_entity = await get_or_create_payee(
-                        session, user_id, txn_data.payee, workspace_id=workspace_id
+                        session,
+                        user_id,
+                        txn_data.payee,
+                        workspace_id=workspace_id,
                     )
                     sync_payee_id = sync_payee_entity.id
-
-                # No placeholder existed: if this charge fulfills an active bill's
-                # next occurrence, link it and advance the bill so a later
-                # generate_pending won't create a duplicate placeholder.
-                recurring_link = await recurring_match_service.find_bill_for_incoming(
-                    session, user_id, account.id, txn_data.amount, incoming_currency,
-                    txn_data.type, txn_data.date, txn_data.description,
-                )
 
                 bill = (
                     bills_by_external_id.get(txn_data.bill_external_id)
@@ -2082,8 +2073,9 @@ async def sync_connection(
                     account_id=account.id,
                     external_id=txn_data.external_id,
                     description=txn_data.description,
+                    original_description=txn_data.description,
                     amount=txn_data.amount,
-                    currency=txn_data.currency or acc_data.currency or user_currency,
+                    currency=incoming_currency,
                     date=txn_data.date,
                     type=txn_data.type,
                     source="sync",
@@ -2097,18 +2089,82 @@ async def sync_connection(
                     installment_total_amount=txn_data.installment_total_amount,
                     installment_purchase_date=txn_data.installment_purchase_date,
                     bill_id=bill.id if bill else None,
-                    recurring_transaction_id=recurring_link.id if recurring_link else None,
                 )
                 apply_effective_date(
-                    transaction, account, bill_due_date=bill.due_date if bill else None
+                    transaction,
+                    account,
+                    bill_due_date=bill.due_date if bill else None,
+                )
+                preview = await preview_rules_for_transaction(
+                    session, user_id, transaction
+                )
+
+                # Normalize before recurring reconciliation. A generated
+                # placeholder is upgraded in place; otherwise the normalized
+                # candidate may fulfill an active definition, which advances so
+                # later generation cannot duplicate the occurrence.
+                placeholder = (
+                    await recurring_match_service.find_placeholder_for_incoming(
+                        session,
+                        account.id,
+                        txn_data.amount,
+                        incoming_currency,
+                        txn_data.type,
+                        txn_data.date,
+                        preview.description,
+                    )
+                )
+                if placeholder:
+                    if placeholder.is_ignored:
+                        continue
+                    placeholder.external_id = txn_data.external_id
+                    placeholder.source = "sync"
+                    placeholder.status = txn_data.status
+                    placeholder.raw_data = txn_data.raw_data
+                    # Same shape as the import path: fold in the `preview` the
+                    # rules already produced from the incoming charge instead of
+                    # re-running them against the placeholder, whose description
+                    # is the recurring definition's own wording. Existing values
+                    # win, the charge fills the empty ones, and only its
+                    # provenance is recorded outright.
+                    placeholder.original_description = txn_data.description
+                    if placeholder.category_id is None:
+                        placeholder.category_id = preview.category_id
+                    if txn_data.payee and not placeholder.payee:
+                        placeholder.payee = txn_data.payee
+                    if placeholder.payee_id is None:
+                        placeholder.payee_id = preview.payee_id
+                    placeholder.notes = merge_notes(
+                        placeholder.notes, preview.notes
+                    )
+                    if preview.is_ignored:
+                        placeholder.is_ignored = True
+                    merged_count += 1
+                    continue
+
+                recurring_link = (
+                    await recurring_match_service.find_bill_for_incoming(
+                        session,
+                        user_id,
+                        account.id,
+                        txn_data.amount,
+                        incoming_currency,
+                        txn_data.type,
+                        txn_data.date,
+                        preview.description,
+                    )
+                )
+                transaction.recurring_transaction_id = (
+                    recurring_link.id if recurring_link else None
                 )
                 session.add(transaction)
                 await session.flush()
                 if recurring_link is not None:
-                    recurring_match_service.advance_past(recurring_link, txn_data.date)
+                    recurring_match_service.advance_past(
+                        recurring_link, txn_data.date
+                    )
                 new_tx_ids.append(transaction.id)
-                if not category_id:
-                    await apply_rules_to_transaction(session, user_id, transaction)
+                await apply_rules_to_transaction(session, user_id, transaction)
 
                 await _stamp_synced_amount(
                     session, user_id, transaction, txn_data,
