@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
@@ -58,12 +58,18 @@ from app.services.rule_engine import _strip_accents
 
 logger = logging.getLogger(__name__)
 
-#: Valuation methods a ledger-backed holding can carry. `market_price` is the
-#: normal one; `manual` is what an unpriced holding falls back to — a delisted
-#: stock, or a token from an insolvency estate that no price feed lists — and it
-#: has to be matched here too, or importing the rest of its history a second
-#: time would build a duplicate holding beside it.
-_LEDGER_VALUATION_METHODS = ('market_price', 'manual')
+#: What makes a holding one this importer may add orders to. `market_price` is
+#: the normal case. The second is narrower than it looks: an unpriced holding
+#: falls back to `manual`, and has to be matched or the next import of the same
+#: ticker would build a duplicate beside it — but only the ones this importer
+#: created. A hand-made manual asset that happens to carry a ticker is the
+#: user's own record, and rewriting its units from a file it never came from
+#: would be this module taking something that is not its.
+def _is_importable_holding():
+    return or_(
+        Asset.valuation_method == 'market_price',
+        and_(Asset.valuation_method == 'manual', Asset.source == 'import'),
+    )
 
 #: How many tickers the bulk lookup may miss before we stop double-checking
 #: them one by one. Past this the provider is having a bad day, not the file.
@@ -81,12 +87,16 @@ ASSET_CSV_REQUIRED_FIELDS = ('ticker', 'date', 'quantity')
 #: uses: a per-unit price, or a total cost basis this module divides down.
 ASSET_CSV_REQUIRED_EITHER = ('price', 'cost_basis')
 
-#: What `asset_transactions.quantity` and `.price` can hold (migration 082).
+#: What `asset_transactions.quantity` and `.price` can hold (migration 082):
+#: 38 digits, eighteen of them after the point. Both halves are needed at once
+#: — a crypto lot report carries sixteen decimals, and a meme-coin lot runs to
+#: twelve digits before the point — which is why the column is not the 28 that
+#: eighteen decimals of a share count would want.
 #: Rounding here rather than at the database keeps the duplicate fingerprint
 #: stable: a re-import has to produce the number already stored, not the one
 #: the file wrote.
 _LEDGER_PLACES = Decimal('1E-18')
-_LEDGER_LIMIT = Decimal(10) ** 10
+_LEDGER_LIMIT = Decimal(10) ** 20
 
 #: Header names brokers actually use, matched case- and accent-insensitively
 #: after normalization. A file whose headers are recognised needs no mapping
@@ -303,9 +313,9 @@ def _to_ledger_scale(value: Optional[Decimal]) -> Optional[Decimal]:
     if value is None or abs(value) >= _LEDGER_LIMIT:
         return None
     with localcontext() as ctx:
-        # Wider than the default 28 so quantizing ten integer digits down to
-        # eighteen decimals is arithmetic rather than an InvalidOperation.
-        ctx.prec = 40
+        # Wider than the default 28 so quantizing twenty integer digits down
+        # to eighteen decimals is arithmetic rather than an InvalidOperation.
+        ctx.prec = 60
         return value.quantize(_LEDGER_PLACES, rounding=ROUND_HALF_UP)
 
 
@@ -467,7 +477,7 @@ def parse_orders_csv(
 
     missing = [f for f in ASSET_CSV_REQUIRED_FIELDS if f not in mapping]
     if not any(f in mapping for f in ASSET_CSV_REQUIRED_EITHER):
-        missing.append(ASSET_CSV_REQUIRED_EITHER[0])
+        missing.append(' or '.join(ASSET_CSV_REQUIRED_EITHER))
     if missing:
         raise ValueError(f"Missing required column mapping: {', '.join(missing)}")
 
@@ -506,7 +516,7 @@ def parse_orders_csv(
                 # away silently is the one thing a cost-basis import must not do.
                 errors.append(AssetImportRowError(
                     row=index, reason='below_ledger_scale', ticker=ticker,
-                    detail=f'{cell(row, "quantity")} is finer than 18 decimal places',
+                    detail=cell(row, 'quantity'),
                 ))
                 continue
             # A cash dividend, a fee line, a lot the file has already exhausted:
@@ -519,10 +529,7 @@ def parse_orders_csv(
         kind_word = _normalize_header(cell(row, 'kind'))
         meaning = _classify_kind(kind_word) if kind_word else 'signed'
         if meaning == 'transfer':
-            skips.append(AssetImportSkip(
-                row=index, ticker=ticker, reason='transfer',
-                detail='basis moves with the units; no lot opens or closes',
-            ))
+            skips.append(AssetImportSkip(row=index, ticker=ticker, reason='transfer'))
             continue
         if meaning is None:
             skips.append(AssetImportSkip(
@@ -551,6 +558,8 @@ def parse_orders_csv(
 
         external_id = cell(row, 'external_id') or None
 
+        fee = _parse_decimal(cell(row, 'fee')) or Decimal('0')
+
         def build(when: date_type, side: str, unit_price: Decimal) -> AssetOrderImport:
             return AssetOrderImport(
                 row=index,
@@ -559,7 +568,9 @@ def parse_orders_csv(
                 kind=side,
                 quantity=abs(quantity),
                 price=unit_price,
-                fee=_parse_decimal(cell(row, 'fee')) or Decimal('0'),
+                # One lot line states one fee. Charging it to the buy and again
+                # to the sell would bill it twice for a single round trip.
+                fee=fee if side == kind else Decimal('0'),
                 currency=(cell(row, 'currency') or None),
                 name=(cell(row, 'name') or None),
                 notes=(cell(row, 'notes') or None),
@@ -573,39 +584,32 @@ def parse_orders_csv(
 
         if sold_date is None:
             continue
-        proceeds = _price_for(cell(row, 'proceeds'), '', quantity, total=True)
+        proceeds = _to_ledger_scale(_total_over(cell(row, 'proceeds'), quantity))
         if proceeds is None:
-            errors.append(AssetImportRowError(
-                row=index, reason='invalid_proceeds', ticker=ticker,
-                detail='the row reports a disposal date but no proceeds',
-            ))
+            errors.append(AssetImportRowError(row=index, reason='invalid_proceeds', ticker=ticker))
             continue
         orders.append(build(sold_date, 'sell', proceeds))
 
     return orders, errors, skips, headers
 
 
-def _price_for(
-    price_cell: str,
-    basis_cell: str,
-    quantity: Decimal,
-    *,
-    total: bool = False,
-) -> Optional[Decimal]:
+def _price_for(price_cell: str, basis_cell: str, quantity: Decimal) -> Optional[Decimal]:
     """The per-unit price, from whichever of the two shapes the file uses.
 
-    A lot report states the *total* the lot cost, so dividing by the quantity
-    is not a nicety: mapping that column onto `price` directly would multiply
-    the cost basis by the number of units held.
+    A lot report states the *total* the lot cost rather than a unit price, so
+    the divide is not a nicety: mapping that column onto `price` directly would
+    multiply the cost basis by the number of units held.
     """
-    value = _parse_decimal(price_cell)
-    if value is not None and not total:
-        return _to_ledger_scale(value)
-    if value is None:
-        value = _parse_decimal(basis_cell)
-    if value is None:
-        return None
-    return _to_ledger_scale(abs(value) / abs(quantity))
+    unit = _parse_decimal(price_cell)
+    if unit is not None:
+        return _to_ledger_scale(unit)
+    return _to_ledger_scale(_total_over(basis_cell, quantity))
+
+
+def _total_over(total_cell: str, quantity: Decimal) -> Optional[Decimal]:
+    """A stated total spread over the units it covers."""
+    total = _parse_decimal(total_cell)
+    return None if total is None else abs(total) / abs(quantity)
 
 
 
@@ -667,7 +671,7 @@ async def _existing_holdings(
     result = await session.execute(
         select(Asset).where(
             Asset.workspace_id == workspace_id,
-            Asset.valuation_method.in_(_LEDGER_VALUATION_METHODS),
+            _is_importable_holding(),
             Asset.group_id == group_id,
             Asset.ticker.in_(sorted({t.upper() for t in tickers})),
         )
@@ -696,7 +700,7 @@ async def _holdings_in_other_wallets(
         .outerjoin(AssetGroup, AssetGroup.id == Asset.group_id)
         .where(
             Asset.workspace_id == workspace_id,
-            Asset.valuation_method.in_(_LEDGER_VALUATION_METHODS),
+            _is_importable_holding(),
             Asset.group_id.is_not(None) if group_id is None else Asset.group_id != group_id,
             Asset.ticker.in_(sorted({t.upper() for t in tickers})),
         )
@@ -838,10 +842,7 @@ async def import_orders(
         if o.ticker not in holdings and not resolvable.get(o.ticker, False)
     })
     warnings.extend(
-        AssetImportWarning(
-            ticker=ticker, reason='unpriced_holding',
-            detail='no price provider lists this ticker; the holding will not be marked to market',
-        )
+        AssetImportWarning(ticker=ticker, reason='unpriced_holding')
         for ticker in unpriced
     )
 
@@ -956,7 +957,8 @@ def _reconciliation_warnings(
         if from_file != reported[ticker]:
             warnings.append(AssetImportWarning(
                 ticker=ticker, reason='units_differ_from_provider',
-                detail=f'file totals {_plain(from_file)}, provider reported {_plain(reported[ticker])}',
+                imported_units=_plain(from_file),
+                reported_units=_plain(reported[ticker]),
             ))
     return warnings
 

@@ -887,7 +887,7 @@ async def test_a_partial_history_over_a_snapshot_holding_is_flagged_not_absorbed
 
     warning = next(w for w in summary["warnings"] if w.reason == "units_differ_from_provider")
     assert warning.ticker == "AAPL"
-    assert "8" in warning.detail and "20" in warning.detail
+    assert (warning.imported_units, warning.reported_units) == ("8", "20")
 
 
 @pytest.mark.asyncio
@@ -919,3 +919,54 @@ async def test_a_holding_that_already_has_a_ledger_is_not_reconciled_against(
     ), provider)
 
     assert [w.reason for w in summary["warnings"]] == []
+
+
+@pytest.mark.asyncio
+async def test_a_lot_line_is_charged_its_fee_once_not_on_both_halves(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Amount,Asset,Date Acquired,Date Sold,Cost Basis,Proceeds,Fee",
+        "0.5,AAPL,2024-01-02,2024-06-01,50,80,3",
+    ))
+    assert [(o.kind, o.fee) for o in orders] == [
+        ("buy", Decimal("3")), ("sell", Decimal("0")),
+    ]
+
+
+def test_a_meme_coin_lot_is_not_refused_for_being_large():
+    """Twelve digits before the point is ordinary for a token like SHIB, and
+    is exactly the file this importer exists for."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Date Acquired,Amount,Cost Basis",
+        "SHIB,2024-12-20,412500000000.123456,900",
+    ))
+    assert errors == []
+    assert orders[0].quantity == Decimal("412500000000.123456")
+
+
+def test_a_missing_cost_column_names_both_ways_of_stating_one():
+    with pytest.raises(ValueError, match="price or cost_basis"):
+        asset_import_service.parse_orders_csv(_csv("ticker,date,quantity", "AAPL,2026-01-15,10"))
+
+
+@pytest.mark.asyncio
+async def test_a_hand_made_manual_asset_is_not_claimed_by_the_importer(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """A manual asset carrying a ticker is the user's own record; rewriting its
+    units from a file it never came from would be taking something not ours."""
+    mine = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Apple, by hand", type="stock", currency="USD",
+        valuation_method="manual", ticker="AAPL", units=Decimal("99"), source="manual",
+    )
+    session.add(mine)
+    await session.flush()
+
+    await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price", "AAPL,2026-01-15,10,100.00",
+    ), provider)
+
+    await session.refresh(mine)
+    assert mine.units == Decimal("99")

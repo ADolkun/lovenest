@@ -1184,7 +1184,6 @@
     "summaryOrders": "{{count}} zleceń gotowych",
     "summaryHoldings": "utworzono {{created}} pozycji, dopasowano {{matched}}",
     "summarySkipped": "{{count}} wierszy nic nie tworzy",
-    "rowsSkipped": "{{count}} wierszy zostanie pominiętych",
     "rowError": "Wiersz {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "i {{count}} więcej",
     "moreRows": "i {{count}} zleceń więcej",
@@ -1205,7 +1204,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} znajduje się już w {{wallet}}. Import tutaj utworzy drugą pozycję.",
       "orders_already_in_other_wallet": "{{ticker}}: te same zlecenia są już w {{wallet}}. Import tutaj policzyłby walory dwa razy.",
-      "units_differ_from_provider": "{{ticker}}: zaimportowana historia nie zgadza się z ilością zgłoszoną przez dostawcę.",
+      "units_differ_from_provider": "{{ticker}}: zaimportowana historia daje {{imported}} jednostek, a dostawca zgłosił {{reported}}.",
       "unpriced_holding": "{{ticker}} nie występuje w żadnym źródle cen, więc ta pozycja nie będzie wyceniana rynkowo."
     },
     "kind": {
@@ -1230,7 +1229,8 @@
       "transfer": "przelew między własnymi portfelami — koszt wędruje razem z jednostkami",
       "unsupported_type": "nieobsługiwany typ operacji",
       "no_units": "w tym wierszu nie zmieniają się jednostki"
-    }
+    },
+    "rowsRefused": "{{count}} wierszy nie można zaimportować"
   },
   "assets": {
     "title": "Aktywa",

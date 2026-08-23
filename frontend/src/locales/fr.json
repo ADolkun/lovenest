@@ -1106,7 +1106,6 @@
     "summaryOrders": "{{count}} ordres prêts",
     "summaryHoldings": "{{created}} actifs créés, {{matched}} trouvés",
     "summarySkipped": "{{count}} lignes ne créent rien",
-    "rowsSkipped": "{{count}} lignes seront ignorées",
     "rowError": "Ligne {{row}} ({{ticker}}) : {{reason}}",
     "moreErrors": "et {{count}} de plus",
     "moreRows": "et {{count}} ordres de plus",
@@ -1127,7 +1126,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} est déjà détenu dans {{wallet}}. Importer ici crée une seconde position.",
       "orders_already_in_other_wallet": "{{ticker}} : ces mêmes ordres sont déjà dans {{wallet}}. Importer ici compterait les titres deux fois.",
-      "units_differ_from_provider": "{{ticker}} : l'historique importé ne correspond pas à la quantité annoncée par votre fournisseur.",
+      "units_differ_from_provider": "{{ticker}} : l'historique importé totalise {{imported}} unités, mais votre fournisseur en annonce {{reported}}.",
       "unpriced_holding": "{{ticker}} n'est listé par aucune source de prix, cette position ne sera donc pas valorisée au marché."
     },
     "kind": {
@@ -1152,7 +1151,8 @@
       "transfer": "un transfert entre vos propres portefeuilles — le coût suit les unités",
       "unsupported_type": "type d'opération non pris en charge",
       "no_units": "cette ligne ne déplace aucune unité"
-    }
+    },
+    "rowsRefused": "{{count}} lignes ne peuvent pas être importées"
   },
   "assets": {
     "title": "Actifs",

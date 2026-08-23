@@ -26,7 +26,8 @@ class AssetImportRowError(BaseModel):
     """A row that will not be imported, and why, named by its line number."""
 
     row: int
-    reason: str  # missing_ticker | invalid_date | invalid_quantity | invalid_price | unknown_ticker | oversell
+    reason: str  # missing_ticker | invalid_date | invalid_quantity | below_ledger_scale
+                 # | invalid_price | invalid_proceeds | unknown_ticker | oversell
     ticker: Optional[str] = None
     detail: Optional[str] = None
 
@@ -40,7 +41,7 @@ class AssetImportSkip(BaseModel):
     """
 
     row: int
-    reason: str  # already_imported | transfer | unsupported_type
+    reason: str  # already_imported | transfer | unsupported_type | no_units
     ticker: Optional[str] = None
     detail: Optional[str] = None
 
@@ -49,9 +50,13 @@ class AssetImportWarning(BaseModel):
     """Not a reason to refuse a row, but something to see before confirming."""
 
     ticker: str
-    reason: str  # exists_in_other_wallet | orders_already_in_other_wallet | units_differ_from_provider | unpriced_holding
+    reason: str  # exists_in_other_wallet | orders_already_in_other_wallet
+                 # | units_differ_from_provider | unpriced_holding
     wallet: Optional[str] = None
-    detail: Optional[str] = None
+    #: The two quantities `units_differ_from_provider` disagrees about. Numbers
+    #: rather than a sentence, so the locale writes the sentence.
+    imported_units: Optional[str] = None
+    reported_units: Optional[str] = None
 
 
 class AssetImportPreview(BaseModel):

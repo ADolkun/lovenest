@@ -1106,7 +1106,6 @@
     "summaryOrders": "{{count}} ordens prontas",
     "summaryHoldings": "{{created}} ativos criados, {{matched}} encontrados",
     "summarySkipped": "{{count}} linhas não criam nada",
-    "rowsSkipped": "{{count}} linhas serão ignoradas",
     "rowError": "Linha {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "e mais {{count}}",
     "moreRows": "e mais {{count}} ordens",
@@ -1127,7 +1126,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} já existe em {{wallet}}. Importar aqui cria uma segunda posição.",
       "orders_already_in_other_wallet": "{{ticker}}: essas mesmas ordens já estão em {{wallet}}. Importar aqui contaria as cotas duas vezes.",
-      "units_differ_from_provider": "{{ticker}}: o histórico importado não fecha com a quantidade informada pelo provedor.",
+      "units_differ_from_provider": "{{ticker}}: o histórico importado soma {{imported}} unidades, mas o provedor informou {{reported}}.",
       "unpriced_holding": "{{ticker}} não é listado por nenhuma fonte de preço, então este ativo não será marcado a mercado."
     },
     "kind": {
@@ -1152,7 +1151,8 @@
       "transfer": "transferência entre suas próprias carteiras — o custo acompanha as unidades",
       "unsupported_type": "tipo de operação não suportado",
       "no_units": "nenhuma unidade se move nesta linha"
-    }
+    },
+    "rowsRefused": "{{count}} linhas não podem ser importadas"
   },
   "assets": {
     "title": "Patrimônio",

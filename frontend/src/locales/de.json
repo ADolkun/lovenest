@@ -1106,7 +1106,6 @@
     "summaryOrders": "{{count}} Orders bereit",
     "summaryHoldings": "{{created}} Positionen angelegt, {{matched}} zugeordnet",
     "summarySkipped": "{{count}} Zeilen erzeugen nichts",
-    "rowsSkipped": "{{count}} Zeilen werden übersprungen",
     "rowError": "Zeile {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "und {{count}} weitere",
     "moreRows": "und {{count}} weitere Orders",
@@ -1127,7 +1126,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} liegt bereits in {{wallet}}. Ein Import hier legt eine zweite Position an.",
       "orders_already_in_other_wallet": "{{ticker}}: dieselben Orders liegen bereits in {{wallet}}. Ein Import hier würde die Stücke doppelt zählen.",
-      "units_differ_from_provider": "{{ticker}}: Die importierte Historie ergibt nicht die vom Anbieter gemeldete Stückzahl.",
+      "units_differ_from_provider": "{{ticker}}: Die importierte Historie ergibt {{imported}} Stück, der Anbieter meldet {{reported}}.",
       "unpriced_holding": "{{ticker}} wird von keiner Kursquelle geführt, diese Position wird daher nicht zum Marktwert bewertet."
     },
     "kind": {
@@ -1152,7 +1151,8 @@
       "transfer": "eine Umbuchung zwischen eigenen Depots — die Kosten wandern mit",
       "unsupported_type": "Transaktionsart wird nicht unterstützt",
       "no_units": "in dieser Zeile bewegen sich keine Stücke"
-    }
+    },
+    "rowsRefused": "{{count}} Zeilen können nicht importiert werden"
   },
   "assets": {
     "title": "Vermögenswerte",

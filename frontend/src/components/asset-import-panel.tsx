@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { AlertCircle, AlertTriangle, CheckCircle2, Download, FileText, Info, Settings2, Upload, X } from 'lucide-react'
 
 import { assets as assetsApi, assetGroups as assetGroupsApi } from '@/lib/api'
-import type { AssetImportPreview, AssetOrderImport } from '@/types'
+import type { AssetImportPreview, AssetImportRowError, AssetImportSkip, AssetOrderImport } from '@/types'
 import { ImportHistory } from '@/components/import-history'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -35,6 +35,59 @@ const MAPPABLE_FIELDS = [
 
 const SELECT_CLASS =
   'border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]'
+
+/**
+ * The rows a file will not turn into orders, listed by line number.
+ *
+ * Two kinds share this shape and must not share a colour. An *error* is a row
+ * the importer could not read; a *skip* is a row it read perfectly and that
+ * creates nothing — a transfer between the user's own wallets, a line already
+ * on the ledger. A file of transfers rendered in amber reads as a file of
+ * mistakes, so the tone is the whole point of the distinction.
+ */
+function RowNotice({
+  rows,
+  titleKey,
+  reasonPrefix,
+  tone,
+}: {
+  rows: (AssetImportRowError | AssetImportSkip)[]
+  titleKey: string
+  reasonPrefix: 'reason' | 'skip'
+  tone: 'error' | 'neutral'
+}) {
+  const { t } = useTranslation()
+  if (rows.length === 0) return null
+
+  const isError = tone === 'error'
+  return (
+    <div
+      className={`border-b border-border px-4 py-3 sm:px-5 ${isError ? 'bg-amber-500/10' : 'bg-muted/40'}`}
+    >
+      <p
+        className={`mb-2 flex items-center gap-2 text-sm font-medium ${
+          isError ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+        }`}
+      >
+        {isError ? <AlertTriangle size={14} /> : <Info size={14} />}
+        {t(titleKey, { count: rows.length })}
+      </p>
+      <ul className="space-y-1 text-xs text-muted-foreground">
+        {rows.slice(0, 8).map((row, i) => (
+          <li key={`${row.row}-${row.reason}-${i}`}>
+            {t('assetImport.rowError', {
+              row: row.row,
+              ticker: row.ticker ?? '—',
+              reason: t(`assetImport.${reasonPrefix}.${row.reason}`, row.reason),
+            })}
+            {row.detail ? ` (${row.detail})` : ''}
+          </li>
+        ))}
+        {rows.length > 8 && <li>{t('assetImport.moreErrors', { count: rows.length - 8 })}</li>}
+      </ul>
+    </div>
+  )
+}
 
 /**
  * The investments half of the import page.
@@ -315,63 +368,34 @@ export function AssetImportPanel() {
               <ul className="space-y-1 text-xs text-blue-600 dark:text-blue-300/80">
                 {walletWarnings.map((w) => (
                   <li key={`${w.ticker}-${w.reason}`}>
-                    {t(`assetImport.warning.${w.reason}`, { ticker: w.ticker, wallet: w.wallet ?? '—' })}
-                    {w.detail ? ` (${w.detail})` : ''}
+                    {t(`assetImport.warning.${w.reason}`, {
+                      ticker: w.ticker,
+                      wallet: w.wallet ?? '—',
+                      imported: w.imported_units ?? '—',
+                      reported: w.reported_units ?? '—',
+                    })}
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {rowErrors.length > 0 && (
-            <div className="border-b border-border bg-amber-500/10 px-4 py-3 sm:px-5">
-              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-                <AlertTriangle size={14} />
-                {t('assetImport.rowsSkipped', { count: rowErrors.length })}
-              </p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {rowErrors.slice(0, 8).map((err) => (
-                  <li key={`${err.row}-${err.reason}`}>
-                    {t('assetImport.rowError', {
-                      row: err.row,
-                      ticker: err.ticker ?? '—',
-                      reason: t(`assetImport.reason.${err.reason}`, err.reason),
-                    })}
-                    {err.detail ? ` (${err.detail})` : ''}
-                  </li>
-                ))}
-                {rowErrors.length > 8 && (
-                  <li>{t('assetImport.moreErrors', { count: rowErrors.length - 8 })}</li>
-                )}
-              </ul>
-            </div>
-          )}
+          <RowNotice
+            rows={rowErrors}
+            titleKey="assetImport.rowsRefused"
+            reasonPrefix="reason"
+            tone="error"
+          />
 
           {/* Not an error: the row is fine and creates nothing. Kept apart
               from the amber block so a file of transfers does not read as a
               file of mistakes. */}
-          {rowSkips.length > 0 && (
-            <div className="border-b border-border bg-muted/40 px-4 py-3 sm:px-5">
-              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <Info size={14} />
-                {t('assetImport.rowsNotImported', { count: rowSkips.length })}
-              </p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {rowSkips.slice(0, 8).map((skip, i) => (
-                  <li key={`${skip.row}-${skip.reason}-${i}`}>
-                    {t('assetImport.rowError', {
-                      row: skip.row,
-                      ticker: skip.ticker ?? '—',
-                      reason: t(`assetImport.skip.${skip.reason}`, skip.reason),
-                    })}
-                  </li>
-                ))}
-                {rowSkips.length > 8 && (
-                  <li>{t('assetImport.moreErrors', { count: rowSkips.length - 8 })}</li>
-                )}
-              </ul>
-            </div>
-          )}
+          <RowNotice
+            rows={rowSkips}
+            titleKey="assetImport.rowsNotImported"
+            reasonPrefix="skip"
+            tone="neutral"
+          />
 
           {importable > 0 && (
             <div className="overflow-x-auto">

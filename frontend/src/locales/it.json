@@ -1106,7 +1106,6 @@
     "summaryOrders": "{{count}} ordini pronti",
     "summaryHoldings": "{{created}} titoli creati, {{matched}} trovati",
     "summarySkipped": "{{count}} righe non creano nulla",
-    "rowsSkipped": "{{count}} righe saranno saltate",
     "rowError": "Riga {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "e altri {{count}}",
     "moreRows": "e altri {{count}} ordini",
@@ -1127,7 +1126,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} è già presente in {{wallet}}. Importare qui crea una seconda posizione.",
       "orders_already_in_other_wallet": "{{ticker}}: questi stessi ordini sono già in {{wallet}}. Importare qui conterebbe i titoli due volte.",
-      "units_differ_from_provider": "{{ticker}}: lo storico importato non torna con la quantità dichiarata dal provider.",
+      "units_differ_from_provider": "{{ticker}}: lo storico importato somma {{imported}} unità, ma il provider ne dichiara {{reported}}.",
       "unpriced_holding": "{{ticker}} non è quotato da nessuna fonte di prezzo, quindi questa posizione non sarà valutata al mercato."
     },
     "kind": {
@@ -1152,7 +1151,8 @@
       "transfer": "un trasferimento fra portafogli tuoi — il costo viaggia con le unità",
       "unsupported_type": "tipo di operazione non supportato",
       "no_units": "questa riga non muove unità"
-    }
+    },
+    "rowsRefused": "{{count}} righe non possono essere importate"
   },
   "assets": {
     "title": "Beni",

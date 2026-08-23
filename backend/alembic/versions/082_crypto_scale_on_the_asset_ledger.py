@@ -10,11 +10,15 @@ way in, and a satoshi-scale dust row rounds to zero outright. A cost-basis
 import reconciled from a crypto tax tool is exactly the file that carries
 sixteen decimals, so the ledger has to carry them too.
 
-Widening is lossless for every existing row — `NUMERIC(28, 18)` holds ten
-integer digits, more than any share count in the table — so there is no data
-migration, only the type change. `assets.units` and `assets.average_price` are
-the cached replay of the same ledger and move with it; `purchase_price` stays
-at two decimals because it is money, not a quantity.
+Both halves have to grow at once. Eighteen decimals alone would still refuse a
+meme-coin lot, which routinely runs to twelve digits *before* the point, so the
+precision is 38 rather than the 28 that eighteen decimals of a share count
+would want: twenty integer digits and eighteen fractional ones.
+
+Widening is lossless for every existing row, so there is no data migration,
+only the type change. `assets.units` and `assets.average_price` are the cached
+replay of the same ledger and move with it; `purchase_price` stays at two
+decimals because it is money, not a quantity.
 """
 
 from typing import Sequence, Union
@@ -27,30 +31,29 @@ down_revision: Union[str, None] = "081"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# (table, column, widened, original)
+_WIDE = sa.Numeric(38, 18)
+
+# (table, column, the type before this migration)
 _COLUMNS = (
-    ("asset_transactions", "quantity", (28, 18), (18, 6)),
-    ("asset_transactions", "price", (28, 18), (18, 6)),
-    ("assets", "units", (28, 18), (15, 6)),
-    ("assets", "average_price", (28, 18), (18, 6)),
+    ("asset_transactions", "quantity", sa.Numeric(18, 6)),
+    ("asset_transactions", "price", sa.Numeric(18, 6)),
+    ("assets", "units", sa.Numeric(15, 6)),
+    ("assets", "average_price", sa.Numeric(18, 6)),
 )
 
 
-def _alter(index: int, existing: int) -> None:
-    for table, column, *scales in _COLUMNS:
+def upgrade() -> None:
+    for table, column, narrow in _COLUMNS:
         op.alter_column(
-            table,
-            column,
-            type_=sa.Numeric(*scales[index]),
-            existing_type=sa.Numeric(*scales[existing]),
+            table, column, type_=_WIDE, existing_type=narrow,
             existing_nullable=table == "assets",
         )
 
 
-def upgrade() -> None:
-    _alter(0, 1)
-
-
 def downgrade() -> None:
     # Rounds any row that used the new decimals — the price of going back.
-    _alter(1, 0)
+    for table, column, narrow in _COLUMNS:
+        op.alter_column(
+            table, column, type_=narrow, existing_type=_WIDE,
+            existing_nullable=table == "assets",
+        )

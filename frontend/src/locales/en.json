@@ -1106,7 +1106,6 @@
     "summaryOrders": "{{count}} orders ready",
     "summaryHoldings": "{{created}} holdings created, {{matched}} matched",
     "summarySkipped": "{{count}} rows create nothing",
-    "rowsSkipped": "{{count}} rows will be skipped",
     "rowError": "Row {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "and {{count}} more",
     "moreRows": "and {{count}} more orders",
@@ -1127,7 +1126,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} is already held in {{wallet}}. Importing here creates a second position.",
       "orders_already_in_other_wallet": "{{ticker}}: these same orders are already in {{wallet}}. Importing here would count the shares twice.",
-      "units_differ_from_provider": "{{ticker}}: the imported history does not add up to the quantity your provider reported.",
+      "units_differ_from_provider": "{{ticker}}: the imported history totals {{imported}} units, but your provider reported {{reported}}.",
       "unpriced_holding": "{{ticker}} is not listed by any price provider, so this holding will not be marked to market."
     },
     "kind": {
@@ -1152,7 +1151,8 @@
       "transfer": "a transfer between your own wallets — the basis moves with the units",
       "unsupported_type": "transaction type not supported",
       "no_units": "no units move on this row"
-    }
+    },
+    "rowsRefused": "{{count}} rows cannot be imported"
   },
   "assets": {
     "title": "Assets",

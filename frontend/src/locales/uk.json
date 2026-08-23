@@ -1112,7 +1112,6 @@
     "summaryOrders": "Готово заявок: {{count}}",
     "summaryHoldings": "створено позицій: {{created}}, знайдено: {{matched}}",
     "summarySkipped": "{{count}} рядків нічого не створюють",
-    "rowsSkipped": "Рядків буде пропущено: {{count}}",
     "rowError": "Рядок {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "і ще {{count}}",
     "moreRows": "і ще {{count}} заявок",
@@ -1133,7 +1132,7 @@
     "warning": {
       "exists_in_other_wallet": "{{ticker}} уже є в {{wallet}}. Імпорт сюди створить другу позицію.",
       "orders_already_in_other_wallet": "{{ticker}}: ці самі заявки вже є в {{wallet}}. Імпорт сюди порахує папери двічі.",
-      "units_differ_from_provider": "{{ticker}}: імпортована історія не збігається з кількістю, яку повідомив провайдер.",
+      "units_differ_from_provider": "{{ticker}}: імпортована історія дає {{imported}} одиниць, а провайдер повідомив {{reported}}.",
       "unpriced_holding": "{{ticker}} немає в жодному джерелі цін, тож ця позиція не переоцінюватиметься за ринком."
     },
     "kind": {
@@ -1158,7 +1157,8 @@
       "transfer": "переказ між власними гаманцями — вартість іде разом з одиницями",
       "unsupported_type": "тип операції не підтримується",
       "no_units": "у цьому рядку кількість не змінюється"
-    }
+    },
+    "rowsRefused": "{{count}} рядків неможливо імпортувати"
   },
   "assets": {
     "title": "Активи",

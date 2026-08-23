@@ -241,3 +241,26 @@ async def test_committing_an_unpriced_holding_creates_it(client: AsyncClient, au
     listed = await client.get("/api/assets", headers=auth_headers)
     ionic = next(a for a in listed.json() if a["ticker"] == "IONIC")
     assert ionic["valuation_method"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_an_unpriced_holding_is_worth_its_basis_not_zero(
+    client: AsyncClient, auth_headers
+):
+    """No quote will ever arrive, so the basis is the only honest figure —
+    and it must not read as a total loss of everything imported."""
+    await client.post(
+        "/api/assets/import",
+        json={
+            "orders": [{
+                "row": 2, "ticker": "IONIC", "date": "2024-01-31",
+                "kind": "buy", "quantity": "163", "price": "10.00",
+            }],
+            "allow_unpriced": True,
+        },
+        headers=auth_headers,
+    )
+    listed = await client.get("/api/assets", headers=auth_headers)
+    ionic = next(a for a in listed.json() if a["ticker"] == "IONIC")
+    assert ionic["current_value"] == 1630.0
+    assert ionic["gain_loss"] == 0
