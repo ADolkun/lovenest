@@ -1089,7 +1089,7 @@
     "title": "Wertpapierorders importieren",
     "action": "Orders importieren",
     "choose": "CSV-Datei auswählen",
-    "chooseHint": "Ticker, Datum, Stückzahl und Preis sind Pflicht. Eine negative Stückzahl gilt als Verkauf.",
+    "chooseHint": "Wertpapier, Datum und Stückzahl sind Pflicht, dazu entweder ein Stückpreis oder die Gesamtkosten. Eine negative Stückzahl gilt als Verkauf.",
     "downloadTemplate": "Vorlage herunterladen",
     "importTo": "Importieren nach",
     "nothingToImport": "Aus dieser Datei gibt es nichts zu importieren",
@@ -1105,7 +1105,7 @@
     "confirm": "{{count}} Orders importieren",
     "summaryOrders": "{{count}} Orders bereit",
     "summaryHoldings": "{{created}} Positionen angelegt, {{matched}} zugeordnet",
-    "summarySkipped": "{{count}} bereits importiert",
+    "summarySkipped": "{{count}} Zeilen erzeugen nichts",
     "rowsSkipped": "{{count}} Zeilen werden übersprungen",
     "rowError": "Zeile {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "und {{count}} weitere",
@@ -1118,12 +1118,17 @@
       "fee": "Gebühr",
       "kind": "Kauf/Verkauf",
       "currency": "Währung",
-      "notes": "Notizen"
+      "notes": "Notizen",
+      "cost_basis": "Gesamtkosten",
+      "date_sold": "Verkaufsdatum",
+      "proceeds": "Verkaufserlös (gesamt)"
     },
     "walletWarningTitle": "Bereits im Portfolio",
     "warning": {
       "exists_in_other_wallet": "{{ticker}} liegt bereits in {{wallet}}. Ein Import hier legt eine zweite Position an.",
-      "orders_already_in_other_wallet": "{{ticker}}: dieselben Orders liegen bereits in {{wallet}}. Ein Import hier würde die Stücke doppelt zählen."
+      "orders_already_in_other_wallet": "{{ticker}}: dieselben Orders liegen bereits in {{wallet}}. Ein Import hier würde die Stücke doppelt zählen.",
+      "units_differ_from_provider": "{{ticker}}: Die importierte Historie ergibt nicht die vom Anbieter gemeldete Stückzahl.",
+      "unpriced_holding": "{{ticker}} wird von keiner Kursquelle geführt, diese Position wird daher nicht zum Marktwert bewertet."
     },
     "kind": {
       "buy": "Kauf",
@@ -1134,9 +1139,19 @@
       "invalid_date": "unlesbares Datum",
       "invalid_quantity": "unlesbare Stückzahl",
       "invalid_price": "unlesbarer Preis",
-      "invalid_kind": "Kauf/Verkauf nicht erkannt",
       "unknown_ticker": "Ticker beim Kursanbieter nicht gefunden",
-      "oversell": "Verkauf größer als die Position"
+      "oversell": "Verkauf größer als die Position",
+      "invalid_proceeds": "Verkaufsdatum ohne Verkaufserlös",
+      "below_ledger_scale": "genauer als die 18 Nachkommastellen des Bestands"
+    },
+    "rowsNotImported": "{{count}} Zeilen erzeugen nichts",
+    "allowUnpriced": "Positionen importieren, die keine Kursquelle kennt",
+    "allowUnpricedHint": "Für eine delistete Aktie oder einen Token aus einem Insolvenzverfahren: Die Kosten bleiben erhalten, die Position wird nicht zum Marktwert bewertet.",
+    "skip": {
+      "already_imported": "steht bereits im Bestand",
+      "transfer": "eine Umbuchung zwischen eigenen Depots — die Kosten wandern mit",
+      "unsupported_type": "Transaktionsart wird nicht unterstützt",
+      "no_units": "in dieser Zeile bewegen sich keine Stücke"
     }
   },
   "assets": {

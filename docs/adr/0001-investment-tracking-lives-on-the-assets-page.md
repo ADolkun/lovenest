@@ -43,3 +43,20 @@ This decision assumes investment data stays in a single Workspace. Wash Sale
 detection spans every account a person holds; if investments were ever split
 across two Workspaces, detecting one would require crossing the boundary, and
 that crossing is not available.
+
+## Amendment (2026-08-23, ticket #67): the importer sits on `/import`
+
+The v0.14.3 upstream sync brought an investment-order importer mounted at
+`/import?tab=investments`, with `/assets` linking across to it. That is a
+deliberate exception to this ADR, not an oversight to be corrected.
+
+The rule above is about *views of the portfolio* — a Wallet, a Holding, a Lot,
+a chart — which are views of one aggregate and belong behind one route. An
+import is not a view of the portfolio: it is a file-shaped operation that
+produces one, and it is the same operation, with the same drop zone, mapping
+dropdowns, preview table and undo, whether the file holds transactions or
+orders. Splitting it would give the same person two habits for one task, which
+is the argument this ADR makes in the other direction.
+
+Investment *views* stay on `/assets`. Only the importer lives on `/import`, and
+only as a tab beside the transaction importer it shares its shape with.

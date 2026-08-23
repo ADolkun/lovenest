@@ -12,16 +12,25 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { useWorkspace } from '@/contexts/workspace-context'
 
-/** The Securo fields a CSV column can be mapped to; `*` marks the required ones. */
+/**
+ * The Securo fields a CSV column can be mapped to; `*` marks the required ones.
+ * `price` is not among them: a lot report states a total cost basis instead,
+ * and the server accepts either.
+ */
 const MAPPABLE_FIELDS = [
   { key: 'ticker', required: true },
   { key: 'date', required: true },
   { key: 'quantity', required: true },
-  { key: 'price', required: true },
+  { key: 'price', required: false },
   { key: 'fee', required: false },
   { key: 'kind', required: false },
   { key: 'currency', required: false },
   { key: 'notes', required: false },
+  // The lot shape: a report that gives a whole lot on one line, with a total
+  // cost rather than a unit price, and the sale on the same row as the buy.
+  { key: 'cost_basis', required: false },
+  { key: 'date_sold', required: false },
+  { key: 'proceeds', required: false },
 ] as const
 
 const SELECT_CLASS =
@@ -49,6 +58,7 @@ export function AssetImportPanel() {
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [allowUnpriced, setAllowUnpriced] = useState(false)
 
   const { data: wallets } = useQuery({
     queryKey: ['asset-groups'],
@@ -59,12 +69,14 @@ export function AssetImportPanel() {
     selected: File,
     nextMapping: Record<string, string>,
     nextGroup: string,
+    nextAllowUnpriced = allowUnpriced,
   ) {
     setLoading(true)
     try {
       const result = await assetsApi.previewImport(selected, {
         column_mapping: nextMapping,
         group_id: nextGroup || null,
+        allow_unpriced: nextAllowUnpriced,
       })
       setPreview(result)
     } catch {
@@ -108,6 +120,11 @@ export function AssetImportPanel() {
     if (file) runPreview(file, mapping, value)
   }
 
+  function handleAllowUnpricedChange(value: boolean) {
+    setAllowUnpriced(value)
+    if (file) runPreview(file, mapping, groupId, value)
+  }
+
   async function handleImport() {
     if (!preview || preview.orders.length === 0) return
     setImporting(true)
@@ -116,6 +133,7 @@ export function AssetImportPanel() {
         preview.orders as AssetOrderImport[],
         groupId || null,
         file?.name,
+        allowUnpriced,
       )
       queryClient.invalidateQueries({ queryKey: ['assets'] })
       queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
@@ -131,6 +149,7 @@ export function AssetImportPanel() {
 
   const importable = preview?.orders.length ?? 0
   const rowErrors = preview?.errors ?? []
+  const rowSkips = preview?.skips ?? []
   const walletWarnings = preview?.warnings ?? []
   const needsMapping = !!preview?.parse_error
 
@@ -268,6 +287,23 @@ export function AssetImportPanel() {
                 ))}
               </select>
             </div>
+
+            {/* A delisted stock, or a token an insolvency estate handed out:
+                real basis, no market. Off by default because an unrecognised
+                ticker is nearly always a typo. */}
+            <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={allowUnpriced}
+                onChange={(e) => handleAllowUnpricedChange(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-foreground">{t('assetImport.allowUnpriced')}</span>
+                <br />
+                {t('assetImport.allowUnpricedHint')}
+              </span>
+            </label>
           </div>
 
           {walletWarnings.length > 0 && (
@@ -280,6 +316,7 @@ export function AssetImportPanel() {
                 {walletWarnings.map((w) => (
                   <li key={`${w.ticker}-${w.reason}`}>
                     {t(`assetImport.warning.${w.reason}`, { ticker: w.ticker, wallet: w.wallet ?? '—' })}
+                    {w.detail ? ` (${w.detail})` : ''}
                   </li>
                 ))}
               </ul>
@@ -305,6 +342,32 @@ export function AssetImportPanel() {
                 ))}
                 {rowErrors.length > 8 && (
                   <li>{t('assetImport.moreErrors', { count: rowErrors.length - 8 })}</li>
+                )}
+              </ul>
+            </div>
+          )}
+
+          {/* Not an error: the row is fine and creates nothing. Kept apart
+              from the amber block so a file of transfers does not read as a
+              file of mistakes. */}
+          {rowSkips.length > 0 && (
+            <div className="border-b border-border bg-muted/40 px-4 py-3 sm:px-5">
+              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Info size={14} />
+                {t('assetImport.rowsNotImported', { count: rowSkips.length })}
+              </p>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {rowSkips.slice(0, 8).map((skip, i) => (
+                  <li key={`${skip.row}-${skip.reason}-${i}`}>
+                    {t('assetImport.rowError', {
+                      row: skip.row,
+                      ticker: skip.ticker ?? '—',
+                      reason: t(`assetImport.skip.${skip.reason}`, skip.reason),
+                    })}
+                  </li>
+                ))}
+                {rowSkips.length > 8 && (
+                  <li>{t('assetImport.moreErrors', { count: rowSkips.length - 8 })}</li>
                 )}
               </ul>
             </div>

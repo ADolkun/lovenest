@@ -1089,7 +1089,7 @@
     "title": "Import investment orders",
     "action": "Import orders",
     "choose": "Choose a CSV file",
-    "chooseHint": "Ticker, date, quantity and price are required. A negative quantity is read as a sale.",
+    "chooseHint": "Ticker, date and quantity are required, plus either a unit price or a total cost basis. A negative quantity is read as a sale.",
     "downloadTemplate": "Download template",
     "importTo": "Import into",
     "nothingToImport": "Nothing left to import from this file",
@@ -1105,7 +1105,7 @@
     "confirm": "Import {{count}} orders",
     "summaryOrders": "{{count}} orders ready",
     "summaryHoldings": "{{created}} holdings created, {{matched}} matched",
-    "summarySkipped": "{{count}} already imported",
+    "summarySkipped": "{{count}} rows create nothing",
     "rowsSkipped": "{{count}} rows will be skipped",
     "rowError": "Row {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "and {{count}} more",
@@ -1118,12 +1118,17 @@
       "fee": "Fee",
       "kind": "Buy/Sell",
       "currency": "Currency",
-      "notes": "Notes"
+      "notes": "Notes",
+      "cost_basis": "Cost basis (total)",
+      "date_sold": "Date sold",
+      "proceeds": "Proceeds (total)"
     },
     "walletWarningTitle": "Already in your portfolio",
     "warning": {
       "exists_in_other_wallet": "{{ticker}} is already held in {{wallet}}. Importing here creates a second position.",
-      "orders_already_in_other_wallet": "{{ticker}}: these same orders are already in {{wallet}}. Importing here would count the shares twice."
+      "orders_already_in_other_wallet": "{{ticker}}: these same orders are already in {{wallet}}. Importing here would count the shares twice.",
+      "units_differ_from_provider": "{{ticker}}: the imported history does not add up to the quantity your provider reported.",
+      "unpriced_holding": "{{ticker}} is not listed by any price provider, so this holding will not be marked to market."
     },
     "kind": {
       "buy": "Buy",
@@ -1134,9 +1139,19 @@
       "invalid_date": "unreadable date",
       "invalid_quantity": "unreadable quantity",
       "invalid_price": "unreadable price",
-      "invalid_kind": "unrecognised buy/sell value",
       "unknown_ticker": "ticker not found by the price provider",
-      "oversell": "selling more units than the position holds"
+      "oversell": "selling more units than the position holds",
+      "invalid_proceeds": "a disposal date with no proceeds",
+      "below_ledger_scale": "finer than the ledger's 18 decimal places"
+    },
+    "rowsNotImported": "{{count}} rows create nothing",
+    "allowUnpriced": "Import holdings no price provider knows",
+    "allowUnpricedHint": "For a delisted stock or a token from an insolvency estate: the basis is kept and the holding is not marked to market.",
+    "skip": {
+      "already_imported": "already on the ledger",
+      "transfer": "a transfer between your own wallets — the basis moves with the units",
+      "unsupported_type": "transaction type not supported",
+      "no_units": "no units move on this row"
     }
   },
   "assets": {

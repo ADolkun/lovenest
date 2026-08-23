@@ -30,7 +30,7 @@ class Asset(Base):
     # allocation views can leave it out.
     type: Mapped[str] = mapped_column(String(50))
     currency: Mapped[str] = mapped_column(String(3), default="USD")
-    units: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=6), nullable=True)
+    units: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=28, scale=18), nullable=True)
     valuation_method: Mapped[str] = mapped_column(String(20), default="manual")  # manual, growth_rule
     purchase_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     purchase_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
@@ -84,7 +84,7 @@ class Asset(Base):
     # the currently-held units, so `gain_loss = current_value - purchase_price`
     # stays meaningful as the unrealized gain (issue #235).
     average_price: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(precision=18, scale=6), nullable=True
+        Numeric(precision=28, scale=18), nullable=True
     )
     # Cumulative realized gain/loss from sell transactions, in asset currency.
     realized_gain: Mapped[Optional[Decimal]] = mapped_column(

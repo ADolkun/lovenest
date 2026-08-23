@@ -771,15 +771,24 @@ export interface AssetImportRowError {
   detail: string | null
 }
 
+export interface AssetImportSkip {
+  row: number
+  reason: string
+  ticker: string | null
+  detail: string | null
+}
+
 export interface AssetImportWarning {
   ticker: string
   reason: string
   wallet: string | null
+  detail: string | null
 }
 
 export interface AssetImportPreview {
   orders: AssetOrderImport[]
   errors: AssetImportRowError[]
+  skips: AssetImportSkip[]
   warnings: AssetImportWarning[]
   csv_columns: string[]
   parse_error: string | null
@@ -794,6 +803,7 @@ export interface AssetImportResult {
   holdings_created: number
   holdings_matched: number
   errors: AssetImportRowError[]
+  skips: AssetImportSkip[]
   warnings: AssetImportWarning[]
 }
 

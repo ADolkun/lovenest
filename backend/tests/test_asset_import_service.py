@@ -58,7 +58,7 @@ async def _only_asset(session: AsyncSession, workspace: Workspace) -> Asset:
 
 
 def test_headers_are_recognised_without_a_mapping():
-    orders, errors, columns = asset_import_service.parse_orders_csv(_csv(
+    orders, errors, _, columns = asset_import_service.parse_orders_csv(_csv(
         "ticker,date,quantity,price,fee",
         "AAPL,2026-01-15,10,150.00,1.20",
     ))
@@ -70,7 +70,7 @@ def test_headers_are_recognised_without_a_mapping():
 
 def test_portuguese_broker_headers_are_recognised():
     """A Brazilian export names its columns in Portuguese and prices with commas."""
-    orders, errors, _ = asset_import_service.parse_orders_csv(_csv(
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
         "Ativo;Data;Quantidade;Preço;Corretagem",
         "PETR4.SA;10/02/2026;100;38,50;2,90",
     ))
@@ -83,7 +83,7 @@ def test_portuguese_broker_headers_are_recognised():
 
 def test_negative_quantity_reads_as_a_sale():
     """The convention most broker exports use for a sale."""
-    orders, _, _ = asset_import_service.parse_orders_csv(_csv(
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
         "ticker,date,quantity,price",
         "AAPL,2026-03-02,-4,178.30",
     ))
@@ -92,7 +92,7 @@ def test_negative_quantity_reads_as_a_sale():
 
 
 def test_explicit_kind_column_wins_over_the_sign():
-    orders, _, _ = asset_import_service.parse_orders_csv(_csv(
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
         "ticker,date,quantity,price,tipo",
         "AAPL,2026-03-02,4,178.30,venda",
     ))
@@ -100,7 +100,7 @@ def test_explicit_kind_column_wins_over_the_sign():
 
 
 def test_unreadable_rows_are_reported_not_silently_dropped():
-    orders, errors, _ = asset_import_service.parse_orders_csv(_csv(
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
         "ticker,date,quantity,price",
         "AAPL,2026-01-15,10,150.00",
         ",2026-01-15,10,150.00",
@@ -116,7 +116,7 @@ def test_unreadable_rows_are_reported_not_silently_dropped():
 def test_latin1_file_does_not_blow_up():
     """Broker exports are not always UTF-8; the transaction importer raises here."""
     content = "ticker,date,quantity,price,name\nAAPL,2026-01-15,10,150.00,Ação\n".encode("latin-1")
-    orders, errors, _ = asset_import_service.parse_orders_csv(content)
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(content)
     assert errors == []
     assert orders[0].ticker == "AAPL"
 
@@ -127,7 +127,7 @@ def test_missing_required_column_is_a_parse_error():
 
 
 def test_explicit_mapping_overrides_the_guess():
-    orders, errors, _ = asset_import_service.parse_orders_csv(
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(
         _csv("col_a,col_b,col_c,col_d", "AAPL,2026-01-15,10,150.00"),
         column_mapping={"ticker": "col_a", "date": "col_b", "quantity": "col_c", "price": "col_d"},
     )
@@ -146,7 +146,7 @@ def provider():
 
 
 async def _import(session, workspace, user, csv_bytes, provider, **kwargs):
-    orders, _, _ = asset_import_service.parse_orders_csv(csv_bytes)
+    orders, _, _, _ = asset_import_service.parse_orders_csv(csv_bytes)
     return await asset_import_service.import_orders(
         session, workspace.id, user.id, orders, market_provider=provider, **kwargs
     )
@@ -298,7 +298,7 @@ async def test_dry_run_writes_nothing(
 )
 def test_headers_are_recognised_in_every_language_the_app_ships(header, row, expected_kind):
     """A broker export is written in the language of whoever downloaded it."""
-    orders, errors, _ = asset_import_service.parse_orders_csv(_csv(header, row))
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(header, row))
     assert errors == [], header
     assert len(orders) == 1, header
     assert orders[0].ticker == "AAPL"
@@ -532,3 +532,390 @@ async def test_a_ticker_neither_call_knows_is_still_refused(
 
     assert [(e.row, e.reason) for e in summary["errors"]] == [(2, "unknown_ticker")]
     assert summary["imported"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The lot shape: a crypto tax tool's reconciled history
+# ---------------------------------------------------------------------------
+
+
+#: The header a CoinLedger 8949 attachment writes, verbatim — timezone
+#: parenthetical and all, because that is what the file actually contains.
+_CLOSED_LOT_HEADER = (
+    "Amount,Asset,Date Acquired (America/Los_Angeles),Date Sold (America/Los_Angeles),"
+    "Cost Basis,Proceeds,Gain,Term"
+)
+
+
+def test_a_closed_lot_row_becomes_the_buy_that_opened_it_and_the_sell_that_closed_it():
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        _CLOSED_LOT_HEADER,
+        "0.5,AAPL,2024-01-02 10:00:00,2024-06-01 12:00:00,50,80,30,Short",
+    ))
+    assert (errors, skips) == ([], [])
+    assert [(o.kind, str(o.date), o.quantity, o.price) for o in orders] == [
+        ("buy", "2024-01-02", Decimal("0.5"), Decimal("100")),
+        ("sell", "2024-06-01", Decimal("0.5"), Decimal("160")),
+    ]
+
+
+def test_a_lot_reports_total_cost_not_a_unit_price():
+    """Mapping `Cost Basis` straight onto `price` would multiply the basis by
+    the quantity — 4 units at a $50 total are $12.50 each, not $50 each."""
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Date Acquired,Amount,Cost Basis",
+        "AAPL,2024-01-02,4,50",
+    ))
+    assert [(o.kind, o.price) for o in orders] == [("buy", Decimal("12.5"))]
+
+
+def test_an_open_lot_is_only_a_buy():
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Date Acquired (America/Los_Angeles),Asset,Amount Remaining,Cost Basis Remaining,Platform Account",
+        "2025-01-20 10:42:58,ALEO,1.525786,2.50228904,Coinbase",
+    ))
+    assert errors == []
+    assert len(orders) == 1
+    assert orders[0].kind == "buy"
+    assert orders[0].quantity == Decimal("1.525786")
+
+
+def test_a_disposal_with_no_proceeds_is_reported_rather_than_half_imported():
+    """Importing only the buy would leave units the ledger never disposed of."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        _CLOSED_LOT_HEADER,
+        "0.5,AAPL,2024-01-02 10:00:00,2024-06-01 12:00:00,50,,,Short",
+    ))
+    assert [(e.row, e.reason) for e in errors] == [(2, "invalid_proceeds")]
+    assert [o.kind for o in orders] == ["buy"]
+
+
+def test_sixteen_decimal_places_survive_the_round_trip():
+    """A crypto lot report carries more decimals than a share count ever does,
+    and the ledger has to hold them (migration 082)."""
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Date Acquired,Amount,Cost Basis",
+        "USDC,2024-12-20,0.1956715971120125,0.1956715971120125",
+    ))
+    assert orders[0].quantity == Decimal("0.1956715971120125")
+    assert orders[0].price == Decimal("1")
+
+
+def test_a_quantity_below_the_ledger_scale_is_refused_not_silently_zeroed():
+    _, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Date Acquired,Amount,Cost Basis",
+        "BTC,2024-12-20,0.0000000000000000001,1",
+    ))
+    assert [e.reason for e in errors] == ["below_ledger_scale"]
+
+
+# ---------------------------------------------------------------------------
+# The transaction types a crypto history uses and a broker file never did
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("type_word,kind,price", [
+    ("Interest Income", "buy", Decimal("1")),
+    ("Staking Reward", "buy", Decimal("1")),
+    ("Referred Award", "buy", Decimal("1")),
+    ("CLAIM_DISTRIBUTION_4", "buy", Decimal("1")),
+    ("Buy", "buy", Decimal("1")),
+    ("Sell", "sell", Decimal("1")),
+])
+def test_a_crypto_type_word_opens_or_closes_a_lot(type_word, kind, price):
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Timestamp,Amount,Price At Acquisition,Type",
+        f"USDC,2025-01-04,10,{price},{type_word}",
+    ))
+    assert (errors, skips) == ([], []), type_word
+    assert [(o.kind, o.price) for o in orders] == [(kind, price)]
+
+
+def test_an_airdrop_with_no_stated_value_opens_a_lot_at_zero_basis():
+    """Units that cost nothing make the whole eventual disposal a gain, which
+    is the honest answer — not an unreadable price."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Timestamp,Amount,Cost Basis,Type",
+        "AERO,2025-01-04,120,,Airdrop",
+    ))
+    assert errors == []
+    assert [(o.kind, o.price) for o in orders] == [("buy", Decimal("0"))]
+
+
+def test_a_transfer_between_the_users_own_wallets_is_skipped_with_its_reason():
+    """Basis travels with the coins, so importing one would invent a lot."""
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "Coin type,Date and time,Coin amount,USD Value,Transaction type,Internal id",
+        '"BTC","May 5, 2023 4:05 PM","-0.000372","-10.72","Withdrawal","abc-1"',
+        '"BTC","May 4, 2023 7:07 PM","0.0004","11.50","Reward","abc-2"',
+    ))
+    assert errors == []
+    assert [(s.row, s.ticker, s.reason) for s in skips] == [(2, "BTC", "transfer")]
+    assert [(o.row, o.kind, str(o.date)) for o in orders] == [(3, "buy", "2023-05-04")]
+
+
+def test_a_type_this_module_does_not_model_is_a_skip_not_a_malformed_row():
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price,type",
+        "AAPL,2026-01-15,10,150.00,margin call",
+    ))
+    assert (orders, errors) == ([], [])
+    assert [(s.row, s.reason, s.detail) for s in skips] == [(2, "unsupported_type", "margin call")]
+
+
+def test_a_broker_action_sentence_is_read_by_the_word_that_matters():
+    """`Action` is a sentence, not a word: "YOU BOUGHT FIDELITY ZERO (FZROX)"."""
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Run Date,Action,Symbol,Price ($),Quantity,Fees ($),Settlement Date",
+        "2021-12-03,YOU BOUGHT FIDELITY ZERO TOTAL MARKET INDEX (FZROX) (Cash),FZROX,16,2.501,,",
+    ))
+    assert [(o.kind, o.ticker, str(o.date)) for o in orders] == [("buy", "FZROX", "2021-12-03")]
+
+
+def test_a_cash_dividend_moves_no_units_and_is_skipped_not_failed():
+    _, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "Run Date,Action,Symbol,Price ($),Quantity,Fees ($),Settlement Date",
+        "2021-12-03,DIVIDEND RECEIVED FIDELITY ZERO (FZROX) (Cash),FZROX,,0,,",
+    ))
+    assert errors == []
+    assert [(s.row, s.reason) for s in skips] == [(2, "no_units")]
+
+
+def test_leading_blank_lines_do_not_become_the_header():
+    """Fidelity writes a BOM and an empty line above its header row."""
+    content = "﻿\n\nticker,date,quantity,price\nAAPL,2026-01-15,10,150.00\n".encode("utf-8")
+    orders, errors, _, columns = asset_import_service.parse_orders_csv(content)
+    assert (errors, columns) == ([], ["ticker", "date", "quantity", "price"])
+    assert orders[0].ticker == "AAPL"
+
+
+def test_padded_header_names_still_find_their_cells():
+    """`id, Coin type, Coin amount` keys every row by the padded name."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Internal id, Coin type, Date and time, Coin amount, USD Value",
+        "abc-1,BTC,2023-05-04,0.0004,11.50",
+    ))
+    assert errors == []
+    assert orders[0].ticker == "BTC"
+    assert orders[0].external_id == "abc-1"
+
+
+# ---------------------------------------------------------------------------
+# Files with nothing in them, and files nobody can map
+# ---------------------------------------------------------------------------
+
+
+def test_a_file_with_only_a_header_imports_nothing_and_complains_about_nothing():
+    orders, errors, skips, columns = asset_import_service.parse_orders_csv(
+        _csv("ticker,date,quantity,price")
+    )
+    assert (orders, errors, skips) == ([], [], [])
+    assert columns == ["ticker", "date", "quantity", "price"]
+
+
+def test_a_completely_empty_file_is_a_parse_error_not_a_crash():
+    with pytest.raises(ValueError, match="no header row"):
+        asset_import_service.parse_orders_csv(b"")
+
+
+def test_columns_nobody_recognises_name_every_field_the_file_still_needs():
+    """The endpoint turns this into the mapping dropdowns, so the message has
+    to say which fields are still unanswered."""
+    with pytest.raises(ValueError) as exc:
+        asset_import_service.parse_orders_csv(_csv(
+            "col_a,col_b,col_c", "x,y,z",
+        ))
+    assert "ticker" in str(exc.value)
+    assert "quantity" in str(exc.value)
+    assert "price" in str(exc.value)
+
+
+def test_a_file_with_a_basis_column_needs_no_price_column():
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "Asset,Date Acquired,Amount,Cost Basis", "AAPL,2024-01-02,4,50",
+    ))
+    assert (errors, len(orders)) == ([], 1)
+
+
+# ---------------------------------------------------------------------------
+# Applying the lot shape
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_closed_lot_lands_as_both_halves_and_leaves_the_position_flat(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    summary = await _import(session, test_workspace, test_user, _csv(
+        _CLOSED_LOT_HEADER,
+        "0.5,AAPL,2024-01-02 10:00:00,2024-06-01 12:00:00,50,80,30,Short",
+    ), provider)
+
+    assert summary["imported"] == 2
+    stored = await _only_asset(session, test_workspace)
+    assert stored.units == Decimal("0")
+    assert stored.realized_gain == Decimal("30")
+
+
+@pytest.mark.asyncio
+async def test_reimporting_a_lot_report_adds_nothing(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    content = _csv(
+        _CLOSED_LOT_HEADER,
+        "0.5,AAPL,2024-01-02 10:00:00,2024-06-01 12:00:00,50,80,30,Short",
+        "0.25,AAPL,2024-02-02 10:00:00,,25,,,Short",
+    )
+    await _import(session, test_workspace, test_user, content, provider)
+    summary = await _import(session, test_workspace, test_user, content, provider)
+
+    assert summary["imported"] == 0
+    assert summary["skipped"] == 3
+    assert {s.reason for s in summary["skips"]} == {"already_imported"}
+    assert all(s.row in (2, 3) for s in summary["skips"])
+    rows = (await session.execute(AssetTransaction.__table__.select())).all()
+    assert len(rows) == 3
+
+
+@pytest.mark.asyncio
+async def test_two_identical_buys_on_one_day_are_two_lots_not_one(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """A crypto history does this several times a page. Under a plain
+    already-seen set the second one could never be imported after the first."""
+    content = _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-01-15,10,100.00",
+        "AAPL,2026-01-15,10,100.00",
+    )
+    first = await _import(session, test_workspace, test_user, content, provider)
+    assert first["imported"] == 2
+
+    second = await _import(session, test_workspace, test_user, content, provider)
+    assert (second["imported"], second["skipped"]) == (0, 2)
+    stored = await _only_asset(session, test_workspace)
+    assert stored.units == Decimal("20")
+
+
+@pytest.mark.asyncio
+async def test_a_skip_names_its_row_and_says_why(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    content = _csv("ticker,date,quantity,price", "AAPL,2026-01-15,10,100.00")
+    await _import(session, test_workspace, test_user, content, provider)
+    summary = await _import(session, test_workspace, test_user, content, provider)
+
+    skip = summary["skips"][0]
+    assert (skip.row, skip.ticker, skip.reason) == (2, "AAPL", "already_imported")
+    assert "2026-01-15" in skip.detail
+
+
+# ---------------------------------------------------------------------------
+# Holdings no price provider will ever answer for
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_unpriced_holding_can_be_imported_when_it_is_asked_for(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """A token from an insolvency estate has a real basis and no market."""
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price", "IONIC,2024-01-31,163,10.00",
+    ), provider, allow_unpriced=True)
+
+    assert summary["imported"] == 1
+    assert [w.reason for w in summary["warnings"]] == ["unpriced_holding"]
+    stored = await _only_asset(session, test_workspace)
+    assert stored.valuation_method == "manual"
+    assert (stored.ticker, stored.units, stored.last_price) == ("IONIC", Decimal("163"), None)
+
+
+@pytest.mark.asyncio
+async def test_an_unpriced_holding_is_matched_rather_than_duplicated_next_time(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    first = _csv("ticker,date,quantity,price", "IONIC,2024-01-31,163,10.00")
+    later = _csv("ticker,date,quantity,price", "IONIC,2024-06-30,50,12.00")
+    await _import(session, test_workspace, test_user, first, provider, allow_unpriced=True)
+    summary = await _import(session, test_workspace, test_user, later, provider, allow_unpriced=True)
+
+    assert summary["holdings_created"] == 0
+    stored = await _only_asset(session, test_workspace)
+    assert stored.units == Decimal("213")
+
+
+@pytest.mark.asyncio
+async def test_the_escape_hatch_stays_shut_unless_it_is_asked_for(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """An unrecognised ticker is nearly always a typo."""
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price", "IONIC,2024-01-31,163,10.00",
+    ), provider)
+    assert [e.reason for e in summary["errors"]] == ["unknown_ticker"]
+    assert summary["imported"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Seeding a Snapshot Holding
+# ---------------------------------------------------------------------------
+
+
+async def _snapshot_holding(session, workspace, user, *, units: str) -> Asset:
+    """A holding a provider reported with no Trades behind it (CONTEXT.md)."""
+    asset = Asset(
+        id=uuid.uuid4(), user_id=user.id, workspace_id=workspace.id,
+        name="Apple", type="stock", currency="USD", valuation_method="market_price",
+        ticker="AAPL", units=Decimal(units), source="coinbase",
+    )
+    session.add(asset)
+    await session.flush()
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_a_partial_history_over_a_snapshot_holding_is_flagged_not_absorbed(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """`recompute_and_cache` rewrites units from the ledger, so seeding half a
+    history would quietly replace the provider's quantity with the file's."""
+    await _snapshot_holding(session, test_workspace, test_user, units="20")
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price", "AAPL,2026-01-15,8,100.00",
+    ), provider)
+
+    warning = next(w for w in summary["warnings"] if w.reason == "units_differ_from_provider")
+    assert warning.ticker == "AAPL"
+    assert "8" in warning.detail and "20" in warning.detail
+
+
+@pytest.mark.asyncio
+async def test_a_history_that_reconciles_with_the_provider_says_nothing(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    await _snapshot_holding(session, test_workspace, test_user, units="20")
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-01-15,30,100.00",
+        "AAPL,2026-02-15,-10,120.00",
+    ), provider)
+
+    assert [w.reason for w in summary["warnings"]] == []
+    stored = await _only_asset(session, test_workspace)
+    assert stored.units == Decimal("20")
+
+
+@pytest.mark.asyncio
+async def test_a_holding_that_already_has_a_ledger_is_not_reconciled_against(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """Only a Snapshot Holding has a provider figure to disagree with; once
+    there are Trades the ledger is authoritative (CONTEXT.md)."""
+    content = _csv("ticker,date,quantity,price", "AAPL,2026-01-15,10,100.00")
+    await _import(session, test_workspace, test_user, content, provider)
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price", "AAPL,2026-03-15,5,120.00",
+    ), provider)
+
+    assert [w.reason for w in summary["warnings"]] == []

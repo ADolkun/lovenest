@@ -262,6 +262,7 @@ async def preview_asset_import(
     column_mapping: str | None = Form(None),
     date_format: str | None = Form(None),
     group_id: uuid.UUID | None = Form(None),
+    allow_unpriced: bool = Form(False),
     ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -279,7 +280,7 @@ async def preview_asset_import(
             raise HTTPException(status_code=400, detail="column_mapping must be valid JSON")
 
     try:
-        orders, errors, columns = asset_import_service.parse_orders_csv(
+        orders, errors, skips, columns = asset_import_service.parse_orders_csv(
             content, column_mapping=mapping, date_format=date_format
         )
     except ValueError as exc:
@@ -294,7 +295,8 @@ async def preview_asset_import(
 
     try:
         summary = await asset_import_service.import_orders(
-            session, ctx.workspace.id, ctx.user_id, orders, group_id=group_id, dry_run=True
+            session, ctx.workspace.id, ctx.user_id, orders, group_id=group_id, dry_run=True,
+            allow_unpriced=allow_unpriced,
         )
     except MarketPriceRateLimitedError:
         raise HTTPException(
@@ -302,18 +304,19 @@ async def preview_asset_import(
             detail="Market data provider is currently rate-limiting. Try again in a minute.",
         )
 
-    # The dry run rejects rows the parser could not know about — an unknown
-    # ticker, a sell with nothing to sell. Drop those from the list too, so the
-    # table, the count and the button all describe the same import.
-    rejected = {e.row for e in summary["errors"]}
+    # The dry run is the authority on what will be imported: it rejects rows
+    # the parser could not know about — an unknown ticker, a sell with nothing
+    # to sell — and drops the ones already on the ledger. Show what it accepted,
+    # so the table, the count and the button all describe the same import.
     return AssetImportPreview(
-        orders=[o for o in orders if o.row not in rejected],
+        orders=summary["accepted"],
         errors=errors + summary["errors"],
+        skips=skips + summary["skips"],
         warnings=summary["warnings"],
         csv_columns=columns,
         holdings_created=summary["holdings_created"],
         holdings_matched=summary["holdings_matched"],
-        skipped=summary["skipped"],
+        skipped=summary["skipped"] + len(skips),
     )
 
 
@@ -328,6 +331,7 @@ async def import_asset_orders(
         summary = await asset_import_service.import_orders(
             session, ctx.workspace.id, ctx.user_id, data.orders,
             group_id=data.group_id, filename=data.filename,
+            allow_unpriced=data.allow_unpriced,
         )
     except MarketPriceRateLimitedError:
         raise HTTPException(

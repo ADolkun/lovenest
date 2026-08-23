@@ -154,3 +154,90 @@ async def test_preview_lists_only_the_rows_it_will_import(client: AsyncClient, a
     body = resp.json()
     assert [o["ticker"] for o in body["orders"]] == ["AAPL"]
     assert [(e["row"], e["reason"]) for e in body["errors"]] == [(3, "unknown_ticker")]
+
+
+LOT_CSV = (
+    b"Amount,Asset,Date Acquired (America/Los_Angeles),Date Sold (America/Los_Angeles),"
+    b"Cost Basis,Proceeds,Gain,Term\n"
+    b"0.5,AAPL,2024-01-02 10:00:00,2024-06-01 12:00:00,50,80,30,Short\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_preview_reads_a_lot_report_without_a_mapping_step(
+    client: AsyncClient, auth_headers
+):
+    resp = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("gains.csv", LOT_CSV, "text/csv")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["parse_error"] is None
+    assert [(o["kind"], o["date"]) for o in body["orders"]] == [
+        ("buy", "2024-01-02"), ("sell", "2024-06-01"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_preview_reports_skipped_rows_with_their_reason(
+    client: AsyncClient, auth_headers
+):
+    content = b"ticker,date,quantity,price,type\nAAPL,2026-01-15,1,150.00,transfer in\n"
+    resp = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("history.csv", content, "text/csv")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [(s["row"], s["reason"]) for s in body["skips"]] == [(2, "transfer")]
+    assert body["skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unpriced_ticker_is_refused_unless_the_caller_asks_for_it(
+    client: AsyncClient, auth_headers
+):
+    content = b"ticker,date,quantity,price\nIONIC,2024-01-31,163,10.00\n"
+    files = {"file": ("estate.csv", content, "text/csv")}
+
+    refused = await client.post(
+        "/api/assets/import/preview", files=files, headers=auth_headers
+    )
+    assert [e["reason"] for e in refused.json()["errors"]] == ["unknown_ticker"]
+
+    allowed = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("estate.csv", content, "text/csv")},
+        data={"allow_unpriced": "true"},
+        headers=auth_headers,
+    )
+    body = allowed.json()
+    assert body["errors"] == []
+    assert [w["reason"] for w in body["warnings"]] == ["unpriced_holding"]
+    assert len(body["orders"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_committing_an_unpriced_holding_creates_it(client: AsyncClient, auth_headers):
+    resp = await client.post(
+        "/api/assets/import",
+        json={
+            "orders": [{
+                "row": 2, "ticker": "IONIC", "date": "2024-01-31",
+                "kind": "buy", "quantity": "163", "price": "10.00",
+            }],
+            "allow_unpriced": True,
+            "filename": "estate.csv",
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["imported"] == 1
+    assert resp.json()["holdings_created"] == 1
+
+    listed = await client.get("/api/assets", headers=auth_headers)
+    ionic = next(a for a in listed.json() if a["ticker"] == "IONIC")
+    assert ionic["valuation_method"] == "manual"
