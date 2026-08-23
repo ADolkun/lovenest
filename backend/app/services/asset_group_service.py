@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 from typing import Optional, cast
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,26 @@ from app.schemas.asset_group import (
     TaxTreatment,
 )
 from app.services.fx_rate_service import convert
+
+
+async def ensure_group_in_workspace(
+    session: AsyncSession, group_id: Optional[uuid.UUID], workspace_id: uuid.UUID
+) -> None:
+    """Validate a wallet an asset is about to be linked to.
+
+    `Asset.group_id` is a bare foreign key with no workspace of its own, so
+    every write path that takes one from a request has to check it here —
+    otherwise an id belonging to another workspace is stored and honoured.
+    Reports the same "not found" a wallet outside the workspace gets
+    everywhere else, rather than confirming that the id exists elsewhere.
+    """
+    if group_id is None:
+        return
+    group = await session.get(AssetGroup, group_id)
+    if group is None or group.workspace_id != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
+        )
 
 
 async def _latest_value_amount(session: AsyncSession, asset_id: uuid.UUID) -> Optional[Decimal]:
@@ -77,10 +98,15 @@ async def _rollup(
     Aggregates in Decimal end-to-end to avoid float drift on portfolios
     with many small-value holdings (e.g. crypto) or when Pluggy
     publishes AssetValue amounts at 6-decimal precision.
+
+    Scoped to the wallet's own workspace as well as its id: `group_id` is a
+    bare foreign key, so a row written before the write paths validated it
+    would otherwise be totalled in a workspace it does not belong to.
     """
     assets = await session.execute(
         select(Asset).where(
             Asset.group_id == group.id,
+            Asset.workspace_id == group.workspace_id,
             Asset.is_archived == False,
             Asset.sell_date.is_(None),
         )
