@@ -73,8 +73,13 @@ x-backend-base: &backend-base
   # Built from this branch so the image includes Lovenest customizations.
   build:
     context: ./backend
-  image: lovenest-backend:0.14.1-lovenest
+  image: lovenest-backend:0.14.3-lovenest
   environment: *backend-env
+  # Lets a connection point at a model server running on the host (LM Studio,
+  # Ollama, llama.cpp) as http://host.docker.internal:<port>. Docker Desktop
+  # resolves the name on its own; this makes it work on Linux too.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   depends_on:
     db: { condition: service_healthy }
     redis: { condition: service_healthy }
@@ -122,7 +127,7 @@ services:
   tax-planner:
     build:
       context: ./extras/tax
-    image: lovenest-tax-planner:0.14.1-lovenest
+    image: lovenest-tax-planner:0.14.3-lovenest
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/securo
       BACKEND_URL: http://backend:8000
@@ -141,8 +146,8 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_APP_VERSION: "0.14.1"
-    image: lovenest-frontend:0.14.1-lovenest
+        VITE_APP_VERSION: "0.14.3"
+    image: lovenest-frontend:0.14.3-lovenest
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     environment:

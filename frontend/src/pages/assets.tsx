@@ -42,6 +42,7 @@ import {
   Wallet,
   FolderInput,
   AlertTriangle,
+  Upload,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -52,19 +53,13 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
+import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/page-header'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-
-function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
-  try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency: currency || 'USD' }).format(value)
-  } catch {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value)
-  }
-}
+import { formatCurrency } from '@/lib/format'
 
 // Renders a logo image when one is available, falling back to the asset's
 // type-based Lucide icon on missing URL or broken image. Uses the type's
@@ -184,6 +179,7 @@ function assetErrorMessage(e: unknown, fallback: string): string {
 
 export default function AssetsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
@@ -1039,6 +1035,10 @@ export default function AssetsPage() {
         action={
           canWrite ? (
             <div className="flex items-center gap-2">
+              <Button onClick={() => navigate('/import?tab=investments')} variant="outline" className="gap-1.5">
+                <Upload size={16} />
+                {t('assetImport.action')}
+              </Button>
               <Button onClick={openCreateWallet} variant="outline" className="gap-1.5">
                 <Wallet size={16} />
                 {t('assets.newWallet')}

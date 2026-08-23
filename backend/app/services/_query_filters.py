@@ -12,6 +12,7 @@ from sqlalchemy import and_, case, exists, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.models.account import Account
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.services.transaction_semantics import (
@@ -63,6 +64,59 @@ def user_pnl_group():
     )
 
 
+def is_confirmed():
+    """SQL filter: the charge is settled rather than merely authorized.
+
+    One of the two independent axes a transaction sits on. This one is about
+    *confirmation*: a pending row is real money already committed, it just
+    has not cleared yet. It says nothing about when the row is dated.
+    """
+    return Transaction.status == "posted"
+
+
+def is_not_future(as_of: date):
+    """SQL filter: the transaction has already happened by ``as_of``.
+
+    The other axis, and a pure date question. A future-dated row is forecast
+    no matter how confirmed it is; a past-dated row has happened no matter
+    whether the bank has cleared it.
+    """
+    return Transaction.date <= as_of
+
+
+def is_inside_provider_snapshot():
+    """SQL filter: the provider's balance already accounts for this row.
+
+    A connected account's current balance is the number the provider sends,
+    not a sum of our rows, and providers net out the pending charges they
+    report. A row typed by hand is ambiguous the same way, since the user is
+    usually copying a charge the bank is already showing them.
+
+    A recurring placeholder is the one case we can be sure about: we invented
+    the row from a schedule, so no provider has ever seen it. Treating it as
+    already counted makes it cancel itself out, leaving a charge that shows up
+    in the forecast totals but moves no balance.
+    """
+    return Transaction.source != "recurring"
+
+
+def counts_in_current_balance(as_of: date):
+    """SQL filter: the row belongs in the balance labelled "current".
+
+    Composed from the two axes above so the definition lives in one place and
+    moving the line later is a change here rather than at every query site.
+
+    Today the line sits at "confirmed and not future", with one exception:
+    a credit card's balance is the debt owed, and an authorized purchase is
+    already owed, so pending card rows stay in. Without that carve-out the
+    card's balance understates the debt while its own bill total includes it.
+    """
+    return and_(
+        is_not_future(as_of),
+        or_(is_confirmed(), Account.type == "credit_card"),
+    )
+
+
 def reporting_date_col(accounting_mode: str):
     """The date column a transaction should be *bucketed by* in period
     aggregations (dashboard, reports, budgets).
@@ -86,6 +140,30 @@ def reporting_date_col(accounting_mode: str):
         else Transaction.date
     )
     return func.coalesce(Transaction.effective_bill_date, base)
+
+
+def is_not_ignored():
+    """SQL filter: the row is not one the user told us to disregard.
+
+    Only the ignore signal, without the transfer/settlement family that
+    `counts_as_pnl` folds in, because hiding rows from a *list* is a
+    different question from leaving them out of a *total*: a transfer still
+    belongs in the ledger the user is reading.
+
+    Matches what the UI badges as ignored, which is the transaction flag or
+    its category's — see `TransactionRead.reflect_ignored_category`. A list
+    that hid one but not the other would leave visibly-ignored rows behind
+    and look broken.
+    """
+    return and_(
+        Transaction.is_ignored.is_(False),
+        or_(
+            Transaction.category_id.is_(None),
+            Transaction.category_id.not_in(
+                select(Category.id).where(Category.is_ignored.is_(True))
+            ),
+        ),
+    )
 
 
 def counts_as_pnl():
@@ -157,7 +235,7 @@ async def owner_split_offset_pnl(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     workspace_id: Optional[uuid.UUID] = None,
-    posted_only: bool = False,
+    posted_only: bool = True,
 ) -> tuple[float, float]:
     """Return (income_offset, expense_offset) — the totals to *subtract*
     from the owner's full-amount aggregations so only their own share
@@ -211,7 +289,11 @@ async def owner_split_offset_pnl(
             ),
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
-            *([Transaction.status == "posted"] if posted_only else []),
+            *(
+                [Transaction.status == "posted", date_col <= date.today()]
+                if posted_only
+                else []
+            ),
             date_col >= month_start,
             date_col < month_end,
             counts_as_user_pnl(),
@@ -252,7 +334,7 @@ async def owner_split_offset_by_category(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     workspace_id: Optional[uuid.UUID] = None,
-    posted_only: bool = False,
+    posted_only: bool = True,
 ) -> dict:
     """Per-category, sum of non-owner shares on owner-side debit splits —
     subtract from full owner debits to get the owner's category share."""
@@ -291,7 +373,11 @@ async def owner_split_offset_by_category(
             Transaction.type == "debit",
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
-            *([Transaction.status == "posted"] if posted_only else []),
+            *(
+                [Transaction.status == "posted", date_col <= date.today()]
+                if posted_only
+                else []
+            ),
             date_col >= month_start,
             date_col < month_end,
             counts_as_user_pnl(),
@@ -324,7 +410,7 @@ async def viewer_shared_pnl(
     month_end: date,
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
-    posted_only: bool = False,
+    posted_only: bool = True,
 ) -> tuple[float, float]:
     """Return (income, expense) totals contributed by transactions the
     viewer doesn't own but participates in via a group split.
@@ -375,10 +461,14 @@ async def viewer_shared_pnl(
             # Avoid double-counting if the viewer also owns the parent.
             Transaction.user_id != user_id,
             Transaction.source != "opening_balance",
-            *([Transaction.status == "posted"] if posted_only else []),
+            *(
+                [Transaction.status == "posted", date_col <= date.today()]
+                if posted_only
+                else []
+            ),
             date_col >= month_start,
             date_col < month_end,
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
         .group_by(Transaction.currency)
     )
@@ -419,7 +509,7 @@ async def viewer_shared_spending_by_category(
     month_end: date,
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
-    posted_only: bool = False,
+    posted_only: bool = True,
 ) -> dict:
     """Return {category_id (uuid|None): total_share_expense_float} for
     transactions where the viewer participates via a group split.
@@ -454,10 +544,14 @@ async def viewer_shared_spending_by_category(
             Transaction.user_id != user_id,
             Transaction.type == "debit",
             Transaction.source != "opening_balance",
-            *([Transaction.status == "posted"] if posted_only else []),
+            *(
+                [Transaction.status == "posted", date_col <= date.today()]
+                if posted_only
+                else []
+            ),
             date_col >= month_start,
             date_col < month_end,
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
         .group_by(Transaction.category_id, Transaction.currency)
     )

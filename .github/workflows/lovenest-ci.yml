@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -q uv==0.12.1
+          pip install -q uv==0.12.5
           uv export --frozen --all-extras --no-emit-project -o /tmp/requirements-dev.txt
           pip install --require-hashes -r /tmp/requirements-dev.txt
           pip install --no-deps -e .
