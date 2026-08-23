@@ -579,7 +579,7 @@ export default function PayeesPage() {
           ) : summaryData ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold">{summaryData.payee.name}</h3>
+                <h3 className="min-w-0 flex-1 truncate text-lg font-bold" title={summaryData.payee.name}>{summaryData.payee.name}</h3>
                 <Button variant="ghost" size="sm" onClick={() => setSummaryPayee(null)}>
                   &times;
                 </Button>
@@ -624,7 +624,7 @@ export default function PayeesPage() {
                     {recentTxData.items.map((tx) => (
                       <div key={tx.id} className="flex items-center justify-between px-3 py-2 bg-background text-sm">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{tx.description}</p>
+                          <p className="text-sm font-medium text-foreground truncate" title={tx.description}>{tx.description}</p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                             {tx.category?.name && <> · {tx.category.name}</>}

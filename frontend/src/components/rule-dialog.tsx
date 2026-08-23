@@ -184,6 +184,7 @@ function ConditionRow({
       )}
       <button
         type="button"
+        aria-label={`${t('common.delete')} ${t('rules.conditions')}`}
         className="absolute right-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
         onClick={onRemove}
       >
@@ -368,6 +369,7 @@ export function RuleDialog({
                         <OpToggle value={node.op} onChange={(op) => setGroupOp(i, op)} />
                         <button
                           type="button"
+                          aria-label={t('rules.removeGroup')}
                           className="shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500"
                           title={t('rules.removeGroup')}
                           onClick={() => removeCondition(i)}
@@ -493,6 +495,7 @@ export function RuleDialog({
                       )}
                       <button
                         type="button"
+                        aria-label={`${t('common.delete')} ${t('rules.actions')}`}
                         className="absolute right-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
                         onClick={() => removeAction(i)}
                       >
