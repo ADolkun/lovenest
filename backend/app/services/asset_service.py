@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.asset_transaction import AssetTransaction
-from app.models.asset_value import AssetValue
+from app.models.asset_value import AssetValue, latest_value_first
 from app.models.user import User
 from app.core.config import get_settings
 from app.providers.market_price import (
@@ -167,6 +167,16 @@ def _asset_to_read(
         ticker_exchange=asset.ticker_exchange,
         last_price=float(asset.last_price) if asset.last_price is not None else None,
         last_price_at=asset.last_price_at,
+        # Staleness only means something for a figure someone recorded. A
+        # market-priced holding has `last_price_at` instead, and a growth rule
+        # generates its points, so its write time says nothing about freshness.
+        value_updated_at=(
+            latest_value.recorded_at
+            if latest_value is not None
+            and asset.valuation_method != "market_price"
+            and latest_value.source != "rule"
+            else None
+        ),
         logo_url=asset.logo_url,
         average_price=float(asset.average_price) if asset.average_price is not None else None,
         total_invested=total_invested,
@@ -180,7 +190,7 @@ async def _get_latest_value(session: AsyncSession, asset_id: uuid.UUID) -> Optio
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(desc(AssetValue.date), desc(AssetValue.id))
+        .order_by(*latest_value_first())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -193,7 +203,7 @@ async def _get_value_as_of(
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id, AssetValue.date <= as_of_date)
-        .order_by(desc(AssetValue.date), desc(AssetValue.id))
+        .order_by(*latest_value_first())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -289,7 +299,7 @@ async def _load_asset_native_values(
     q = (
         select(AssetValue.asset_id, AssetValue.date, AssetValue.amount, AssetValue.price)
         .where(AssetValue.asset_id.in_(asset_ids))
-        .order_by(AssetValue.asset_id, AssetValue.date, AssetValue.id)
+        .order_by(AssetValue.asset_id, AssetValue.date, AssetValue.recorded_at, AssetValue.id)
     )
     if up_to_date is not None:
         q = q.where(AssetValue.date <= up_to_date)
@@ -415,6 +425,46 @@ async def get_asset(
     return _asset_to_read(asset, latest, count, tx_count or 0)
 
 
+async def _reject_resolvable_ticker(
+    ticker: Optional[str], provider: Optional[MarketPriceProvider]
+) -> None:
+    """A Hand-Valued Holding may not carry a ticker the refresh would resolve.
+
+    Not "may not carry a ticker": a symbol is often just what the exchange
+    called the thing, and an unlisted token's holding keeps it as a label
+    (`asset_import_service._new_holding` does exactly that for an order no
+    quote answers). What cannot stand is a symbol a price provider *does*
+    answer, because symbol collisions across asset classes are routine — USA
+    is a Solana memecoin and a New York closed-end equity fund — so the label
+    would eventually be read as a lookup key and quote an unrelated security
+    over the user's own figure.
+
+    Asking the provider is what makes the rule the same rule on every path
+    that mints one of these holdings, rather than one the API enforces and the
+    importer quietly breaks. A provider that errors is treated as "does not
+    resolve": refusing the user's holding because Yahoo is down would be the
+    wrong way to fail.
+    """
+    if not ticker:
+        return
+    try:
+        quote = await (provider or get_market_price_provider()).get_quote(ticker)
+    except Exception:  # noqa: BLE001
+        logger.warning("Ticker check for %r failed; allowing it as a label", ticker)
+        return
+    if quote is None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            f"{ticker.upper()} resolves to a quoted security "
+            f"({quote.name or quote.symbol}), so a hand-valued holding cannot "
+            "carry it — the same symbol can belong to an unrelated security. "
+            "Use the market-price method to track it by ticker."
+        ),
+    )
+
+
 async def create_asset(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -448,6 +498,8 @@ async def create_asset(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Could not fetch quote for {data.ticker}",
             )
+    else:
+        await _reject_resolvable_ticker(data.ticker, market_provider)
 
     asset = Asset(
         user_id=user_id,
@@ -593,6 +645,8 @@ async def update_asset(
     user_id: uuid.UUID,
     data: AssetUpdate,
     regenerate_growth: bool = False,
+    *,
+    market_provider: Optional[MarketPriceProvider] = None,
 ) -> Optional[AssetRead]:
     """Partial update of an asset."""
     result = await session.execute(
@@ -605,6 +659,8 @@ async def update_asset(
     update_data = data.model_dump(exclude_unset=True)
     # Prevent changing valuation_method on existing assets
     update_data.pop("valuation_method", None)
+    if "ticker" in update_data and asset.valuation_method != "market_price":
+        await _reject_resolvable_ticker(update_data["ticker"], market_provider)
     if "group_id" in update_data:
         await ensure_group_in_workspace(session, update_data["group_id"], workspace_id)
     for key, value in update_data.items():
@@ -700,7 +756,7 @@ async def get_asset_values(
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(desc(AssetValue.date), desc(AssetValue.id))
+        .order_by(*latest_value_first())
     )
     values = result.scalars().all()
     return [AssetValueRead.model_validate(v) for v in values]
@@ -709,7 +765,12 @@ async def get_asset_values(
 async def add_asset_value(
     session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID, data: AssetValueCreate
 ) -> Optional[AssetValueRead]:
-    """Add a new value entry for an asset."""
+    """Record the user's own value for a day, replacing their previous one.
+
+    One hand-set figure per asset per day: re-entering a day's balance is a
+    correction, not a second opinion, so it moves `recorded_at` forward rather
+    than leaving two rows dated the same day for the reader to choose between.
+    """
     # Verify ownership
     owner_check = await session.execute(
         select(Asset.id).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
@@ -717,13 +778,25 @@ async def add_asset_value(
     if not owner_check.scalar_one_or_none():
         return None
 
-    value = AssetValue(
-        asset_id=asset_id,
-        amount=data.amount,
-        date=data.date,
-        source="manual",
+    value = await session.scalar(
+        select(AssetValue).where(
+            AssetValue.asset_id == asset_id,
+            AssetValue.date == data.date,
+            AssetValue.source == "manual",
+        )
     )
-    session.add(value)
+    if value is not None:
+        value.amount = data.amount
+        value.recorded_at = datetime.now(timezone.utc)
+    else:
+        value = AssetValue(
+            asset_id=asset_id,
+            amount=data.amount,
+            date=data.date,
+            source="manual",
+            recorded_at=datetime.now(timezone.utc),
+        )
+        session.add(value)
     await session.commit()
     await session.refresh(value)
     return AssetValueRead.model_validate(value)
@@ -993,6 +1066,10 @@ async def _apply_price_to_asset(
     identically: price + timestamp get stamped; today's value gets
     inserted or overwritten so running the task multiple times per day
     doesn't pile up duplicate rows.
+
+    A hand-set value is never the row overwritten: the user's figure outranks
+    a quote (issue #68), so a refresh writes a fresh row alongside it rather
+    than rewriting it and relabelling it `sync`.
     """
     asset.last_price = new_price
     asset.last_price_at = datetime.now(timezone.utc)
@@ -1004,8 +1081,12 @@ async def _apply_price_to_asset(
     new_amount = new_price * Decimal(str(asset.units))
     existing = await session.execute(
         select(AssetValue)
-        .where(AssetValue.asset_id == asset.id, AssetValue.date == today)
-        .order_by(desc(AssetValue.id))
+        .where(
+            AssetValue.asset_id == asset.id,
+            AssetValue.date == today,
+            AssetValue.source != "manual",
+        )
+        .order_by(desc(AssetValue.recorded_at), desc(AssetValue.id))
         .limit(1)
     )
     today_value = existing.scalar_one_or_none()

@@ -34,7 +34,9 @@ from app.providers.base import (
     HoldingData,
     TransactionData,
 )
-from app.services.connection_service import _sync_holdings
+from app.schemas.asset import AssetValueCreate
+from app.services import asset_service
+from app.services.connection_service import _sync_holdings, _upsert_asset_value_for_today
 
 
 # ---------------------------------------------------------------------------
@@ -1042,3 +1044,106 @@ async def test_unattributable_holdings_do_not_sync_under_an_allowlist(
     await session.commit()
 
     assert await _assets_for(session, test_user) == []
+
+
+# ---------------------------------------------------------------------------
+# A hand-set value is the user's, and a sync does not get to have an opinion
+# about it (issue #68).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sync_leaves_a_hand_set_value_for_today_untouched(
+    session: AsyncSession, test_user: User, mock_connection: BankConnection
+):
+    """The user corrected today's balance; the provider still reports its own
+    figure. Theirs stands, and stays the value the asset reads at."""
+    today = date.today()
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("500"))]
+    assert mock_connection.credentials is not None
+    await _sync_holdings(session, test_user.id, mock_connection, mock_connection.credentials)
+    await session.commit()
+
+    asset = (await _assets_for(session, test_user))[0]
+    hand_set = await asset_service.add_asset_value(
+        session, asset.id, asset.workspace_id, AssetValueCreate(amount=Decimal("777"), date=today)
+    )
+    assert hand_set is not None
+
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("900"))]
+    await _sync_holdings(session, test_user.id, mock_connection, mock_connection.credentials)
+    await session.commit()
+
+    today_values = {
+        v.source: float(v.amount)
+        for v in await _values_for(session, asset.id)
+        if v.date == today
+    }
+    assert today_values["manual"] == 777.0
+    # The sync row the first pass wrote is left where it was, not advanced to
+    # the provider's new figure: the day belongs to the user now.
+    assert today_values["sync"] == 500.0
+
+    read = await asset_service.get_asset(session, asset.id, asset.workspace_id)
+    assert read is not None
+    assert read.current_value == 777.0
+
+
+@pytest.mark.asyncio
+async def test_sync_resumes_the_day_after_a_hand_set_value(
+    session: AsyncSession, test_user: User, mock_connection: BankConnection
+):
+    """Skipping the day the user valued is not abandoning the asset — the
+    next day's sync writes as usual."""
+    today = date.today()
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("500"))]
+    assert mock_connection.credentials is not None
+    await _sync_holdings(session, test_user.id, mock_connection, mock_connection.credentials)
+    await session.commit()
+
+    asset = (await _assets_for(session, test_user))[0]
+    await asset_service.add_asset_value(
+        session, asset.id, asset.workspace_id, AssetValueCreate(amount=Decimal("777"), date=today)
+    )
+
+    await _upsert_asset_value_for_today(
+        session, asset, Decimal("900"), today + timedelta(days=1)
+    )
+    await session.commit()
+
+    values = {(v.date, v.source): float(v.amount) for v in await _values_for(session, asset.id)}
+    assert values[(today, "manual")] == 777.0
+    assert values[(today + timedelta(days=1), "sync")] == 900.0
+
+
+@pytest.mark.asyncio
+async def test_sync_never_adopts_a_hand_made_holding(
+    session: AsyncSession, test_user: User, mock_connection: BankConnection
+):
+    """A holding at an institution with no API — a bankruptcy claim, an
+    unlisted stake — is matched by nothing the provider reports, so a sync
+    neither revalues it nor archives it when the provider stays silent."""
+    manual = Asset(
+        user_id=test_user.id,
+        workspace_id=mock_connection.workspace_id,
+        name="BlockFi bankruptcy claim",
+        type="other",
+        currency="USD",
+        valuation_method="manual",
+        source="manual",
+        external_id="h-1",  # deliberately collides with the provider's key
+    )
+    session.add(manual)
+    await session.commit()
+
+    _MockProvider._holdings = [_holding(external_id="h-1", current_value=Decimal("500"))]
+    assert mock_connection.credentials is not None
+    await _sync_holdings(session, test_user.id, mock_connection, mock_connection.credentials)
+    await session.commit()
+    await session.refresh(manual)
+
+    assert manual.is_archived is False
+    assert manual.connection_id is None
+    assert await _values_for(session, manual.id) == []
+    # The provider's holding became its own asset rather than overwriting this one.
+    assert {a.source for a in await _assets_for(session, test_user)} == {"manual", "mock"}

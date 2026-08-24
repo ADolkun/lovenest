@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
-from app.models.asset_value import AssetValue
+from app.models.asset_value import AssetValue, latest_value_first
 from app.models.bank_connection import BankConnection
 from app.models.user import User
 from app.schemas.asset_group import (
@@ -47,7 +47,7 @@ async def _latest_value_amount(session: AsyncSession, asset_id: uuid.UUID) -> Op
     row = await session.execute(
         select(AssetValue.amount)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(AssetValue.date.desc(), AssetValue.id.desc())
+        .order_by(*latest_value_first())
         .limit(1)
     )
     return row.scalar_one_or_none()

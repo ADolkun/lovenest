@@ -788,6 +788,13 @@ export default function AssetsPage() {
                 {asset.current_value_primary != null && asset.currency !== userCurrency && (
                   <span className="block text-[10px] text-muted-foreground">{mask(formatCurrency(asset.current_value_primary, userCurrency, locale))}</span>
                 )}
+                {/* Hand-valued holdings have no quote to age them, so the
+                    balance carries its own staleness (#68). */}
+                {asset.value_updated_at && (
+                  <span className="block text-[10px] text-muted-foreground/70 font-normal">
+                    {t('assets.lastUpdated', { when: formatRelativeTime(asset.value_updated_at, dateLocale) })}
+                  </span>
+                )}
               </>
             ) : <span className="text-muted-foreground">—</span>}
           </div>
@@ -2067,6 +2074,8 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       amount: purchasePrice,
       date: purchaseDate,
       source: 'purchase',
+      // Synthetic row — the purchase was never "recorded" as a value.
+      recorded_at: purchaseDate,
     }
     return [...values, purchaseEntry]
   }, [values, purchasePrice, purchaseDate, assetId])
@@ -2252,6 +2261,13 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
                     <span className="text-[11px] text-muted-foreground tabular-nums">
                       {new Date(v.date + 'T00:00:00').toLocaleDateString(dateLoc)}
                     </span>
+                    {/* A hand-set figure is only as good as its age, and the
+                        day it values doesn't say when it was typed (#68). */}
+                    {v.source === 'manual' && v.recorded_at && (
+                      <span className="text-[11px] text-muted-foreground/70">
+                        {t('assets.lastUpdated', { when: formatRelativeTime(v.recorded_at, dateLoc) })}
+                      </span>
+                    )}
                     {valuationMethod === 'manual' && v.source === 'manual' && canWrite && (
                       <button
                         onClick={() => deleteValueMutation.mutate(v.id)}

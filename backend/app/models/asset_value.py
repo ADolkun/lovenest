@@ -1,9 +1,9 @@
 import uuid
-from datetime import date as _date
+from datetime import date as _date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Numeric, String
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, desc, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,5 +28,22 @@ class AssetValue(Base):
     price: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=18, scale=6), nullable=True)
     date: Mapped[_date] = mapped_column(Date)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual, rule, sync
+    # When this figure was entered, as opposed to the day it is *about*.
+    # A hand-set value is only trustworthy if the user can see how stale it
+    # is, and `date` cannot say: correcting last month's figure today writes
+    # a row dated last month. Also the tiebreak when two rows share a date.
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
     asset: Mapped["Asset"] = relationship(back_populates="values")
+
+
+def latest_value_first():
+    """Ordering that puts the value a Holding currently reads at first.
+
+    Newest day wins; within a day, the row written last. `recorded_at` is the
+    whole tiebreak — the `id` behind it is a UUID4, so it decides nothing and
+    is there only to keep the sort total.
+    """
+    return (desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))

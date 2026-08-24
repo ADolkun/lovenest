@@ -49,6 +49,7 @@ function holding(overrides: {
     ticker_exchange: null,
     last_price: null,
     last_price_at: null,
+    value_updated_at: null,
     logo_url: null,
     average_price: null,
     total_invested: null,

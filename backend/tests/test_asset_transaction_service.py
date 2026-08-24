@@ -485,3 +485,66 @@ async def test_reportable_gain_bounds_by_sell_date(session, test_workspace, test
     )
     assert in_2026["reportable_gain"] == 0.0
     assert in_2027["reportable_gain"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_buy_a_later_sell_needs_is_rejected(
+    session, test_workspace, market_asset
+):
+    """`add` and `update` both refuse a ledger that goes negative; `delete`
+    used to let one through, and `_recompute` clamped the shortfall silently
+    while booking the gain against units that never left."""
+    from fastapi import HTTPException
+
+    await asset_transaction_service.add_transaction(
+        session, market_asset.id, test_workspace.id,
+        AssetTransactionCreate(kind="buy", quantity=Decimal("10"), price=Decimal("20"), date=date(2026, 1, 1)),
+    )
+    await asset_transaction_service.add_transaction(
+        session, market_asset.id, test_workspace.id,
+        AssetTransactionCreate(kind="sell", quantity=Decimal("8"), price=Decimal("30"), date=date(2026, 2, 1)),
+    )
+    txs = await asset_transaction_service.list_asset_transactions(
+        session, market_asset.id, test_workspace.id
+    )
+    assert txs is not None
+    buy = next(t for t in txs if t.kind == "buy")
+
+    with pytest.raises(HTTPException) as exc:
+        await asset_transaction_service.delete_transaction(
+            session, buy.id, test_workspace.id
+        )
+    assert exc.value.status_code == 422
+
+    remaining = await asset_transaction_service.list_asset_transactions(
+        session, market_asset.id, test_workspace.id
+    )
+    assert remaining is not None
+    assert len(remaining) == 2
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_sell_first_then_the_buy_is_allowed(
+    session, test_workspace, market_asset
+):
+    """The refusal is about the resulting ledger, not about deletion."""
+    await asset_transaction_service.add_transaction(
+        session, market_asset.id, test_workspace.id,
+        AssetTransactionCreate(kind="buy", quantity=Decimal("10"), price=Decimal("20"), date=date(2026, 1, 1)),
+    )
+    await asset_transaction_service.add_transaction(
+        session, market_asset.id, test_workspace.id,
+        AssetTransactionCreate(kind="sell", quantity=Decimal("8"), price=Decimal("30"), date=date(2026, 2, 1)),
+    )
+    txs = await asset_transaction_service.list_asset_transactions(
+        session, market_asset.id, test_workspace.id
+    )
+    assert txs is not None
+    for kind in ("sell", "buy"):
+        tx = next(t for t in txs if t.kind == kind)
+        await asset_transaction_service.delete_transaction(session, tx.id, test_workspace.id)
+
+    remaining = await asset_transaction_service.list_asset_transactions(
+        session, market_asset.id, test_workspace.id
+    )
+    assert remaining == []

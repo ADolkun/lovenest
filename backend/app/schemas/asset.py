@@ -91,6 +91,10 @@ class AssetRead(BaseModel):
     ticker_exchange: Optional[str] = None
     last_price: Optional[float] = None
     last_price_at: Optional[datetime] = None
+    # When the value behind `current_value` was entered, for holdings the user
+    # values by hand. `last_price_at` is the market-priced equivalent; this is
+    # what distinguishes a figure typed this morning from one a year stale.
+    value_updated_at: Optional[datetime] = None
     logo_url: Optional[str] = None
     # Ledger-derived fields (issue #235). average_price = weighted-average cost
     # per unit (preço médio); total_invested = cost basis of the held units;
@@ -189,5 +193,6 @@ class AssetValueRead(BaseModel):
     amount: float
     date: _date
     source: str
+    recorded_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
