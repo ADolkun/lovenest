@@ -957,7 +957,15 @@
     "treatAsTransferBadge": "Transferencia",
     "ignoreTransfer": "Ignorar esta transferencia",
     "ignoreTransferDesc": "Las transacciones ignoradas no aparecerán en los informes de ingresos o gastos.",
-    "ignoreTransferBadge": "Ignorar"
+    "ignoreTransferBadge": "Ignorar",
+    "hiddenScopeDescription": "Las categorías predeterminadas ocultas se eliminan de los selectores y las reglas dejan de asignarlas. Las transacciones, los presupuestos, los paneles y los informes existentes siguen utilizándolas.",
+    "hiddenBadge": "Oculta",
+    "showDefault": "Mostrar categoría predeterminada",
+    "hideDefault": "Ocultar categoría predeterminada",
+    "hideWithRulesTitle": "¿Ocultar {{name}}?",
+    "hideWithRulesDescription": "{{count}} reglas activas asignan esta categoría. Ocultarla ya impide que categoricen nuevas transacciones. Desactivarlas detiene la regla completa, incluidos el beneficiario o las notas que también establece.",
+    "hideKeepRules": "Solo ocultar",
+    "hideAndTurnOffRules": "Ocultar y desactivar las reglas"
   },
   "groups": {
     "title": "Grupos de categorías",
@@ -974,7 +982,10 @@
     "confirmDeleteTitle": "¿Eliminar grupo de categorías?",
     "noGroup": "Sin grupo",
     "systemGroup": "Grupo del sistema",
-    "confirmDeleteDescription": "El grupo de categorías \"{{name}}\" se eliminará. Sus categorías permanecerán y quedarán sin grupo. Esta acción no se puede deshacer."
+    "confirmDeleteDescription": "El grupo de categorías \"{{name}}\" se eliminará. Sus categorías permanecerán y quedarán sin grupo. Esta acción no se puede deshacer.",
+    "hiddenBadge": "Oculto",
+    "showDefault": "Mostrar grupo predeterminado",
+    "hideDefault": "Ocultar grupo predeterminado"
   },
   "import": {
     "acceptedFormats": "Formatos aceptados: OFX, CSV, QIF, CAMT",

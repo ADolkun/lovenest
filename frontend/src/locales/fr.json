@@ -957,7 +957,15 @@
     "treatAsTransferBadge": "Virement",
     "ignoreTransfer": "Ignorer ce virement",
     "ignoreTransferDesc": "Les transactions ignorées n'apparaîtront pas dans les rapports de revenus ou de dépenses.",
-    "ignoreTransferBadge": "Ignorer"
+    "ignoreTransferBadge": "Ignorer",
+    "hiddenScopeDescription": "Les catégories par défaut masquées sont retirées des sélecteurs et ne sont plus attribuées par les règles. Les transactions, budgets, tableaux de bord et rapports existants continuent de les utiliser.",
+    "hiddenBadge": "Masquée",
+    "showDefault": "Afficher la catégorie par défaut",
+    "hideDefault": "Masquer la catégorie par défaut",
+    "hideWithRulesTitle": "Masquer {{name}} ?",
+    "hideWithRulesDescription": "{{count}} règles actives attribuent cette catégorie. La masquer les empêche déjà de catégoriser de nouvelles transactions. Les désactiver arrête la règle entière, y compris le bénéficiaire ou les notes qu’elle définit aussi.",
+    "hideKeepRules": "Masquer seulement",
+    "hideAndTurnOffRules": "Masquer et désactiver les règles"
   },
   "groups": {
     "title": "Groupes de catégories",
@@ -974,7 +982,10 @@
     "confirmDeleteTitle": "Supprimer le groupe de catégories ?",
     "noGroup": "Aucun groupe",
     "systemGroup": "Groupe système",
-    "confirmDeleteDescription": "Le groupe de catégories « {{name}} » sera supprimé. Ses catégories resteront et ne seront plus regroupées. Cette action est irréversible."
+    "confirmDeleteDescription": "Le groupe de catégories « {{name}} » sera supprimé. Ses catégories resteront et ne seront plus regroupées. Cette action est irréversible.",
+    "hiddenBadge": "Masqué",
+    "showDefault": "Afficher le groupe par défaut",
+    "hideDefault": "Masquer le groupe par défaut"
   },
   "import": {
     "acceptedFormats": "Formats acceptés : OFX, CSV, QIF, CAMT",

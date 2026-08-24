@@ -1017,7 +1017,15 @@
     "treatAsTransferBadge": "Transfer",
     "ignoreTransfer": "Ignoruj ten transfer",
     "ignoreTransferDesc": "Ignorowane transakcje nie pojawią się w raportach przychodów ani wydatków.",
-    "ignoreTransferBadge": "Ignoruj"
+    "ignoreTransferBadge": "Ignoruj",
+    "hiddenScopeDescription": "Ukryte kategorie domyślne są usuwane z list wyboru i nie są już przypisywane przez reguły. Istniejące transakcje, budżety, pulpity i raporty nadal z nich korzystają.",
+    "hiddenBadge": "Ukryta",
+    "showDefault": "Pokaż domyślną kategorię",
+    "hideDefault": "Ukryj domyślną kategorię",
+    "hideWithRulesTitle": "Ukryć {{name}}?",
+    "hideWithRulesDescription": "Tę kategorię przypisuje {{count}} aktywnych reguł. Ukrycie jej już powstrzymuje je przed kategoryzowaniem nowych transakcji. Wyłączenie zatrzymuje całą regułę, w tym odbiorcę i notatki, które również ustawia.",
+    "hideKeepRules": "Tylko ukryj",
+    "hideAndTurnOffRules": "Ukryj i wyłącz reguły"
   },
   "groups": {
     "title": "Grupy kategorii",
@@ -1034,7 +1042,10 @@
     "confirmDeleteTitle": "Usunąć grupę kategorii?",
     "noGroup": "Brak grupy",
     "systemGroup": "Grupa systemowa",
-    "confirmDeleteDescription": "Grupa kategorii „{{name}}” zostanie usunięta. Jej kategorie pozostaną i staną się niezgrupowane. Tej operacji nie można cofnąć."
+    "confirmDeleteDescription": "Grupa kategorii „{{name}}” zostanie usunięta. Jej kategorie pozostaną i staną się niezgrupowane. Tej operacji nie można cofnąć.",
+    "hiddenBadge": "Ukryta",
+    "showDefault": "Pokaż domyślną grupę",
+    "hideDefault": "Ukryj domyślną grupę"
   },
   "import": {
     "acceptedFormats": "Akceptowane formaty: OFX, CSV, QIF, CAMT",
