@@ -112,6 +112,7 @@ export function AssetImportPanel() {
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [allowUnpriced, setAllowUnpriced] = useState(false)
+  const [dateFormat, setDateFormat] = useState('')
 
   const { data: wallets } = useQuery({
     queryKey: ['asset-groups'],
@@ -123,6 +124,7 @@ export function AssetImportPanel() {
     nextMapping: Record<string, string>,
     nextGroup: string,
     nextAllowUnpriced = allowUnpriced,
+    nextDateFormat = dateFormat,
   ) {
     setLoading(true)
     try {
@@ -130,6 +132,7 @@ export function AssetImportPanel() {
         column_mapping: nextMapping,
         group_id: nextGroup || null,
         allow_unpriced: nextAllowUnpriced,
+        date_format: nextDateFormat || undefined,
       })
       setPreview(result)
     } catch {
@@ -176,6 +179,11 @@ export function AssetImportPanel() {
   function handleAllowUnpricedChange(value: boolean) {
     setAllowUnpriced(value)
     if (file) runPreview(file, mapping, groupId, value)
+  }
+
+  function handleDateFormatChange(value: string) {
+    setDateFormat(value)
+    if (file) runPreview(file, mapping, groupId, allowUnpriced, value)
   }
 
   async function handleImport() {
@@ -338,6 +346,24 @@ export function AssetImportPanel() {
                 {(wallets ?? []).map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
+              </select>
+
+              {/* Auto settles `12/07/2021` from the whole file — one 12/16 in
+                  it proves the month comes first. Only a file whose every
+                  date is ambiguous needs this said by hand. */}
+              <Label htmlFor="asset-import-date-format" className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
+                {t('import.dateFormat')}
+              </Label>
+              <select
+                id="asset-import-date-format"
+                className={SELECT_CLASS}
+                value={dateFormat}
+                onChange={(e) => handleDateFormatChange(e.target.value)}
+              >
+                <option value="">{t('import.dateFormatAuto')}</option>
+                <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
               </select>
             </div>
 

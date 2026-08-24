@@ -970,3 +970,55 @@ async def test_a_hand_made_manual_asset_is_not_claimed_by_the_importer(
 
     await session.refresh(mine)
     assert mine.units == Decimal("99")
+
+
+# ---------------------------------------------------------------------------
+# Which half of `12/07/2021` is the day
+# ---------------------------------------------------------------------------
+
+
+def test_one_unambiguous_row_settles_the_whole_file_as_month_first():
+    """A US broker writes 12/07/2021 for 7 December. Reading it per row gets
+    the days 13-31 right and the days 1-12 wrong in the same import."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price",
+        "FZROX,12/16/2022,1,13.39",   # only December has a 16th
+        "FZROX,12/07/2021,1,16.00",
+    ))
+    assert errors == []
+    assert [str(o.date) for o in orders] == ["2022-12-16", "2021-12-07"]
+
+
+def test_a_day_first_file_is_still_read_day_first():
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price",
+        "PETR4.SA,16/12/2022,1,13.39",
+        "PETR4.SA,07/12/2021,1,16.00",
+    ))
+    assert errors == []
+    assert [str(o.date) for o in orders] == ["2022-12-16", "2021-12-07"]
+
+
+def test_an_entirely_ambiguous_file_keeps_the_day_first_default():
+    orders, _, _, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price", "AAPL,07/12/2021,1,16.00",
+    ))
+    assert str(orders[0].date) == "2021-12-07"
+
+
+def test_an_explicit_choice_beats_what_the_file_looks_like():
+    orders, _, _, _ = asset_import_service.parse_orders_csv(
+        _csv("ticker,date,quantity,price", "AAPL,07/12/2021,1,16.00"),
+        date_format="MM/DD/YYYY",
+    )
+    assert str(orders[0].date) == "2021-07-12"
+
+
+def test_the_disposal_date_votes_on_the_order_too():
+    """A closed-lot report can carry its only unambiguous date in `Date Sold`."""
+    orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
+        _CLOSED_LOT_HEADER,
+        "0.5,AAPL,01/02/2024,06/30/2024,50,80,30,Short",
+    ))
+    assert errors == []
+    assert [str(o.date) for o in orders] == ["2024-01-02", "2024-06-30"]

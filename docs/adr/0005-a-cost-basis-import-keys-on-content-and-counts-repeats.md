@@ -82,6 +82,16 @@ worth nothing: `_compute_current_value` falls back to `purchase_price` for a
 non-market holding, and `recompute_and_cache` sets that from the ledger, so it
 reads at its cost basis with no gain — the only honest figure available.
 
+`12/07/2021` is 7 December in a Fidelity export and 12 July in a Brazilian one,
+and nothing in the row says which. The order is therefore settled once per file
+rather than per row: one date with a component above 12 proves which half is
+the day, and `infer_date_order` — lifted out of the QIF importer, which already
+had this exact reasoning — answers for every row. Deciding a row at a time is
+worse than picking wrong, because it gets the days 13-31 right and the days
+1-12 wrong *in the same import*. A file whose every date is ambiguous keeps the
+historical day-first default, and the panel now carries the same explicit
+override the transaction importer has.
+
 Seeding a Snapshot Holding (CONTEXT.md) with a partial history silently
 replaced the provider's quantity with the file's, because the position is
 recomputed from the ledger. The discrepancy is now warned about and not

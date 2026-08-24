@@ -52,6 +52,7 @@ from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.import_service import (
     DATE_FORMAT_MAP,
     _sniff_csv_dialect,
+    infer_date_order,
     normalize_amount,
 )
 from app.services.rule_engine import _strip_accents
@@ -400,18 +401,38 @@ def _auto_mapping(headers: list[str]) -> dict[str, str]:
     return mapping
 
 
-def _parse_date(raw: str, date_format: Optional[str]) -> Optional[date_type]:
+#: Tried in order once the ambiguous `n/n/yyyy` pair has been settled.
+_DATE_FORMATS = (
+    '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y',
+    # Written out, the way an exchange's own export dates a row.
+    '%B %d, %Y %I:%M %p', '%b %d, %Y %I:%M %p', '%B %d, %Y', '%b %d, %Y',
+)
+
+
+def _date_formats(date_format: Optional[str], raw_dates: list[str]) -> list[str]:
+    """The formats to try for this file, with the day/month order settled.
+
+    `12/07/2021` is 7 December in a Fidelity export and 12 July in a Brazilian
+    one, and nothing in the row says which. Deciding per row gets the days
+    13-31 right and the days 1-12 wrong *in the same file*, so the order is
+    settled once from every date the file contains (`infer_date_order`) — one
+    `12/16` proves the whole file is month-first. An explicit choice from the
+    UI wins outright; a file that stays ambiguous keeps the historical
+    day-first default.
+    """
+    formats = list(_DATE_FORMATS)
+    if date_format and date_format in DATE_FORMAT_MAP:
+        return [DATE_FORMAT_MAP[date_format]] + formats
+    if infer_date_order(raw_dates) == 'month':
+        formats.remove('%m/%d/%Y')
+        formats.insert(formats.index('%d/%m/%Y'), '%m/%d/%Y')
+    return formats
+
+
+def _parse_date(raw: str, formats: list[str]) -> Optional[date_type]:
     raw = raw.strip()
     if not raw:
         return None
-    formats = []
-    if date_format and date_format in DATE_FORMAT_MAP:
-        formats.append(DATE_FORMAT_MAP[date_format])
-    formats.extend([
-        '%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%Y/%m/%d', '%d.%m.%Y',
-        # Written out, the way an exchange's own export dates a row.
-        '%B %d, %Y %I:%M %p', '%b %d, %Y %I:%M %p', '%B %d, %Y', '%b %d, %Y',
-    ])
     for fmt in formats:
         try:
             return datetime.strptime(raw[:10] if len(raw) > 10 and fmt == '%Y-%m-%d' else raw, fmt).date()
@@ -487,11 +508,19 @@ def parse_orders_csv(
             return ''
         return (row.get(header) or '').strip()
 
+    # Materialised because the day/month order is a property of the whole file,
+    # not of a row: it has to be known before the first date is read.
+    rows = list(reader)
+    formats = _date_formats(
+        date_format,
+        [cell(r, f) for r in rows for f in ('date', 'date_sold')],
+    )
+
     orders: list[AssetOrderImport] = []
     errors: list[AssetImportRowError] = []
     skips: list[AssetImportSkip] = []
 
-    for index, row in enumerate(reader, start=2):  # row 1 is the header
+    for index, row in enumerate(rows, start=2):  # row 1 is the header
         if not any((v or '').strip() for v in row.values()):
             continue
 
@@ -500,7 +529,7 @@ def parse_orders_csv(
             errors.append(AssetImportRowError(row=index, reason='missing_ticker'))
             continue
 
-        order_date = _parse_date(cell(row, 'date'), date_format)
+        order_date = _parse_date(cell(row, 'date'), formats)
         if order_date is None:
             errors.append(AssetImportRowError(row=index, reason='invalid_date', ticker=ticker))
             continue
@@ -537,7 +566,7 @@ def parse_orders_csv(
             ))
             continue
 
-        sold_date = _parse_date(cell(row, 'date_sold'), date_format)
+        sold_date = _parse_date(cell(row, 'date_sold'), formats)
         # A lot report row is an acquisition whatever its type column called
         # the disposal on the other half of the line.
         if sold_date or meaning in ('buy', 'acquire'):
