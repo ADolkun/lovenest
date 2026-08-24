@@ -27,8 +27,15 @@ from app.services.asset_service import refresh_all_market_prices
 from tests.test_market_price_assets import FakeMarketProvider, _quote
 
 
+# A provider that knows USA (the New York closed-end fund) and nothing else —
+# so USA is a symbol the refresh would resolve, and ALEO is not.
+def _knows_usa() -> FakeMarketProvider:
+    return FakeMarketProvider({"USA": _quote("USA", 6.5)})
+
+
 async def _claim(session: AsyncSession, workspace, user, **kwargs):
     """A holding with no market anyone quotes."""
+    provider = kwargs.pop("provider", None) or FakeMarketProvider({})
     data = AssetCreate(
         name=kwargs.pop("name", "BlockFi bankruptcy claim"),
         type=kwargs.pop("type", "other"),
@@ -36,7 +43,9 @@ async def _claim(session: AsyncSession, workspace, user, **kwargs):
         currency="USD",
         **kwargs,
     )
-    return await asset_service.create_asset(session, workspace.id, user.id, data)
+    return await asset_service.create_asset(
+        session, workspace.id, user.id, data, market_provider=provider
+    )
 
 
 @pytest.mark.asyncio
@@ -106,12 +115,47 @@ async def test_a_hand_valued_holding_cannot_be_created_with_a_ticker(
     session: AsyncSession, test_user: User, test_workspace
 ):
     """`USA` is a Solana memecoin and a New York closed-end equity fund. A
-    ticker on a hand-valued holding invites the refresh to quote the wrong
-    one over the user's figure, so it is refused outright."""
+    ticker the refresh resolves invites it to quote the wrong one over the
+    user's figure, so it is refused outright."""
     with pytest.raises(HTTPException) as exc:
-        await _claim(session, test_workspace, test_user, name="USA (Solana)", ticker="USA")
+        await _claim(
+            session, test_workspace, test_user,
+            name="USA (Solana)", ticker="USA", provider=_knows_usa(),
+        )
     assert exc.value.status_code == 422
-    assert "ticker" in exc.value.detail
+    assert "USA" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_a_symbol_nothing_quotes_stays_a_label(
+    session: AsyncSession, test_user: User, test_workspace
+):
+    """The rule is about resolvability, not about tickers. An unlisted token
+    keeps the symbol its exchange used — which is what
+    `asset_import_service._new_holding` already does for an unpriced order,
+    and the API must not disagree with the importer."""
+    holding = await _claim(
+        session, test_workspace, test_user,
+        name="Aleo", ticker="ALEO", provider=_knows_usa(),
+    )
+    assert holding.ticker == "ALEO"
+    assert holding.valuation_method == "manual"
+
+
+@pytest.mark.asyncio
+async def test_a_provider_outage_does_not_refuse_the_holding(
+    session: AsyncSession, test_user: User, test_workspace
+):
+    """Failing to reach Yahoo is not evidence the symbol resolves."""
+
+    class _Broken(FakeMarketProvider):
+        async def get_quote(self, symbol):
+            raise RuntimeError("yahoo is down")
+
+    holding = await _claim(
+        session, test_workspace, test_user, ticker="ALEO", provider=_Broken({}),
+    )
+    assert holding.ticker == "ALEO"
 
 
 @pytest.mark.asyncio
@@ -122,13 +166,15 @@ async def test_a_hand_valued_holding_cannot_be_given_a_ticker_later(
 
     with pytest.raises(HTTPException) as exc:
         await asset_service.update_asset(
-            session, claim.id, test_workspace.id, test_user.id, AssetUpdate(ticker="USA")
+            session, claim.id, test_workspace.id, test_user.id,
+            AssetUpdate(ticker="USA"), market_provider=_knows_usa(),
         )
     assert exc.value.status_code == 422
 
     # Clearing one is still allowed — that is how a mis-imported symbol goes away.
     cleared = await asset_service.update_asset(
-        session, claim.id, test_workspace.id, test_user.id, AssetUpdate(ticker=None)
+        session, claim.id, test_workspace.id, test_user.id,
+        AssetUpdate(ticker=None), market_provider=_knows_usa(),
     )
     assert cleared is not None
     assert cleared.ticker is None
@@ -154,7 +200,8 @@ async def test_a_market_priced_holding_keeps_its_ticker_on_edit(
         market_provider=provider,
     )
     updated = await asset_service.update_asset(
-        session, created.id, test_workspace.id, test_user.id, AssetUpdate(ticker="AAPL")
+        session, created.id, test_workspace.id, test_user.id,
+        AssetUpdate(ticker="AAPL"), market_provider=provider,
     )
     assert updated is not None
     assert updated.ticker == "AAPL"

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
 from app.models.asset_transaction import AssetTransaction
-from app.models.asset_value import AssetValue
+from app.models.asset_value import AssetValue, latest_value_first
 from app.models.user import User
 from app.core.config import get_settings
 from app.providers.market_price import (
@@ -190,7 +190,7 @@ async def _get_latest_value(session: AsyncSession, asset_id: uuid.UUID) -> Optio
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
+        .order_by(*latest_value_first())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -203,7 +203,7 @@ async def _get_value_as_of(
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id, AssetValue.date <= as_of_date)
-        .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
+        .order_by(*latest_value_first())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -425,25 +425,44 @@ async def get_asset(
     return _asset_to_read(asset, latest, count, tx_count or 0)
 
 
-def _reject_ticker_on_hand_valued(ticker: Optional[str]) -> None:
-    """A hand-valued holding may not carry a ticker (issue #68).
+async def _reject_resolvable_ticker(
+    ticker: Optional[str], provider: Optional[MarketPriceProvider]
+) -> None:
+    """A Hand-Valued Holding may not carry a ticker the refresh would resolve.
 
-    Symbol collisions across asset classes are routine — a Solana memecoin
-    trading as USA, a New York closed-end equity fund listed as USA — so a
-    ticker on a holding the user values themselves is an invitation for a
-    refresh to quote an unrelated security over their figure. The holding is
-    named, not symboled; if it has a real symbol it belongs on the
-    market-price method.
+    Not "may not carry a ticker": a symbol is often just what the exchange
+    called the thing, and an unlisted token's holding keeps it as a label
+    (`asset_import_service._new_holding` does exactly that for an order no
+    quote answers). What cannot stand is a symbol a price provider *does*
+    answer, because symbol collisions across asset classes are routine — USA
+    is a Solana memecoin and a New York closed-end equity fund — so the label
+    would eventually be read as a lookup key and quote an unrelated security
+    over the user's own figure.
+
+    Asking the provider is what makes the rule the same rule on every path
+    that mints one of these holdings, rather than one the API enforces and the
+    importer quietly breaks. A provider that errors is treated as "does not
+    resolve": refusing the user's holding because Yahoo is down would be the
+    wrong way to fail.
     """
-    if ticker:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "A manually valued holding cannot carry a ticker — the same "
-                "symbol can belong to an unrelated security. Use the "
-                "market-price method to track it by ticker."
-            ),
-        )
+    if not ticker:
+        return
+    try:
+        quote = await (provider or get_market_price_provider()).get_quote(ticker)
+    except Exception:  # noqa: BLE001
+        logger.warning("Ticker check for %r failed; allowing it as a label", ticker)
+        return
+    if quote is None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            f"{ticker.upper()} resolves to a quoted security "
+            f"({quote.name or quote.symbol}), so a hand-valued holding cannot "
+            "carry it — the same symbol can belong to an unrelated security. "
+            "Use the market-price method to track it by ticker."
+        ),
+    )
 
 
 async def create_asset(
@@ -480,7 +499,7 @@ async def create_asset(
                 detail=f"Could not fetch quote for {data.ticker}",
             )
     else:
-        _reject_ticker_on_hand_valued(data.ticker)
+        await _reject_resolvable_ticker(data.ticker, market_provider)
 
     asset = Asset(
         user_id=user_id,
@@ -626,6 +645,8 @@ async def update_asset(
     user_id: uuid.UUID,
     data: AssetUpdate,
     regenerate_growth: bool = False,
+    *,
+    market_provider: Optional[MarketPriceProvider] = None,
 ) -> Optional[AssetRead]:
     """Partial update of an asset."""
     result = await session.execute(
@@ -639,7 +660,7 @@ async def update_asset(
     # Prevent changing valuation_method on existing assets
     update_data.pop("valuation_method", None)
     if "ticker" in update_data and asset.valuation_method != "market_price":
-        _reject_ticker_on_hand_valued(update_data["ticker"])
+        await _reject_resolvable_ticker(update_data["ticker"], market_provider)
     if "group_id" in update_data:
         await ensure_group_in_workspace(session, update_data["group_id"], workspace_id)
     for key, value in update_data.items():
@@ -735,7 +756,7 @@ async def get_asset_values(
     result = await session.execute(
         select(AssetValue)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
+        .order_by(*latest_value_first())
     )
     values = result.scalars().all()
     return [AssetValueRead.model_validate(v) for v in values]

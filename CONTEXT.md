@@ -26,9 +26,11 @@ for it, after which the ledger is authoritative.
 
 **Hand-Valued Holding** — a Holding whose worth is whatever the user last typed:
 a bankruptcy claim, a stake in something unlisted, a position at an institution
-no aggregator reaches. It carries no ticker, because a symbol is what an
-automatic refresh resolves and symbols collide across asset classes. Nothing
-automatic revalues it — not a price refresh, not a provider sync.
+no aggregator reaches. Nothing automatic revalues it — not a price refresh, not
+a provider sync. It may carry a symbol as a *label*, the way an exchange named
+it, but never one a price provider answers: symbols collide across asset
+classes, so a resolvable one would eventually be read as a lookup key and quote
+an unrelated security over the user's figure.
 
 **Hand-Set Value** — one figure the user recorded for a Holding on a day, and
 the authority for that day. A sync writes nothing for a day already valued by

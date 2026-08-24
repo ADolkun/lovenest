@@ -3,7 +3,7 @@ from datetime import date as _date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, desc, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,3 +37,13 @@ class AssetValue(Base):
     )
 
     asset: Mapped["Asset"] = relationship(back_populates="values")
+
+
+def latest_value_first():
+    """Ordering that puts the value a Holding currently reads at first.
+
+    Newest day wins; within a day, the row written last. `recorded_at` is the
+    whole tiebreak — the `id` behind it is a UUID4, so it decides nothing and
+    is there only to keep the sort total.
+    """
+    return (desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))

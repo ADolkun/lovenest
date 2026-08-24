@@ -414,6 +414,11 @@ async def delete_transaction(
     asset = await _load_asset(session, tx.asset_id, workspace_id)
     if asset is None:
         return None
+    # Deleting a buy can strand a later sell that depended on its units, which
+    # is the same negative position `add`/`update` already refuse. `_recompute`
+    # would clamp it silently and book the realized gain against a quantity
+    # that never left, so the ledger has to be checked before the row goes.
+    _raise_if_oversell([t for t in await _load_txs(session, tx.asset_id) if t.id != tx.id])
     await session.delete(tx)
     await session.flush()
     await recompute_and_cache(session, asset)

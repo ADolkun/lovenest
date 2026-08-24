@@ -7,29 +7,42 @@ the number on screen is whatever the user last typed. Two decisions follow from
 taking that seriously, and both are about what the machine is *not* allowed to
 do to that number.
 
-## A Hand-Valued Holding carries no ticker
+## A Hand-Valued Holding carries no *resolvable* ticker
 
-A holding on the manual valuation method may not be given a ticker. Attempting
-it is a 422, on create and on edit alike.
+A holding on the manual valuation method may not be given a symbol a price
+provider answers. Attempting it is a 422, on create and on edit alike; the
+provider is asked, and a symbol it does not know is allowed through.
 
-Filtering the refresh by `valuation_method` would have been enough to stop the
-price from being written, and that filter does exist. It was not enough on its
-own, because the ticker is the part that is wrong: symbols collide across asset
-classes and venues. `USA` is a Solana memecoin in the user's own 2025 positions
-and also a New York closed-end equity fund; `ALEO` is a layer-1 token and a
-symbol Yahoo will happily resolve to something else. Storing one on a holding
-nobody quotes leaves a loaded gun for any future code path that decides a
-ticker is reason enough to fetch a price — and that path would overwrite the
-user's figure with an unrelated security's, silently and plausibly.
+The first cut of this rule refused every ticker, and was wrong. Two paths in
+this repo already mint manual-method holdings that carry one:
+`connection_service._upsert_asset_from_holding`, where the ticker is the
+provider's statement of what the position *is*, and
+`asset_import_service._new_holding`, which deliberately keeps an order's
+symbol on a holding no quote answers rather than mint a market-priced holding
+with a permanently broken feed. A rule the API enforced and the importer
+quietly broke would not be an invariant, just a rejection.
 
-Provider-synced holdings are untouched by this rule. They sit on the manual
-method too, but their ticker is the provider's statement of what the position
-*is*, not a lookup key the user chose, and sync owns their value anyway.
+Filtering the refresh by `valuation_method` would have been enough to stop a
+price from being written today, and that filter does exist. Resolvability is
+the sharper line because the danger is not the refresh as it is now — it is
+that a stored symbol reads as a lookup key to any future path that decides a
+ticker is reason enough to fetch a price. `USA` is a Solana memecoin in the
+user's own 2025 positions and also a New York closed-end equity fund; that
+path would overwrite the user's figure with the fund's, silently and
+plausibly. A symbol nothing quotes cannot do this, so it stays a label.
+
+A provider that errors counts as "does not resolve". Refusing a user's holding
+because Yahoo is down would be the wrong way to fail.
 
 ## A day the user valued is a day sync skips
 
 `_upsert_asset_value_for_today` returns early when a hand-set row already
 exists for that date, rather than appending its own beside it.
+
+The protection is day-scoped, and deliberately so: it settles who owns *that
+day*, not who owns the holding forever. A correction made yesterday does not
+stop today's sync from valuing today, because today is a day the user has not
+spoken about.
 
 Appending was the smaller change and was rejected. The hand-set row would
 survive untouched in the literal sense while ceasing to be the value anything
@@ -66,4 +79,10 @@ An over-sell is still refused outright rather than warned about, as it was
 before this ticket: a position cannot go negative, and the 422 names the
 attempted and available quantities. The ticket's wording asked for a warning;
 the stronger answer was already built, already tested, and already surfaced to
-the user as a message on the form.
+the user as a toast on the form.
+
+What was *not* already built is the same check on deletion. `add` and `update`
+both validated the prospective ledger; `delete` did not, so removing a buy a
+later sell depended on left `_recompute` to clamp the shortfall silently and
+book a realized gain against units that never left. Deletion now refuses on
+the same terms as the other two.

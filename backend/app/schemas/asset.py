@@ -193,7 +193,6 @@ class AssetValueRead(BaseModel):
     amount: float
     date: _date
     source: str
-    # When the row was written, as opposed to the day it values.
     recorded_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

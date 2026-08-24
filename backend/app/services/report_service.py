@@ -4,13 +4,13 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import String, select, desc, func, case
+from sqlalchemy import String, select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.account import Account
 from app.models.asset import Asset
-from app.models.asset_value import AssetValue
+from app.models.asset_value import AssetValue, latest_value_first
 from app.models.transaction import Transaction
 from app.models.category import Category
 from app.models.user import User
@@ -97,7 +97,7 @@ async def _asset_value_at(
         val_result = await session.execute(
             select(AssetValue.amount)
             .where(AssetValue.asset_id == asset.id, AssetValue.date <= cutoff)
-            .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
+            .order_by(*latest_value_first())
             .limit(1)
         )
         val = val_result.scalar_one_or_none()
@@ -176,7 +176,7 @@ async def _net_worth_at(
         val_result = await session.execute(
             select(AssetValue.amount)
             .where(AssetValue.asset_id == asset.id, AssetValue.date <= cutoff)
-            .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
+            .order_by(*latest_value_first())
             .limit(1)
         )
         val = val_result.scalar_one_or_none()
