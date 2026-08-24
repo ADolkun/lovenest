@@ -16,6 +16,7 @@ from app.core.connection_settings import (
 )
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
+from app.models.asset_transaction import AssetTransaction
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.account import Account
@@ -35,6 +36,7 @@ from app.providers.base import (
     SessionExpiredError,
 )
 from app.schemas.bank_connection import ProviderAccountRead
+from app.services import asset_transaction_service
 from app.services import oauth_state
 from app.services import admin_service
 from app.services import recurring_match_service
@@ -301,6 +303,119 @@ async def _sync_holdings(
     for ext_id, asset in existing_by_external.items():
         if ext_id not in seen and not asset.is_archived:
             asset.is_archived = True
+
+
+async def _sync_trades(
+    session: AsyncSession,
+    connection: BankConnection,
+    credentials: dict,
+) -> None:
+    """Append the provider's trade history to its holdings' ledgers.
+
+    This is the first automatic writer to the trade ledger — every other one
+    records something a person typed or uploaded — so re-running it has to be
+    free. Deduplication keys on the provider's own transaction id, which is
+    the only identifier stable across two walks of the same history: a second
+    sync matches every row it already wrote and adds nothing.
+
+    Runs after ``_sync_holdings``, and depends on it: the Assets it writes to
+    are the ones that pass created or adopted, and the recompute at the end is
+    what makes the ledger rather than the reported balance the authority for
+    quantity and cost basis ("It stops being a Snapshot once real Trades are
+    imported", CONTEXT.md).
+
+    Provider failures are swallowed, matching ``_sync_holdings``: a history
+    endpoint that errors should cost the user a cost basis, not the balances
+    that synced fine a moment ago. Providers raise rather than truncate a
+    failed walk, so a partial history never reaches the ledger.
+    """
+    try:
+        provider = get_provider(connection.provider)
+        trades = await provider.get_trades(credentials)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch trades for connection %s", connection.id)
+        return
+    if not trades:
+        return
+
+    rows = await session.execute(
+        select(Asset).where(
+            Asset.connection_id == connection.id,
+            Asset.source == connection.provider,
+        )
+    )
+    holdings: dict[str, Asset] = {a.external_id: a for a in rows.scalars().all() if a.external_id}
+    if not holdings:
+        return
+
+    by_id: dict[uuid.UUID, Asset] = {a.id: a for a in holdings.values()}
+    existing = await session.execute(
+        select(AssetTransaction.asset_id, AssetTransaction.external_id).where(
+            AssetTransaction.asset_id.in_(by_id)
+        )
+    )
+    # `written` is what a re-sync deduplicates against; `ledgered` is every
+    # holding whose figures are the ledger's to state, which is a wider set —
+    # it includes rows the user typed or imported themselves.
+    written: set[tuple[uuid.UUID, str]] = set()
+    ledgered: set[uuid.UUID] = set()
+    for asset_id, external_id in existing.all():
+        ledgered.add(asset_id)
+        if external_id:
+            written.add((asset_id, external_id))
+
+    touched: dict[uuid.UUID, Asset] = {}
+    for trade in trades:
+        asset = holdings.get(trade.holding_external_id)
+        # No holding means the account allowlist excluded this position, or
+        # the provider reported history for one it no longer lists. Either way
+        # there is no ledger to write to, and minting an Asset here would
+        # resurrect what the holdings pass deliberately left out.
+        if asset is None:
+            continue
+        key = (asset.id, trade.external_id)
+        # Also catches a payload that repeats an id within one walk, which a
+        # cursor that overlaps pages will do.
+        if key in written:
+            continue
+        written.add(key)
+        session.add(
+            AssetTransaction(
+                asset_id=asset.id,
+                workspace_id=asset.workspace_id,
+                kind=trade.kind,
+                quantity=trade.quantity,
+                price=trade.price,
+                fee=trade.fee,
+                date=trade.date,
+                source=connection.provider,
+                external_id=trade.external_id,
+                notes=trade.notes,
+            )
+        )
+        touched[asset.id] = asset
+
+    ledgered |= set(touched)
+    if not ledgered:
+        return
+    await session.flush()
+    # Every holding that has a ledger, not only the ones this run appended to.
+    # `_sync_holdings` ran a moment ago and wrote the provider's reported
+    # balance onto `units`; for a holding with Trades behind it that figure is
+    # the cached one, not the authority (CONTEXT.md), so the replay has to put
+    # it back on every sync. Recomputing only what changed would leave the
+    # position flipping between the two on alternate runs.
+    #
+    # Once per holding, not once per trade: the replay walks the whole ledger
+    # either way.
+    #
+    # ponytail: until issue #70 maps transfers, rewards and conversions, a
+    # coin that reached the exchange by any route other than a fiat buy has no
+    # ledger row, so the replayed quantity can come out under the balance the
+    # exchange reports. #70 closes that by mapping the remaining types;
+    # nothing here changes when it does.
+    for asset_id in ledgered:
+        await asset_transaction_service.recompute_and_cache(session, by_id[asset_id])
 
 
 async def _wallet_for_account(
@@ -1040,6 +1155,9 @@ async def handle_oauth_callback(
             session, user_id, connection, connection_data.credentials,
             synced_account_ids,
         )
+        # After the holdings, never before: trades are written onto the Assets
+        # that pass creates.
+        await _sync_trades(session, connection, connection_data.credentials)
 
     connection.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
@@ -2210,6 +2328,7 @@ async def sync_connection(
             await _sync_holdings(
                 session, user_id, connection, credentials, synced_account_ids
             )
+            await _sync_trades(session, connection, credentials)
 
         connection.last_sync_at = datetime.now(timezone.utc)
         action_required_warnings = getattr(provider, "action_required_warnings", None)

@@ -218,6 +218,32 @@ class HoldingData:
 
 
 @dataclass
+class TradeData:
+    """One buy or sell behind a holding, provider-agnostic.
+
+    ``external_id`` is the provider's own identifier for the transaction, and
+    the only thing a re-sync deduplicates on — so it has to name the same
+    trade on every call, not a position in a page.
+
+    ``holding_external_id`` is the ``HoldingData.external_id`` of the position
+    the trade moves, which is how the sync layer finds the ledger to write to.
+
+    ``price`` is per unit in the holding's currency, and carries any fee the
+    provider folded into the fiat total: cost basis is what left the bank, not
+    the sticker price. A fee the provider itemizes separately goes in ``fee``.
+    """
+
+    external_id: str
+    holding_external_id: str
+    kind: str  # buy, sell
+    quantity: Decimal
+    price: Decimal
+    date: date
+    fee: Decimal = Decimal("0")
+    notes: Optional[str] = None
+
+
+@dataclass
 class InstitutionData:
     """One ASPSP/bank offered by an OAuth provider."""
 
@@ -424,6 +450,19 @@ class BankProvider(ABC):
         Providers that don't expose holdings (cash-only accounts, custom
         script providers without brokerage data, etc.) can rely on the
         default empty list.
+        """
+        return []
+
+    async def get_trades(self, credentials: dict) -> list[TradeData]:
+        """Fetch the buy/sell history behind this connection's holdings.
+
+        Default empty: most providers report a position without the trades
+        that built it, and a holding with no ledger is a Snapshot — quantity
+        from the provider, holding period unknown — rather than a wrong one.
+
+        Implementations must fetch a holding's history *completely* or raise.
+        Half a history is not half a cost basis, it is a confidently wrong
+        one, and the sync layer would have no way to tell the two apart.
         """
         return []
 
