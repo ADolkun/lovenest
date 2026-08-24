@@ -6,26 +6,88 @@ import { toast } from 'sonner'
 import { AlertCircle, AlertTriangle, CheckCircle2, Download, FileText, Info, Settings2, Upload, X } from 'lucide-react'
 
 import { assets as assetsApi, assetGroups as assetGroupsApi } from '@/lib/api'
-import type { AssetImportPreview, AssetOrderImport } from '@/types'
+import type { AssetImportPreview, AssetImportRowError, AssetImportSkip, AssetOrderImport } from '@/types'
 import { ImportHistory } from '@/components/import-history'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { useWorkspace } from '@/contexts/workspace-context'
 
-/** The Securo fields a CSV column can be mapped to; `*` marks the required ones. */
+/**
+ * The Securo fields a CSV column can be mapped to; `*` marks the required ones.
+ * `price` is not among them: a lot report states a total cost basis instead,
+ * and the server accepts either.
+ */
 const MAPPABLE_FIELDS = [
   { key: 'ticker', required: true },
   { key: 'date', required: true },
   { key: 'quantity', required: true },
-  { key: 'price', required: true },
+  { key: 'price', required: false },
   { key: 'fee', required: false },
   { key: 'kind', required: false },
   { key: 'currency', required: false },
   { key: 'notes', required: false },
+  // The lot shape: a report that gives a whole lot on one line, with a total
+  // cost rather than a unit price, and the sale on the same row as the buy.
+  { key: 'cost_basis', required: false },
+  { key: 'date_sold', required: false },
+  { key: 'proceeds', required: false },
 ] as const
 
 const SELECT_CLASS =
   'border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]'
+
+/**
+ * The rows a file will not turn into orders, listed by line number.
+ *
+ * Two kinds share this shape and must not share a colour. An *error* is a row
+ * the importer could not read; a *skip* is a row it read perfectly and that
+ * creates nothing — a transfer between the user's own wallets, a line already
+ * on the ledger. A file of transfers rendered in amber reads as a file of
+ * mistakes, so the tone is the whole point of the distinction.
+ */
+function RowNotice({
+  rows,
+  titleKey,
+  reasonPrefix,
+  tone,
+}: {
+  rows: (AssetImportRowError | AssetImportSkip)[]
+  titleKey: string
+  reasonPrefix: 'reason' | 'skip'
+  tone: 'error' | 'neutral'
+}) {
+  const { t } = useTranslation()
+  if (rows.length === 0) return null
+
+  const isError = tone === 'error'
+  return (
+    <div
+      className={`border-b border-border px-4 py-3 sm:px-5 ${isError ? 'bg-amber-500/10' : 'bg-muted/40'}`}
+    >
+      <p
+        className={`mb-2 flex items-center gap-2 text-sm font-medium ${
+          isError ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+        }`}
+      >
+        {isError ? <AlertTriangle size={14} /> : <Info size={14} />}
+        {t(titleKey, { count: rows.length })}
+      </p>
+      <ul className="space-y-1 text-xs text-muted-foreground">
+        {rows.slice(0, 8).map((row, i) => (
+          <li key={`${row.row}-${row.reason}-${i}`}>
+            {t('assetImport.rowError', {
+              row: row.row,
+              ticker: row.ticker ?? '—',
+              reason: t(`assetImport.${reasonPrefix}.${row.reason}`, row.reason),
+            })}
+            {row.detail ? ` (${row.detail})` : ''}
+          </li>
+        ))}
+        {rows.length > 8 && <li>{t('assetImport.moreErrors', { count: rows.length - 8 })}</li>}
+      </ul>
+    </div>
+  )
+}
 
 /**
  * The investments half of the import page.
@@ -49,6 +111,8 @@ export function AssetImportPanel() {
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [allowUnpriced, setAllowUnpriced] = useState(false)
+  const [dateFormat, setDateFormat] = useState('')
 
   const { data: wallets } = useQuery({
     queryKey: ['asset-groups'],
@@ -59,12 +123,16 @@ export function AssetImportPanel() {
     selected: File,
     nextMapping: Record<string, string>,
     nextGroup: string,
+    nextAllowUnpriced = allowUnpriced,
+    nextDateFormat = dateFormat,
   ) {
     setLoading(true)
     try {
       const result = await assetsApi.previewImport(selected, {
         column_mapping: nextMapping,
         group_id: nextGroup || null,
+        allow_unpriced: nextAllowUnpriced,
+        date_format: nextDateFormat || undefined,
       })
       setPreview(result)
     } catch {
@@ -108,6 +176,16 @@ export function AssetImportPanel() {
     if (file) runPreview(file, mapping, value)
   }
 
+  function handleAllowUnpricedChange(value: boolean) {
+    setAllowUnpriced(value)
+    if (file) runPreview(file, mapping, groupId, value)
+  }
+
+  function handleDateFormatChange(value: string) {
+    setDateFormat(value)
+    if (file) runPreview(file, mapping, groupId, allowUnpriced, value)
+  }
+
   async function handleImport() {
     if (!preview || preview.orders.length === 0) return
     setImporting(true)
@@ -116,6 +194,7 @@ export function AssetImportPanel() {
         preview.orders as AssetOrderImport[],
         groupId || null,
         file?.name,
+        allowUnpriced,
       )
       queryClient.invalidateQueries({ queryKey: ['assets'] })
       queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
@@ -131,6 +210,7 @@ export function AssetImportPanel() {
 
   const importable = preview?.orders.length ?? 0
   const rowErrors = preview?.errors ?? []
+  const rowSkips = preview?.skips ?? []
   const walletWarnings = preview?.warnings ?? []
   const needsMapping = !!preview?.parse_error
 
@@ -267,7 +347,42 @@ export function AssetImportPanel() {
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
+
+              {/* Auto settles `12/07/2021` from the whole file — one 12/16 in
+                  it proves the month comes first. Only a file whose every
+                  date is ambiguous needs this said by hand. */}
+              <Label htmlFor="asset-import-date-format" className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
+                {t('import.dateFormat')}
+              </Label>
+              <select
+                id="asset-import-date-format"
+                className={SELECT_CLASS}
+                value={dateFormat}
+                onChange={(e) => handleDateFormatChange(e.target.value)}
+              >
+                <option value="">{t('import.dateFormatAuto')}</option>
+                <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+              </select>
             </div>
+
+            {/* A delisted stock, or a token an insolvency estate handed out:
+                real basis, no market. Off by default because an unrecognised
+                ticker is nearly always a typo. */}
+            <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={allowUnpriced}
+                onChange={(e) => handleAllowUnpricedChange(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium text-foreground">{t('assetImport.allowUnpriced')}</span>
+                <br />
+                {t('assetImport.allowUnpricedHint')}
+              </span>
+            </label>
           </div>
 
           {walletWarnings.length > 0 && (
@@ -279,36 +394,34 @@ export function AssetImportPanel() {
               <ul className="space-y-1 text-xs text-blue-600 dark:text-blue-300/80">
                 {walletWarnings.map((w) => (
                   <li key={`${w.ticker}-${w.reason}`}>
-                    {t(`assetImport.warning.${w.reason}`, { ticker: w.ticker, wallet: w.wallet ?? '—' })}
+                    {t(`assetImport.warning.${w.reason}`, {
+                      ticker: w.ticker,
+                      wallet: w.wallet ?? '—',
+                      imported: w.imported_units ?? '—',
+                      reported: w.reported_units ?? '—',
+                    })}
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          {rowErrors.length > 0 && (
-            <div className="border-b border-border bg-amber-500/10 px-4 py-3 sm:px-5">
-              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
-                <AlertTriangle size={14} />
-                {t('assetImport.rowsSkipped', { count: rowErrors.length })}
-              </p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {rowErrors.slice(0, 8).map((err) => (
-                  <li key={`${err.row}-${err.reason}`}>
-                    {t('assetImport.rowError', {
-                      row: err.row,
-                      ticker: err.ticker ?? '—',
-                      reason: t(`assetImport.reason.${err.reason}`, err.reason),
-                    })}
-                    {err.detail ? ` (${err.detail})` : ''}
-                  </li>
-                ))}
-                {rowErrors.length > 8 && (
-                  <li>{t('assetImport.moreErrors', { count: rowErrors.length - 8 })}</li>
-                )}
-              </ul>
-            </div>
-          )}
+          <RowNotice
+            rows={rowErrors}
+            titleKey="assetImport.rowsRefused"
+            reasonPrefix="reason"
+            tone="error"
+          />
+
+          {/* Not an error: the row is fine and creates nothing. Kept apart
+              from the amber block so a file of transfers does not read as a
+              file of mistakes. */}
+          <RowNotice
+            rows={rowSkips}
+            titleKey="assetImport.rowsNotImported"
+            reasonPrefix="skip"
+            tone="neutral"
+          />
 
           {importable > 0 && (
             <div className="overflow-x-auto">

@@ -1163,11 +1163,12 @@ export const assets = {
   },
   previewImport: async (
     file: File,
-    options?: { column_mapping?: Record<string, string>; date_format?: string; group_id?: string | null },
+    options?: { column_mapping?: Record<string, string>; date_format?: string; group_id?: string | null; allow_unpriced?: boolean },
   ): Promise<AssetImportPreview> => {
     const formData = new FormData()
     formData.append('file', file)
     if (options?.date_format) formData.append('date_format', options.date_format)
+    if (options?.allow_unpriced) formData.append('allow_unpriced', 'true')
     if (options?.group_id) formData.append('group_id', options.group_id)
     if (options?.column_mapping && Object.keys(options.column_mapping).length > 0) {
       formData.append('column_mapping', JSON.stringify(options.column_mapping))
@@ -1179,8 +1180,11 @@ export const assets = {
     orders: AssetOrderImport[],
     group_id?: string | null,
     filename?: string,
+    allow_unpriced?: boolean,
   ): Promise<AssetImportResult> => {
-    const { data } = await api.post('/assets/import', { orders, group_id: group_id || null, filename })
+    const { data } = await api.post('/assets/import', {
+      orders, group_id: group_id || null, filename, allow_unpriced: !!allow_unpriced,
+    })
     return data
   },
   importTemplate: async (): Promise<void> => {

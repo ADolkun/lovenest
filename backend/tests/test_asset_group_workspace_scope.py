@@ -160,7 +160,7 @@ async def test_import_rejects_a_wallet_from_another_workspace(
 ):
     other = await _second_workspace(session, test_user.id)
     theirs = await _wallet(session, test_user.id, other.id, "Their Wallet")
-    orders, _, _ = asset_import_service.parse_orders_csv(
+    orders, _, _, _ = asset_import_service.parse_orders_csv(
         b"ticker,date,quantity,price\nAAPL,2026-01-15,10,100.00"
     )
 
@@ -182,7 +182,7 @@ async def test_import_preview_rejects_it_too(
     the commit will reject."""
     other = await _second_workspace(session, test_user.id)
     theirs = await _wallet(session, test_user.id, other.id, "Their Wallet")
-    orders, _, _ = asset_import_service.parse_orders_csv(
+    orders, _, _, _ = asset_import_service.parse_orders_csv(
         b"ticker,date,quantity,price\nAAPL,2026-01-15,10,100.00"
     )
 

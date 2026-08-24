@@ -33,8 +33,11 @@ class AssetTransaction(Base):
         UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     kind: Mapped[str] = mapped_column(String(8))  # buy, sell
-    quantity: Mapped[Decimal] = mapped_column(Numeric(precision=18, scale=6))
-    price: Mapped[Decimal] = mapped_column(Numeric(precision=18, scale=6))  # per-share, asset currency
+    # 38 digits with 18 after the point (migration 082): a crypto tax-tool lot
+    # report carries sixteen decimals, and a meme-coin lot runs to twelve
+    # digits before the point. Six decimals rounded a satoshi to nothing.
+    quantity: Mapped[Decimal] = mapped_column(Numeric(precision=38, scale=18))
+    price: Mapped[Decimal] = mapped_column(Numeric(precision=38, scale=18))  # per-share, asset currency
     fee: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=Decimal("0"))
     date: Mapped[_date] = mapped_column(Date, index=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual, import, pluggy

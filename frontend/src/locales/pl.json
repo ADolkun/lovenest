@@ -1167,7 +1167,7 @@
     "title": "Importuj zlecenia inwestycyjne",
     "action": "Importuj zlecenia",
     "choose": "Wybierz plik CSV",
-    "chooseHint": "Ticker, data, ilość i cena są wymagane. Ujemna ilość oznacza sprzedaż.",
+    "chooseHint": "Walor, data i ilość są wymagane, a do tego cena jednostkowa albo koszt całkowity. Ujemna ilość czytana jest jako sprzedaż.",
     "downloadTemplate": "Pobierz szablon",
     "importTo": "Importuj do",
     "nothingToImport": "Nie ma czego zaimportować z tego pliku",
@@ -1183,8 +1183,7 @@
     "confirm": "Importuj {{count}} zleceń",
     "summaryOrders": "{{count}} zleceń gotowych",
     "summaryHoldings": "utworzono {{created}} pozycji, dopasowano {{matched}}",
-    "summarySkipped": "{{count}} już zaimportowanych",
-    "rowsSkipped": "{{count}} wierszy zostanie pominiętych",
+    "summarySkipped": "{{count}} wierszy nic nie tworzy",
     "rowError": "Wiersz {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "i {{count}} więcej",
     "moreRows": "i {{count}} zleceń więcej",
@@ -1196,12 +1195,17 @@
       "fee": "Prowizja",
       "kind": "Kupno/Sprzedaż",
       "currency": "Waluta",
-      "notes": "Notatki"
+      "notes": "Notatki",
+      "cost_basis": "Koszt całkowity",
+      "date_sold": "Data sprzedaży",
+      "proceeds": "Przychód (całkowity)"
     },
     "walletWarningTitle": "Już w Twoim portfelu",
     "warning": {
       "exists_in_other_wallet": "{{ticker}} znajduje się już w {{wallet}}. Import tutaj utworzy drugą pozycję.",
-      "orders_already_in_other_wallet": "{{ticker}}: te same zlecenia są już w {{wallet}}. Import tutaj policzyłby walory dwa razy."
+      "orders_already_in_other_wallet": "{{ticker}}: te same zlecenia są już w {{wallet}}. Import tutaj policzyłby walory dwa razy.",
+      "units_differ_from_provider": "{{ticker}}: zaimportowana historia daje {{imported}} jednostek, a dostawca zgłosił {{reported}}.",
+      "unpriced_holding": "{{ticker}} nie występuje w żadnym źródle cen, więc ta pozycja nie będzie wyceniana rynkowo."
     },
     "kind": {
       "buy": "Kupno",
@@ -1212,10 +1216,21 @@
       "invalid_date": "nieczytelna data",
       "invalid_quantity": "nieczytelna ilość",
       "invalid_price": "nieczytelna cena",
-      "invalid_kind": "nierozpoznane kupno/sprzedaż",
       "unknown_ticker": "ticker nieznany dostawcy notowań",
-      "oversell": "sprzedaż większa niż pozycja"
-    }
+      "oversell": "sprzedaż większa niż pozycja",
+      "invalid_proceeds": "data sprzedaży bez przychodu",
+      "below_ledger_scale": "dokładniejsze niż 18 miejsc po przecinku w rejestrze"
+    },
+    "rowsNotImported": "{{count}} wierszy nic nie tworzy",
+    "allowUnpriced": "Importuj pozycje, których nie zna żadne źródło cen",
+    "allowUnpricedHint": "Dla wycofanej z obrotu akcji albo tokena z postępowania upadłościowego: koszt zostaje, a pozycja nie jest wyceniana rynkowo.",
+    "skip": {
+      "already_imported": "już jest w rejestrze",
+      "transfer": "przelew między własnymi portfelami — koszt wędruje razem z jednostkami",
+      "unsupported_type": "nieobsługiwany typ operacji",
+      "no_units": "w tym wierszu nie zmieniają się jednostki"
+    },
+    "rowsRefused": "{{count}} wierszy nie można zaimportować"
   },
   "assets": {
     "title": "Aktywa",

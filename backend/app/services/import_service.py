@@ -176,22 +176,21 @@ _QIF_FALLBACK_DATE_FORMATS = [
 ]
 
 
-def _qif_date_formats(date_format: str | None, raw_dates: list[str]) -> list[str]:
-    """Decide the strptime formats for a QIF file's dates, once per file.
+def infer_date_order(raw_dates: list[str]) -> str | None:
+    """Whether a file's `n/n/yyyy` dates put the day or the month first.
 
-    An explicit user choice is strict (like parse_csv): only that format and
-    its 2-digit-year variant are accepted. Otherwise the order is inferred
-    from the whole file — a first component > 12 can only be a day, so the
-    file is DD/MM; per-line first-match parsing would silently mix MM/DD and
-    DD/MM within a single import for the ambiguous days 1-12.
+    Decided once from *all* the file's dates, because the ambiguity cannot be
+    settled a line at a time: `12/07` parses under either reading, so
+    first-match-wins would silently mix the two within one import and get the
+    days 1-12 wrong while getting 13-31 right. One row with a component above
+    12 settles the whole file — that component can only be a day.
+
+    Returns `'day'`, `'month'`, or `None` when every date is ambiguous or the
+    file disagrees with itself.
     """
-    if date_format and date_format in DATE_FORMAT_MAP:
-        fmt = DATE_FORMAT_MAP[date_format]
-        return [fmt, fmt.replace('%Y', '%y')]
-
     saw_day_first = saw_month_first = False
     for value in raw_dates:
-        match = re.match(r"^(\d{1,2})/(\d{1,2})/\d{2,4}$", value)
+        match = re.match(r"^(\d{1,2})/(\d{1,2})/\d{2,4}$", value.strip())
         if not match:
             continue
         first, second = int(match.group(1)), int(match.group(2))
@@ -200,7 +199,24 @@ def _qif_date_formats(date_format: str | None, raw_dates: list[str]) -> list[str
         if second > 12 >= first:
             saw_month_first = True
 
-    if saw_day_first and not saw_month_first:
+    if saw_day_first == saw_month_first:
+        return None
+    return 'day' if saw_day_first else 'month'
+
+
+def _qif_date_formats(date_format: str | None, raw_dates: list[str]) -> list[str]:
+    """Decide the strptime formats for a QIF file's dates, once per file.
+
+    An explicit user choice is strict (like parse_csv): only that format and
+    its 2-digit-year variant are accepted. Otherwise the order is inferred
+    from the whole file. Only a day-first verdict reorders anything, because
+    the QIF fallback already leads with month-first.
+    """
+    if date_format and date_format in DATE_FORMAT_MAP:
+        fmt = DATE_FORMAT_MAP[date_format]
+        return [fmt, fmt.replace('%Y', '%y')]
+
+    if infer_date_order(raw_dates) == 'day':
         return ['%d/%m/%Y', '%d/%m/%y'] + _QIF_FALLBACK_DATE_FORMATS
     return list(_QIF_FALLBACK_DATE_FORMATS)
 

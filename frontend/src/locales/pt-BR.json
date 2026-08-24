@@ -1089,7 +1089,7 @@
     "title": "Importar ordens de investimento",
     "action": "Importar ordens",
     "choose": "Escolher um arquivo CSV",
-    "chooseHint": "Ativo, data, quantidade e preço são obrigatórios. Quantidade negativa é lida como venda.",
+    "chooseHint": "Ativo, data e quantidade são obrigatórios, mais o preço unitário ou o custo total. Quantidade negativa é lida como venda.",
     "downloadTemplate": "Baixar modelo",
     "importTo": "Importar para",
     "nothingToImport": "Nada para importar deste arquivo",
@@ -1105,8 +1105,7 @@
     "confirm": "Importar {{count}} ordens",
     "summaryOrders": "{{count}} ordens prontas",
     "summaryHoldings": "{{created}} ativos criados, {{matched}} encontrados",
-    "summarySkipped": "{{count}} já importadas",
-    "rowsSkipped": "{{count}} linhas serão ignoradas",
+    "summarySkipped": "{{count}} linhas não criam nada",
     "rowError": "Linha {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "e mais {{count}}",
     "moreRows": "e mais {{count}} ordens",
@@ -1118,12 +1117,17 @@
       "fee": "Taxas",
       "kind": "Compra/Venda",
       "currency": "Moeda",
-      "notes": "Observações"
+      "notes": "Observações",
+      "cost_basis": "Custo total",
+      "date_sold": "Data da venda",
+      "proceeds": "Valor da venda (total)"
     },
     "walletWarningTitle": "Já está no seu patrimônio",
     "warning": {
       "exists_in_other_wallet": "{{ticker}} já existe em {{wallet}}. Importar aqui cria uma segunda posição.",
-      "orders_already_in_other_wallet": "{{ticker}}: essas mesmas ordens já estão em {{wallet}}. Importar aqui contaria as cotas duas vezes."
+      "orders_already_in_other_wallet": "{{ticker}}: essas mesmas ordens já estão em {{wallet}}. Importar aqui contaria as cotas duas vezes.",
+      "units_differ_from_provider": "{{ticker}}: o histórico importado soma {{imported}} unidades, mas o provedor informou {{reported}}.",
+      "unpriced_holding": "{{ticker}} não é listado por nenhuma fonte de preço, então este ativo não será marcado a mercado."
     },
     "kind": {
       "buy": "Compra",
@@ -1134,10 +1138,21 @@
       "invalid_date": "data ilegível",
       "invalid_quantity": "quantidade ilegível",
       "invalid_price": "preço ilegível",
-      "invalid_kind": "compra/venda não reconhecida",
       "unknown_ticker": "ativo não encontrado no provedor de cotações",
-      "oversell": "venda maior do que a posição"
-    }
+      "oversell": "venda maior do que a posição",
+      "invalid_proceeds": "data de venda sem valor de venda",
+      "below_ledger_scale": "mais preciso que as 18 casas decimais do registro"
+    },
+    "rowsNotImported": "{{count}} linhas não criam nada",
+    "allowUnpriced": "Importar ativos que nenhuma fonte de preço conhece",
+    "allowUnpricedHint": "Para uma ação deslistada ou um token vindo de uma falência: o custo é mantido e o ativo não é marcado a mercado.",
+    "skip": {
+      "already_imported": "já está no histórico",
+      "transfer": "transferência entre suas próprias carteiras — o custo acompanha as unidades",
+      "unsupported_type": "tipo de operação não suportado",
+      "no_units": "nenhuma unidade se move nesta linha"
+    },
+    "rowsRefused": "{{count}} linhas não podem ser importadas"
   },
   "assets": {
     "title": "Patrimônio",
