@@ -71,17 +71,20 @@ ACCOUNTS_PATH = "/v2/accounts"
 KEY_PERMISSIONS_PATH = "/api/v3/brokerage/key_permissions"
 EXCHANGE_RATES_PATH = "/v2/exchange-rates"
 TRANSACTIONS_PATH = "/v2/accounts/{account_id}/transactions"
-# A cursor walk over a personal exchange account is a few pages; the cap only
-# exists so a server that keeps handing out fresh cursors can't spin forever.
+# A cursor walk over a personal account is a few pages; the cap only exists so
+# a server that keeps handing out fresh cursors can't spin forever.
 MAX_PAGES = 100
 # Coinbase's v2 maximum. The default is 25, and a long trading history walked
 # 25 rows at a time is four times the requests for the same answer.
 PAGE_LIMIT = 100
-# Only these two are a straightforward buy or sell of an asset for fiat. Every
-# other type Coinbase enumerates — send, receive, trade, staking reward,
-# earn payout — moves a position without stating a fiat basis for it, and is
-# issue #70's problem, not this one's.
-LEDGER_TX_TYPES = {"buy": "buy", "sell": "sell"}
+# One past the largest per-unit price `asset_transactions.price` — a
+# NUMERIC(38, 18) — can hold.
+MAX_LEDGER_PRICE = Decimal(10) ** 20
+# Only these two are a straightforward buy or sell of an asset for fiat. The
+# two dozen other types Coinbase enumerates — send, receive, trade, staking
+# reward, earn payout — move a position without stating a fiat basis for it,
+# and are issue #70's problem, not this one's.
+LEDGER_TX_TYPES = ("buy", "sell")
 COINBASE_HELP_URL = "https://portal.cdp.coinbase.com/access/api"
 
 
@@ -170,12 +173,12 @@ def _rows(payload: Any, key: str = "data") -> list[dict]:
     return [row for row in rows if isinstance(row, dict)]
 
 
-def _utc_date(value: Any) -> Optional[date]:
-    """The UTC calendar date of a v2 timestamp, or None when it isn't one.
+def _utc_timestamp(value: Any) -> Optional[datetime]:
+    """A v2 timestamp in UTC, or None when it isn't one.
 
-    UTC rather than the user's own zone: it is what Coinbase states, and a
-    date shifted into a zone we would be guessing at is a worse answer on the
-    few hours a year the two disagree.
+    UTC rather than the user's own zone: it is what Coinbase states, and an
+    instant shifted into a zone we would be guessing at dates a trade to the
+    wrong day on the few hours a year the two disagree.
     """
     if not isinstance(value, str) or not value:
         return None
@@ -184,8 +187,8 @@ def _utc_date(value: Any) -> Optional[date]:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return parsed.date()
-    return parsed.astimezone(timezone.utc).date()
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class CoinbaseProvider(BankProvider):
@@ -322,14 +325,15 @@ class CoinbaseProvider(BankProvider):
 
     # ----- reads -------------------------------------------------------------
 
-    async def _walk(self, path: str, credentials: dict) -> list[dict]:
+    async def _walk(
+        self, path: str, credentials: dict, *, partial_ok: bool = False
+    ) -> list[dict]:
         """Every row of a cursor-paged v2 collection, to exhaustion.
 
         An error part-way through propagates rather than returning what
-        arrived first. For accounts that only costs a retry; for transaction
-        history it is the whole point — half a history is not half a cost
-        basis, it is a confidently wrong one, and nothing downstream could
-        tell the two apart.
+        arrived first, and so does running out of pages unless ``partial_ok``
+        says a prefix is usable — a truncated account list costs a wallet that
+        reappears next sync, a truncated history costs a wrong cost basis.
 
         The cursor is tracked so a server that keeps handing back one it
         already gave stops the walk instead of looping on it.
@@ -342,12 +346,18 @@ class CoinbaseProvider(BankProvider):
             rows.extend(_rows(payload))
             pagination = payload.get("pagination")
             cursor = pagination.get("next_starting_after") if isinstance(pagination, dict) else None
+            cursor = str(cursor) if cursor else ""
             if not cursor or cursor in seen_cursors:
                 return rows
-            seen_cursors.add(str(cursor))
-            params = {"limit": str(PAGE_LIMIT), "starting_after": str(cursor)}
-        logger.warning("Coinbase walk of %s hit the %d-page cap", path, MAX_PAGES)
-        return rows
+            seen_cursors.add(cursor)
+            params = {"limit": str(PAGE_LIMIT), "starting_after": cursor}
+        if partial_ok:
+            logger.warning("Coinbase walk of %s hit the %d-page cap", path, MAX_PAGES)
+            return rows
+        raise RuntimeError(
+            f"Coinbase still had pages of {path} after {MAX_PAGES}; refusing to "
+            "report a partial history"
+        )
 
     async def _walk_accounts(self, credentials: dict) -> list[dict]:
         """Every Coinbase account, following the cursor to exhaustion.
@@ -355,8 +365,11 @@ class CoinbaseProvider(BankProvider):
         Zero-balance wallets are kept: Coinbase mints one per asset the user
         has ever touched, and ``get_trades`` walks each one's history — a
         position sold to nothing still has the trades that got it there.
+
+        A cap hit here yields the accounts that did arrive: a missing wallet
+        is a holding that shows up next sync, not a wrong number.
         """
-        return await self._walk(ACCOUNTS_PATH, credentials)
+        return await self._walk(ACCOUNTS_PATH, credentials, partial_ok=True)
 
     @staticmethod
     def _balance(raw: dict) -> dict:
@@ -513,8 +526,8 @@ class CoinbaseProvider(BankProvider):
         is mostly transfers, rewards and conversions, and only a fiat buy or
         sell states both a quantity and the money that moved for it.
         """
-        kind = LEDGER_TX_TYPES.get(str(raw.get("type") or "").lower())
-        if kind is None:
+        kind = str(raw.get("type") or "").lower()
+        if kind not in LEDGER_TX_TYPES:
             return None
         # Anything unsettled is not yet a fact about the position — a pending
         # buy can still fail, and a canceled one never happened.
@@ -538,25 +551,36 @@ class CoinbaseProvider(BankProvider):
         # priced in anything else would write a number in one currency into a
         # basis denominated in another. Skipping is the honest answer.
         if _iso_currency(native.get("currency")) != "USD":
-            logger.warning(
-                "Coinbase transaction %s is priced in %s, not USD; skipping",
-                external_id,
-                native.get("currency"),
-            )
             return None
-        when = _utc_date(raw.get("created_at"))
+        when = _utc_timestamp(raw.get("created_at"))
         if when is None:
+            return None
+        price = fiat / quantity
+        # `asset_transactions.price` is NUMERIC(38, 18). A dust quantity
+        # against a whole-dollar total can produce more integer digits than
+        # that holds, and the write would fail late — after the accounts,
+        # balances and transactions of this sync were already staged.
+        if price >= MAX_LEDGER_PRICE:
+            logger.warning(
+                "Coinbase transaction %s prices %s at %s, past what the ledger "
+                "stores; skipping",
+                external_id,
+                amount.get("currency"),
+                price,
+            )
             return None
         return TradeData(
             external_id=external_id,
             holding_external_id=holding_external_id,
             kind=kind,
-            # The fiat total Coinbase reports is what actually left the bank,
-            # fee included, which is exactly what cost basis means. No separate
-            # `fee`: charging it twice would overstate the basis.
-            price=fiat / quantity,
+            # Taken to be the fiat total including the fee, which is what cost
+            # basis means. Coinbase documents `native_amount` as "the value in
+            # the user's native currency" without saying whether the buy fee is
+            # in it; if it turns out to be the subtotal, every basis here
+            # understates by the fee.
+            price=price,
             quantity=quantity,
-            date=when,
+            occurred_at=when,
         )
 
     async def get_trades(self, credentials: dict) -> list[TradeData]:
@@ -570,15 +594,10 @@ class CoinbaseProvider(BankProvider):
         to nothing still has the buys and the sell that got it there, and
         those are the whole cost-basis story for a realised gain.
 
-        Fiat wallets are skipped — their history is money moving between
-        accounts, not a position changing, and they carry no holding to write
-        to.
-
-        A failure part-way through the walk propagates. Writing the trades
-        that did arrive would leave a cost basis built from an arbitrary
-        prefix of the history, which reads as authoritative and is wrong.
+        Fiat wallets carry no holding to write to, so they are skipped.
         """
         trades: list[TradeData] = []
+        candidates = 0
         for raw in await self._walk_accounts(credentials):
             account_id = str(raw.get("id") or "")
             if not account_id or self._is_fiat(raw):
@@ -586,10 +605,22 @@ class CoinbaseProvider(BankProvider):
             rows = await self._walk(
                 TRANSACTIONS_PATH.format(account_id=account_id), credentials
             )
+            candidates += sum(
+                1 for row in rows if str(row.get("type") or "").lower() in LEDGER_TX_TYPES
+            )
             trades.extend(
                 trade
                 for trade in (self._trade(row, account_id) for row in rows)
                 if trade is not None
+            )
+        if candidates and not trades:
+            # Most often the account is not denominated in USD, which this
+            # provider cannot price a basis in. Said once, because saying it
+            # per transaction buries it.
+            logger.warning(
+                "Coinbase reported %d buys and sells but none could be recorded; "
+                "an account whose native currency is not USD gets no cost basis",
+                candidates,
             )
         return trades
 

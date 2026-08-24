@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal, Optional
 
@@ -230,7 +230,12 @@ class TradeData:
 
     ``price`` is per unit in the holding's currency, and carries any fee the
     provider folded into the fiat total: cost basis is what left the bank, not
-    the sticker price. A fee the provider itemizes separately goes in ``fee``.
+    the sticker price.
+
+    ``occurred_at`` is the full instant, not the day. The ledger stores a
+    date, but replaying it has to put two trades of the same asset on the same
+    day in the order they happened — buy-then-sell books a gain, sell-then-buy
+    books nothing — and the day alone cannot say which came first.
     """
 
     external_id: str
@@ -238,9 +243,7 @@ class TradeData:
     kind: str  # buy, sell
     quantity: Decimal
     price: Decimal
-    date: date
-    fee: Decimal = Decimal("0")
-    notes: Optional[str] = None
+    occurred_at: datetime
 
 
 @dataclass

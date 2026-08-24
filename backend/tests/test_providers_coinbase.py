@@ -7,7 +7,7 @@ appears anywhere in this file and nothing touches the network.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -731,12 +731,14 @@ async def test_buys_and_sells_become_trades_with_a_derived_unit_price():
     assert [(t.external_id, t.kind) for t in trades] == [("tx-buy", "buy"), ("tx-sell", "sell")]
     buy, sell = trades
     assert buy.holding_external_id == "a1"
-    assert (buy.quantity, buy.price, buy.date) == (
-        Decimal("20"), Decimal("2.5"), date(2024, 3, 4),
+    assert (buy.quantity, buy.price, buy.occurred_at) == (
+        Decimal("20"), Decimal("2.5"),
+        datetime(2024, 3, 4, 18, 30, tzinfo=timezone.utc),
     )
     # A sell reports both sides negative; the ledger stores magnitudes.
-    assert (sell.quantity, sell.price, sell.date) == (
-        Decimal("5"), Decimal("4"), date(2025, 1, 2),
+    assert (sell.quantity, sell.price, sell.occurred_at) == (
+        Decimal("5"), Decimal("4"),
+        datetime(2025, 1, 2, 0, 15, tzinfo=timezone.utc),
     )
 
 
@@ -809,6 +811,32 @@ async def test_an_error_mid_pagination_raises_rather_than_truncating():
 
 
 @pytest.mark.asyncio
+async def test_a_history_longer_than_the_page_cap_raises_rather_than_truncating():
+    """A prefix of someone's trading is not a smaller cost basis, it is a wrong one."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/accounts":
+            return httpx.Response(200, json=_page(accounts))
+        calls["n"] += 1
+        return httpx.Response(
+            200,
+            json=_tx_page(
+                [_transaction(f"tx-{calls['n']}", "buy", "1", "2")],
+                next_cursor=f"c{calls['n']}",
+            ),
+        )
+
+    provider = CoinbaseProvider()
+    with patch("app.providers.coinbase.MAX_PAGES", 3), _patched_client(handler):
+        with pytest.raises(RuntimeError, match="partial history"):
+            await provider.get_trades(_credentials(private_pem))
+
+
+@pytest.mark.asyncio
 async def test_zero_balance_wallets_still_give_up_their_history():
     """A position sold to nothing is exactly where realised gain comes from."""
     private_pem, _ = _generate_key()
@@ -852,6 +880,10 @@ async def test_fiat_wallet_history_is_not_a_trade():
         _transaction("tx", "buy", "0", "2"),
         _transaction("", "buy", "1", "2"),
         _transaction("tx", "buy", "1", "2", created_at="not a timestamp"),
+        # A dust quantity against a whole-dollar total prices past what
+        # NUMERIC(38, 18) holds; the write would fail after the rest of the
+        # sync was already staged.
+        _transaction("tx", "buy", "0.00000000000000000001", "1000"),
         {"id": "tx", "type": "buy", "status": "completed"},
         {"id": "tx", "type": "buy", "status": "completed",
          "amount": "nope", "native_amount": "nope"},
@@ -869,7 +901,7 @@ async def test_rows_that_are_not_a_priced_buy_or_sell_are_skipped(row):
 
 
 @pytest.mark.asyncio
-async def test_a_local_timestamp_is_dated_in_utc():
+async def test_a_local_timestamp_is_converted_to_utc():
     """19:30 in Los Angeles is the next day in UTC, and Coinbase says so."""
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "10")]
@@ -885,7 +917,7 @@ async def test_a_local_timestamp_is_dated_in_utc():
     with _patched_client(_history_handler(accounts, history)):
         trades = await provider.get_trades(_credentials(private_pem))
 
-    assert trades[0].date == date(2024, 3, 5)
+    assert trades[0].occurred_at == datetime(2024, 3, 5, 3, 30, tzinfo=timezone.utc)
 
 
 # ----- misc contract ----------------------------------------------------------
