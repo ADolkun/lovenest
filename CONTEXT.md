@@ -24,6 +24,18 @@ provider, and there is no ledger to replay, so Holding Period and Tax Lots are
 unknown rather than zero. It stops being a Snapshot once real Trades are imported
 for it, after which the ledger is authoritative.
 
+**Hand-Valued Holding** — a Holding whose worth is whatever the user last typed:
+a bankruptcy claim, a stake in something unlisted, a position at an institution
+no aggregator reaches. It carries no ticker, because a symbol is what an
+automatic refresh resolves and symbols collide across asset classes. Nothing
+automatic revalues it — not a price refresh, not a provider sync.
+
+**Hand-Set Value** — one figure the user recorded for a Holding on a day, and
+the authority for that day. A sync writes nothing for a day already valued by
+hand. It is stamped with when it was *entered*, which is a different thing from
+the day it is *about*: a balance typed today for last month is fresh, and the
+whole point of the stamp is telling that apart from a figure a year stale.
+
 **Wallet** — a grouping of Holdings corresponding to exactly one brokerage account.
 One account, one Wallet: a Wallet spanning two accounts cannot carry a truthful tax
 character, and a Wallet is the unit that character attaches to — Taxable,

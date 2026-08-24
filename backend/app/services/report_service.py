@@ -97,7 +97,7 @@ async def _asset_value_at(
         val_result = await session.execute(
             select(AssetValue.amount)
             .where(AssetValue.asset_id == asset.id, AssetValue.date <= cutoff)
-            .order_by(desc(AssetValue.date), desc(AssetValue.id))
+            .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
             .limit(1)
         )
         val = val_result.scalar_one_or_none()
@@ -176,7 +176,7 @@ async def _net_worth_at(
         val_result = await session.execute(
             select(AssetValue.amount)
             .where(AssetValue.asset_id == asset.id, AssetValue.date <= cutoff)
-            .order_by(desc(AssetValue.date), desc(AssetValue.id))
+            .order_by(desc(AssetValue.date), desc(AssetValue.recorded_at), desc(AssetValue.id))
             .limit(1)
         )
         val = val_result.scalar_one_or_none()

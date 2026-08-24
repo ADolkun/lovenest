@@ -739,6 +739,7 @@ export interface Asset {
   ticker_exchange: string | null
   last_price: number | null
   last_price_at: string | null
+  value_updated_at: string | null
   logo_url: string | null
   // Ledger-derived (issue #235): weighted-average cost per unit (preço médio),
   // cost basis of held units, cumulative realized gain, and whether the holding
@@ -944,6 +945,7 @@ export interface AssetValue {
   amount: number
   date: string
   source: string
+  recorded_at: string
 }
 
 export interface Goal {

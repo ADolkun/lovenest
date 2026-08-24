@@ -493,7 +493,22 @@ async def _upsert_asset_value_for_today(
 
     Re-syncing the same day updates the amount in place; a later day
     creates a new row so we build a daily valuation history over time.
+
+    A day the user valued by hand is theirs: sync writes nothing for it
+    (issue #68). Skipping the write rather than the row is what makes that
+    true — appending a sync row alongside leaves the hand-set row intact but
+    shadows it everywhere the latest value is read, which is the same loss
+    with extra steps. Matches `_ensure_historical_seed`.
     """
+    hand_set = await session.scalar(
+        select(AssetValue.id).where(
+            AssetValue.asset_id == asset.id,
+            AssetValue.date == today,
+            AssetValue.source == "manual",
+        )
+    )
+    if hand_set is not None:
+        return
     existing = await session.execute(
         select(AssetValue).where(
             AssetValue.asset_id == asset.id,

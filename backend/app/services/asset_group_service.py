@@ -47,7 +47,7 @@ async def _latest_value_amount(session: AsyncSession, asset_id: uuid.UUID) -> Op
     row = await session.execute(
         select(AssetValue.amount)
         .where(AssetValue.asset_id == asset_id)
-        .order_by(AssetValue.date.desc(), AssetValue.id.desc())
+        .order_by(AssetValue.date.desc(), AssetValue.recorded_at.desc(), AssetValue.id.desc())
         .limit(1)
     )
     return row.scalar_one_or_none()
