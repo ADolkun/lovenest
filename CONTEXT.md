@@ -21,8 +21,12 @@ replaying its Trades — except for a Snapshot Holding, which has none yet.
 **Snapshot Holding** — a Holding imported from a provider that reports a position
 but not the Trades behind it. Quantity and unit basis come straight from the
 provider, and there is no ledger to replay, so Holding Period and Tax Lots are
-unknown rather than zero. It stops being a Snapshot once real Trades are imported
-for it, after which the ledger is authoritative.
+unknown rather than zero. It stops being a Snapshot once Trades arrive that
+*account for the position*: while a ledger a provider wrote replays to a
+different quantity than that provider reports, it is an incomplete history
+rather than a correction of one, and the provider's figure stays the
+authority. Where no provider reports the position at all, there is no
+second opinion to hold it to, and the ledger is believed as it stands.
 
 **Hand-Valued Holding** — a Holding whose worth is whatever the user last typed:
 a bankruptcy claim, a stake in something unlisted, a position at an institution
@@ -46,7 +50,26 @@ is always set by the user; wallets default to Taxable.
 
 **Trade** — a single buy or sell of a quantity of a ticker at a price on a date.
 Trades are the source of truth for a Holding; the Holding's cached figures are an
-optimisation, not the record.
+optimisation, not the record. Not every Trade is a purchase or a disposal in the
+plain sense: an acquisition that cost no money is still recorded as a buy, at
+what the units were worth on the day (see Income at Receipt).
+
+**Income at Receipt** — units that arrived as payment rather than as a purchase:
+a staking or interest payout, a reward, an airdrop, a distribution from an
+insolvency estate. They are worth their market value on the day they land, and
+that value is both the income and the basis of the lot they open. Recording them
+as free units would tax the same money twice — once as income, then again as the
+gain of a disposal that was never that large. Where that value cannot be
+established at all, the two sources part company on purpose: an import the user
+chose records the units at zero, while a sync records nothing rather than
+quietly understate a basis it would then be believed on (ADR 0008).
+
+**Transfer** — the same person's coins moving between their own wallets. Basis
+travels with them, so a transfer is neither an acquisition nor a disposal, and
+recording one as a Trade would invent a lot that never existed. A Holding fed by
+a transfer therefore replays to a quantity its provider disagrees with — short
+where the coins arrived, long where they left — and stays a Snapshot until the
+missing history arrives from somewhere else.
 
 **Average Price** — weighted-average cost per unit across all open quantity
 (*preço médio*). Deliberately **not** FIFO. Buys move it; sells do not.

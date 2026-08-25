@@ -62,9 +62,14 @@ def to_decimal(value: Any) -> Optional[Decimal]:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+    # "NaN" and "Infinity" parse, and then raise on the first comparison a
+    # caller makes — which for a provider is mid-sync, after the rest of the
+    # pull is staged. Not a number reads as absent, like anything else that
+    # isn't one.
+    return parsed if parsed.is_finite() else None
 
 
 def iso_currency(value: Any, fallback: Optional[str] = None) -> Optional[str]:
@@ -236,6 +241,11 @@ class TradeData:
     date, but replaying it has to put two trades of the same asset on the same
     day in the order they happened — buy-then-sell books a gain, sell-then-buy
     books nothing — and the day alone cannot say which came first.
+
+    ``notes`` is what the two kinds cannot say on their own: that a buy is a
+    staking payout taxed as income at receipt, or that a sell is the provider
+    calling it something other than a sale. None when "buy" or "sell" is
+    already the whole truth.
     """
 
     external_id: str
@@ -244,6 +254,7 @@ class TradeData:
     quantity: Decimal
     price: Decimal
     occurred_at: datetime
+    notes: Optional[str] = None
 
 
 @dataclass

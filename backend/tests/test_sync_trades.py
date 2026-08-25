@@ -120,6 +120,7 @@ def _trade(
     when: date = date(2024, 3, 4),
     holding_external_id: str = "w-xrp",
     at: str = "12:00",
+    notes: str | None = None,
 ) -> TradeData:
     hour, minute = (int(part) for part in at.split(":"))
     return TradeData(
@@ -131,6 +132,7 @@ def _trade(
         occurred_at=datetime(
             when.year, when.month, when.day, hour, minute, tzinfo=timezone.utc
         ),
+        notes=notes,
     )
 
 
@@ -196,17 +198,28 @@ async def test_a_second_sync_over_the_same_payload_changes_nothing(
     session: AsyncSession, test_user: User, connection: BankConnection
 ):
     _MockProvider._holdings = [_holding(quantity="40")]
-    _MockProvider._trades = [_trade("tx-1"), _trade("tx-2", when=date(2024, 6, 1))]
+    _MockProvider._trades = [
+        _trade("tx-1"),
+        _trade(
+            "tx-2", when=date(2024, 6, 1),
+            notes="Coinbase staking_reward — income at receipt",
+        ),
+    ]
 
     await _sync(session, test_user.id, connection)
-    before = [(t.id, t.external_id, t.quantity, t.price) for t in await _ledger(session)]
+    before = [
+        (t.id, t.external_id, t.quantity, t.price, t.notes) for t in await _ledger(session)
+    ]
     asset_before = (await session.execute(select(Asset))).scalar_one()
     position_before = (asset_before.units, asset_before.average_price, asset_before.realized_gain)
 
     await _sync(session, test_user.id, connection)
 
-    after = [(t.id, t.external_id, t.quantity, t.price) for t in await _ledger(session)]
+    after = [
+        (t.id, t.external_id, t.quantity, t.price, t.notes) for t in await _ledger(session)
+    ]
     assert after == before
+    assert before[1][-1] == "Coinbase staking_reward — income at receipt"
     asset_after = (await session.execute(select(Asset))).scalar_one()
     assert (asset_after.units, asset_after.average_price, asset_after.realized_gain) == position_before
 

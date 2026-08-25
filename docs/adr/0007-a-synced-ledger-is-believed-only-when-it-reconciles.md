@@ -1,5 +1,12 @@
 # A synced ledger is believed only when it reconciles
 
+> Amended by [ADR 0008](0008-an-exchange-transaction-is-classified-before-it-is-believed.md):
+> the passages below saying the other transaction types "wait for #70" are
+> history. The reconciliation rule itself is not — transfers still reach no
+> ledger by design, so a wallet fed by one still replays to a quantity the
+> exchange disagrees with, and this is still what stops that being read as a
+> sale.
+
 Ticket #69 makes an exchange the first thing other than a person to write the
 trade ledger. Cost basis and acquisition dates stop coming from a file and
 start coming from Coinbase. Three decisions follow, and all three are about

@@ -414,6 +414,7 @@ async def _sync_trades(
                 created_at=trade.occurred_at,
                 source=connection.provider,
                 external_id=trade.external_id,
+                notes=trade.notes,
             )
         )
         touched[asset.id] = asset
@@ -446,18 +447,21 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     """Whether replaying the ledger reproduces the quantity the provider reports.
 
     A ledger is only the authority for a Holding when it is *complete*, and
-    the provider's own balance is the one check available for that. Until
-    issue #70 maps transfers, rewards and conversions, a coin that reached the
-    exchange by any route other than a fiat buy has no row, so the replay
-    comes up short — and a position whose buys are missing but whose sell is
-    not replays to zero, which `recompute_and_cache` reads as a full exit and
-    stamps with a sell date. That drops a holding the exchange still reports a
-    balance for out of the portfolio entirely.
+    the provider's own balance is the one check available for that. A transfer
+    between the user's own wallets carries its basis with it and states no
+    price, so it is deliberately never recorded (ADR 0008) — meaning a coin
+    that moved that way has no row, and the replay lands somewhere the
+    exchange disagrees with: short where the coins arrived, long where they
+    left. A position whose buys are missing but whose sell is not replays to zero,
+    which `recompute_and_cache` reads as a full exit and stamps with a sell
+    date. That drops a holding the exchange still reports a balance for out of
+    the portfolio entirely.
 
     So a ledger that disagrees with the balance leaves the Holding as it was:
     provider quantity, no derived basis, still a Snapshot. The trades stay on
-    the ledger — they are real, and they start counting the moment #70 makes
-    the history whole.
+    the ledger — they are real, and they start counting the moment the history
+    is whole, whether that comes from a later sync or from a cost-basis import
+    filling in what the exchange never saw.
 
     Quantities are compared with a dust tolerance. Exchanges settle fees in
     kind and round at the eighteenth decimal, so a complete history routinely
