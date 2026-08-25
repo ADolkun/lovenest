@@ -34,7 +34,6 @@ import logging
 import secrets
 import time
 from collections import Counter
-from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, DivisionByZero, InvalidOperation
 from typing import Any, Optional
@@ -79,9 +78,16 @@ MAX_PAGES = 100
 # Coinbase's v2 maximum. The default is 25, and a long trading history walked
 # 25 rows at a time is four times the requests for the same answer.
 PAGE_LIMIT = 100
-# One past the largest per-unit price `asset_transactions.price` — a
-# NUMERIC(38, 18) — can hold.
+# The range `asset_transactions.price` — a NUMERIC(38, 18) — can hold. Past
+# the top the write fails; below the bottom Postgres rounds to zero, which is
+# worse, because a row worth nothing keeps the replay's quantity exact and so
+# passes reconciliation with a basis silently short by its whole value.
 MAX_LEDGER_PRICE = Decimal(10) ** 20
+MIN_LEDGER_PRICE = Decimal(10) ** -18
+# A history that needs more prices backfilled than this is not one this
+# provider understands, and asking Coinbase a thousand times in a loop is how
+# a sync earns a rate limit it then never recovers from.
+MAX_SPOT_LOOKUPS = 250
 SPOT_PRICE_PATH = "/v2/prices/{pair}/spot"
 COINBASE_HELP_URL = "https://portal.cdp.coinbase.com/access/api"
 
@@ -119,9 +125,6 @@ TX_CLASSES: dict[str, str] = {
     "trade": TX_TRADE,
     "wrap_asset": TX_TRADE,
     "unwrap_asset": TX_TRADE,
-    "retail_simple_dust": TX_TRADE,
-    "fcm_futures_usdc_sell": TX_TRADE,
-    "fcm_futures_usdc_sell_additional_encumberment_rollup": TX_TRADE,
     "earn_payout": TX_INCOME,
     "incentives_rewards_payout": TX_INCOME,
     "subscription_rebate": TX_INCOME,
@@ -142,11 +145,13 @@ TX_CLASSES: dict[str, str] = {
     "pro_withdrawal": TX_TRANSFER,
     "vault_withdrawal": TX_TRANSFER,
     "unsupported_asset_recovery": TX_TRANSFER,
-    # A clawback takes back units already paid out. It reverses an acquisition
-    # rather than disposing of one, so booking it as a sell would realise a
-    # gain on money the user never received.
-    "clawback": TX_TRANSFER,
-    "incentives_shared_clawback": TX_TRANSFER,
+    # A clawback takes back units already paid out, and the payout it reverses
+    # is now a lot opened at receipt value — so the reversal is a disposal at
+    # roughly that same price, booking about zero gain and leaving the replay
+    # square with the balance. Filed as a transfer instead, the units would
+    # stay on the ledger forever and cost that holding its basis permanently.
+    "clawback": TX_TRADE,
+    "incentives_shared_clawback": TX_TRADE,
     "fiat_deposit": TX_CASH,
     "fiat_withdrawal": TX_CASH,
     "subscription": TX_CASH,
@@ -154,15 +159,19 @@ TX_CLASSES: dict[str, str] = {
     # Coinbase's own name for "uncategorized", so the one thing it must not be
     # read as is a trade.
     "tx": TX_UNKNOWN,
+    # Futures margin conversions and the dust sweep are left unknown on
+    # purpose. Nobody here has seen one, and the rule this table is built on
+    # cuts both ways: guessing "trade" for an unobserved type is exactly the
+    # confidently wrong basis it exists to avoid. The warning names them the
+    # first time a real account reports one.
+    "fcm_futures_usdc_sell": TX_UNKNOWN,
+    "fcm_futures_usdc_sell_additional_encumberment_rollup": TX_UNKNOWN,
+    "retail_simple_dust": TX_UNKNOWN,
 }
-# The classes whose rows carry a basis, and so belong on the trade ledger.
 LEDGER_TX_CLASSES = (TX_TRADE, TX_INCOME)
-# Types for which "buy" or "sell" is already the whole truth, and a note on
-# the ledger row would only repeat the kind.
-PLAIN_TX_TYPES = ("buy", "sell", "advanced_trade_fill")
 
 
-def classify_transaction(raw_type: Any) -> str:
+def _classify_transaction(raw_type: Any) -> str:
     """What one transaction type means for a position.
 
     A type absent from the table is ``TX_UNKNOWN`` and reaches no ledger:
@@ -170,66 +179,6 @@ def classify_transaction(raw_type: Any) -> str:
     is a trade is a wrong cost basis rather than a missing one.
     """
     return TX_CLASSES.get(str(raw_type or "").strip().lower(), TX_UNKNOWN)
-
-
-@dataclass(frozen=True)
-class _Movement:
-    """One settled transaction, parsed but not yet valued."""
-
-    external_id: str
-    kind: str  # buy, sell
-    quantity: Decimal
-    asset_code: Optional[str]
-    # USD total the row states for the movement, or None when it states none
-    # this provider can use — which is what the spot backfill is for.
-    fiat: Optional[Decimal]
-    occurred_at: datetime
-
-
-def _movement(raw: dict) -> Optional[_Movement]:
-    """Parse one transaction into the movement it describes, or None.
-
-    Direction is the sign of the quantity, never the type and never
-    ``order_side``. An ``advanced_trade_fill`` is filed twice, once in each
-    wallet the order moved, and both rows carry the *order's* side: buying
-    HBAR with USDC writes +1867.7 to one wallet and -485.602 to the other, and
-    both say ``order_side: buy``. Reading the side would book the funding leg
-    as a purchase of the stablecoin it was paid in. The same rule is what
-    makes a convert two sides without a special case.
-
-    None is the ordinary answer for much of a history: anything unsettled is
-    not yet a fact about the position — a pending buy can still fail, and a
-    canceled one never happened — and a row with no id, no quantity or no
-    timestamp states nothing that can be recorded.
-    """
-    if str(raw.get("status") or "").lower() != "completed":
-        return None
-    external_id = str(raw.get("id") or "")
-    amount = raw.get("amount")
-    if not external_id or not isinstance(amount, dict):
-        return None
-    quantity = _to_decimal(amount.get("amount"))
-    if quantity is None or quantity == 0:
-        return None
-    when = _utc_timestamp(raw.get("created_at"))
-    if when is None:
-        return None
-    native = raw.get("native_amount")
-    native = native if isinstance(native, dict) else {}
-    fiat = _to_decimal(native.get("amount"))
-    # Holdings from this provider are recorded in USD, so a total in another
-    # currency is a number that means something else. It reads as absent, and
-    # the spot table supplies the USD value instead of the row being dropped.
-    if fiat is not None and _iso_currency(native.get("currency")) != "USD":
-        fiat = None
-    return _Movement(
-        external_id=external_id,
-        kind="buy" if quantity > 0 else "sell",
-        quantity=abs(quantity),
-        asset_code=_ticker(amount.get("currency")),
-        fiat=abs(fiat) if fiat is not None else None,
-        occurred_at=when,
-    )
 
 
 def _trade_notes(tx_type: str, tx_class: str) -> Optional[str]:
@@ -242,7 +191,7 @@ def _trade_notes(tx_type: str, tx_class: str) -> Optional[str]:
     """
     if tx_class == TX_INCOME:
         return f"Coinbase {tx_type} — income at receipt"
-    if tx_type in PLAIN_TX_TYPES:
+    if tx_type in ("buy", "sell", "advanced_trade_fill"):
         return None
     return f"Coinbase {tx_type}"
 
@@ -683,21 +632,28 @@ class CoinbaseProvider(BankProvider):
         day: date,
         cache: dict[tuple[str, date], Optional[Decimal]],
     ) -> Optional[Decimal]:
-        """USD price of one unit of ``code`` on ``day``, or None.
+        """What one unit of ``code`` was worth in USD on ``day``, or None.
 
         The spot table is public, so a backfill costs a request and no key.
         Answers are memoized for the walk because a daily staking payout asks
-        the same question once per row.
+        the same question once per row, and capped because a history needing
+        hundreds of them is not one this provider reads correctly — and a
+        thousand serial requests is how a sync earns a rate limit that the
+        next sync, starting from an empty cache, walks straight back into.
 
         Coinbase answers 404 both for an asset it never listed and for a date
         outside the window it keeps — measured at roughly the last three years,
-        so a 2023 reward is already outside it. That is None rather than an
-        error: one unvalued row must not take down a sync that is otherwise
-        fine.
+        so a 2023 reward is already outside it. That is None, meaning the row
+        it belongs to reaches no ledger. Every other failure propagates.
         """
         key = (code, day)
         if key in cache:
             return cache[key]
+        if len(cache) >= MAX_SPOT_LOOKUPS:
+            raise RuntimeError(
+                f"Coinbase history needs more than {MAX_SPOT_LOOKUPS} historical "
+                "prices backfilled; refusing to report a partial cost basis"
+            )
         try:
             payload = await self._get(
                 SPOT_PRICE_PATH.format(pair=f"{code}-USD"),
@@ -713,65 +669,110 @@ class CoinbaseProvider(BankProvider):
         cache[key] = price if price is not None and price > 0 else None
         return cache[key]
 
-    async def _to_trade(
+    async def _trade(
         self,
-        movement: _Movement,
+        raw: dict,
         holding_external_id: str,
         tx_type: str,
         tx_class: str,
         spot: dict[tuple[str, date], Optional[Decimal]],
     ) -> Optional[TradeData]:
-        """Value one movement and turn it into a ledger entry, or None.
+        """Map one classified transaction to a ledger entry, or None.
 
-        The stated fiat total is the basis wherever there is one: it includes
-        the fee, which is what cost basis means. Where there is not — a reward
-        Coinbase valued at nothing, a row denominated in a currency this
-        provider cannot write into a USD basis — the day's spot price stands
-        in, which is the vendor's own number for that date rather than a guess
-        made here.
+        Direction is the sign of the quantity, never the type and never
+        ``order_side``. An ``advanced_trade_fill`` is filed twice, once in each
+        wallet the order moved, and both rows carry the *order's* side: buying
+        HBAR with USDC writes +1867.7 to one wallet and -485.602 to the other,
+        and both say ``order_side: buy``. Reading the side would book the
+        funding leg as a purchase of the stablecoin it was paid in (ADR 0007).
+        The same rule is what makes a convert two sides with no special case.
+
+        None is the ordinary answer for much of a history, and it is always
+        the safe one: a row this provider cannot state a USD basis for reaches
+        no ledger, which leaves the replay short of the reported balance and
+        the Holding a Snapshot. That is a missing basis, which the user can
+        see. Recording the row at a made-up price would instead keep the
+        replay's quantity exact — and a quantity that reconciles is the whole
+        of what `_ledger_reconciles` can check, so the wrong figure would be
+        cached as a derived one.
         """
-        price = (
-            movement.fiat / movement.quantity
-            if movement.fiat is not None and movement.fiat > 0
-            else None
-        )
-        if price is None and movement.asset_code:
-            price = await self._spot_price(
-                movement.asset_code, movement.occurred_at.date(), spot
-            )
-        if price is None and tx_class == TX_INCOME:
-            # Units that arrived as payment and that nothing could value cost
-            # nothing, so the whole eventual disposal is gain. Zero is the
-            # honest basis; dropping the row would lose the units themselves.
-            price = Decimal("0")
-        if price is None:
+        # Anything unsettled is not yet a fact about the position — a pending
+        # buy can still fail, and a canceled one never happened.
+        if str(raw.get("status") or "").lower() != "completed":
+            return None
+        external_id = str(raw.get("id") or "")
+        amount = raw.get("amount")
+        if not external_id or not isinstance(amount, dict):
+            return None
+        quantity = _to_decimal(amount.get("amount"))
+        if quantity is None or quantity == 0:
+            return None
+        # Income arriving negative is a payout being reversed, not a disposal.
+        # Booking it as a sell would realise a gain on units the user was never
+        # paid for, on a row stamped "income at receipt" while it did so.
+        if tx_class == TX_INCOME and quantity < 0:
             logger.info(
-                "Coinbase transaction %s (%s) states no usable USD value and none "
-                "could be backfilled; skipping",
-                movement.external_id,
+                "Coinbase %s %s reverses a payout rather than paying one; skipping",
                 tx_type,
+                external_id,
             )
             return None
-        # `asset_transactions.price` is NUMERIC(38, 18). A dust quantity
-        # against a whole-dollar total can produce more integer digits than
-        # that holds, and the write would fail late — after the accounts,
-        # balances and transactions of this sync were already staged.
-        if price >= MAX_LEDGER_PRICE:
-            logger.warning(
-                "Coinbase transaction %s prices %s at %s, past what the ledger "
-                "stores; skipping",
-                movement.external_id,
-                movement.asset_code,
+        when = _utc_timestamp(raw.get("created_at"))
+        if when is None:
+            return None
+        native = raw.get("native_amount")
+        native = native if isinstance(native, dict) else {}
+        fiat = _to_decimal(native.get("amount"))
+        # Holdings from this provider are recorded in USD, so a total in
+        # another currency is a number that means something else. The spot
+        # table is not a substitute for it: repricing a stated total at the
+        # day's average would throw away the row's own execution value, and on
+        # a day an asset moved twenty percent that is thousands of dollars of
+        # realised gain — quantity untouched, so nothing downstream would
+        # notice. A stated value is never overridden, only an absent one is
+        # filled.
+        if fiat is not None and _iso_currency(native.get("currency")) != "USD":
+            logger.info(
+                "Coinbase transaction %s is priced in %s, which is not the "
+                "holding's currency; skipping",
+                external_id,
+                native.get("currency"),
+            )
+            return None
+        kind = "buy" if quantity > 0 else "sell"
+        quantity = abs(quantity)
+        code = self._asset_code(amount)
+        # `native_amount` is the fiat total including the fee, which is what
+        # cost basis means. The docs only call it "the value in the user's
+        # native currency", so this was checked against a real account: on
+        # every buy carrying a fee it equalled the linked buy resource's
+        # `total`, never its `subtotal`.
+        #
+        # A fill's `commission` is deliberately not added on top. It reads like
+        # an uncharged notional: the two legs of a fill balance to the
+        # stablecoin conversion alone, which they could not do if a commission
+        # that size had actually been deducted.
+        price = abs(fiat) / quantity if fiat else None
+        if price is None and code:
+            price = await self._spot_price(code, when.date(), spot)
+        if price is None or not MIN_LEDGER_PRICE <= price < MAX_LEDGER_PRICE:
+            logger.info(
+                "Coinbase transaction %s (%s) states no USD value the ledger can "
+                "hold — %s per %s — so the holding keeps the reported quantity "
+                "and no derived basis",
+                external_id,
+                tx_type,
                 price,
+                code,
             )
             return None
         return TradeData(
-            external_id=movement.external_id,
+            external_id=external_id,
             holding_external_id=holding_external_id,
-            kind=movement.kind,
+            kind=kind,
             price=price,
-            quantity=movement.quantity,
-            occurred_at=movement.occurred_at,
+            quantity=quantity,
+            occurred_at=when,
             notes=_trade_notes(tx_type, tx_class),
         )
 
@@ -782,8 +783,8 @@ class CoinbaseProvider(BankProvider):
         wallet's id is the holding's ``external_id`` (see ``get_holdings``),
         so each walk lands on exactly one ledger with no matching to do. A
         convert therefore arrives as two rows in two walks, and each is
-        recorded against its own holding — the one asset sold, the other
-        bought — rather than as a single trade of the pair.
+        recorded against its own holding — one asset sold, the other bought —
+        rather than as a single trade of the pair.
 
         Zero-balance wallets are walked like any other: a position sold down
         to nothing still has the buys and the sell that got it there, and
@@ -796,9 +797,9 @@ class CoinbaseProvider(BankProvider):
         `_ledger_reconciles` is what keeps that from being read as a sale.
         """
         trades: list[TradeData] = []
+        classified: Counter[str] = Counter()
         unknown_types: Counter[str] = Counter()
         spot: dict[tuple[str, date], Optional[Decimal]] = {}
-        unvalued = 0
         for raw_account in await self._walk_accounts(credentials):
             account_id = str(raw_account.get("id") or "")
             if not account_id or self._is_fiat(raw_account):
@@ -808,35 +809,29 @@ class CoinbaseProvider(BankProvider):
             )
             for row in rows:
                 tx_type = str(row.get("type") or "").strip().lower()
-                tx_class = classify_transaction(tx_type)
+                tx_class = _classify_transaction(tx_type)
+                classified[tx_class] += 1
                 if tx_class == TX_UNKNOWN:
                     unknown_types[tx_type or "(none)"] += 1
                 if tx_class not in LEDGER_TX_CLASSES:
                     continue
-                movement = _movement(row)
-                if movement is None:
-                    continue
-                trade = await self._to_trade(
-                    movement, account_id, tx_type, tx_class, spot
-                )
-                if trade is None:
-                    unvalued += 1
-                    continue
-                trades.append(trade)
+                trade = await self._trade(row, account_id, tx_type, tx_class, spot)
+                if trade is not None:
+                    trades.append(trade)
+        if classified:
+            # What the history was made of, which is the answer to "why does
+            # this holding still have no cost basis" — a wallet fed entirely by
+            # transfers reports it here and nowhere else.
+            logger.info(
+                "Coinbase history classified as %s, of which %d reached the ledger",
+                ", ".join(f"{name} {count}" for name, count in sorted(classified.items())),
+                len(trades),
+            )
         if unknown_types:
-            # Reported rather than guessed at: Coinbase adds types over time,
-            # and one this build has never seen is a gap to close, not a trade.
             logger.warning(
                 "Coinbase reported transaction types this build does not classify, "
                 "so they reached no ledger: %s",
                 ", ".join(f"{name} x{count}" for name, count in sorted(unknown_types.items())),
-            )
-        if unvalued:
-            logger.warning(
-                "Coinbase reported %d transactions that could not be valued in USD; "
-                "the holdings they belong to keep the reported quantity and no "
-                "derived basis",
-                unvalued,
             )
         return trades
 

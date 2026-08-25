@@ -236,6 +236,10 @@ class TradeData:
     date, but replaying it has to put two trades of the same asset on the same
     day in the order they happened — buy-then-sell books a gain, sell-then-buy
     books nothing — and the day alone cannot say which came first.
+
+    ``notes`` is what the two kinds cannot say on their own: that a buy is a
+    staking payout taxed as income at receipt, or that a sell is one leg of a
+    convert. None when "buy" or "sell" is already the whole truth.
     """
 
     external_id: str
@@ -244,9 +248,6 @@ class TradeData:
     quantity: Decimal
     price: Decimal
     occurred_at: datetime
-    # What the ledger's two kinds cannot say on their own: that a buy is a
-    # staking payout taxed as income at receipt, or that a sell is one leg of
-    # a convert. None when "buy" or "sell" is already the whole truth.
     notes: Optional[str] = None
 
 

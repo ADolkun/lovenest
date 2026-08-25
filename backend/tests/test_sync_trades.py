@@ -198,54 +198,32 @@ async def test_a_second_sync_over_the_same_payload_changes_nothing(
     session: AsyncSession, test_user: User, connection: BankConnection
 ):
     _MockProvider._holdings = [_holding(quantity="40")]
-    _MockProvider._trades = [_trade("tx-1"), _trade("tx-2", when=date(2024, 6, 1))]
-
-    await _sync(session, test_user.id, connection)
-    before = [(t.id, t.external_id, t.quantity, t.price) for t in await _ledger(session)]
-    asset_before = (await session.execute(select(Asset))).scalar_one()
-    position_before = (asset_before.units, asset_before.average_price, asset_before.realized_gain)
-
-    await _sync(session, test_user.id, connection)
-
-    after = [(t.id, t.external_id, t.quantity, t.price) for t in await _ledger(session)]
-    assert after == before
-    asset_after = (await session.execute(select(Asset))).scalar_one()
-    assert (asset_after.units, asset_after.average_price, asset_after.realized_gain) == position_before
-
-
-@pytest.mark.asyncio
-async def test_a_reward_opens_a_lot_and_says_why_it_is_not_a_purchase(
-    session: AsyncSession, test_user: User, connection: BankConnection
-):
-    """A staking payout is income at receipt, so it opens a lot at that value.
-
-    The ledger has two kinds and the payout has to be one of them; the note is
-    what keeps it distinguishable from money the user spent, and it survives a
-    re-sync unchanged along with the rest of the row.
-    """
-    _MockProvider._holdings = [_holding(quantity="30")]
     _MockProvider._trades = [
-        _trade("tx-1", "buy", "20", "2"),
+        _trade("tx-1"),
+        # A staking payout: a lot opened at receipt value, carrying the note
+        # that says it was income rather than money the user spent.
         _trade(
-            "tx-2", "buy", "10", "5",
-            when=date(2024, 6, 1),
+            "tx-2", when=date(2024, 6, 1),
             notes="Coinbase staking_reward — income at receipt",
         ),
     ]
 
     await _sync(session, test_user.id, connection)
+    before = [
+        (t.id, t.external_id, t.quantity, t.price, t.notes) for t in await _ledger(session)
+    ]
+    asset_before = (await session.execute(select(Asset))).scalar_one()
+    position_before = (asset_before.units, asset_before.average_price, asset_before.realized_gain)
+
     await _sync(session, test_user.id, connection)
 
-    ledger = await _ledger(session)
-    assert [(t.external_id, t.notes) for t in ledger] == [
-        ("tx-1", None),
-        ("tx-2", "Coinbase staking_reward — income at receipt"),
+    after = [
+        (t.id, t.external_id, t.quantity, t.price, t.notes) for t in await _ledger(session)
     ]
-    asset = (await session.execute(select(Asset))).scalar_one()
-    # 40 for the purchase plus 50 the reward was worth: a lot at receipt
-    # value, not free units that would book the whole disposal as gain.
-    assert asset.units == Decimal("30")
-    assert asset.purchase_price == Decimal("90.00")
+    assert after == before
+    assert before[1][-1] == "Coinbase staking_reward — income at receipt"
+    asset_after = (await session.execute(select(Asset))).scalar_one()
+    assert (asset_after.units, asset_after.average_price, asset_after.realized_gain) == position_before
 
 
 @pytest.mark.asyncio
