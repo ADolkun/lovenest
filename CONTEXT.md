@@ -25,8 +25,8 @@ unknown rather than zero. It stops being a Snapshot once Trades arrive that
 *account for the position*: while a ledger a provider wrote replays to a
 different quantity than that provider reports, it is an incomplete history
 rather than a correction of one, and the provider's figure stays the
-authority. A ledger the user typed or imported carries no such second opinion,
-and is believed as it stands.
+authority. Where no provider reports the position at all, there is no
+second opinion to hold it to, and the ledger is believed as it stands.
 
 **Hand-Valued Holding** — a Holding whose worth is whatever the user last typed:
 a bankruptcy claim, a stake in something unlisted, a position at an institution

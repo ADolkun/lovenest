@@ -647,8 +647,8 @@ class CoinbaseProvider(BankProvider):
         The spot table is public, so a backfill costs a request and no key.
 
         Coinbase answers 404 both for an asset it never listed and for a date
-        outside the window it keeps: checked on 2026-08-24, no asset priced
-        before mid-2023. Past ``MAX_SPOT_LOOKUPS`` the answer is None without
+        outside the window it keeps — a rolling one of roughly three years:
+        measured on 2026-08-24, nothing priced before about 2023-09. Past ``MAX_SPOT_LOOKUPS`` the answer is None without
         asking. Both are the same None as any other — the row it belongs to
         reaches no ledger — because refusing the whole history instead would
         throw away every correctly-priced row with it, and skip the recompute
@@ -703,14 +703,15 @@ class CoinbaseProvider(BankProvider):
         of a fill balance to the stablecoin conversion alone, which they could
         not do if a commission that size had really been deducted.
 
-        A total in another currency is not a USD basis, and the spot table is
-        not a substitute for one: repricing a stated total at the day's price
-        would throw away the price the order actually filled at, and on a day
-        an asset moved twenty percent that is thousands of dollars of realised
-        gain — with the quantity untouched, so nothing downstream would
-        notice. The backfill is therefore for income only, where there is no
+        A *trade's* total in another currency is not a USD basis, and the spot
+        table is not a substitute for it: repricing a stated total at the
+        day's price would throw away the price the order actually filled at,
+        and on a day an asset moved twenty percent that is thousands of
+        dollars of realised gain — with the quantity untouched, so nothing
+        downstream would notice. So the backfill is for income, which has no
         execution price to lose: a reward is worth what the asset was worth
-        when it landed, which is exactly what the spot table answers.
+        when it landed, which is exactly what the spot table answers, whether
+        the row stated nothing or stated it in the wrong currency.
         """
         native = raw.get("native_amount")
         native = native if isinstance(native, dict) else {}

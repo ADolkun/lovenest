@@ -115,9 +115,11 @@ number being displaced.
 A trade is different, and gets no backfill. Its price is the price the order
 filled at, and substituting the day's spot for it moves realised gain by
 whatever the asset did that day — with the quantity untouched, so nothing
-downstream could notice. The same reasoning refuses to reprice a total stated
-in another currency: it is a real number in the wrong unit, not an absent one.
-Those rows are left off, exactly as #69 left them off.
+downstream could notice. The same reasoning refuses to reprice a *trade's* total
+stated in another currency: it is a real number in the wrong unit, not an
+absent one, and the row is left off exactly as #69 left it off. On an income
+row the reverse holds, for the reason above — there is no filled price to
+lose, so a reward stating euros is worth the same as one stating nothing.
 
 Lookups are memoized per asset and day, for the length of one walk rather
 than one wallet, and capped at `MAX_SPOT_LOOKUPS` over that same span — so on

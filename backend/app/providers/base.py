@@ -243,8 +243,9 @@ class TradeData:
     books nothing — and the day alone cannot say which came first.
 
     ``notes`` is what the two kinds cannot say on their own: that a buy is a
-    staking payout taxed as income at receipt, or that a sell is one leg of a
-    convert. None when "buy" or "sell" is already the whole truth.
+    staking payout taxed as income at receipt, or that a sell is the provider
+    calling it something other than a sale. None when "buy" or "sell" is
+    already the whole truth.
     """
 
     external_id: str

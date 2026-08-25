@@ -1028,13 +1028,13 @@ async def test_fiat_wallet_history_is_not_a_trade():
         _transaction("tx", "buy", "0", "2"),
         _transaction("", "buy", "1", "2"),
         _transaction("tx", "buy", "1", "2", created_at="not a timestamp"),
-        # A dust quantity against a whole-dollar total prices past what
-        # NUMERIC(38, 18) holds; the write would fail after the rest of the
-        # sync was already staged. Its twin below the scale is worse: Postgres
-        # rounds that one to zero and the wrong basis reconciles.
-        _transaction("tx", "buy", "0.00000000000000000001", "1000"),
+        # Four rows for four bounds, and each one has to clear the other
+        # three to reach the guard it names: `price` and `quantity` are both
+        # NUMERIC(38, 18), where a number past the top fails the write after
+        # the rest of the sync is staged, and one below the bottom is rounded
+        # to zero and reconciles.
+        _transaction("tx", "buy", "1", "1E+21"),
         _transaction("tx", "buy", "1E+19", "0.02", code="SHIB"),
-        # `quantity` shares the column, and shares both failures.
         _transaction("tx", "buy", "1E+21", "1E+21", code="SHIB"),
         _transaction("tx", "buy", "1E-19", "0.02", code="SHIB"),
         # Not a number, and one that raises on the first comparison rather
