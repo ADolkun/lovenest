@@ -2500,6 +2500,9 @@ function AssetTransactionsTab({
           {(txs ?? []).map((tx) => {
             const total = tx.quantity * tx.price
             const cur = tx.currency ?? 'USD'
+            // A provider wrote this row and will write it again next sync, so
+            // editing or deleting it only looks like it worked.
+            const isSyncedTx = tx.source !== 'manual' && tx.source !== 'import'
             return (
               <div key={tx.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
                 <Badge
@@ -2530,16 +2533,18 @@ function AssetTransactionsTab({
                 {canWrite && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
-                      onClick={() => openEdit(tx)}
-                      title={t('common.edit')}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      onClick={() => { if (!isSyncedTx) openEdit(tx) }}
+                      disabled={isSyncedTx}
+                      title={isSyncedTx ? t('assets.syncedReadOnly') : t('common.edit')}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Pencil size={14} />
                     </button>
                     <button
-                      onClick={() => setDeletingId(tx.id)}
-                      title={t('common.delete')}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      onClick={() => { if (!isSyncedTx) setDeletingId(tx.id) }}
+                      disabled={isSyncedTx}
+                      title={isSyncedTx ? t('assets.syncedReadOnly') : t('common.delete')}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={14} />
                     </button>

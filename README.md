@@ -54,7 +54,7 @@ The following is **Securo's feature set**, inherited unchanged by lovenest:
 - Recurring transactions, budgets, and savings goals with progress tracking
 - Asset management with valuation tracking and growth rules
 - Reports: Net Worth, Income vs Expenses, and cashflow
-- Bank sync via providers: **Pluggy** (Brazilian banks), **Enable Banking** (~2500 European PSD2 banks), **SimpleFIN** (US and international banks), and **Coinbase** (crypto balances, read-only API key) — extensible
+- Bank sync via providers: **Pluggy** (Brazilian banks), **Enable Banking** (~2500 European PSD2 banks), **SimpleFIN** (US and international banks), and **Coinbase** (crypto balances and trade history, read-only API key) — extensible
 - Multi-currency support with automatic FX conversion
 - Multi-user support with an admin panel and registration controls
 - Two-factor authentication (TOTP) with brute-force protection, plus passkey support

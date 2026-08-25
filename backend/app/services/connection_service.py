@@ -16,6 +16,7 @@ from app.core.connection_settings import (
 )
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
+from app.models.asset_transaction import AssetTransaction
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.account import Account
@@ -35,6 +36,7 @@ from app.providers.base import (
     SessionExpiredError,
 )
 from app.schemas.bank_connection import ProviderAccountRead
+from app.services import asset_transaction_service
 from app.services import oauth_state
 from app.services import admin_service
 from app.services import recurring_match_service
@@ -55,6 +57,11 @@ from app.services.transaction_match_service import find_unique_transaction_match
 logger = logging.getLogger(__name__)
 
 LOCAL_IMPORT_SOURCES = {"import", "csv", "ofx", "qif", "camt"}
+
+# How far a replayed ledger may sit from the balance a provider reports and
+# still count as the same number. Fees settled in kind and eighteen-decimal
+# rounding move the last few digits; anything past this is a missing row.
+LEDGER_RECONCILE_TOLERANCE = Decimal("0.0001")
 
 settings = get_settings()
 
@@ -301,6 +308,196 @@ async def _sync_holdings(
     for ext_id, asset in existing_by_external.items():
         if ext_id not in seen and not asset.is_archived:
             asset.is_archived = True
+
+
+async def _sync_trades(
+    session: AsyncSession,
+    connection: BankConnection,
+    credentials: dict,
+    synced_account_ids: Optional[set[str]] = None,
+) -> None:
+    """Append the provider's trade history to its holdings' ledgers.
+
+    This is the first automatic writer to the trade ledger — every other one
+    records something a person typed or uploaded — so re-running it has to be
+    free. Deduplication keys on the provider's own transaction id, which is
+    the only identifier stable across two walks of the same history: a second
+    sync matches every row it already wrote and adds nothing.
+
+    Runs after ``_sync_holdings``, and depends on it: the Assets it writes to
+    are the ones that pass created or adopted, and it reads the quantity that
+    pass recorded to decide whether the ledger is complete enough to be
+    believed.
+
+    ``synced_account_ids`` is the provider account set that survived the
+    allowlist, or None when there is no allowlist. Deny by default, matching
+    the holdings pass: an excluded account stops syncing, and a ledger row is
+    a sync.
+
+    Runs even when the provider reports no trades at all, because the
+    reconciling recompute below has to happen on every sync, not only the ones
+    that appended something.
+
+    Provider failures are swallowed, matching ``_sync_holdings``: a history
+    endpoint that errors should cost the user a cost basis, not the balances
+    that synced fine a moment ago.
+    """
+    try:
+        provider = get_provider(connection.provider)
+        trades = await provider.get_trades(credentials)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch trades for connection %s", connection.id)
+        return
+
+    rows = await session.execute(
+        select(Asset).where(
+            Asset.connection_id == connection.id,
+            Asset.source == connection.provider,
+            Asset.is_archived.is_(False),
+        )
+    )
+    holdings: dict[str, Asset] = {
+        a.external_id: a
+        for a in rows.scalars().all()
+        if a.external_id
+        and (synced_account_ids is None or a.account_external_id in synced_account_ids)
+    }
+    if not holdings:
+        return
+
+    by_id: dict[uuid.UUID, Asset] = {a.id: a for a in holdings.values()}
+    existing = await session.execute(
+        select(AssetTransaction.asset_id, AssetTransaction.external_id).where(
+            AssetTransaction.asset_id.in_(by_id)
+        )
+    )
+    # `written` is what a re-sync deduplicates against; `ledgered` is every
+    # holding whose figures are the ledger's to state, which is a wider set —
+    # it includes rows the user typed or imported themselves.
+    written: set[tuple[uuid.UUID, str]] = set()
+    ledgered: set[uuid.UUID] = set()
+    for asset_id, external_id in existing.all():
+        ledgered.add(asset_id)
+        if external_id:
+            written.add((asset_id, external_id))
+
+    touched: dict[uuid.UUID, Asset] = {}
+    # Oldest first. `_recompute` replays by `(date, created_at)`, and rows
+    # flushed together share a server-side `created_at` to the microsecond, so
+    # left alone the tiebreak falls through to insertion order — which for a
+    # provider that lists newest-first would replay a same-day buy and sell
+    # backwards and book no gain at all.
+    for trade in sorted(trades, key=lambda t: t.occurred_at):
+        asset = holdings.get(trade.holding_external_id)
+        # No holding means the account allowlist excluded this position, or
+        # the provider reported history for one it no longer lists. Either way
+        # there is no ledger to write to, and minting an Asset here would
+        # resurrect what the holdings pass deliberately left out.
+        if asset is None:
+            continue
+        key = (asset.id, trade.external_id)
+        # Also catches a payload that repeats an id within one walk, which a
+        # cursor that overlaps pages will do.
+        if key in written:
+            continue
+        written.add(key)
+        session.add(
+            AssetTransaction(
+                asset_id=asset.id,
+                workspace_id=asset.workspace_id,
+                kind=trade.kind,
+                quantity=trade.quantity,
+                price=trade.price,
+                date=trade.occurred_at.date(),
+                # The instant the trade happened, not the instant this row was
+                # written: it is what orders two trades of one asset on one day.
+                created_at=trade.occurred_at,
+                source=connection.provider,
+                external_id=trade.external_id,
+            )
+        )
+        touched[asset.id] = asset
+
+    ledgered |= set(touched)
+    if not ledgered:
+        return
+    await session.flush()
+    # `_sync_holdings` ran a moment ago and wrote the provider's reported
+    # balance onto `units`; for a holding whose ledger is complete that figure
+    # is the cached one, not the authority (CONTEXT.md), so the replay has to
+    # put it back on every sync. Recomputing only the holdings this run
+    # appended to would leave a position flipping between the two figures on
+    # alternate runs.
+    for asset_id in ledgered:
+        asset = by_id[asset_id]
+        if not await _ledger_reconciles(session, asset):
+            continue
+        # Whether a Holding is closed is not the trade sync's call. The replay
+        # clears `sell_date` whenever it lands on units, and sets it on a full
+        # exit — either way it would overwrite a date the user put there
+        # deliberately, which `_sync_holdings` goes out of its way to respect a
+        # hundred lines above. Quantity and basis are what this pass derives.
+        closed_on, closed_at = asset.sell_date, asset.sell_price
+        await asset_transaction_service.recompute_and_cache(session, asset)
+        asset.sell_date, asset.sell_price = closed_on, closed_at
+
+
+async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
+    """Whether replaying the ledger reproduces the quantity the provider reports.
+
+    A ledger is only the authority for a Holding when it is *complete*, and
+    the provider's own balance is the one check available for that. Until
+    issue #70 maps transfers, rewards and conversions, a coin that reached the
+    exchange by any route other than a fiat buy has no row, so the replay
+    comes up short — and a position whose buys are missing but whose sell is
+    not replays to zero, which `recompute_and_cache` reads as a full exit and
+    stamps with a sell date. That drops a holding the exchange still reports a
+    balance for out of the portfolio entirely.
+
+    So a ledger that disagrees with the balance leaves the Holding as it was:
+    provider quantity, no derived basis, still a Snapshot. The trades stay on
+    the ledger — they are real, and they start counting the moment #70 makes
+    the history whole.
+
+    Quantities are compared with a dust tolerance. Exchanges settle fees in
+    kind and round at the eighteenth decimal, so a complete history routinely
+    reproduces a balance to within a rounding error rather than exactly.
+    """
+    rows = await session.execute(
+        select(AssetTransaction).where(AssetTransaction.asset_id == asset.id)
+    )
+    txs = list(rows.scalars().all())
+    # A sell the ledger cannot cover is proof of a missing buy, whatever the
+    # balance says — and it reconciles by coincidence whenever the position was
+    # closed out, since a clamped replay and a spent position both land on
+    # zero. Every other writer of this ledger refuses an over-sell outright
+    # (asset_transaction_service._raise_if_oversell, asset_import_service);
+    # sync is the one that cannot, because it does not get to choose what the
+    # exchange reports.
+    if asset_transaction_service._detect_oversell(txs) is not None:
+        logger.info(
+            "Ledger for asset %s over-sells; keeping the reported quantity and "
+            "leaving cost basis underived",
+            asset.id,
+        )
+        return False
+    reported = asset.units
+    if reported is None:
+        return True
+    replayed = asset_transaction_service._recompute(txs)["units"]
+    reported = Decimal(str(reported))
+    tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE
+    if abs(replayed - reported) <= tolerance:
+        return True
+    logger.info(
+        "Ledger for asset %s replays to %s but %s reports %s; keeping the reported "
+        "quantity and leaving cost basis underived",
+        asset.id,
+        replayed,
+        asset.source,
+        reported,
+    )
+    return False
 
 
 async def _wallet_for_account(
@@ -1039,6 +1236,9 @@ async def handle_oauth_callback(
         await _sync_holdings(
             session, user_id, connection, connection_data.credentials,
             synced_account_ids,
+        )
+        await _sync_trades(
+            session, connection, connection_data.credentials, synced_account_ids
         )
 
     connection.last_sync_at = datetime.now(timezone.utc)
@@ -2210,6 +2410,7 @@ async def sync_connection(
             await _sync_holdings(
                 session, user_id, connection, credentials, synced_account_ids
             )
+            await _sync_trades(session, connection, credentials, synced_account_ids)
 
         connection.last_sync_at = datetime.now(timezone.utc)
         action_required_warnings = getattr(provider, "action_required_warnings", None)

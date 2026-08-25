@@ -7,6 +7,7 @@ appears anywhere in this file and nothing touches the network.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -469,7 +470,7 @@ async def test_account_walk_gives_up_at_the_page_cap():
         )
 
     provider = CoinbaseProvider()
-    with patch("app.providers.coinbase.MAX_ACCOUNT_PAGES", 3), _patched_client(handler):
+    with patch("app.providers.coinbase.MAX_PAGES", 3), _patched_client(handler):
         holdings = await provider.get_holdings(_credentials(private_pem))
 
     assert calls["n"] == 3
@@ -645,6 +646,398 @@ async def test_malformed_account_payloads_do_not_raise(payload):
     with _patched_client(handler):
         await provider.get_accounts(_credentials(private_pem))
         await provider.get_holdings(_credentials(private_pem))
+
+
+# ----- trade history ----------------------------------------------------------
+
+
+def _transaction(
+    tx_id: str,
+    tx_type: str,
+    quantity: str,
+    fiat: str,
+    *,
+    code: str = "XRP",
+    status: str = "completed",
+    created_at: str = "2024-03-04T18:30:00Z",
+    native_currency: str = "USD",
+) -> dict:
+    return {
+        "id": tx_id,
+        "type": tx_type,
+        "status": status,
+        "amount": {"amount": quantity, "currency": code},
+        "native_amount": {"amount": fiat, "currency": native_currency},
+        "created_at": created_at,
+    }
+
+
+def _history_handler(
+    accounts: list[dict],
+    history: dict[str, list[dict]],
+    *,
+    fail_after: int | None = None,
+):
+    """Serve one page of accounts, then each account's paged transactions.
+
+    `history` maps an account id to the pages of its history, so a walk can be
+    made to run one page or five. `fail_after` makes the Nth transaction
+    request return 500, standing in for a network drop mid-pagination.
+    """
+    seen = {"tx_requests": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/v2/exchange-rates":
+            return httpx.Response(200, json=RATES)
+        if path == "/v2/accounts":
+            return httpx.Response(200, json=_page(accounts))
+        account_id = path.split("/")[3]
+        seen["tx_requests"] += 1
+        if fail_after is not None and seen["tx_requests"] > fail_after:
+            return httpx.Response(500, json={"errors": [{"id": "internal"}]})
+        pages = history.get(account_id, [{"data": [], "pagination": {}}])
+        cursor = request.url.params.get("starting_after")
+        index = 0 if cursor is None else int(cursor)
+        return httpx.Response(200, json=pages[index])
+
+    return handler
+
+
+def _tx_page(rows: list[dict], next_cursor: str | None = None) -> dict:
+    return {"data": rows, "pagination": {"next_starting_after": next_cursor}}
+
+
+@pytest.mark.asyncio
+async def test_buys_and_sells_become_trades_with_a_derived_unit_price():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction("tx-buy", "buy", "20", "50.00"),
+                    _transaction("tx-sell", "sell", "-5", "-20.00",
+                                 created_at="2025-01-02T00:15:00Z"),
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [(t.external_id, t.kind) for t in trades] == [("tx-buy", "buy"), ("tx-sell", "sell")]
+    buy, sell = trades
+    assert buy.holding_external_id == "a1"
+    assert (buy.quantity, buy.price, buy.occurred_at) == (
+        Decimal("20"), Decimal("2.5"),
+        datetime(2024, 3, 4, 18, 30, tzinfo=timezone.utc),
+    )
+    # A sell reports both sides negative; the ledger stores magnitudes.
+    assert (sell.quantity, sell.price, sell.occurred_at) == (
+        Decimal("5"), Decimal("4"),
+        datetime(2025, 1, 2, 0, 15, tzinfo=timezone.utc),
+    )
+
+
+def _fill(
+    tx_id: str,
+    quantity: str,
+    fiat: str,
+    *,
+    code: str = "HBAR",
+    product: str = "HBAR-USDC",
+    order_side: str = "buy",
+    commission: str = "0",
+    created_at: str = "2024-12-19T19:51:18Z",
+) -> dict:
+    """One leg of an Advanced Trade fill, in the shape the v2 API returns."""
+    return {
+        "id": tx_id,
+        "type": "advanced_trade_fill",
+        "status": "completed",
+        "amount": {"amount": quantity, "currency": code},
+        "native_amount": {"amount": fiat, "currency": "USD"},
+        "created_at": created_at,
+        "advanced_trade_fill": {
+            "commission": commission,
+            "fill_price": "0.26",
+            "order_id": "order-1",
+            "order_side": order_side,
+            "product_id": product,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_advanced_trade_fill_is_a_trade():
+    """The surface an account that actually trades reports every disposal on."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7")]
+    history = {"a1": [_tx_page([_fill("f-1", "1867.7", "486.37")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert len(trades) == 1
+    assert trades[0].kind == "buy"
+    assert trades[0].quantity == Decimal("1867.7")
+
+
+@pytest.mark.asyncio
+async def test_both_legs_of_a_fill_are_read_by_sign_not_by_order_side():
+    """A fill is filed in both wallets it moved, and both say `order_side: buy`.
+
+    Buying HBAR with USDC writes +1867.7 to the HBAR wallet and -485.602 to the
+    USDC wallet. Reading `order_side` would book the second as a *purchase* of
+    USDC — inflating a stablecoin position by the size of every trade ever made
+    through it.
+    """
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7"), _account("a2", "USDC", "500")]
+    history = {
+        "a1": [_tx_page([_fill("f-1", "1867.7", "486.37")])],
+        "a2": [
+            _tx_page(
+                [_fill("f-2", "-485.602", "-485.60", code="USDC", order_side="buy")]
+            )
+        ],
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    by_id = {t.external_id: t for t in trades}
+    assert by_id["f-1"].kind == "buy"
+    assert by_id["f-1"].holding_external_id == "a1"
+    assert by_id["f-2"].kind == "sell"
+    assert by_id["f-2"].holding_external_id == "a2"
+    assert by_id["f-2"].quantity == Decimal("485.602")
+
+
+@pytest.mark.asyncio
+async def test_a_sell_side_fill_disposes_of_the_base_asset():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "ADA", "100")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _fill(
+                        "f-1", "-505.21499099", "-388.89",
+                        code="ADA", product="ADA-USD", order_side="sell",
+                    )
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].kind == "sell"
+    assert trades[0].quantity == Decimal("505.21499099")
+
+
+@pytest.mark.asyncio
+async def test_a_fill_commission_is_not_added_to_the_basis():
+    """The legs balance to the stablecoin conversion, so nothing was deducted."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7")]
+    history = {
+        "a1": [_tx_page([_fill("f-1", "1867.7", "486.37", commission="13.9610575")])]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].price == Decimal("486.37") / Decimal("1867.7")
+
+
+@pytest.mark.asyncio
+async def test_history_is_walked_to_cursor_exhaustion():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page([_transaction("tx-1", "buy", "1", "2")], next_cursor="1"),
+            _tx_page([_transaction("tx-2", "buy", "1", "3")], next_cursor="2"),
+            _tx_page([_transaction("tx-3", "buy", "1", "4")]),
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [t.external_id for t in trades] == ["tx-1", "tx-2", "tx-3"]
+
+
+@pytest.mark.asyncio
+async def test_a_single_page_history_needs_no_second_request():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    handler = _history_handler(
+        accounts, {"a1": [_tx_page([_transaction("tx-1", "buy", "1", "2")])]}
+    )
+    requests: list[str] = []
+
+    def counting(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return handler(request)
+
+    provider = CoinbaseProvider()
+    with _patched_client(counting):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [t.external_id for t in trades] == ["tx-1"]
+    assert requests.count("/v2/accounts/a1/transactions") == 1
+
+
+@pytest.mark.asyncio
+async def test_an_empty_history_yields_no_trades():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "0")]
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, {"a1": [_tx_page([])]})):
+        assert await provider.get_trades(_credentials(private_pem)) == []
+
+
+@pytest.mark.asyncio
+async def test_an_error_mid_pagination_raises_rather_than_truncating():
+    """Half a history reads as a whole one, so the walk must not return it."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page([_transaction("tx-1", "buy", "1", "2")], next_cursor="1"),
+            _tx_page([_transaction("tx-2", "buy", "1", "3")]),
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history, fail_after=1)):
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.get_trades(_credentials(private_pem))
+
+
+@pytest.mark.asyncio
+async def test_a_history_longer_than_the_page_cap_raises_rather_than_truncating():
+    """A prefix of someone's trading is not a smaller cost basis, it is a wrong one."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/accounts":
+            return httpx.Response(200, json=_page(accounts))
+        calls["n"] += 1
+        return httpx.Response(
+            200,
+            json=_tx_page(
+                [_transaction(f"tx-{calls['n']}", "buy", "1", "2")],
+                next_cursor=f"c{calls['n']}",
+            ),
+        )
+
+    provider = CoinbaseProvider()
+    with patch("app.providers.coinbase.MAX_PAGES", 3), _patched_client(handler):
+        with pytest.raises(RuntimeError, match="partial history"):
+            await provider.get_trades(_credentials(private_pem))
+
+
+@pytest.mark.asyncio
+async def test_zero_balance_wallets_still_give_up_their_history():
+    """A position sold to nothing is exactly where realised gain comes from."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "0")]
+    history = {"a1": [_tx_page([_transaction("tx-1", "buy", "1", "2")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [t.external_id for t in trades] == ["tx-1"]
+
+
+@pytest.mark.asyncio
+async def test_fiat_wallet_history_is_not_a_trade():
+    private_pem, _ = _generate_key()
+    accounts = [_account("cash", "USD", "500", fiat=True)]
+    history = {"cash": [_tx_page([_transaction("tx-1", "buy", "1", "2", code="USD")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        assert await provider.get_trades(_credentials(private_pem)) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "row",
+    [
+        # issue #70's types, not this ticket's.
+        _transaction("tx", "send", "1", "2"),
+        _transaction("tx", "interest", "1", "2"),
+        _transaction("tx", "earn_payout", "1", "2"),
+        _transaction("tx", "receive", "1", "2"),
+        _transaction("tx", "trade", "1", "2"),
+        _transaction("tx", "staking_reward", "1", "2"),
+        # Not settled: a pending buy can still fail, a canceled one never was.
+        _transaction("tx", "buy", "1", "2", status="pending"),
+        _transaction("tx", "buy", "1", "2", status="canceled"),
+        # A basis in another currency would be a number written into a column
+        # that means something else.
+        _transaction("tx", "buy", "1", "2", native_currency="EUR"),
+        # Nothing to divide by, nothing to identify it, nothing to date it.
+        _transaction("tx", "buy", "0", "2"),
+        _transaction("", "buy", "1", "2"),
+        _transaction("tx", "buy", "1", "2", created_at="not a timestamp"),
+        # A dust quantity against a whole-dollar total prices past what
+        # NUMERIC(38, 18) holds; the write would fail after the rest of the
+        # sync was already staged.
+        _transaction("tx", "buy", "0.00000000000000000001", "1000"),
+        {"id": "tx", "type": "buy", "status": "completed"},
+        {"id": "tx", "type": "buy", "status": "completed",
+         "amount": "nope", "native_amount": "nope"},
+        _transaction("tx", "buy", "not a number", "2"),
+        _transaction("tx", "buy", "1", "not a number"),
+    ],
+)
+async def test_rows_that_are_not_a_priced_buy_or_sell_are_skipped(row):
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, {"a1": [_tx_page([row])]})):
+        assert await provider.get_trades(_credentials(private_pem)) == []
+
+
+@pytest.mark.asyncio
+async def test_a_local_timestamp_is_converted_to_utc():
+    """19:30 in Los Angeles is the next day in UTC, and Coinbase says so."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [_transaction("tx-1", "buy", "1", "2", created_at="2024-03-04T19:30:00-08:00")]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].occurred_at == datetime(2024, 3, 5, 3, 30, tzinfo=timezone.utc)
 
 
 # ----- misc contract ----------------------------------------------------------
