@@ -22,9 +22,11 @@ replaying its Trades — except for a Snapshot Holding, which has none yet.
 but not the Trades behind it. Quantity and unit basis come straight from the
 provider, and there is no ledger to replay, so Holding Period and Tax Lots are
 unknown rather than zero. It stops being a Snapshot once Trades arrive that
-*account for the position*: while a synced ledger replays to a different
-quantity than the provider reports, it is an incomplete history rather than a
-correction of one, and the provider's figure stays the authority.
+*account for the position*: while a ledger a provider wrote replays to a
+different quantity than that provider reports, it is an incomplete history
+rather than a correction of one, and the provider's figure stays the
+authority. A ledger the user typed or imported carries no such second opinion,
+and is believed as it stands.
 
 **Hand-Valued Holding** — a Holding whose worth is whatever the user last typed:
 a bankruptcy claim, a stake in something unlisted, a position at an institution
@@ -65,7 +67,8 @@ quietly understate a basis it would then be believed on (ADR 0008).
 **Transfer** — the same person's coins moving between their own wallets. Basis
 travels with them, so a transfer is neither an acquisition nor a disposal, and
 recording one as a Trade would invent a lot that never existed. A Holding fed by
-a transfer therefore replays short of its balance and stays a Snapshot until its
+a transfer therefore replays to a quantity its provider disagrees with — short
+where the coins arrived, long where they left — and stays a Snapshot until the
 missing history arrives from somewhere else.
 
 **Average Price** — weighted-average cost per unit across all open quantity

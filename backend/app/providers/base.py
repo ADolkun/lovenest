@@ -62,9 +62,14 @@ def to_decimal(value: Any) -> Optional[Decimal]:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        parsed = Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+    # "NaN" and "Infinity" parse, and then raise on the first comparison a
+    # caller makes — which for a provider is mid-sync, after the rest of the
+    # pull is staged. Not a number reads as absent, like anything else that
+    # isn't one.
+    return parsed if parsed.is_finite() else None
 
 
 def iso_currency(value: Any, fallback: Optional[str] = None) -> Optional[str]:

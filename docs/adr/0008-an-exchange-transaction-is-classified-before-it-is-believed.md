@@ -9,9 +9,9 @@ transaction that moves units without being a purchase.
 ## Every type has a class, and declining to record one is not free
 
 `TX_CLASSES` names all twenty-nine types Coinbase's reference lists, plus the
-reward types a real account emits that the current reference does not
-(`staking_reward`, `inflation_reward`, `interest`) and the pre-Advanced Pro
-and Exchange transfer names. Each lands in one of four classes: **trade**
+reward types a real account emits that the current reference's type table does
+not list (`staking_reward`, `inflation_reward`, `interest`) and the
+pre-Advanced Pro and Exchange transfer names. Each lands in one of four classes: **trade**
 (units moved and the row states the money that moved for them), **income**
 (units arrived as payment), **unrecorded** (the row moves units, or money, in
 a way this ledger cannot state a basis for), **unknown** (never classified
@@ -26,14 +26,15 @@ type left unknown is a position with no cost basis at all, and a user who
 traded through that wallet for a decade loses all of it.
 
 The line drawn is between *shape* and *tax nuance*. Where the vendor's own
-description says a conversion happened and the row states a fiat total, the
+description says units left or arrived and the row states a fiat total, the
 shape is not in doubt and the row is a trade, even where the tax treatment is
-arguable — `wrap_asset`, `unwrap_asset`, `retail_simple_dust`, and the two
-`fcm_futures_usdc_sell*` stablecoin conversions, which convert USDC to USD at
-par and so can carry only a rounding-sized gain. An earlier draft filed those
-last three as unknown on the grounds that nobody here has seen one; that
-weighed the risk of a wrong basis without weighing the certainty of no basis
-for the entire wallet.
+arguable: `wrap_asset` and `unwrap_asset` (described as conversions),
+`retail_simple_dust` (a sweep, so a disposal however small), and the two
+`fcm_futures_usdc_sell*` conversions, which move USDC to USD at par and so can
+carry only a rounding-sized gain. An earlier draft filed those last three as
+unknown on the grounds that nobody here has seen one; that weighed the risk of
+a wrong basis without weighing the certainty of no basis for the entire
+wallet.
 
 `tx` is the one type listed as unknown deliberately. It is the vendor's own
 word for uncategorized, so it is the only type guaranteed not to mean anything
@@ -55,16 +56,25 @@ the error the crypto importer avoids for the same reason
 wallet replays short, `_ledger_reconciles` leaves it a Snapshot, and the
 missing basis arrives from #67's one-time import or not at all.
 
-Three other shapes land here, and none of them is a transfer:
+Most of the class is not a transfer in that sense, though, and the rest of it
+is here for three other reasons:
 
-**A send may not be to yourself.** Coinbase files a payment to another person
-under the same `send` type as a move to your own wallet, and no field in the
-row distinguishes them. One is a disposal at fair market value; the other is
-not. Unable to tell, this records neither.
+**A send may not be to yourself, and a receive may not be from yourself.**
+Coinbase files a payment to another person under the same `send` type as a
+move to your own wallet, and no field in the row distinguishes them; `receive`,
+`request` and `unsupported_asset_recovery` are ambiguous in the same way. One
+reading is a disposal at fair market value or ordinary income at receipt; the
+other is a basis-preserving move. Unable to tell, this records neither — the
+same call the importer makes, where `receive` and `send` both sit in
+`_TRANSFER_WORDS`. **Do not promote `receive` to income on the strength of
+CONTEXT.md's airdrop wording**: most of them are the user's own coins arriving,
+and a spot-priced lot for each would be exactly the invented basis this
+avoids.
 
-**A fiat movement is not a position.** `fiat_deposit`, `subscription` and
-`derivatives_settlement` move money, not units — and in practice they land in
-fiat wallets, which `get_trades` skips before classification ever runs.
+**A fiat movement is not a position.** `fiat_deposit`, `fiat_withdrawal`,
+`subscription` and `derivatives_settlement` move money, not units — and where
+they land in fiat wallets, `get_trades` skips those before classification ever
+runs.
 
 **A clawback rescinds income.** It takes back units already paid out. Booked
 as a sell it would be priced from its own row — the value on the day it
@@ -95,11 +105,12 @@ computes on it, and nothing does yet.
 
 ## The backfill is for income, and a price nobody can state is not invented
 
-Where an income row states no USD total — a reward Coinbase valued at nothing,
-or at nothing in the wrong currency — the day's price comes from
-`/v2/prices/{asset}-USD/spot?date=…`, which needs no authentication. A reward
-is worth what the asset was worth when it landed, which is exactly what that
-endpoint answers, so there is no better number being displaced.
+Where an income row states no usable USD total — Coinbase valued it at
+nothing, or valued it in another currency, and a stated zero states nothing in
+any currency — the day's price comes from `/v2/prices/{asset}-USD/spot?date=…`,
+which needs no authentication. A reward is worth what the asset was worth when
+it landed, which is exactly what that endpoint answers, so there is no better
+number being displaced.
 
 A trade is different, and gets no backfill. Its price is the price the order
 filled at, and substituting the day's spot for it moves realised gain by
@@ -108,7 +119,10 @@ downstream could notice. The same reasoning refuses to reprice a total stated
 in another currency: it is a real number in the wrong unit, not an absent one.
 Those rows are left off, exactly as #69 left them off.
 
-Lookups are memoized per asset and day, and capped at `MAX_SPOT_LOOKUPS`.
+Lookups are memoized per asset and day, for the length of one walk rather
+than one wallet, and capped at `MAX_SPOT_LOOKUPS` over that same span — so on
+a history large enough to reach the cap, wallet order decides which rows get
+priced, and the log says the cap was reached.
 Nothing caches a price across syncs, so a history wanting a thousand serial
 lookups wants them again on every sync after, which is how a connection earns
 a rate limit it never gets out of. Past the cap the answer is None, the same
@@ -119,8 +133,9 @@ sync, leaving a holding whose quantity was today's and whose basis was the
 previous sync's.
 
 The endpoint answers 404 both for an asset Coinbase never listed and for a
-date outside the window it keeps: checked on 2026-08-24, no asset priced
-before mid-2023. A 404 means the row reaches no ledger.
+date outside the window it keeps — a rolling one of roughly three years:
+measured on 2026-08-24, nothing priced before about 2023-09. A 404 means the
+row reaches no ledger.
 
 Writing it at zero basis instead was the first attempt, on the reasoning that
 units which arrived free make the whole disposal gain. That is right for the
@@ -133,11 +148,11 @@ with nothing anywhere saying so. So the rule the rest of this file follows: a
 row that cannot be stated in USD reaches no ledger, and a missing basis the
 user can see beats a wrong one that reconciles.
 
-The same rule bounds both numbers the ledger stores. `price` and `quantity`
-are `NUMERIC(38, 18)`: above the top the write fails late, after the rest of
-the sync is staged, and below the bottom Postgres rounds to zero, which is the
-silent-and-reconciling error again — reached through a dust-priced trade
-rather than through income.
+The same rule bounds both numbers the ledger stores, in both directions.
+`price` and `quantity` are `NUMERIC(38, 18)`: above the top the write fails
+late, after the rest of the sync is staged, and below the bottom Postgres
+rounds to zero, which is the silent-and-reconciling error again — reached
+through a dust-priced trade rather than through income.
 
 A rate limit or a 500 still propagates and costs the sync its ledger. Not
 knowing a price is different from not knowing whether the history is complete,

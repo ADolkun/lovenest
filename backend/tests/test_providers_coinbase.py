@@ -815,6 +815,8 @@ async def test_an_advanced_trade_fill_is_a_trade():
     assert len(trades) == 1
     assert trades[0].kind == "buy"
     assert trades[0].quantity == Decimal("1867.7")
+    # The common disposal on a real account, and a plain one: nothing to note.
+    assert trades[0].notes is None
 
 
 @pytest.mark.asyncio
@@ -1031,9 +1033,14 @@ async def test_fiat_wallet_history_is_not_a_trade():
         # sync was already staged. Its twin below the scale is worse: Postgres
         # rounds that one to zero and the wrong basis reconciles.
         _transaction("tx", "buy", "0.00000000000000000001", "1000"),
-        _transaction("tx", "buy", "1E+21", "0.02", code="SHIB"),
-        # `quantity` shares the column, and shares the late write failure.
+        _transaction("tx", "buy", "1E+19", "0.02", code="SHIB"),
+        # `quantity` shares the column, and shares both failures.
         _transaction("tx", "buy", "1E+21", "1E+21", code="SHIB"),
+        _transaction("tx", "buy", "1E-19", "0.02", code="SHIB"),
+        # Not a number, and one that raises on the first comparison rather
+        # than at the parse.
+        _transaction("tx", "buy", "NaN", "2"),
+        _transaction("tx", "buy", "1", "Infinity"),
         # Income nothing can price: no spot answer inside the window Coinbase
         # keeps, and a zero-basis lot would reconcile on quantity while
         # understating the basis by the whole reward.
@@ -1145,7 +1152,7 @@ async def test_an_unclassified_type_is_reported_and_reaches_no_ledger(caplog):
         assert await provider.get_trades(_credentials(private_pem)) == []
 
     reported = "\n".join(caplog.messages)
-    assert "does not classify" in reported
+    assert "cannot read as a trade" in reported
     assert "teleport" in reported and "tx" in reported
 
 
@@ -1229,7 +1236,7 @@ async def test_a_reward_is_income_at_receipt_and_opens_a_lot():
 
 
 @pytest.mark.asyncio
-async def test_a_disposal_is_never_priced_from_the_spot_table():
+async def test_a_disposal_is_never_priced_from_the_spot_table(caplog):
     """The backfill is for income, where there is no execution price to lose.
 
     A reward is worth what the asset was worth when it landed, which is what
@@ -1256,7 +1263,7 @@ async def test_a_disposal_is_never_priced_from_the_spot_table():
     asked: list[tuple[str, str]] = []
 
     provider = CoinbaseProvider()
-    with _patched_client(
+    with caplog.at_level(logging.WARNING), _patched_client(
         _history_handler(
             accounts, history,
             spot={("XRP-USD", "2025-06-01"): "2.50"}, spot_requests=asked,
@@ -1264,6 +1271,37 @@ async def test_a_disposal_is_never_priced_from_the_spot_table():
     ):
         assert await provider.get_trades(_credentials(private_pem)) == []
     assert asked == []
+    # Counted and said once, since a clean sync that derives nothing is
+    # otherwise indistinguishable from one with nothing to derive.
+    assert "left 2 ledgerable transactions off the ledger" in "\n".join(caplog.messages)
+
+
+@pytest.mark.asyncio
+async def test_income_stated_in_another_currency_is_still_valued_at_the_day():
+    """A reward has no execution price to lose, so the currency it failed to
+    state a USD value in makes no difference to what it was worth."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction("tx-1", "interest", "4", "9.00", native_currency="EUR",
+                                 created_at="2025-06-01T12:00:00Z")
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(
+        _history_handler(accounts, history, spot={("XRP-USD", "2025-06-01"): "2.50"})
+    ):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [(t.kind, t.quantity, t.price) for t in trades] == [
+        ("buy", Decimal("4"), Decimal("2.50"))
+    ]
 
 
 @pytest.mark.asyncio
@@ -1329,7 +1367,7 @@ async def test_a_clawback_is_not_a_disposal_at_the_day_it_lands():
 
 
 @pytest.mark.asyncio
-async def test_past_the_lookup_cap_the_backfill_stops_asking_and_keeps_the_rest():
+async def test_past_the_lookup_cap_the_backfill_stops_asking_and_keeps_the_rest(caplog):
     """Refusing the whole history instead would discard every row that needed
     no lookup at all, and skip the recompute `_sync_trades` runs every sync —
     leaving a holding whose quantity is today's and whose basis is last
@@ -1345,12 +1383,15 @@ async def test_past_the_lookup_cap_the_backfill_stops_asking_and_keeps_the_rest(
     spot = {("XRP-USD", f"2025-06-{1 + n:02d}"): "2.50" for n in range(6)}
 
     provider = CoinbaseProvider()
-    with patch("app.providers.coinbase.MAX_SPOT_LOOKUPS", 2), _patched_client(
+    with caplog.at_level(logging.WARNING), patch(
+        "app.providers.coinbase.MAX_SPOT_LOOKUPS", 2
+    ), _patched_client(
         _history_handler(accounts, {"a1": [_tx_page(rows)]}, spot=spot, spot_requests=asked)
     ):
         trades = await provider.get_trades(_credentials(private_pem))
 
     assert len(asked) == 2
+    assert "hit the 2-price cap" in "\n".join(caplog.messages)
     # The stated buy, plus the two rewards priced before the cap was reached.
     assert [t.external_id for t in trades] == ["tx-buy", "tx-0", "tx-1"]
 

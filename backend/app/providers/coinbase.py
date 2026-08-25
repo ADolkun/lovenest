@@ -85,7 +85,7 @@ PAGE_LIMIT = 100
 # keeps the replay's quantity exact, and quantity is all `_ledger_reconciles`
 # checks, so the basis is cached silently short by that row's whole value.
 MAX_LEDGER_VALUE = Decimal(10) ** 20
-MIN_LEDGER_PRICE = Decimal(10) ** -18
+MIN_LEDGER_VALUE = Decimal(10) ** -18
 # Past this many historical prices in one walk, the backfill stops asking. It
 # is a rate-limit guard: nothing caches a price across syncs, so a history
 # that wants a thousand serial lookups wants them again on the next sync and
@@ -139,10 +139,13 @@ TX_CLASSES: dict[str, str] = {
     "wrap_asset": TX_TRADE,
     "unwrap_asset": TX_TRADE,
     # Stablecoin conversions at par: whatever their tax character, the gain
-    # they can carry is rounding-sized, and leaving them unrecorded would
-    # cost the USDC wallet its basis entirely.
+    # they can carry is rounding-sized, and leaving them unrecorded would cost
+    # the USDC wallet its basis entirely.
     "fcm_futures_usdc_sell": TX_TRADE,
     "fcm_futures_usdc_sell_additional_encumberment_rollup": TX_TRADE,
+    # A sweep takes the dust out of the wallet and states what it was worth,
+    # which is a disposal however small. Unrecorded, the replay would disagree
+    # with the balance over a rounding error and cost the wallet everything.
     "retail_simple_dust": TX_TRADE,
     "earn_payout": TX_INCOME,
     "incentives_rewards_payout": TX_INCOME,
@@ -656,6 +659,14 @@ class CoinbaseProvider(BankProvider):
         if key in cache:
             return cache[key]
         if len(cache) >= MAX_SPOT_LOOKUPS:
+            if len(cache) == MAX_SPOT_LOOKUPS:
+                # Cached so this line lands once, not once per later row.
+                cache[key] = None
+                logger.warning(
+                    "Coinbase backfill hit the %d-price cap; income rows past it "
+                    "reach no ledger",
+                    MAX_SPOT_LOOKUPS,
+                )
             return None
         try:
             payload = await self._get(
@@ -708,18 +719,20 @@ class CoinbaseProvider(BankProvider):
         # in, so it reads as absent rather than as a free acquisition.
         if fiat == 0:
             fiat = None
-        if fiat is not None:
-            if _iso_currency(native.get("currency")) != "USD":
-                logger.info(
-                    "Coinbase transaction %s is priced in %s, not the holding's "
-                    "currency; skipping",
-                    raw.get("id"),
-                    native.get("currency"),
-                )
-                return None
+        if fiat is not None and _iso_currency(native.get("currency")) == "USD":
             return abs(fiat) / quantity
-        if tx_class == TX_INCOME and code:
-            return await self._spot_price(code, when.date(), spot)
+        if tx_class == TX_INCOME:
+            # A reward stating its value in another currency is no different
+            # from one stating none: there is no execution price to lose, so
+            # the day's price is the answer either way.
+            return await self._spot_price(code, when.date(), spot) if code else None
+        if fiat is not None:
+            logger.info(
+                "Coinbase transaction %s states its value in %s, which is not the "
+                "holding's currency, and a trade is never repriced; skipping",
+                raw.get("id"),
+                native.get("currency"),
+            )
         return None
 
     async def _trade(
@@ -776,8 +789,8 @@ class CoinbaseProvider(BankProvider):
         price = await self._unit_price(raw, quantity, code, when, tx_class, spot)
         if (
             price is None
-            or not MIN_LEDGER_PRICE <= price < MAX_LEDGER_VALUE
-            or quantity >= MAX_LEDGER_VALUE
+            or not MIN_LEDGER_VALUE <= price < MAX_LEDGER_VALUE
+            or not MIN_LEDGER_VALUE <= quantity < MAX_LEDGER_VALUE
         ):
             logger.info(
                 "Coinbase %s %s states %s %s at %s, which the ledger cannot hold; "
@@ -840,8 +853,8 @@ class CoinbaseProvider(BankProvider):
                 trades.append(trade)
         if unknown_types:
             logger.warning(
-                "Coinbase reported transaction types this build does not classify, "
-                "so they reached no ledger: %s",
+                "Coinbase reported transaction types this build cannot read as a "
+                "trade, so they reached no ledger: %s",
                 ", ".join(f"{name} x{count}" for name, count in sorted(unknown_types.items())),
             )
         if left_off:
