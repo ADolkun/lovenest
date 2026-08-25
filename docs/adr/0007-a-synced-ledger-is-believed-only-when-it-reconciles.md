@@ -1,9 +1,7 @@
 # A synced ledger is believed only when it reconciles
 
-> Amended by [ADR 0008](0008-an-exchange-transaction-is-classified-before-it-is-believed.md).
-> The passages below that say the other transaction types "wait for #70" are
-> history: they are classified now. Transfers are still deliberately unmapped,
-> so the reconciliation rule this ADR sets out still decides everything.
+> Amended by [ADR 0008](0008-an-exchange-transaction-is-classified-before-it-is-believed.md):
+> the passages below saying the other transaction types "wait for #70" are history.
 
 Ticket #69 makes an exchange the first thing other than a person to write the
 trade ledger. Cost basis and acquisition dates stop coming from a file and

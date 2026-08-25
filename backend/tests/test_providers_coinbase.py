@@ -25,11 +25,10 @@ from app.providers.base import (
     SessionExpiredError,
 )
 from app.providers.coinbase import (
-    TX_CASH,
     TX_INCOME,
     TX_TRADE,
-    TX_TRANSFER,
     TX_UNKNOWN,
+    TX_UNRECORDED,
     CoinbaseProvider,
     _classify_transaction,
     _parse_api_key,
@@ -770,7 +769,6 @@ async def test_buys_and_sells_become_trades_with_a_derived_unit_price():
         Decimal("5"), Decimal("4"),
         datetime(2025, 1, 2, 0, 15, tzinfo=timezone.utc),
     )
-    # "buy" and "sell" are the whole truth here, so there is nothing to note.
     assert (buy.notes, sell.notes) == (None, None)
 
 
@@ -1030,8 +1028,16 @@ async def test_fiat_wallet_history_is_not_a_trade():
         _transaction("tx", "buy", "1", "2", created_at="not a timestamp"),
         # A dust quantity against a whole-dollar total prices past what
         # NUMERIC(38, 18) holds; the write would fail after the rest of the
-        # sync was already staged.
+        # sync was already staged. Its twin below the scale is worse: Postgres
+        # rounds that one to zero and the wrong basis reconciles.
         _transaction("tx", "buy", "0.00000000000000000001", "1000"),
+        _transaction("tx", "buy", "1E+21", "0.02", code="SHIB"),
+        # `quantity` shares the column, and shares the late write failure.
+        _transaction("tx", "buy", "1E+21", "1E+21", code="SHIB"),
+        # Income nothing can price: no spot answer inside the window Coinbase
+        # keeps, and a zero-basis lot would reconcile on quantity while
+        # understating the basis by the whole reward.
+        _transaction("tx", "earn_payout", "4", "0"),
         {"id": "tx", "type": "buy", "status": "completed"},
         {"id": "tx", "type": "buy", "status": "completed",
          "amount": "nope", "native_amount": "nope"},
@@ -1055,65 +1061,55 @@ async def test_rows_that_state_no_recordable_trade_are_skipped(row):
 
 #: Every transaction type Coinbase's own reference enumerates, verbatim
 #: (docs.cdp.coinbase.com/coinbase-app/track-apis/transactions, read
-#: 2026-08-24), against what each one means for a position. Hand-copied rather
-#: than derived from the table under test, so that a change of mind about a
-#: type has to be made twice and a type moved by accident fails here.
+#: 2026-08-24), against what each one means for a position, plus the seven a
+#: real account emits that the reference does not list. Hand-copied rather
+#: than derived from the table under test: a wrong class is a silently wrong
+#: cost basis, so changing one has to be done twice, deliberately.
 VENDOR_TX_TYPES = {
     "advanced_trade_fill": TX_TRADE,
     "buy": TX_TRADE,
-    "clawback": TX_TRADE,
-    "derivatives_settlement": TX_CASH,
+    "clawback": TX_UNRECORDED,
+    "derivatives_settlement": TX_UNRECORDED,
     "earn_payout": TX_INCOME,
-    "fcm_futures_usdc_sell": TX_UNKNOWN,
-    "fcm_futures_usdc_sell_additional_encumberment_rollup": TX_UNKNOWN,
-    "fiat_deposit": TX_CASH,
-    "fiat_withdrawal": TX_CASH,
+    "fcm_futures_usdc_sell": TX_TRADE,
+    "fcm_futures_usdc_sell_additional_encumberment_rollup": TX_TRADE,
+    "fiat_deposit": TX_UNRECORDED,
+    "fiat_withdrawal": TX_UNRECORDED,
     "incentives_rewards_payout": TX_INCOME,
-    "incentives_shared_clawback": TX_TRADE,
-    "intx_deposit": TX_TRANSFER,
-    "intx_withdrawal": TX_TRANSFER,
-    "receive": TX_TRANSFER,
-    "request": TX_TRANSFER,
-    "retail_simple_dust": TX_UNKNOWN,
+    "incentives_shared_clawback": TX_UNRECORDED,
+    "intx_deposit": TX_UNRECORDED,
+    "intx_withdrawal": TX_UNRECORDED,
+    "receive": TX_UNRECORDED,
+    "request": TX_UNRECORDED,
+    "retail_simple_dust": TX_TRADE,
     "sell": TX_TRADE,
-    "send": TX_TRANSFER,
-    "staking_transfer": TX_TRANSFER,
-    "subscription": TX_CASH,
+    "send": TX_UNRECORDED,
+    "staking_transfer": TX_UNRECORDED,
+    "subscription": TX_UNRECORDED,
     "subscription_rebate": TX_INCOME,
     "trade": TX_TRADE,
-    "transfer": TX_TRANSFER,
+    "transfer": TX_UNRECORDED,
     "tx": TX_UNKNOWN,
-    "unstaking_transfer": TX_TRANSFER,
-    "unsupported_asset_recovery": TX_TRANSFER,
+    "unstaking_transfer": TX_UNRECORDED,
+    "unsupported_asset_recovery": TX_UNRECORDED,
     "unwrap_asset": TX_TRADE,
-    "vault_withdrawal": TX_TRANSFER,
+    "vault_withdrawal": TX_UNRECORDED,
     "wrap_asset": TX_TRADE,
-}
-
-#: The reward types a real account emits that the vendor's reference has never
-#: listed, and the pre-Advanced transfer names still present in old histories.
-UNDOCUMENTED_TX_TYPES = {
+    # Not in the vendor reference: the reward types a real account emits, and
+    # the transfer names from before the Advanced surface.
     "staking_reward": TX_INCOME,
     "inflation_reward": TX_INCOME,
     "interest": TX_INCOME,
-    "exchange_deposit": TX_TRANSFER,
-    "exchange_withdrawal": TX_TRANSFER,
-    "pro_deposit": TX_TRANSFER,
-    "pro_withdrawal": TX_TRANSFER,
+    "exchange_deposit": TX_UNRECORDED,
+    "exchange_withdrawal": TX_UNRECORDED,
+    "pro_deposit": TX_UNRECORDED,
+    "pro_withdrawal": TX_UNRECORDED,
 }
 
 
-@pytest.mark.parametrize(
-    "tx_type, tx_class", sorted({**VENDOR_TX_TYPES, **UNDOCUMENTED_TX_TYPES}.items())
-)
+@pytest.mark.parametrize("tx_type, tx_class", sorted(VENDOR_TX_TYPES.items()))
 def test_every_type_the_vendor_enumerates_means_what_it_says(tx_type, tx_class):
-    """Not "every type we happen to trade" — every type the vendor lists.
-
-    Three of them classify as unknown on purpose. `tx` is the vendor's own
-    word for uncategorized; the futures conversions and the dust sweep have
-    never been seen on a real account, and guessing "trade" for an unobserved
-    type is the confidently wrong basis this table exists to avoid.
-    """
+    """`tx` is the only one left unknown, and the vendor names it that itself."""
     assert _classify_transaction(tx_type) == tx_class
 
 
@@ -1190,12 +1186,7 @@ async def test_a_convert_is_recorded_as_its_two_sides():
 
 @pytest.mark.asyncio
 async def test_a_transfer_moves_the_position_without_touching_the_ledger():
-    """Basis travels with a transfer, so recording one invents a lot.
-
-    The holding that received it stays short of its balance on replay, which
-    is `_ledger_reconciles`' problem and not something a made-up buy should
-    paper over.
-    """
+    """Basis travels with a transfer, so recording one invents a lot."""
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "110")]
     history = {
@@ -1238,14 +1229,15 @@ async def test_a_reward_is_income_at_receipt_and_opens_a_lot():
 
 
 @pytest.mark.asyncio
-async def test_a_stated_value_in_another_currency_is_never_repriced():
-    """The row's own execution value is better than the day's average.
+async def test_a_disposal_is_never_priced_from_the_spot_table():
+    """The backfill is for income, where there is no execution price to lose.
 
-    Repricing a stated EUR total from the spot table would substitute a daily
-    figure for the price the order actually filled at — thousands of dollars
-    of realised gain on a day an asset moved, with the quantity untouched, so
-    nothing downstream could tell. A stated value is never overridden; only an
-    absent one is filled.
+    A reward is worth what the asset was worth when it landed, which is what
+    the spot table answers. A sell has a price of its own, and substituting
+    the day's for it moves realised gain by whatever the asset did that day —
+    quantity untouched, so nothing downstream would notice. Whether the row
+    states its value in the wrong currency or states none at all, it is left
+    off rather than repriced.
     """
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "10")]
@@ -1253,10 +1245,10 @@ async def test_a_stated_value_in_another_currency_is_never_repriced():
         "a1": [
             _tx_page(
                 [
-                    _transaction(
-                        "tx-1", "buy", "4", "9.00",
-                        native_currency="EUR", created_at="2025-06-01T12:00:00Z",
-                    )
+                    _transaction("tx-eur", "buy", "4", "9.00", native_currency="EUR",
+                                 created_at="2025-06-01T12:00:00Z"),
+                    _transaction("tx-unstated", "sell", "-4", "0",
+                                 created_at="2025-06-01T13:00:00Z"),
                 ]
             )
         ]
@@ -1311,48 +1303,19 @@ async def test_the_backfill_is_asked_once_per_asset_and_day():
 
 
 @pytest.mark.asyncio
-async def test_income_the_spot_table_cannot_price_reaches_no_ledger():
-    """A reward priced at nothing is the one wrong number that reconciles.
-
-    Coinbase's public history reaches back about three years, so an older
-    reward gets no price. Writing it at zero would keep the replay's quantity
-    exact — the whole of what `_ledger_reconciles` checks — and cache a cost
-    basis short by the reward's entire value. Left off the ledger, the replay
-    comes up short instead and the holding stays a Snapshot.
-    """
-    private_pem, _ = _generate_key()
-    accounts = [_account("a1", "XRP", "10")]
-    history = {
-        "a1": [
-            _tx_page(
-                [_transaction("tx-1", "earn_payout", "4", "0",
-                              created_at="2019-06-01T12:00:00Z")]
-            )
-        ]
-    }
-
-    provider = CoinbaseProvider()
-    with _patched_client(_history_handler(accounts, history, spot={})):
-        assert await provider.get_trades(_credentials(private_pem)) == []
-
-
-@pytest.mark.asyncio
-async def test_a_clawback_disposes_of_the_units_it_takes_back():
-    """The payout it reverses is a lot now, so the reversal has to close it.
-
-    Left off the ledger, the units would sit there forever and cost the
-    holding its basis for good; booked at the payout's own price it lands
-    back on the reported balance and books about no gain.
-    """
+async def test_a_clawback_is_not_a_disposal_at_the_day_it_lands():
+    """A clawback rescinds income; it is priced by the row that takes the
+    units back, which for a year-old reward would book that year of
+    appreciation as a realised gain on units nobody sold."""
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "0")]
     history = {
         "a1": [
             _tx_page(
                 [
-                    _transaction("tx-payout", "incentives_rewards_payout", "5", "10.00"),
-                    _transaction("tx-clawback", "incentives_shared_clawback", "-5", "-10.00",
-                                 created_at="2024-04-04T18:30:00Z"),
+                    _transaction("tx-payout", "incentives_rewards_payout", "5", "2.50"),
+                    _transaction("tx-clawback", "incentives_shared_clawback", "-5", "-15.00",
+                                 created_at="2025-01-01T18:30:00Z"),
                 ]
             )
         ]
@@ -1362,44 +1325,34 @@ async def test_a_clawback_disposes_of_the_units_it_takes_back():
     with _patched_client(_history_handler(accounts, history)):
         trades = await provider.get_trades(_credentials(private_pem))
 
-    assert [(t.external_id, t.kind, t.price) for t in trades] == [
-        ("tx-payout", "buy", Decimal("2")),
-        ("tx-clawback", "sell", Decimal("2")),
-    ]
+    assert [(t.external_id, t.kind) for t in trades] == [("tx-payout", "buy")]
 
 
 @pytest.mark.asyncio
-async def test_a_price_below_the_ledger_scale_is_skipped_rather_than_rounded():
-    """NUMERIC(38, 18) rounds it to zero, and a zero-priced row reconciles."""
-    private_pem, _ = _generate_key()
-    accounts = [_account("a1", "SHIB", "1E+21")]
-    history = {
-        "a1": [_tx_page([_transaction("tx-1", "buy", "1E+21", "0.02", code="SHIB")])]
-    }
-
-    provider = CoinbaseProvider()
-    with _patched_client(_history_handler(accounts, history)):
-        assert await provider.get_trades(_credentials(private_pem)) == []
-
-
-@pytest.mark.asyncio
-async def test_a_history_needing_more_prices_than_the_cap_raises():
-    """Hundreds of serial lookups is how a sync earns a rate limit it then
-    never recovers from, since nothing caches a price across syncs."""
+async def test_past_the_lookup_cap_the_backfill_stops_asking_and_keeps_the_rest():
+    """Refusing the whole history instead would discard every row that needed
+    no lookup at all, and skip the recompute `_sync_trades` runs every sync —
+    leaving a holding whose quantity is today's and whose basis is last
+    sync's."""
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "10")]
-    rows = [
+    rows = [_transaction("tx-buy", "buy", "10", "25.00")] + [
         _transaction(f"tx-{n}", "staking_reward", "1", "0",
                      created_at=f"2025-06-{1 + n:02d}T12:00:00Z")
         for n in range(6)
     ]
+    asked: list[tuple[str, str]] = []
+    spot = {("XRP-USD", f"2025-06-{1 + n:02d}"): "2.50" for n in range(6)}
 
     provider = CoinbaseProvider()
-    with patch("app.providers.coinbase.MAX_SPOT_LOOKUPS", 3), _patched_client(
-        _history_handler(accounts, {"a1": [_tx_page(rows)]}, spot={})
+    with patch("app.providers.coinbase.MAX_SPOT_LOOKUPS", 2), _patched_client(
+        _history_handler(accounts, {"a1": [_tx_page(rows)]}, spot=spot, spot_requests=asked)
     ):
-        with pytest.raises(RuntimeError, match="partial cost basis"):
-            await provider.get_trades(_credentials(private_pem))
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert len(asked) == 2
+    # The stated buy, plus the two rewards priced before the cap was reached.
+    assert [t.external_id for t in trades] == ["tx-buy", "tx-0", "tx-1"]
 
 
 @pytest.mark.asyncio

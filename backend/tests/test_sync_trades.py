@@ -200,8 +200,6 @@ async def test_a_second_sync_over_the_same_payload_changes_nothing(
     _MockProvider._holdings = [_holding(quantity="40")]
     _MockProvider._trades = [
         _trade("tx-1"),
-        # A staking payout: a lot opened at receipt value, carrying the note
-        # that says it was income rather than money the user spent.
         _trade(
             "tx-2", when=date(2024, 6, 1),
             notes="Coinbase staking_reward — income at receipt",
