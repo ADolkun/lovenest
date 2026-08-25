@@ -742,6 +742,124 @@ async def test_buys_and_sells_become_trades_with_a_derived_unit_price():
     )
 
 
+def _fill(
+    tx_id: str,
+    quantity: str,
+    fiat: str,
+    *,
+    code: str = "HBAR",
+    product: str = "HBAR-USDC",
+    order_side: str = "buy",
+    commission: str = "0",
+    created_at: str = "2024-12-19T19:51:18Z",
+) -> dict:
+    """One leg of an Advanced Trade fill, in the shape the v2 API returns."""
+    return {
+        "id": tx_id,
+        "type": "advanced_trade_fill",
+        "status": "completed",
+        "amount": {"amount": quantity, "currency": code},
+        "native_amount": {"amount": fiat, "currency": "USD"},
+        "created_at": created_at,
+        "advanced_trade_fill": {
+            "commission": commission,
+            "fill_price": "0.26",
+            "order_id": "order-1",
+            "order_side": order_side,
+            "product_id": product,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_advanced_trade_fill_is_a_trade():
+    """The surface an account that actually trades reports every disposal on."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7")]
+    history = {"a1": [_tx_page([_fill("f-1", "1867.7", "486.37")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert len(trades) == 1
+    assert trades[0].kind == "buy"
+    assert trades[0].quantity == Decimal("1867.7")
+
+
+@pytest.mark.asyncio
+async def test_both_legs_of_a_fill_are_read_by_sign_not_by_order_side():
+    """A fill is filed in both wallets it moved, and both say `order_side: buy`.
+
+    Buying HBAR with USDC writes +1867.7 to the HBAR wallet and -485.602 to the
+    USDC wallet. Reading `order_side` would book the second as a *purchase* of
+    USDC — inflating a stablecoin position by the size of every trade ever made
+    through it.
+    """
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7"), _account("a2", "USDC", "500")]
+    history = {
+        "a1": [_tx_page([_fill("f-1", "1867.7", "486.37")])],
+        "a2": [
+            _tx_page(
+                [_fill("f-2", "-485.602", "-485.60", code="USDC", order_side="buy")]
+            )
+        ],
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    by_id = {t.external_id: t for t in trades}
+    assert by_id["f-1"].kind == "buy"
+    assert by_id["f-1"].holding_external_id == "a1"
+    assert by_id["f-2"].kind == "sell"
+    assert by_id["f-2"].holding_external_id == "a2"
+    assert by_id["f-2"].quantity == Decimal("485.602")
+
+
+@pytest.mark.asyncio
+async def test_a_sell_side_fill_disposes_of_the_base_asset():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "ADA", "100")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _fill(
+                        "f-1", "-505.21499099", "-388.89",
+                        code="ADA", product="ADA-USD", order_side="sell",
+                    )
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].kind == "sell"
+    assert trades[0].quantity == Decimal("505.21499099")
+
+
+@pytest.mark.asyncio
+async def test_a_fill_commission_is_not_added_to_the_basis():
+    """The legs balance to the stablecoin conversion, so nothing was deducted."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "HBAR", "1867.7")]
+    history = {
+        "a1": [_tx_page([_fill("f-1", "1867.7", "486.37", commission="13.9610575")])]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].price == Decimal("486.37") / Decimal("1867.7")
+
+
 @pytest.mark.asyncio
 async def test_history_is_walked_to_cursor_exhaustion():
     private_pem, _ = _generate_key()
@@ -867,6 +985,8 @@ async def test_fiat_wallet_history_is_not_a_trade():
     [
         # issue #70's types, not this ticket's.
         _transaction("tx", "send", "1", "2"),
+        _transaction("tx", "interest", "1", "2"),
+        _transaction("tx", "earn_payout", "1", "2"),
         _transaction("tx", "receive", "1", "2"),
         _transaction("tx", "trade", "1", "2"),
         _transaction("tx", "staking_reward", "1", "2"),

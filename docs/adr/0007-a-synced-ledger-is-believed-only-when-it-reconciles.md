@@ -5,6 +5,31 @@ trade ledger. Cost basis and acquisition dates stop coming from a file and
 start coming from Coinbase. Three decisions follow, and all three are about
 what to do when the history the exchange hands back is not the whole story.
 
+## Direction is the sign of the quantity, not the type and not the side
+
+`_trade` reads `buy` or `sell` off the sign of `amount`, having used the
+transaction's `type` only to decide the row is eligible at all.
+
+`advanced_trade_fill` is why. A fill is filed twice, once in each wallet the
+order moved, and both rows carry the same `advanced_trade_fill` block —
+including `order_side`, which describes the *order* rather than the leg.
+Buying HBAR with USDC writes `+1867.7 HBAR` to one wallet and `-485.602 USDC`
+to the other, and both say `order_side: buy`. Mapping on the side would book
+the second as a purchase of USDC, inflating a stablecoin position by the size
+of every trade ever routed through it. The sign is unambiguous on every type
+here and needs no product-id parsing to interpret.
+
+The type list includes `advanced_trade_fill` because on a real account it is
+the common case, not an exotic one: an account that trades on the Advanced
+surface reports no `sell` transactions at all — 185 fills against 100 buys and
+zero sells — so without it the ledger is buys-only, reconciles against nothing,
+and the feature derives no basis for anybody who actually trades.
+
+A fill's `commission` is not added to the basis. The two legs of a fill balance
+to the stablecoin conversion alone, which they could not do if a commission of
+that size had really been deducted, so it reads as an uncharged notional
+already inside `fill_price`.
+
 ## The provider's transaction id is the whole dedup key
 
 `_sync_trades` skips a trade whose `(asset_id, external_id)` is already on the

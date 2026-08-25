@@ -80,11 +80,15 @@ PAGE_LIMIT = 100
 # One past the largest per-unit price `asset_transactions.price` — a
 # NUMERIC(38, 18) — can hold.
 MAX_LEDGER_PRICE = Decimal(10) ** 20
-# Only these two are a straightforward buy or sell of an asset for fiat. The
-# two dozen other types Coinbase enumerates — send, receive, trade, staking
-# reward, earn payout — move a position without stating a fiat basis for it,
-# and are issue #70's problem, not this one's.
-LEDGER_TX_TYPES = ("buy", "sell")
+# The types that are a one-sided buy or sell with a fiat value attached.
+# `advanced_trade_fill` is one too, and on a real account it is the *common*
+# one: an account that trades on the Advanced surface reports no `sell` at all,
+# every disposal arriving as a fill instead.
+#
+# The rest of the two dozen types Coinbase enumerates — `trade`, `send`,
+# `receive`, `interest`, `earn_payout` — move a position without stating a
+# one-sided fiat basis for it, and are issue #70's problem, not this one's.
+LEDGER_TX_TYPES = ("buy", "sell", "advanced_trade_fill")
 COINBASE_HELP_URL = "https://portal.cdp.coinbase.com/access/api"
 
 
@@ -523,11 +527,10 @@ class CoinbaseProvider(BankProvider):
         """Map one v2 transaction to a ledger entry, or None if it isn't one.
 
         Returning None is the normal outcome for most rows: a wallet's history
-        is mostly transfers, rewards and conversions, and only a fiat buy or
-        sell states both a quantity and the money that moved for it.
+        is mostly transfers, rewards and interest, and only a one-sided trade
+        states both a quantity and the money that moved for it.
         """
-        kind = str(raw.get("type") or "").lower()
-        if kind not in LEDGER_TX_TYPES:
+        if str(raw.get("type") or "").lower() not in LEDGER_TX_TYPES:
             return None
         # Anything unsettled is not yet a fact about the position — a pending
         # buy can still fail, and a canceled one never happened.
@@ -542,8 +545,16 @@ class CoinbaseProvider(BankProvider):
         fiat = _to_decimal(native.get("amount"))
         if quantity is None or fiat is None:
             return None
-        # A sell reports both sides negative. The ledger stores magnitudes and
-        # reads the direction off `kind`, so sign is dropped here.
+        # Direction comes from the sign of the quantity, never from the type or
+        # from `order_side`. An `advanced_trade_fill` is filed twice, once in
+        # each wallet the order moved: buying HBAR with USDC writes +1867.7 to
+        # the HBAR wallet and -485.602 to the USDC wallet, and *both* rows say
+        # `order_side: buy`, because that describes the order rather than the
+        # leg. Reading the side would book the USDC leg as a purchase of USDC.
+        #
+        # The sign is right on every type here: a `buy` is positive, a `sell`
+        # is negative, and each fill leg says which way its own asset went.
+        kind = "buy" if quantity > 0 else "sell"
         quantity, fiat = abs(quantity), abs(fiat)
         if quantity == 0:
             return None
@@ -573,11 +584,16 @@ class CoinbaseProvider(BankProvider):
             external_id=external_id,
             holding_external_id=holding_external_id,
             kind=kind,
-            # Taken to be the fiat total including the fee, which is what cost
-            # basis means. Coinbase documents `native_amount` as "the value in
-            # the user's native currency" without saying whether the buy fee is
-            # in it; if it turns out to be the subtotal, every basis here
-            # understates by the fee.
+            # `native_amount` is the fiat total including the fee, which is
+            # what cost basis means. The docs only call it "the value in the
+            # user's native currency", so this was checked against a real
+            # account: on every buy carrying a fee it equalled the linked buy
+            # resource's `total`, never its `subtotal`.
+            #
+            # A fill's `commission` is deliberately not added on top. It reads
+            # like an uncharged notional: the two legs of a fill balance to the
+            # stablecoin conversion alone, which they could not do if a
+            # commission that size had actually been deducted.
             price=price,
             quantity=quantity,
             occurred_at=when,
