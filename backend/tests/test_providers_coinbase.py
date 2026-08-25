@@ -1048,6 +1048,11 @@ async def test_fiat_wallet_history_is_not_a_trade():
         {"id": "tx", "type": "buy", "status": "completed"},
         {"id": "tx", "type": "buy", "status": "completed",
          "amount": "nope", "native_amount": "nope"},
+        # A well-formed quantity whose value is not an object at all: the row
+        # gets as far as being priced, and there is nothing there to price it.
+        {"id": "tx", "type": "buy", "status": "completed",
+         "amount": {"amount": "1", "currency": "XRP"}, "native_amount": "nope",
+         "created_at": "2024-03-04T18:30:00Z"},
         _transaction("tx", "buy", "not a number", "2"),
         # No stated value and no spot price to stand in for one: a trade
         # priced at nothing would be a basis of zero the user never paid.
@@ -1391,7 +1396,8 @@ async def test_past_the_lookup_cap_the_backfill_stops_asking_and_keeps_the_rest(
         trades = await provider.get_trades(_credentials(private_pem))
 
     assert len(asked) == 2
-    assert "hit the 2-price cap" in "\n".join(caplog.messages)
+    # Once, not once per row past it.
+    assert sum("hit the 2-price cap" in m for m in caplog.messages) == 1
     # The stated buy, plus the two rewards priced before the cap was reached.
     assert [t.external_id for t in trades] == ["tx-buy", "tx-0", "tx-1"]
 
