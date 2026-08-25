@@ -7,6 +7,7 @@ appears anywhere in this file and nothing touches the network.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
@@ -23,7 +24,17 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
 )
-from app.providers.coinbase import CoinbaseProvider, _parse_api_key, _rows
+from app.providers.coinbase import (
+    TX_CASH,
+    TX_INCOME,
+    TX_TRADE,
+    TX_TRANSFER,
+    TX_UNKNOWN,
+    CoinbaseProvider,
+    _parse_api_key,
+    _rows,
+    classify_transaction,
+)
 
 KEY_NAME = "organizations/00000000-0000-0000-0000-000000000000/apiKeys/test-key"
 PORTFOLIO_ID = "portfolio-1"
@@ -677,12 +688,19 @@ def _history_handler(
     history: dict[str, list[dict]],
     *,
     fail_after: int | None = None,
+    spot: dict[tuple[str, str], str] | None = None,
+    spot_requests: list[tuple[str, str]] | None = None,
 ):
     """Serve one page of accounts, then each account's paged transactions.
 
     `history` maps an account id to the pages of its history, so a walk can be
     made to run one page or five. `fail_after` makes the Nth transaction
     request return 500, standing in for a network drop mid-pagination.
+
+    `spot` maps (pair, date) to the historical price the public table answers
+    with; anything absent 404s, which is what Coinbase does for an asset it
+    never listed or a date older than the window it keeps. `spot_requests`
+    collects every lookup, so a test can pin that the backfill is memoized.
     """
     seen = {"tx_requests": 0}
 
@@ -692,6 +710,18 @@ def _history_handler(
             return httpx.Response(200, json=RATES)
         if path == "/v2/accounts":
             return httpx.Response(200, json=_page(accounts))
+        if path.startswith("/v2/prices/"):
+            pair = path.split("/")[3]
+            day = request.url.params.get("date", "")
+            if spot_requests is not None:
+                spot_requests.append((pair, day))
+            amount = (spot or {}).get((pair, day))
+            if amount is None:
+                return httpx.Response(404, json={"errors": [{"id": "not_found"}]})
+            base = pair.split("-")[0]
+            return httpx.Response(
+                200, json={"data": {"amount": amount, "base": base, "currency": "USD"}}
+            )
         account_id = path.split("/")[3]
         seen["tx_requests"] += 1
         if fail_after is not None and seen["tx_requests"] > fail_after:
@@ -983,19 +1013,17 @@ async def test_fiat_wallet_history_is_not_a_trade():
 @pytest.mark.parametrize(
     "row",
     [
-        # issue #70's types, not this ticket's.
+        # Moves the position but states no basis event of its own.
         _transaction("tx", "send", "1", "2"),
-        _transaction("tx", "interest", "1", "2"),
-        _transaction("tx", "earn_payout", "1", "2"),
         _transaction("tx", "receive", "1", "2"),
-        _transaction("tx", "trade", "1", "2"),
-        _transaction("tx", "staking_reward", "1", "2"),
+        _transaction("tx", "transfer", "1", "2"),
+        _transaction("tx", "staking_transfer", "1", "2"),
+        _transaction("tx", "vault_withdrawal", "1", "2"),
+        # Fiat, not a position.
+        _transaction("tx", "fiat_deposit", "1", "2"),
         # Not settled: a pending buy can still fail, a canceled one never was.
         _transaction("tx", "buy", "1", "2", status="pending"),
         _transaction("tx", "buy", "1", "2", status="canceled"),
-        # A basis in another currency would be a number written into a column
-        # that means something else.
-        _transaction("tx", "buy", "1", "2", native_currency="EUR"),
         # Nothing to divide by, nothing to identify it, nothing to date it.
         _transaction("tx", "buy", "0", "2"),
         _transaction("", "buy", "1", "2"),
@@ -1008,16 +1036,369 @@ async def test_fiat_wallet_history_is_not_a_trade():
         {"id": "tx", "type": "buy", "status": "completed",
          "amount": "nope", "native_amount": "nope"},
         _transaction("tx", "buy", "not a number", "2"),
+        # No stated value and no spot price to stand in for one: a trade
+        # priced at nothing would be a basis of zero the user never paid.
         _transaction("tx", "buy", "1", "not a number"),
+        _transaction("tx", "buy", "1", "0"),
     ],
 )
-async def test_rows_that_are_not_a_priced_buy_or_sell_are_skipped(row):
+async def test_rows_that_state_no_recordable_trade_are_skipped(row):
     private_pem, _ = _generate_key()
     accounts = [_account("a1", "XRP", "10")]
 
     provider = CoinbaseProvider()
     with _patched_client(_history_handler(accounts, {"a1": [_tx_page([row])]})):
         assert await provider.get_trades(_credentials(private_pem)) == []
+
+
+# ----- classification ---------------------------------------------------------
+
+#: Every transaction type Coinbase's own reference enumerates, verbatim
+#: (docs.cdp.coinbase.com/coinbase-app/track-apis/transactions, read 2026-08-24).
+#: The point of copying the list here rather than deriving it from the table
+#: under test is that a type the vendor adds shows up as a failing test.
+VENDOR_TX_TYPES = (
+    "advanced_trade_fill",
+    "buy",
+    "clawback",
+    "derivatives_settlement",
+    "earn_payout",
+    "fcm_futures_usdc_sell",
+    "fcm_futures_usdc_sell_additional_encumberment_rollup",
+    "fiat_deposit",
+    "fiat_withdrawal",
+    "incentives_rewards_payout",
+    "incentives_shared_clawback",
+    "intx_deposit",
+    "intx_withdrawal",
+    "receive",
+    "request",
+    "retail_simple_dust",
+    "sell",
+    "send",
+    "staking_transfer",
+    "subscription",
+    "subscription_rebate",
+    "trade",
+    "transfer",
+    "tx",
+    "unstaking_transfer",
+    "unsupported_asset_recovery",
+    "unwrap_asset",
+    "vault_withdrawal",
+    "wrap_asset",
+)
+
+
+@pytest.mark.parametrize("tx_type", VENDOR_TX_TYPES)
+def test_every_type_the_vendor_enumerates_is_classified(tx_type):
+    """Not "every type we happen to trade" — every type the vendor lists.
+
+    `tx` is the exception the vendor itself names: it is their word for
+    uncategorized, so classifying it as anything but unknown would be
+    inventing a meaning.
+    """
+    expected_unknown = tx_type == "tx"
+    assert (classify_transaction(tx_type) == TX_UNKNOWN) is expected_unknown
+
+
+def test_a_type_nobody_has_seen_is_unknown_rather_than_a_trade():
+    assert classify_transaction("teleportation_reward") == TX_UNKNOWN
+    assert classify_transaction(None) == TX_UNKNOWN
+    assert classify_transaction("") == TX_UNKNOWN
+
+
+def test_classification_is_case_and_whitespace_insensitive():
+    assert classify_transaction("  Advanced_Trade_Fill ") == TX_TRADE
+
+
+@pytest.mark.parametrize(
+    "tx_type, tx_class",
+    [
+        ("buy", TX_TRADE),
+        ("sell", TX_TRADE),
+        ("advanced_trade_fill", TX_TRADE),
+        ("trade", TX_TRADE),
+        ("wrap_asset", TX_TRADE),
+        ("earn_payout", TX_INCOME),
+        ("interest", TX_INCOME),
+        ("staking_reward", TX_INCOME),
+        ("inflation_reward", TX_INCOME),
+        ("incentives_rewards_payout", TX_INCOME),
+        ("send", TX_TRANSFER),
+        ("receive", TX_TRANSFER),
+        ("staking_transfer", TX_TRANSFER),
+        ("unstaking_transfer", TX_TRANSFER),
+        ("clawback", TX_TRANSFER),
+        ("fiat_deposit", TX_CASH),
+        ("fiat_withdrawal", TX_CASH),
+        ("subscription", TX_CASH),
+    ],
+)
+def test_each_type_means_what_it_says(tx_type, tx_class):
+    assert classify_transaction(tx_type) == tx_class
+
+
+@pytest.mark.asyncio
+async def test_an_unclassified_type_is_reported_and_reaches_no_ledger(caplog):
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction("tx-1", "teleport", "1", "2"),
+                    _transaction("tx-2", "tx", "1", "2"),
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with caplog.at_level(logging.WARNING), _patched_client(
+        _history_handler(accounts, history)
+    ):
+        assert await provider.get_trades(_credentials(private_pem)) == []
+
+    reported = "\n".join(caplog.messages)
+    assert "does not classify" in reported
+    assert "teleport" in reported and "tx" in reported
+
+
+# ----- converts, transfers and income -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_convert_is_recorded_as_its_two_sides():
+    """Converting USDC into XRP sells one and buys the other, not "a buy".
+
+    Coinbase files the convert once in each wallet, and the sign of each row
+    is what says which side it is — so the two land on two different ledgers
+    with two different bases.
+    """
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "100"), _account("a2", "USDC", "0")]
+    history = {
+        "a1": [_tx_page([_transaction("tx-convert-xrp", "trade", "100", "50.00")])],
+        "a2": [
+            _tx_page(
+                [_transaction("tx-convert-usdc", "trade", "-50", "-50.00", code="USDC")]
+            )
+        ],
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    bought = next(t for t in trades if t.holding_external_id == "a1")
+    sold = next(t for t in trades if t.holding_external_id == "a2")
+    assert (bought.kind, bought.quantity, bought.price) == (
+        "buy", Decimal("100"), Decimal("0.5"),
+    )
+    assert (sold.kind, sold.quantity, sold.price) == ("sell", Decimal("50"), Decimal("1"))
+    assert "trade" in (bought.notes or "")
+
+
+@pytest.mark.asyncio
+async def test_a_transfer_moves_the_position_without_touching_the_ledger():
+    """Basis travels with a transfer, so recording one invents a lot.
+
+    The holding that received it stays short of its balance on replay, which
+    is `_ledger_reconciles`' problem and not something a made-up buy should
+    paper over.
+    """
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "110")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction("tx-in", "receive", "100", "50.00"),
+                    _transaction("tx-buy", "buy", "10", "6.00"),
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [t.external_id for t in trades] == ["tx-buy"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tx_type", ["earn_payout", "interest", "staking_reward"])
+async def test_a_reward_is_income_at_receipt_and_opens_a_lot(tx_type):
+    """Free units would understate basis and overstate the eventual gain."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {"a1": [_tx_page([_transaction("tx-1", tx_type, "10", "6.00")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert len(trades) == 1
+    assert trades[0].kind == "buy"
+    assert trades[0].quantity == Decimal("10")
+    assert trades[0].price == Decimal("0.6")
+    assert trades[0].notes == f"Coinbase {tx_type} — income at receipt"
+
+
+@pytest.mark.asyncio
+async def test_a_plain_buy_carries_no_note():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {"a1": [_tx_page([_transaction("tx-1", "buy", "10", "6.00")])]}
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history)):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].notes is None
+
+
+# ----- price backfill ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_reward_with_no_stated_value_is_priced_from_the_spot_table():
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction(
+                        "tx-1", "staking_reward", "4", "0",
+                        created_at="2025-06-01T12:00:00Z",
+                    )
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(
+        _history_handler(accounts, history, spot={("XRP-USD", "2025-06-01"): "2.50"})
+    ):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].price == Decimal("2.50")
+    assert trades[0].quantity == Decimal("4")
+
+
+@pytest.mark.asyncio
+async def test_a_value_in_another_currency_is_backfilled_rather_than_dropped():
+    """A EUR total is not a USD basis, and the spot table knows the USD one."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction(
+                        "tx-1", "buy", "4", "9.00",
+                        native_currency="EUR", created_at="2025-06-01T12:00:00Z",
+                    )
+                ]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(
+        _history_handler(accounts, history, spot={("XRP-USD", "2025-06-01"): "2.50"})
+    ):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].price == Decimal("2.50")
+
+
+@pytest.mark.asyncio
+async def test_the_backfill_is_asked_once_per_asset_and_day():
+    """A daily staking payout would otherwise re-ask the same question forever."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [
+                    _transaction("tx-1", "staking_reward", "1", "0",
+                                 created_at="2025-06-01T01:00:00Z"),
+                    _transaction("tx-2", "staking_reward", "1", "0",
+                                 created_at="2025-06-01T23:00:00Z"),
+                    _transaction("tx-3", "staking_reward", "1", "0",
+                                 created_at="2025-06-02T01:00:00Z"),
+                ]
+            )
+        ]
+    }
+    asked: list[tuple[str, str]] = []
+
+    provider = CoinbaseProvider()
+    with _patched_client(
+        _history_handler(
+            accounts,
+            history,
+            spot={("XRP-USD", "2025-06-01"): "2.50", ("XRP-USD", "2025-06-02"): "2.60"},
+            spot_requests=asked,
+        )
+    ):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert asked == [("XRP-USD", "2025-06-01"), ("XRP-USD", "2025-06-02")]
+    assert [t.price for t in trades] == [Decimal("2.50"), Decimal("2.50"), Decimal("2.60")]
+
+
+@pytest.mark.asyncio
+async def test_income_the_spot_table_cannot_price_opens_a_zero_basis_lot():
+    """Coinbase's public history reaches back about three years, no further.
+
+    Units that arrived as payment and that nothing can value cost nothing, so
+    the whole eventual disposal is gain. Dropping the row would lose the units
+    as well as the basis.
+    """
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {
+        "a1": [
+            _tx_page(
+                [_transaction("tx-1", "earn_payout", "4", "0",
+                              created_at="2019-06-01T12:00:00Z")]
+            )
+        ]
+    }
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, history, spot={})):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert trades[0].price == Decimal("0")
+    assert trades[0].quantity == Decimal("4")
+
+
+@pytest.mark.asyncio
+async def test_a_spot_lookup_failing_for_any_other_reason_raises():
+    """A rate limit is not "this asset has no price"; a half-priced history is
+    the confidently wrong cost basis `get_trades` promises never to return."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "10")]
+    history = {"a1": [_tx_page([_transaction("tx-1", "staking_reward", "4", "0")])]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v2/accounts":
+            return httpx.Response(200, json=_page(accounts))
+        if request.url.path.startswith("/v2/prices/"):
+            return httpx.Response(500, json={"errors": [{"id": "internal"}]})
+        return httpx.Response(200, json=history["a1"][0])
+
+    provider = CoinbaseProvider()
+    with _patched_client(handler):
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.get_trades(_credentials(private_pem))
 
 
 @pytest.mark.asyncio

@@ -244,6 +244,10 @@ class TradeData:
     quantity: Decimal
     price: Decimal
     occurred_at: datetime
+    # What the ledger's two kinds cannot say on their own: that a buy is a
+    # staking payout taxed as income at receipt, or that a sell is one leg of
+    # a convert. None when "buy" or "sell" is already the whole truth.
+    notes: Optional[str] = None
 
 
 @dataclass
