@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Optional
 
+from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -795,6 +796,21 @@ async def import_orders(
     # Before the dry-run branch too: the preview has to refuse a wallet the
     # commit will refuse, not promise an import that then fails.
     await ensure_group_in_workspace(session, group_id, workspace_id)
+
+    # A wallet carries the tax treatment, and `tax_lots.asset_tax_lots` reports
+    # nothing for a holding without one (ADR 0002). A wallet-less import would
+    # therefore write a complete ledger and an empty Lots view, with no error to
+    # explain the gap — so it is refused here, at the one function both the
+    # preview and the commit endpoints route through.
+    #
+    # The dry run is exempt: it writes nothing, and it is what renders the
+    # wallet picker the user chooses from, so refusing it would leave no way to
+    # choose. The commit is the fail-closed edge.
+    if group_id is None and not dry_run:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A wallet is required: orders imported without one have no tax treatment, so they would produce no tax lots.",
+        )
 
     ordered = sorted(orders, key=lambda o: (o.date, o.row))
     tickers = [o.ticker for o in ordered]

@@ -854,6 +854,8 @@ export interface TaxLots {
   tax_character: boolean
   /** Provider-reported position with no trades behind it: holding period is unknown, not short. */
   snapshot: boolean
+  /** The holding is in no wallet, so there is no treatment to gate on — distinct from a tax-advantaged one. */
+  no_wallet: boolean
   as_of: string
   lots: TaxLot[]
   long_quantity: number
