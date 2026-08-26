@@ -53,5 +53,9 @@ class AssetGroupRead(AssetGroupBase):
     asset_count: int = 0
     current_value: float = 0.0
     current_value_primary: float = 0.0
+    #: What `current_value` is denominated in. Null where the wallet's holdings
+    #: disagree, or it has none — then `current_value` is a mixed-unit sum and
+    #: only `current_value_primary` means anything.
+    currency: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

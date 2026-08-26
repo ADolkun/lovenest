@@ -74,6 +74,7 @@ function wallet(id: string, accountType: string | null, taxTreatment: TaxTreatme
     asset_count: 1,
     current_value: 0,
     current_value_primary: 0,
+    currency: null,
   }
 }
 

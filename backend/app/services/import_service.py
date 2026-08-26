@@ -928,6 +928,16 @@ def normalize_amount(amount_str: str | None) -> str:
         else:
             amount_str = amount_str.replace(',', '')
     elif ',' in amount_str:
-        amount_str = amount_str.replace(',', '.')
+        # No decimal point to settle it by position, so the grouping decides:
+        # commas that split the digits into threes are thousands separators
+        # (7,000 / 1,234,567) and anything else is a decimal comma (1442,20 /
+        # an FX rate of 1,2345). A Brazilian file writing a decimal comma with
+        # exactly three places is read as thousands and is the known cost of
+        # this; money is written to two, and 7,000 meaning seven is far rarer
+        # than 7,000 meaning seven thousand.
+        if re.fullmatch(r'\D*\d{1,3}(?:,\d{3})+\D*', amount_str):
+            amount_str = amount_str.replace(',', '')
+        else:
+            amount_str = amount_str.replace(',', '.')
 
     return amount_str

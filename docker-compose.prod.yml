@@ -132,6 +132,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/securo
       BACKEND_URL: http://backend:8000
       HUB_WORKSPACE_ID: ${HUB_WORKSPACE_ID:-}
+      INVESTMENT_WORKSPACE_ID: ${INVESTMENT_WORKSPACE_ID:-}
       BASE_PATH: /tax
       TZ: ${TZ:-UTC}
     depends_on:

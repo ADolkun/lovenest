@@ -22,6 +22,7 @@ import tax_engine
 PORT = int(os.environ.get("PORT", "8088"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 HUB_WORKSPACE_ID = os.environ.get("HUB_WORKSPACE_ID", "")
+INVESTMENT_WORKSPACE_ID = os.environ.get("INVESTMENT_WORKSPACE_ID", "")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000").rstrip("/")
 
 # Public sub-path the reverse proxy mounts this app under (it strips the prefix
@@ -69,15 +70,22 @@ def db_conn():
         conn.close()
 
 
-def _workspace_clause(table_alias):
-    """SQL fragment + params restricting rows to the configured workspace.
+def _allowed_workspace_ids():
+    """Workspaces this planner may be used from. Read at call time so a
+    redeploy-free config change (and tests) see the current value."""
+    return {w for w in (HUB_WORKSPACE_ID, INVESTMENT_WORKSPACE_ID) if w}
 
-    API handlers require HUB_WORKSPACE_ID, so this fallback only supports
-    isolated tests and direct engine development.
+
+def _workspace_clause(table_alias, workspace_id):
+    """SQL fragment + params restricting rows to the workspace the caller
+    selected — never to a configured constant.
+
+    More than one workspace is accepted now, and require_auth only verifies
+    membership of the one in the request. Pinning to a constant would serve the
+    hub's ledger to someone signed in to another accepted workspace. An empty
+    id matches no row, so a missing header fails closed.
     """
-    if HUB_WORKSPACE_ID:
-        return f" AND {table_alias}.workspace_id = %(ws)s", {"ws": HUB_WORKSPACE_ID}
-    return "", {}
+    return f" AND {table_alias}.workspace_id = %(ws)s", {"ws": workspace_id}
 
 
 @app.get("/")
@@ -108,14 +116,15 @@ def require_auth(
 ):
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Sign in to Lovenest first")
-    if HUB_WORKSPACE_ID and workspace_id != HUB_WORKSPACE_ID:
-        raise HTTPException(status_code=403, detail="Select the configured tax workspace")
+    allowed = _allowed_workspace_ids()
+    if allowed and workspace_id not in allowed:
+        raise HTTPException(status_code=403, detail="Select a workspace this planner is configured for")
     headers = {
         "Authorization": authorization,
         **({"X-Workspace-Id": workspace_id} if workspace_id else {}),
     }
     request = urllib.request.Request(
-        f"{BACKEND_URL}/api/workspaces/current" if HUB_WORKSPACE_ID else f"{BACKEND_URL}/api/users/me",
+        f"{BACKEND_URL}/api/workspaces/current" if allowed else f"{BACKEND_URL}/api/users/me",
         headers=headers,
     )
     try:
@@ -157,7 +166,7 @@ def _calculate(fn, body):
 
 
 @app.get("/api/writeoffs")
-def writeoffs(_auth=Depends(require_auth)):
+def writeoffs(auth=Depends(require_auth)):
     """YTD-2026 deductible totals from the Lovenest ledger (read-only).
 
     (a) debits in any category under the "Business / Schedule C" group,
@@ -174,11 +183,11 @@ def writeoffs(_auth=Depends(require_auth)):
     if not DATABASE_URL:
         empty["error"] = "DATABASE_URL not configured"
         return empty
-    if not HUB_WORKSPACE_ID:
-        empty["error"] = "HUB_WORKSPACE_ID not configured"
+    if not _allowed_workspace_ids():
+        empty["error"] = "no workspace configured — set HUB_WORKSPACE_ID or INVESTMENT_WORKSPACE_ID"
         return empty
 
-    ws_sql, ws_params = _workspace_clause("t")
+    ws_sql, ws_params = _workspace_clause("t", auth.get("X-Workspace-Id", ""))
 
     try:
         with db_conn() as conn, conn.cursor() as cur:
@@ -305,6 +314,36 @@ def _reportable_gain(auth):
         return {"gain_error": f"capital gains unavailable: {exc}"}
 
 
+def _projection_feed(auth):
+    """Live balances, Roth basis and this year's contributions for the
+    projection form, straight from the backend under the key names
+    tax_engine.project_retirement already reads.
+
+    Deliberately not folded into _reportable_gain: two feeds, two failure
+    modes — a projection must not lose its balances because the gain endpoint
+    blinked, and neither may substitute a zero for a number it never got.
+    """
+    url = f"{BACKEND_URL}/api/assets/projection-feed"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=auth), timeout=5) as response:
+            data = json.load(response)
+        if not isinstance(data, dict):
+            raise ValueError("unexpected payload")
+        return data
+    except (OSError, ValueError) as exc:
+        # A zero balance is a real answer the engine would act on, so degrade to
+        # a hint and let every value key stay absent.
+        return {"projection_error": f"live balances unavailable: {exc}"}
+
+
+@app.get("/api/projection-prefill")
+def projection_prefill(auth=Depends(require_auth)):
+    """Live figures for the projection form. Ages, rates, spend, conversions
+    and banked HSA receipts are never in here — nothing in Lovenest knows
+    them, so they stay the user's assumptions."""
+    return _projection_feed(auth)
+
+
 @app.get("/api/prefill")
 def prefill(auth=Depends(require_auth)):
     """Best-effort 2026 YTD figures to seed the estimator form.
@@ -324,11 +363,11 @@ def prefill(auth=Depends(require_auth)):
     if not DATABASE_URL:
         result["error"] = "DATABASE_URL not configured"
         return result
-    if not HUB_WORKSPACE_ID:
-        result["error"] = "HUB_WORKSPACE_ID not configured"
+    if not _allowed_workspace_ids():
+        result["error"] = "no workspace configured — set HUB_WORKSPACE_ID or INVESTMENT_WORKSPACE_ID"
         return result
 
-    ws_sql, ws_params = _workspace_clause("t")
+    ws_sql, ws_params = _workspace_clause("t", auth.get("X-Workspace-Id", ""))
 
     try:
         with db_conn() as conn, conn.cursor() as cur:

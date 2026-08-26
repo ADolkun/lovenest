@@ -937,6 +937,105 @@ export interface AssetGroup {
   asset_count: number
   current_value: number
   current_value_primary: number
+  /** What `current_value` is in. Null where the wallet's holdings disagree or
+      it has none, and then only `current_value_primary` means anything. */
+  currency: string | null
+}
+
+/** Which way the money crossed the Wallet's boundary. `amount` is always
+    positive; this carries the sign. */
+export type ContributionKind = 'contribution' | 'distribution'
+
+/** Whose money it was. Employer money is tracked apart because it is not the
+    user's until it vests, and because a different annual limit applies. */
+export type ContributionParty = 'self' | 'employer'
+
+export interface AssetContribution {
+  id: string
+  group_id: string
+  kind: ContributionKind
+  party: ContributionParty
+  amount: number
+  date: string
+  /** The year it counts against, which is not always `date`'s year. */
+  tax_year: number
+  vested_on: string | null
+  /** Derived server-side against today, never stored. */
+  is_vested: boolean
+  source: string
+  notes: string | null
+}
+
+export interface ContributionYear {
+  tax_year: number
+  own: number
+  /** Gross, vested or not — annual limits are measured on gross. */
+  employer: number
+  distributions: number
+  net: number
+}
+
+export interface ContributionSummary {
+  group_id: string
+  own_contributions: number
+  employer_contributions: number
+  employer_vested: number
+  /** Outside `net`: not the user's money yet. */
+  employer_unvested: number
+  distributions: number
+  /** CONTEXT.md's Net Contribution: own + employer_vested - distributions. */
+  net: number
+  return_net_of_contributions: number | null
+  current_value: number | null
+  /** What every figure here is in — the wallet's own currency, not the
+      reader's. Null where the wallet's holdings disagree or it has none. */
+  currency: string | null
+  years: ContributionYear[]
+}
+
+export interface ContributionImportRow {
+  row_number: number
+  /** Never null: the parser skips a row whose date, amount or direction it
+      could not read, so a matched row has all three. */
+  date: string
+  tax_year: number
+  kind: ContributionKind
+  party: ContributionParty
+  amount: number
+  action: string
+  /** The account the broker filed the row under, where the file names one. */
+  account: string | null
+  duplicate: boolean
+}
+
+export interface ContributionImportSkip {
+  row_number: number
+  action: string
+  reason: string
+}
+
+/** A code, not a sentence — the server does not speak the user's language. */
+export interface ContributionImportWarning {
+  code: string
+  count: number
+}
+
+export interface ContributionImportPreview {
+  columns: string[]
+  /** Every account the file names. More than one means a choice is required:
+      an import writes into one wallet. */
+  accounts: string[]
+  total_rows: number
+  matched: ContributionImportRow[]
+  skipped: ContributionImportSkip[]
+  warnings: ContributionImportWarning[]
+}
+
+export interface ContributionImportResult {
+  import_id: string | null
+  created: number
+  duplicates: number
+  skipped: number
 }
 
 export interface AssetValue {

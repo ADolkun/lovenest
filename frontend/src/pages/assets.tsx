@@ -2,11 +2,13 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import PositionsTab from '@/components/positions-tab'
+import ContributionsTab from '@/components/contributions-tab'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
-import { assets, assetGroups, currencies as currenciesApi } from '@/lib/api'
+import { assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
+import { summariesByWallet } from '@/lib/contributions'
 import {
   ASSET_TYPES,
   assetTypeFromQuoteType,
@@ -119,7 +121,7 @@ function formatRelativeTime(dateInput: string | null | undefined, locale: string
   return rtf.format(Math.round(diffSec / 86400), 'day')
 }
 
-const ASSET_TABS = ['holdings', 'positions', 'transactions'] as const
+const ASSET_TABS = ['holdings', 'positions', 'contributions', 'transactions'] as const
 type AssetTab = (typeof ASSET_TABS)[number]
 
 type PortfolioTrend = Awaited<ReturnType<typeof assets.portfolioTrend>>
@@ -164,18 +166,6 @@ const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 // Column template shared by the holdings table header + rows so they align:
 // Ativo · Quant. · Preço Médio · Preço Atual · Rentab. · Saldo · % · actions.
 const HOLDINGS_GRID = 'minmax(0,2.4fr) 0.7fr 1.1fr 1fr 0.9fr 1.3fr 0.6fr 4.5rem'
-
-// Surface the backend's actual error message (FastAPI puts it in
-// response.data.detail) instead of a generic toast. Makes failures
-// diagnosable — e.g. the oversell guard message, or a "Not Found" when a
-// transaction endpoint is missing because the backend is older than the
-// frontend (issue #315) — rather than a cryptic "Error".
-function assetErrorMessage(e: unknown, fallback: string): string {
-  const resp = (e as { response?: { data?: { detail?: unknown }; status?: number } })?.response
-  const detail = resp?.data?.detail
-  if (typeof detail === 'string' && detail.trim()) return detail
-  return resp?.status ? `${fallback} (${resp.status})` : fallback
-}
 
 export default function AssetsPage() {
   const { t } = useTranslation()
@@ -275,6 +265,17 @@ export default function AssetsPage() {
     queryKey: ['portfolio-trend'],
     queryFn: () => assets.portfolioTrend(),
   })
+
+  // Net Contribution per wallet, so the holdings header can say how much of a
+  // balance was paid in rather than earned (#71).
+  const { data: contributionSummaries } = useQuery({
+    queryKey: ['contribution-summary'],
+    queryFn: contributionsApi.summary,
+  })
+  const contributionByWallet = useMemo(
+    () => summariesByWallet(contributionSummaries ?? []),
+    [contributionSummaries],
+  )
   // Scope the portfolio chart + total to the active collection's wallets too.
   const portfolioData = useMemo(() => {
     if (!activeWalletIds || !rawPortfolioData) return rawPortfolioData
@@ -945,6 +946,8 @@ export default function AssetsPage() {
     const showInstitutionSubtitle =
       !!wallet.institution_name && wallet.institution_name !== wallet.name
 
+    const walletContribution = contributionByWallet.get(wallet.id)
+
     return (
       <div key={wallet.id} className="space-y-2">
         <div className="flex items-center gap-3 px-1">
@@ -984,6 +987,13 @@ export default function AssetsPage() {
               )}
             </div>
           </button>
+          {/* A wallet with no contribution history has no Net Contribution at
+              all, which is a different statement from zero — so it says nothing. */}
+          {walletContribution && (
+            <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums whitespace-nowrap">
+              {t('assets.contribNetShort')} {mask(formatCurrency(walletContribution.net, userCurrency, locale))}
+            </span>
+          )}
           <span className="text-sm font-bold tabular-nums text-foreground shrink-0">
             {mask(formatCurrency(total, userCurrency, locale))}
           </span>
@@ -1081,6 +1091,15 @@ export default function AssetsPage() {
           mask={mask}
           canWrite={canWrite}
           onChanged={refetchAssetViews}
+        />
+      ) : activeTab === 'contributions' ? (
+        <ContributionsTab
+          wallets={sortedWallets}
+          currency={userCurrency}
+          locale={locale}
+          dateLocale={dateLocale}
+          mask={mask}
+          canWrite={canWrite}
         />
       ) : activeTab === 'positions' ? (
         <>

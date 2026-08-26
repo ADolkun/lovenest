@@ -384,12 +384,14 @@ def _header_index(headers: list[str]) -> dict[str, str]:
     return index
 
 
-def _auto_mapping(headers: list[str]) -> dict[str, str]:
+def _auto_mapping(
+    headers: list[str], candidates_by_field: dict = _COLUMN_CANDIDATES
+) -> dict[str, str]:
     """Guess which column is which, so a recognisable file needs no mapping."""
     normalized = _header_index(headers)
     mapping: dict[str, str] = {}
     taken: set[str] = set()
-    for field, candidates in _COLUMN_CANDIDATES.items():
+    for field, candidates in candidates_by_field.items():
         for candidate in candidates:
             header = normalized.get(candidate)
             # One column answers for one field: `Cost Basis` claimed as the
