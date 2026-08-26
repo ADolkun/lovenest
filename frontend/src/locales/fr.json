@@ -1258,6 +1258,8 @@
     "posInvestedTotal": "Investi",
     "posCashEquivalents": "Équivalents de trésorerie",
     "posCashEquivalentHint": "Fonds monétaires et stablecoins — comptés comme de la trésorerie, pas comme une position.",
+    "posLiquidCash": "Liquidités disponibles",
+    "posLiquidCashHint": "Trésorerie réglée dans le compte — comprise dans son solde, dans aucune position.",
     "posDust": "Résidus",
     "posDustHint": "Positions valant moins d’un dollar — comptées dans le total, exclues de la répartition.",
     "posExcluded": "Hors répartition",

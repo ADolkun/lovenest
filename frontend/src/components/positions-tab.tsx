@@ -9,6 +9,7 @@ import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
 import { formatCurrency } from '@/lib/format'
 import {
   buildPortfolio,
+  shareOfTotal,
   CASH_EQUIVALENT_TYPE,
   type AllocationSlice,
   type Position,
@@ -507,7 +508,13 @@ export default function PositionsTab({
     )
   }
 
-  function renderTotalRow(label: string, value: number, hint?: string, emphasis = false) {
+  function renderTotalRow(
+    label: string,
+    value: number,
+    hint?: string,
+    share?: number,
+    emphasis = false,
+  ) {
     return (
       <div className="flex items-baseline justify-between gap-4 px-3 py-2 border-t border-border">
         <div className="min-w-0">
@@ -520,6 +527,9 @@ export default function PositionsTab({
           className={`tabular-nums shrink-0 ${emphasis ? 'text-sm font-bold text-foreground' : 'text-xs text-muted-foreground'}`}
         >
           {money(value)}
+          {share !== undefined && (
+            <span className="ml-2 text-[10px] text-muted-foreground">{formatPercent(share)}</span>
+          )}
         </span>
       </div>
     )
@@ -572,10 +582,18 @@ export default function PositionsTab({
             t('assets.posCashEquivalents'),
             portfolio.cashEquivalentTotal,
             t('assets.posCashEquivalentHint'),
+            shareOfTotal(portfolio.cashEquivalentTotal, portfolio.total),
+          )}
+        {portfolio.liquidCashTotal > 0 &&
+          renderTotalRow(
+            t('assets.posLiquidCash'),
+            portfolio.liquidCashTotal,
+            t('assets.posLiquidCashHint'),
+            shareOfTotal(portfolio.liquidCashTotal, portfolio.total),
           )}
         {portfolio.dustTotal > 0 &&
           renderTotalRow(t('assets.posDust'), portfolio.dustTotal, t('assets.posDustHint'))}
-        {renderTotalRow(t('assets.posGrandTotal'), portfolio.total, undefined, true)}
+        {renderTotalRow(t('assets.posGrandTotal'), portfolio.total, undefined, undefined, true)}
       </div>
     </div>
   )

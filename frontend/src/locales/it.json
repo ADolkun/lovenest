@@ -1258,6 +1258,8 @@
     "posInvestedTotal": "Investito",
     "posCashEquivalents": "Equivalenti di liquidità",
     "posCashEquivalentHint": "Fondi monetari e stablecoin — contano come liquidità, non come posizione.",
+    "posLiquidCash": "Liquidità disponibile",
+    "posLiquidCashHint": "Contante regolato nel conto — parte del suo saldo, di nessuna posizione.",
     "posDust": "Residui",
     "posDustHint": "Posizioni di valore inferiore a un dollaro — incluse nel totale, escluse dall'allocazione.",
     "posExcluded": "Fuori dall'allocazione",

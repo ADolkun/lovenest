@@ -1258,6 +1258,8 @@
     "posInvestedTotal": "Investiert",
     "posCashEquivalents": "Zahlungsmitteläquivalente",
     "posCashEquivalentHint": "Geldmarktfonds und Stablecoins — zählen als Barmittel, nicht als Position.",
+    "posLiquidCash": "Verfügbares Bargeld",
+    "posLiquidCashHint": "Abgerechnetes Guthaben im Konto — Teil des Kontostands, Teil keiner Position.",
     "posDust": "Restbeträge",
     "posDustHint": "Positionen unter einem Dollar — im Gesamtwert enthalten, aber nicht in der Aufteilung.",
     "posExcluded": "Nicht in der Aufteilung",
