@@ -112,10 +112,34 @@ mirror of a Contribution, and not the same thing as a sell: selling converts a
 Holding to Liquid Cash inside the account, while a Distribution removes money
 from the account entirely.
 
-**Net Contribution** — Contributions minus Distributions. This, not gross
-Contributions, is what an account's own money amounts to. It matters most for a
-Roth IRA, where the figure governs how much can be withdrawn before retirement
-age without penalty — a Distribution permanently lowers it.
+**Net Contribution** — Contributions minus Distributions, counting only the
+Employer Contributions that have Vested. This, not gross Contributions, is what
+an account's own money amounts to. It matters most for a Roth IRA, where the
+figure governs how much can be withdrawn before retirement age without penalty
+— a Distribution permanently lowers it. Floored at nothing when it is asked as
+a withdrawable basis: a Distribution can only take back money that went in, so
+an over-distributed account has an empty basis rather than a debt.
+
+**Employer Contribution** — a Contribution the employer made rather than the
+user: a match, or a non-elective plan contribution. Kept apart from the
+user's own because the annual limits applying to each differ, so one total
+cannot answer for both. Only a Contribution has an employer behind it — an
+account pays out whoever put the money there, so there is no such thing as an
+employer Distribution.
+
+**Vesting** — the day Employer Contribution money becomes the user's, often a
+cliff some years into service. Until it arrives the money is in the account and
+growing, but it is not theirs, so it sits beside Net Contribution rather than
+inside it. Where no vesting date is recorded there is no restriction to apply
+and the money is the user's: an immediately-vested safe-harbour match has no
+date to record. An annual total is unaffected either way — a limit is measured
+on money paid in, whether or not it has vested since.
+
+**Tax Year** — the year a Contribution counts against, which is not always the
+year it was paid: an IRA contribution made before April 15 may be designated
+for the year before, and progress against an annual limit is measured in the
+year it counts against. Where a year predates any provider's coverage, its
+total is entered by hand as one Contribution carrying that year.
 
 **Tax Lot** — one acquisition of a quantity of a ticker on one date at one price.
 A Holding is made of Lots. Average Price deliberately blends them, but Holding

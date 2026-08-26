@@ -37,6 +37,10 @@ import type {
   WorkspaceRole,
   Asset,
   AssetGroup,
+  AssetContribution,
+  ContributionImportPreview,
+  ContributionImportResult,
+  ContributionSummary,
   AssetImportPreview,
   AssetImportResult,
   AssetOrderImport,
@@ -1216,6 +1220,99 @@ export const assetGroups = {
   },
   delete: async (id: string): Promise<void> => {
     await api.delete(`/asset-groups/${id}`)
+  },
+}
+
+// Surface the backend's actual error message (FastAPI puts it in
+// response.data.detail) instead of a generic toast. Makes failures
+// diagnosable — e.g. the oversell guard message, or a "Not Found" when a
+// transaction endpoint is missing because the backend is older than the
+// frontend (issue #315) — rather than a cryptic "Error".
+export function assetErrorMessage(e: unknown, fallback: string): string {
+  const resp = (e as { response?: { data?: { detail?: unknown }; status?: number } })?.response
+  const detail = resp?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  return resp?.status ? `${fallback} (${resp.status})` : fallback
+}
+
+function contributionImportForm(file: File, groupId: string, dateFormat?: string, account?: string): FormData {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('group_id', groupId)
+  if (dateFormat) formData.append('date_format', dateFormat)
+  if (account) formData.append('account', account)
+  return formData
+}
+
+// Contributions and Distributions — money crossing a wallet's boundary (#71)
+export const contributions = {
+  list: async (params?: { groupId?: string | null; taxYear?: number | null }): Promise<AssetContribution[]> => {
+    const { data } = await api.get('/contributions', {
+      params: {
+        ...(params?.groupId ? { group_id: params.groupId } : {}),
+        ...(params?.taxYear ? { tax_year: params.taxYear } : {}),
+      },
+    })
+    return data
+  },
+  summary: async (): Promise<ContributionSummary[]> => {
+    const { data } = await api.get('/contributions/summary')
+    return data
+  },
+  create: async (payload: {
+    group_id: string
+    kind: string
+    party: string
+    amount: number
+    date: string
+    tax_year?: number
+    vested_on?: string | null
+    notes?: string | null
+  }): Promise<AssetContribution> => {
+    const { data } = await api.post('/contributions', payload)
+    return data
+  },
+  update: async (
+    id: string,
+    payload: Partial<{
+      kind: string
+      party: string
+      amount: number
+      date: string
+      tax_year: number
+      vested_on: string | null
+      notes: string | null
+    }>,
+  ): Promise<AssetContribution> => {
+    const { data } = await api.patch(`/contributions/${id}`, payload)
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/contributions/${id}`)
+  },
+  previewImport: async (
+    file: File,
+    groupId: string,
+    dateFormat?: string,
+    account?: string,
+  ): Promise<ContributionImportPreview> => {
+    const { data } = await api.post(
+      '/contributions/import/preview',
+      contributionImportForm(file, groupId, dateFormat, account),
+    )
+    return data
+  },
+  import: async (
+    file: File,
+    groupId: string,
+    dateFormat?: string,
+    account?: string,
+  ): Promise<ContributionImportResult> => {
+    const { data } = await api.post(
+      '/contributions/import',
+      contributionImportForm(file, groupId, dateFormat, account),
+    )
+    return data
   },
 }
 

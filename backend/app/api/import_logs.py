@@ -12,7 +12,7 @@ from app.core.workspace_context import (
 from app.models.import_log import ImportLog
 from app.models.transaction import Transaction
 from app.schemas.import_log import ImportLogRead
-from app.services import asset_import_service
+from app.services import asset_import_service, contribution_service
 
 router = APIRouter(prefix="/api/import-logs", tags=["import-logs"])
 
@@ -64,6 +64,14 @@ async def delete_import_log(
     log = result.scalar_one_or_none()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import log not found")
+
+    if log.entity == "asset_contributions":
+        # The FK is ON DELETE SET NULL, so dropping the log alone would leave
+        # the contributions behind with nothing pointing at them.
+        await contribution_service.delete_by_import(session, log.id, ctx.workspace.id)
+        await session.delete(log)
+        await session.commit()
+        return
 
     if log.entity == "asset_orders":
         # Orders derive a position, so undoing them is more than a delete:

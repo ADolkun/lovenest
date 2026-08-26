@@ -42,6 +42,7 @@ from app.services import (
     asset_import_service,
     asset_service,
     asset_transaction_service,
+    projection_feed as projection_feed_service,
     tax_lots,
     wash_sale,
 )
@@ -241,6 +242,18 @@ async def reportable_gain(
     tax calculation may consume (CONTEXT.md)."""
     return await asset_transaction_service.reportable_gain(
         session, ctx.workspace.id, start=start, end=end
+    )
+
+
+@router.get("/projection-feed")
+async def projection_feed(
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Balances by bucket, withdrawable basis and this year's contributions,
+    under the key names the tax sidecar's projection already reads."""
+    return await projection_feed_service.projection_feed(
+        session, ctx.workspace.id, ctx.user_id, as_of=date.today()
     )
 
 

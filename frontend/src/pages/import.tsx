@@ -14,6 +14,7 @@ import type { ImportPreviewTransaction, ImportReviewTransaction } from '@/types'
 import { Upload, FileText, X, CheckCircle2, AlertCircle, Settings2, Download } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { AssetImportPanel } from '@/components/asset-import-panel'
+import { ContributionImportPanel } from '@/components/contribution-import-panel'
 import { ImportSummaryBar } from '@/components/import-summary-bar'
 import { ImportReviewTable } from '@/components/import-review-table'
 import { ImportHistory } from '@/components/import-history'
@@ -570,14 +571,33 @@ function TransactionImportPanel() {
   )
 }
 
-/** Both importers live behind one menu entry: someone with a file to upload
-    should not have to know first whether it holds transactions or orders. */
+const IMPORT_TABS = ['transactions', 'investments', 'contributions'] as const
+type ImportTab = (typeof IMPORT_TABS)[number]
+
+const TAB_LABELS: Record<ImportTab, string> = {
+  transactions: 'import.tabTransactions',
+  investments: 'import.tabInvestments',
+  contributions: 'import.tabContributions',
+}
+
+// The title follows the tab: "Bank statement" is about the file you are
+// uploading, and an order file is not one.
+const TAB_TITLES: Record<ImportTab, string> = {
+  transactions: 'import.subtitle',
+  investments: 'assetImport.title',
+  contributions: 'contribImport.title',
+}
+
+/** Every importer lives behind one menu entry: someone with a file to upload
+    should not have to know first whether it holds transactions, orders or
+    contributions. */
 export default function ImportPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab = searchParams.get('tab') === 'investments' ? 'investments' : 'transactions'
+  const requested = searchParams.get('tab')
+  const tab = requested === 'investments' || requested === 'contributions' ? requested : 'transactions'
 
-  function selectTab(next: 'transactions' | 'investments') {
+  function selectTab(next: ImportTab) {
     const params = new URLSearchParams(searchParams)
     if (next === 'transactions') params.delete('tab')
     else params.set('tab', next)
@@ -586,15 +606,13 @@ export default function ImportPage() {
 
   return (
     <div className="space-y-6">
-      {/* The title follows the tab: "Bank statement" is about the file you
-          are uploading, and an order file is not one. */}
       <PageHeader
         section={t('import.title')}
-        title={tab === 'investments' ? t('assetImport.title') : t('import.subtitle')}
+        title={t(TAB_TITLES[tab])}
       />
 
       <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
-        {(['transactions', 'investments'] as const).map((value) => (
+        {IMPORT_TABS.map((value) => (
           <button
             key={value}
             type="button"
@@ -603,12 +621,18 @@ export default function ImportPage() {
               tab === value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            {t(value === 'transactions' ? 'import.tabTransactions' : 'import.tabInvestments')}
+            {t(TAB_LABELS[value])}
           </button>
         ))}
       </div>
 
-      {tab === 'investments' ? <AssetImportPanel /> : <TransactionImportPanel />}
+      {tab === 'investments' ? (
+        <AssetImportPanel />
+      ) : tab === 'contributions' ? (
+        <ContributionImportPanel />
+      ) : (
+        <TransactionImportPanel />
+      )}
     </div>
   )
 }

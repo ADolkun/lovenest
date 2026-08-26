@@ -815,10 +815,20 @@
 
     <!-- ============================ TAB E: PROJECTION ============================ -->
     <section x-show="tab === 'projection'" class="space-y-6">
-      <div>
-        <h2 class="text-lg font-semibold text-foreground">Early-retirement projection</h2>
-        <p class="text-sm text-muted-foreground mt-1">Accumulate to your retirement age, then draw down — with a bridge analysis for funding the years before 59½ without early-withdrawal penalties.</p>
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-foreground">Early-retirement projection</h2>
+          <p class="text-sm text-muted-foreground mt-1">Accumulate to your retirement age, then draw down — with a bridge analysis for funding the years before 59½ without early-withdrawal penalties.</p>
+        </div>
+        <button type="button" @click="loadProjPrefill()"
+                :disabled="projPrefillLoading"
+                class="shrink-0 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-1.5 disabled:opacity-50">
+          <svg class="h-4 w-4" :class="projPrefillLoading && 'animate-spin'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6"/></svg>
+          <span x-text="projPrefillLoading ? 'Loading…' : 'Load balances from my data'"></span>
+        </button>
       </div>
+      <p x-show="projPrefillMsg" x-text="projPrefillMsg" class="text-xs text-primary"></p>
+      <p x-show="projPrefillHint" x-text="projPrefillHint" class="text-xs text-muted-foreground"></p>
 
       <div class="grid lg:grid-cols-5 gap-6">
         <form @submit.prevent="runProjection()" class="lg:col-span-3 space-y-5">
@@ -826,23 +836,23 @@
             <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-primary"></span> Timeline &amp; assumptions</h3>
             <div class="grid sm:grid-cols-2 gap-4">
               <label class="block">
-                <span class="text-xs text-muted-foreground">Current age</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Current age</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <input type="number" min="0" step="1" x-model.number="proj.current_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Retirement age</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Retirement age</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <input type="number" min="0" step="1" x-model.number="proj.retire_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Plan-to age</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Plan-to age</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <input type="number" min="0" step="1" x-model.number="proj.end_age" class="mt-1 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" />
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Expected return</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Expected return</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.return_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Inflation</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Inflation</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.inflation_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
               </label>
             </div>
@@ -860,8 +870,11 @@
                 {k:'taxable',l:'Taxable / cash'}
               ]" :key="f.k">
                 <label class="block">
-                  <span class="text-xs text-muted-foreground" x-text="f.l"></span>
-                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                  <span class="flex items-center gap-1.5">
+                    <span class="text-xs text-muted-foreground" x-text="f.l"></span>
+                    <span class="text-[11px] font-medium" :class="projLive[f.k] ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'" x-text="projLive[f.k] ? 'live' : 'assumption'"></span>
+                  </span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" @input="projTouched(f.k)" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
                   <span x-show="f.help" class="text-[11px] leading-tight text-muted-foreground mt-1 block" x-text="f.help"></span>
                 </label>
               </template>
@@ -878,8 +891,11 @@
                 {k:'annual_taxable',l:'Taxable / brokerage',help:'brokerage bridge savings — key lever for early retirement'}
               ]" :key="f.k">
                 <label class="block">
-                  <span class="text-xs text-muted-foreground" x-text="f.l"></span>
-                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
+                  <span class="flex items-center gap-1.5">
+                    <span class="text-xs text-muted-foreground" x-text="f.l"></span>
+                    <span class="text-[11px] font-medium" :class="projLive[f.k] ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'" x-text="projLive[f.k] ? 'live' : 'assumption'"></span>
+                  </span>
+                  <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj[f.k]" @input="projTouched(f.k)" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
                   <span x-show="f.help" class="text-[11px] leading-tight text-muted-foreground mt-1 block" x-text="f.help"></span>
                 </label>
               </template>
@@ -890,17 +906,17 @@
             <h3 class="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><span class="h-2 w-2 rounded-full bg-emerald-500"></span> Retirement &amp; strategy</h3>
             <div class="grid sm:grid-cols-2 gap-4">
               <label class="block">
-                <span class="text-xs text-muted-foreground">Annual spend</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Annual spend</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj.annual_spend" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
                 <span class="text-[11px] leading-tight text-muted-foreground mt-1 block">today's dollars; inflates automatically</span>
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Annual Roth conversion</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Annual Roth conversion</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <div class="mt-1 relative"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span><input type="number" min="0" step="0.01" x-model.number="proj.annual_conversion" class="w-full h-9 pl-7 pr-3 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /></div>
                 <span class="text-[11px] leading-tight text-muted-foreground mt-1 block">Roth conversion ladder: converted each year, penalty-free after 5 years</span>
               </label>
               <label class="block">
-                <span class="text-xs text-muted-foreground">Effective tax rate</span>
+                <span class="flex items-center gap-1.5"><span class="text-xs text-muted-foreground">Effective tax rate</span><span class="text-[11px] font-medium text-muted-foreground">assumption</span></span>
                 <div class="mt-1 relative"><input type="number" min="0" max="99" step="0.1" x-model.number="proj.effective_tax_rate" class="w-full h-9 pl-3 pr-7 rounded-md border border-input bg-transparent text-sm shadow-xs focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[2px] outline-none num" /><span class="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">%</span></div>
               </label>
             </div>
@@ -1123,6 +1139,12 @@ function taxApp() {
       annual_spend: 60000, annual_conversion: 0, effective_tax_rate: 12,
     },
     projResult: null, projLoading: false, projError: "",
+    // Provenance of each `proj` field, deliberately outside `proj` so it is
+    // never persisted: the values survive a reload in localStorage, the claim
+    // that they are live must not. After a reload everything reads as an
+    // assumption until the feed is loaded again.
+    projLive: {},
+    projPrefillLoading: false, projPrefillMsg: "", projPrefillHint: "",
 
     // ---- writeoffs state ----
     wo: null, woLoading: false, woLoaded: false, woExpanded: {},
@@ -1268,6 +1290,14 @@ function taxApp() {
         window.location.replace("/login");
         throw new Error("Your session expired.");
       }
+      // 403 is the sidecar's workspace gate, not a bad session — it carries a
+      // fix the user can act on, so raise it instead of leaving each caller to
+      // report a generic failure.
+      if (r.status === 403) {
+        const detail = await r.clone().json().then((j) => j.detail).catch(() => "");
+        throw new Error((detail || "This workspace isn't set up for the tax planner.")
+          + " Switch workspace in Lovenest, then reload this page.");
+      }
       return r;
     },
 
@@ -1326,7 +1356,7 @@ function taxApp() {
         this.prefillHint = hints.join(" ");
         this.prefillMsg = `Loaded YTD ${d.year || ""}: interest ${this.usd(d.interest_income || 0)}. Review before calculating.`;
       } catch (e) {
-        this.prefillMsg = "Couldn't reach the data endpoint.";
+        this.prefillMsg = e.message || "Couldn't reach the data endpoint.";
       } finally { this.prefillLoading = false; }
     },
 
@@ -1358,6 +1388,35 @@ function taxApp() {
         this.projError = e.message || "Could not run projection.";
         this.projResult = null;
       } finally { this.projLoading = false; }
+    },
+
+    // A hand edit ends the claim that a figure came from Lovenest.
+    projTouched(k) { if (this.projLive[k]) this.projLive[k] = false; },
+
+    async loadProjPrefill() {
+      this.projPrefillLoading = true; this.projPrefillMsg = ""; this.projPrefillHint = "";
+      try {
+        const r = await this.authFetch("api/projection-prefill");
+        const d = await r.json();
+        if (d.projection_error) { this.projPrefillMsg = "Couldn't read your balances: " + d.projection_error; return; }
+        // The feed names the fields it actually sourced; anything outside that
+        // list stays whatever the user typed, marked as an assumption.
+        for (const k of (Array.isArray(d.live) ? d.live : [])) {
+          if (!(k in this.proj) || typeof d[k] !== "number") continue;
+          this.proj[k] = d[k];
+          this.projLive[k] = true;
+        }
+        const notes = [];
+        const ex = d.excluded || {};
+        if (ex.other) notes.push(`${this.usd(ex.other)} sits in wallets marked "other" and is not in these balances.`);
+        if (ex.ungrouped) notes.push(`${this.usd(ex.ungrouped)} sits in holdings with no wallet and is not in these balances.`);
+        if (d.annual_is_year_to_date) notes.push(`Annual contributions are ${d.tax_year || ""} year-to-date, not a full-year rate — raise them to your planned annual amount before projecting.`);
+        notes.push("Ages, rates, spend, Roth conversion and banked HSA receipts stay yours — nothing in Lovenest tracks them.");
+        this.projPrefillHint = notes.join(" ");
+        this.projPrefillMsg = `Loaded balances as of ${d.as_of || "today"}. Fields marked live came from your data.`;
+      } catch (e) {
+        this.projPrefillMsg = e.message || "Couldn't reach the data endpoint.";
+      } finally { this.projPrefillLoading = false; }
     },
 
     // Compact axis-tick currency ($1.2M / $340k). Kept plain — the privacy mask
@@ -1490,7 +1549,7 @@ function taxApp() {
         this.wo = await r.json();
         this.woLoaded = true;
       } catch (e) {
-        this.wo = { schedule_c: [], deduction_tags: [], totals: { schedule_c_total: 0, ded_total: 0 }, error: "Could not reach the server." };
+        this.wo = { schedule_c: [], deduction_tags: [], totals: { schedule_c_total: 0, ded_total: 0 }, error: e.message || "Could not reach the server." };
       } finally { this.woLoading = false; }
     },
   };

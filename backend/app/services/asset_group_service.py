@@ -112,10 +112,17 @@ async def _rollup(
         )
     )
     asset_list = list(assets.scalars().all())
-    asset_count = len(asset_list)
+    current_value, current_value_primary = await _sum_asset_values(
+        session, asset_list, primary_currency
+    )
+    return len(asset_list), current_value, current_value_primary
+
+
+async def _sum_asset_values(
+    session: AsyncSession, asset_list: list[Asset], primary_currency: str
+) -> tuple[Decimal, Decimal]:
     current_value = Decimal("0")
     current_value_primary = Decimal("0")
-
     for asset in asset_list:
         latest = await _latest_value_amount(session, asset.id)
         if latest is None:
@@ -133,7 +140,29 @@ async def _rollup(
                 session, latest, asset.currency, primary_currency
             )
             current_value_primary += converted
-    return asset_count, current_value, current_value_primary
+    return current_value, current_value_primary
+
+
+async def ungrouped_value(
+    session: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> Decimal:
+    """Primary-currency total of holdings sitting in no Wallet.
+
+    A Wallet is where tax character lives, so a holding outside one has none —
+    it cannot be bucketed, and any total built from tax character has to say
+    how much it left behind rather than quietly shrink.
+    """
+    primary = await _primary_currency_for(session, user_id)
+    result = await session.execute(
+        select(Asset).where(
+            Asset.workspace_id == workspace_id,
+            Asset.group_id.is_(None),
+            Asset.is_archived == False,
+            Asset.sell_date.is_(None),
+        )
+    )
+    _, primary_total = await _sum_asset_values(session, list(result.scalars().all()), primary)
+    return primary_total
 
 
 async def _institution_name_for(
