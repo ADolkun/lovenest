@@ -58,14 +58,28 @@ export interface AllocationSlice {
 export interface Portfolio {
   /** Ranked by value, every position — read `isDust` to drop them from a ranking. */
   positions: Position[]
-  /** Everything, dust and cash equivalents included. */
+  /** Everything: positions, dust, cash equivalents and liquid cash. */
   total: number
-  /** The weight denominator: excludes dust and cash equivalents. */
+  /** The weight denominator: excludes dust, cash equivalents and liquid cash. */
   investedTotal: number
   cashEquivalentTotal: number
+  /** Settled uninvested cash across every wallet whose account reported a balance. */
+  liquidCashTotal: number
+  /** What CONTEXT.md counts as cash: liquid cash plus the equivalents that behave as it. */
+  cashTotal: number
   dustTotal: number
   byAssetClass: AllocationSlice[]
   byAccountType: AllocationSlice[]
+}
+
+/**
+ * A figure's share of a total, or 0 when there is no total to divide by.
+ *
+ * Cash carries no `weight` — allocation excludes it by design — so its
+ * percentage has to come off the totals instead of the weight column.
+ */
+export function shareOfTotal(value: number, total: number): number {
+  return total > 0 ? value / total : 0
 }
 
 function primaryValue(asset: Asset): number {
@@ -92,6 +106,43 @@ function primaryCostBasis(asset: Asset): number | null {
   const gain = asset.gain_loss_primary ?? asset.gain_loss
   if (gain === null || gain === undefined) return null
   return primaryValue(asset) - Number(gain)
+}
+
+// Balances and holding values are both stored at two decimals, so their
+// difference is too. Rounding back stops a residue like 4e-11 surfacing as a
+// cash row on an account whose holdings exactly match its balance.
+function roundCents(amount: number): number {
+  return Math.round(amount * 100) / 100
+}
+
+/**
+ * Settled uninvested cash per wallet: the balance the provider reports for the
+ * account, less what the wallet's holdings are worth.
+ *
+ * The floor at zero is load-bearing. A provider can report a zero balance
+ * against real holdings — Coinbase prices its own positions and leaves the
+ * account balance at 0 — and a negative figure would subtract those holdings
+ * from the portfolio a second time.
+ *
+ * A wallet whose account reported no balance derives no cash at all: null is
+ * not zero, and guessing zero would be indistinguishable from a real one.
+ */
+function liquidCashPerWallet(positions: Position[], wallets: AssetGroup[]): Map<string, number> {
+  const heldByWallet = new Map<string, number>()
+  for (const position of positions) {
+    for (const leg of position.legs) {
+      if (leg.walletId === null) continue
+      heldByWallet.set(leg.walletId, (heldByWallet.get(leg.walletId) ?? 0) + leg.value)
+    }
+  }
+
+  const cash = new Map<string, number>()
+  for (const wallet of wallets) {
+    const balance = wallet.account_balance
+    if (balance === null || balance === undefined) continue
+    cash.set(wallet.id, Math.max(0, roundCents(balance - (heldByWallet.get(wallet.id) ?? 0))))
+  }
+  return cash
 }
 
 function sortByValueDesc<T extends { value: number }>(items: T[]): T[] {
@@ -199,13 +250,25 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
     }
   }
 
+  const cashEquivalentTotal = positions
+    .filter((p) => p.isCashEquivalent && !p.isDust)
+    .reduce((sum, p) => sum + p.value, 0)
+  const liquidCashTotal = [...liquidCashPerWallet(positions, wallets).values()].reduce(
+    (sum, amount) => sum + amount,
+    0,
+  )
+  const heldTotal = positions.reduce((sum, p) => sum + p.value, 0)
+
   return {
     positions: sortByValueDesc(positions),
-    total: positions.reduce((sum, p) => sum + p.value, 0),
+    // Liquid Cash is part of the account's total but part of no Holding
+    // (CONTEXT.md), so the grand total has to carry it or the rows above it
+    // will not add up to it.
+    total: heldTotal + liquidCashTotal,
     investedTotal,
-    cashEquivalentTotal: positions
-      .filter((p) => p.isCashEquivalent && !p.isDust)
-      .reduce((sum, p) => sum + p.value, 0),
+    cashEquivalentTotal,
+    liquidCashTotal,
+    cashTotal: cashEquivalentTotal + liquidCashTotal,
     dustTotal: positions.filter((p) => p.isDust).reduce((sum, p) => sum + p.value, 0),
     byAssetClass: allocate(byAssetClass, investedTotal),
     byAccountType: allocate(byAccountType, investedTotal),

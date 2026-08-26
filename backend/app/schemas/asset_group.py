@@ -53,6 +53,12 @@ class AssetGroupRead(AssetGroupBase):
     asset_count: int = 0
     current_value: float = 0.0
     current_value_primary: float = 0.0
+    # The provider-reported balance of the account this wallet mirrors, in the
+    # primary currency. Liquid Cash (CONTEXT.md) is what is left of it once the
+    # wallet's holdings are subtracted. Null for a manual wallet, or a synced
+    # one no account could be matched to — which is not the same as zero, and
+    # the frontend must not derive cash from it.
+    account_balance: Optional[float] = None
     #: What `current_value` is denominated in. Null where the wallet's holdings
     #: disagree, or it has none — then `current_value` is a mixed-unit sum and
     #: only `current_value_primary` means anything.

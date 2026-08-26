@@ -939,6 +939,10 @@ export interface AssetGroup {
   asset_count: number
   current_value: number
   current_value_primary: number
+  // Provider-reported balance of the account this wallet mirrors, in the
+  // primary currency. Null for a manual wallet or one no account matched —
+  // which is not zero, and derives no Liquid Cash.
+  account_balance: number | null
   /** What `current_value` is in. Null where the wallet's holdings disagree or
       it has none, and then only `current_value_primary` means anything. */
   currency: string | null

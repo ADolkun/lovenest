@@ -147,4 +147,58 @@ async def test_account_type_does_not_leak_across_workspaces(
 
     groups = await get_groups(session, test_workspace.id, test_user.id)
 
-    assert next(g for g in groups if g.name == "Mine").account_type is None
+    mine = next(g for g in groups if g.name == "Mine")
+    assert mine.account_type is None
+    assert mine.account_balance is None
+
+
+@pytest.mark.asyncio
+async def test_get_groups_reports_the_balance_liquid_cash_is_derived_against(
+    session: AsyncSession, test_user, test_workspace
+):
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        external_id="acc-robinhood-9464",
+        name="Robinhood Individual",
+        type="investment",
+        balance=Decimal("535.26"),
+        currency="USD",
+    )
+    wallet = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Robinhood Individual",
+        source="simplefin",
+        external_id="acc-robinhood-9464",
+    )
+    manual = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Manual Wallet",
+        source="manual",
+    )
+    session.add_all([account, wallet, manual])
+    session.add(
+        Asset(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            group_id=wallet.id,
+            name="AMC",
+            type="stock",
+            currency="USD",
+            purchase_price=Decimal("137.96"),
+        )
+    )
+    await session.commit()
+
+    by_name = {g.name: g for g in await get_groups(session, test_workspace.id, test_user.id)}
+
+    assert by_name["Robinhood Individual"].account_balance == 535.26
+    # No account behind a manual wallet, so nothing to subtract from — and null
+    # is not zero, which is what stops the frontend inventing cash.
+    assert by_name["Manual Wallet"].account_balance is None

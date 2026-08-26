@@ -61,6 +61,7 @@ def _group_to_read(
     currency: Optional[str] = None,
     institution_name: Optional[str] = None,
     account_type: Optional[str] = None,
+    account_balance: Optional[Decimal] = None,
 ) -> AssetGroupRead:
     return AssetGroupRead(
         id=group.id,
@@ -82,6 +83,9 @@ def _group_to_read(
         # JSON response shape and is bounded to 2 decimals.
         current_value=float(current_value.quantize(Decimal("0.01"))),
         current_value_primary=float(current_value_primary.quantize(Decimal("0.01"))),
+        account_balance=(
+            None if account_balance is None else float(account_balance.quantize(Decimal("0.01")))
+        ),
         currency=currency,
     )
 
@@ -193,25 +197,42 @@ async def _institution_name_for(
     return row.scalar_one_or_none()
 
 
-async def _account_type_for(session: AsyncSession, group: AssetGroup) -> Optional[str]:
-    """The type of the provider account a synced wallet mirrors.
+async def _account_facts_for(
+    session: AsyncSession, group: AssetGroup, primary_currency: str
+) -> tuple[Optional[str], Optional[Decimal]]:
+    """The (type, balance) of the provider account a synced wallet mirrors.
 
     One wallet per provider account (#76), so the wallet's `external_id` is
-    the account's — the join that lets allocation be grouped by account type.
-    None for manual wallets, and for a connection-level wallet holding
-    positions the provider attributed to no account.
+    the account's — the join that lets allocation be grouped by account type,
+    and that carries the balance Liquid Cash is derived against. Both are None
+    for manual wallets, and for a connection-level wallet holding positions the
+    provider attributed to no account.
+
+    The balance comes back in the primary currency, because the only thing that
+    subtracts from it is `current_value_primary`. `Account.balance_primary` is
+    not stored — the accounts API converts on read — so this converts the same
+    way rather than trusting a column nothing fills.
     """
     if not group.external_id:
-        return None
+        return None, None
     row = await session.execute(
-        select(Account.type)
+        select(Account.type, Account.balance, Account.currency)
         .where(
             Account.workspace_id == group.workspace_id,
             Account.external_id == group.external_id,
         )
         .limit(1)
     )
-    return row.scalar_one_or_none()
+    account = row.first()
+    if account is None:
+        return None, None
+    account_type, balance, currency = account
+    if balance is None:
+        return account_type, None
+    if currency == primary_currency:
+        return account_type, balance
+    converted, _ = await convert(session, balance, currency, primary_currency)
+    return account_type, converted
 
 
 async def _primary_currency_for(session: AsyncSession, user_id: uuid.UUID) -> str:
@@ -243,8 +264,8 @@ async def get_groups(
         if g.source != "manual" and count == 0:
             continue
         institution = await _institution_name_for(session, g.connection_id)
-        account_type = await _account_type_for(session, g)
-        reads.append(_group_to_read(g, count, cv, cvp, ccy, institution, account_type))
+        account_type, balance = await _account_facts_for(session, g, primary)
+        reads.append(_group_to_read(g, count, cv, cvp, ccy, institution, account_type, balance))
     return reads
 
 
@@ -263,8 +284,8 @@ async def get_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    account_type = await _account_type_for(session, group)
-    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type)
+    account_type, balance = await _account_facts_for(session, group, primary)
+    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
 
 async def _next_position(session: AsyncSession, workspace_id: uuid.UUID) -> int:
@@ -323,8 +344,8 @@ async def update_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    account_type = await _account_type_for(session, group)
-    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type)
+    account_type, balance = await _account_facts_for(session, group, primary)
+    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
 
 async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:

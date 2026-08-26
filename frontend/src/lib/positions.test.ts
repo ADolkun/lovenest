@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildPortfolio, CASH_EQUIVALENT_TYPE, UNKNOWN_ACCOUNT_TYPE } from './positions'
+import { buildPortfolio, shareOfTotal, CASH_EQUIVALENT_TYPE, UNKNOWN_ACCOUNT_TYPE } from './positions'
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
 
 let seq = 0
@@ -58,7 +58,12 @@ function holding(overrides: {
   }
 }
 
-function wallet(id: string, accountType: string | null, taxTreatment: TaxTreatment = 'taxable'): AssetGroup {
+function wallet(
+  id: string,
+  accountType: string | null,
+  taxTreatment: TaxTreatment = 'taxable',
+  accountBalance: number | null = null,
+): AssetGroup {
   return {
     id,
     user_id: 'u1',
@@ -74,6 +79,7 @@ function wallet(id: string, accountType: string | null, taxTreatment: TaxTreatme
     asset_count: 1,
     current_value: 0,
     current_value_primary: 0,
+    account_balance: accountBalance,
     currency: null,
   }
 }
@@ -298,5 +304,113 @@ describe('weight and allocation', () => {
     expect(portfolio.total).toBe(0)
     expect(portfolio.investedTotal).toBe(0)
     expect(portfolio.byAssetClass).toEqual([])
+  })
+})
+
+describe('liquid cash', () => {
+  it('derives settled cash as the account balance less what the wallet holds', () => {
+    const { liquidCashTotal, total } = buildPortfolio(
+      [holding({ ticker: 'AMC', value: 137.96, groupId: 'w1' })],
+      [wallet('w1', 'investment', 'taxable', 535.26)],
+    )
+
+    expect(liquidCashTotal).toBe(397.3)
+    expect(total).toBe(535.26)
+  })
+
+  it('floors at zero when the provider reports no balance against real holdings', () => {
+    // Coinbase prices its own positions and leaves the account balance at 0.
+    // Without the floor this wallet would report −52980.02 and eat the other's cash.
+    const { liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'BTC', value: 52980.02, groupId: 'w1' }),
+        holding({ ticker: 'AMC', value: 137.96, groupId: 'w2' }),
+      ],
+      [
+        wallet('w1', 'crypto', 'taxable', 0),
+        wallet('w2', 'investment', 'taxable', 535.26),
+      ],
+    )
+
+    expect(liquidCashTotal).toBe(397.3)
+  })
+
+  it('treats a whole balance as cash when the wallet holds nothing', () => {
+    const { liquidCashTotal, investedTotal, total } = buildPortfolio(
+      [],
+      [wallet('w1', 'investment', 'taxable', 500)],
+    )
+
+    expect(liquidCashTotal).toBe(500)
+    expect(investedTotal).toBe(0)
+    expect(total).toBe(500)
+  })
+
+  it('derives nothing when the holdings exactly match the balance', () => {
+    const { liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', value: 24183.95, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', value: 45791.1, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 69975.05)],
+    )
+
+    expect(liquidCashTotal).toBe(0)
+  })
+
+  it('derives no cash from a wallet whose account reported no balance', () => {
+    // Null is not zero: a manual wallet has no account behind it to subtract from.
+    const { liquidCashTotal, total } = buildPortfolio(
+      [holding({ ticker: 'VOO', value: 1000, groupId: 'w1' })],
+      [wallet('w1', null)],
+    )
+
+    expect(liquidCashTotal).toBe(0)
+    expect(total).toBe(1000)
+  })
+
+  it('keeps liquid cash out of allocation and the invested total', () => {
+    const { investedTotal, byAssetClass, byAccountType } = buildPortfolio(
+      [holding({ ticker: 'VOO', type: 'etf', value: 1000, groupId: 'w1' })],
+      [wallet('w1', 'investment', 'taxable', 1500)],
+    )
+
+    expect(investedTotal).toBe(1000)
+    expect(byAssetClass).toEqual([{ key: 'etf', value: 1000, weight: 1 }])
+    expect(byAccountType).toEqual([{ key: 'investment', value: 1000, weight: 1 }])
+  })
+
+  it('adds the equivalents that behave as cash to the cash total', () => {
+    const { cashTotal, cashEquivalentTotal, liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'SPAXX', type: CASH_EQUIVALENT_TYPE, value: 400, groupId: 'w1' }),
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 1100)],
+    )
+
+    expect(cashEquivalentTotal).toBe(400)
+    expect(liquidCashTotal).toBe(100)
+    expect(cashTotal).toBe(500)
+  })
+})
+
+describe('shareOfTotal', () => {
+  it('reads cash as a percentage of the whole portfolio', () => {
+    const { cashTotal, total } = buildPortfolio(
+      [
+        holding({ ticker: 'SPAXX', type: CASH_EQUIVALENT_TYPE, value: 100, groupId: 'w1' }),
+        holding({ ticker: 'VOO', type: 'etf', value: 700, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 1000)],
+    )
+
+    expect(total).toBe(1000)
+    expect(cashTotal).toBe(300)
+    expect(shareOfTotal(cashTotal, total)).toBe(0.3)
+  })
+
+  it('gives no share of an empty portfolio rather than NaN', () => {
+    expect(shareOfTotal(0, 0)).toBe(0)
   })
 })

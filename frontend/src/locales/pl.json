@@ -1354,6 +1354,8 @@
     "posInvestedTotal": "Zainwestowane",
     "posCashEquivalents": "Ekwiwalenty gotówki",
     "posCashEquivalentHint": "Fundusze rynku pieniężnego i stablecoiny — liczone jako gotówka, nie jako pozycja.",
+    "posLiquidCash": "Gotówka dostępna",
+    "posLiquidCashHint": "Rozliczona gotówka na koncie — część jego salda, ale nie część żadnej pozycji.",
     "posDust": "Pył",
     "posDustHint": "Pozycje warte mniej niż jednego dolara — wliczane do sumy, pomijane w alokacji.",
     "posExcluded": "Poza alokacją",
