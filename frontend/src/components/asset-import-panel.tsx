@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -119,6 +119,15 @@ export function AssetImportPanel() {
     queryFn: assetGroupsApi.list,
   })
 
+  // One wallet in the workspace leaves nothing to choose, so choose it. Goes
+  // through the change handler because the preview's holding counts are
+  // wallet-scoped, and it only ever fills a blank selection — a wallet the
+  // user picked is never replaced.
+  useEffect(() => {
+    if (!groupId && wallets?.length === 1) handleWalletChange(wallets[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallets, groupId])
+
   async function runPreview(
     selected: File,
     nextMapping: Record<string, string>,
@@ -187,12 +196,12 @@ export function AssetImportPanel() {
   }
 
   async function handleImport() {
-    if (!preview || preview.orders.length === 0) return
+    if (!preview || preview.orders.length === 0 || !groupId) return
     setImporting(true)
     try {
       const result = await assetsApi.importOrders(
         preview.orders as AssetOrderImport[],
-        groupId || null,
+        groupId,
         file?.name,
         allowUnpriced,
       )
@@ -334,15 +343,17 @@ export function AssetImportPanel() {
           <div className="border-b border-border bg-muted/50 px-4 py-4 sm:px-5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
               <Label htmlFor="asset-import-wallet" className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
-                {t('assetImport.importTo')}
+                {t('assetImport.importTo')} *
               </Label>
               <select
                 id="asset-import-wallet"
-                className={`flex-1 ${SELECT_CLASS}`}
+                required
+                aria-required="true"
+                className={`flex-1 ${SELECT_CLASS} ${groupId ? '' : 'border-amber-500'}`}
                 value={groupId}
                 onChange={(e) => handleWalletChange(e.target.value)}
               >
-                <option value="">{t('assetImport.noWallet')}</option>
+                <option value="">{t('assetImport.chooseWallet')}</option>
                 {(wallets ?? []).map((w) => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
@@ -462,10 +473,14 @@ export function AssetImportPanel() {
           )}
 
           <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-5">
-            {importable === 0 ? (
+            {importable === 0 || !groupId ? (
               <span className="flex items-center gap-1.5 text-xs text-amber-600">
                 <AlertCircle size={12} />
-                {t('assetImport.nothingToImport')}
+                {importable === 0
+                  ? t('assetImport.nothingToImport')
+                  : wallets?.length === 0
+                    ? t('assetImport.noWalletsYet')
+                    : t('assetImport.walletRequired')}
               </span>
             ) : (
               <span />
@@ -475,7 +490,7 @@ export function AssetImportPanel() {
                 <X size={14} className="mr-1" />
                 {t('common.cancel')}
               </Button>
-              <Button onClick={handleImport} disabled={importing || importable === 0} className="gap-2">
+              <Button onClick={handleImport} disabled={importing || importable === 0 || !groupId} className="gap-2">
                 <Upload size={14} />
                 {importing ? t('assetImport.importing') : t('assetImport.confirm', { count: importable })}
               </Button>

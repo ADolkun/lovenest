@@ -329,6 +329,25 @@ async def test_holding_in_no_wallet_has_no_tax_character(
 
     assert result is not None and result["tax_character"] is False
     assert result["lots"] == []
+    # The reason the view has to say out loud: without this flag the empty
+    # result reads as "tax-advantaged wallet", which it is not (#94).
+    assert result["no_wallet"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("treatment", ["taxable", "roth"])
+async def test_a_holding_in_a_wallet_is_not_flagged_wallet_less(
+    session: AsyncSession, test_workspace, test_user: User, treatment: str
+):
+    wallet = await _wallet(session, test_user, test_workspace, "Brokerage", treatment)
+    asset = await _holding(
+        session, test_user, test_workspace, wallet.id, ticker="ITOT",
+        ledger=[("buy", "10", "100", date(2025, 1, 1))],
+    )
+
+    result = await asset_tax_lots(session, asset.id, test_workspace.id, as_of=date(2026, 6, 1))
+
+    assert result is not None and result["no_wallet"] is False
 
 
 @pytest.mark.asyncio

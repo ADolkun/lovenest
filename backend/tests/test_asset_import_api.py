@@ -39,6 +39,18 @@ async def stub_provider():
     set_market_price_provider(None)
 
 
+@pytest_asyncio.fixture
+async def wallet_id(client: AsyncClient, auth_headers) -> str:
+    """A Taxable wallet — the commit path requires one (#94)."""
+    resp = await client.post(
+        "/api/asset-groups",
+        json={"name": "Corretora A", "tax_treatment": "taxable"},
+        headers=auth_headers,
+    )
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()["id"]
+
+
 CSV = b"ticker,date,quantity,price,fee\nAAPL,2026-01-15,10,150.00,1.20\nAAPL,2026-02-15,-4,180.00,1.20\n"
 
 
@@ -106,7 +118,7 @@ async def test_preview_honours_an_explicit_mapping(client: AsyncClient, auth_hea
 
 
 @pytest.mark.asyncio
-async def test_import_creates_the_holding(client: AsyncClient, auth_headers):
+async def test_import_creates_the_holding(client: AsyncClient, auth_headers, wallet_id):
     preview = await client.post(
         "/api/assets/import/preview",
         files={"file": ("orders.csv", CSV, "text/csv")},
@@ -114,7 +126,7 @@ async def test_import_creates_the_holding(client: AsyncClient, auth_headers):
     )
     resp = await client.post(
         "/api/assets/import",
-        json={"orders": preview.json()["orders"]},
+        json={"orders": preview.json()["orders"], "group_id": wallet_id},
         headers=auth_headers,
     )
     assert resp.status_code == 200
@@ -221,7 +233,9 @@ async def test_an_unpriced_ticker_is_refused_unless_the_caller_asks_for_it(
 
 
 @pytest.mark.asyncio
-async def test_committing_an_unpriced_holding_creates_it(client: AsyncClient, auth_headers):
+async def test_committing_an_unpriced_holding_creates_it(
+    client: AsyncClient, auth_headers, wallet_id
+):
     resp = await client.post(
         "/api/assets/import",
         json={
@@ -231,6 +245,7 @@ async def test_committing_an_unpriced_holding_creates_it(client: AsyncClient, au
             }],
             "allow_unpriced": True,
             "filename": "estate.csv",
+            "group_id": wallet_id,
         },
         headers=auth_headers,
     )
@@ -245,7 +260,7 @@ async def test_committing_an_unpriced_holding_creates_it(client: AsyncClient, au
 
 @pytest.mark.asyncio
 async def test_an_unpriced_holding_is_worth_its_basis_not_zero(
-    client: AsyncClient, auth_headers
+    client: AsyncClient, auth_headers, wallet_id
 ):
     """No quote will ever arrive, so the basis is the only honest figure —
     and it must not read as a total loss of everything imported."""
@@ -257,6 +272,7 @@ async def test_an_unpriced_holding_is_worth_its_basis_not_zero(
                 "kind": "buy", "quantity": "163", "price": "10.00",
             }],
             "allow_unpriced": True,
+            "group_id": wallet_id,
         },
         headers=auth_headers,
     )
@@ -264,3 +280,56 @@ async def test_an_unpriced_holding_is_worth_its_basis_not_zero(
     ionic = next(a for a in listed.json() if a["ticker"] == "IONIC")
     assert ionic["current_value"] == 1630.0
     assert ionic["gain_loss"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The wallet the lots hang off (#94)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_commit_without_a_wallet_is_refused(client: AsyncClient, auth_headers):
+    """Silently the worst outcome: the ledger lands, and #65's Lots view is
+    blank for it with nothing to explain why."""
+    preview = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("orders.csv", CSV, "text/csv")},
+        headers=auth_headers,
+    )
+    resp = await client.post(
+        "/api/assets/import",
+        json={"orders": preview.json()["orders"]},
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "wallet" in resp.json()["detail"].lower()
+    assert (await client.get("/api/assets", headers=auth_headers)).json() == []
+
+
+@pytest.mark.asyncio
+async def test_importing_into_a_taxable_wallet_yields_lots(
+    client: AsyncClient, auth_headers, wallet_id
+):
+    """The seam the whole epic rests on: orders in, tax lots out."""
+    preview = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("orders.csv", CSV, "text/csv")},
+        data={"group_id": wallet_id},
+        headers=auth_headers,
+    )
+    commit = await client.post(
+        "/api/assets/import",
+        json={"orders": preview.json()["orders"], "group_id": wallet_id},
+        headers=auth_headers,
+    )
+    assert commit.status_code == 200, commit.text
+
+    assets = (await client.get("/api/assets", headers=auth_headers)).json()
+    asset_id = next(a["id"] for a in assets if a["ticker"] == "AAPL")
+    lots = (await client.get(f"/api/assets/{asset_id}/tax-lots", headers=auth_headers)).json()
+
+    assert lots["no_wallet"] is False
+    assert lots["tax_character"] is True
+    assert [lot["quantity"] for lot in lots["lots"]] == [6.0]
+    assert [sale["quantity"] for sale in lots["sales"]] == [4.0]

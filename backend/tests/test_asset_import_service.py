@@ -4,10 +4,12 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset import Asset
+from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -145,11 +147,87 @@ def provider():
     return FakeProvider()
 
 
+DEFAULT_WALLET = "Corretora A"
+
+
+async def _default_wallet(session: AsyncSession, workspace: Workspace, user: User) -> AssetGroup:
+    """One Taxable wallet per workspace, reused across calls.
+
+    A fresh wallet per import would put the second run's rows in a different
+    wallet from the first, and holdings are matched wallet-scoped — the dedup
+    tests would stop testing dedup.
+    """
+    existing = (
+        await session.execute(
+            select(AssetGroup).where(
+                AssetGroup.workspace_id == workspace.id, AssetGroup.name == DEFAULT_WALLET
+            )
+        )
+    ).scalars().first()
+    if existing is not None:
+        return existing
+    wallet = AssetGroup(
+        id=uuid.uuid4(), workspace_id=workspace.id, user_id=user.id,
+        name=DEFAULT_WALLET, tax_treatment="taxable",
+    )
+    session.add(wallet)
+    await session.flush()
+    return wallet
+
+
 async def _import(session, workspace, user, csv_bytes, provider, **kwargs):
+    """Imports into a Taxable wallet unless the test names its own.
+
+    The write path requires a wallet (#94), so the tests that are about
+    something else get one without having to say so.
+    """
     orders, _, _, _ = asset_import_service.parse_orders_csv(csv_bytes)
+    if "group_id" not in kwargs and not kwargs.get("dry_run"):
+        kwargs["group_id"] = (await _default_wallet(session, workspace, user)).id
     return await asset_import_service.import_orders(
         session, workspace.id, user.id, orders, market_provider=provider, **kwargs
     )
+
+
+@pytest.mark.asyncio
+async def test_a_commit_without_a_wallet_is_refused(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """The silent failure #94 names: no wallet means no tax treatment, so
+    `tax_lots` reports nothing — a full ledger behind an empty Lots view. The
+    refusal lives in `import_orders`, which both endpoints route through."""
+    orders, _, _, _ = asset_import_service.parse_orders_csv(
+        _csv("ticker,date,quantity,price", "AAPL,2026-01-15,10,100.00")
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await asset_import_service.import_orders(
+            session, test_workspace.id, test_user.id, orders,
+            group_id=None, market_provider=provider,
+        )
+
+    assert exc.value.status_code == 422
+    assert "wallet" in exc.value.detail.lower()
+    assert (await session.execute(select(Asset).where(
+        Asset.workspace_id == test_workspace.id
+    ))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_the_preview_still_runs_without_a_wallet(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """The dry run is what renders the wallet picker, so refusing it would
+    leave nothing to pick from. It writes nothing either way."""
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-01-15,10,100.00",
+    ), provider, dry_run=True)
+
+    assert summary["imported"] == 1
+    assert (await session.execute(select(Asset).where(
+        Asset.workspace_id == test_workspace.id
+    ))).scalars().all() == []
 
 
 @pytest.mark.asyncio
@@ -248,10 +326,11 @@ async def test_reimporting_the_same_file_adds_nothing(
 async def test_orders_land_on_an_existing_holding(
     session: AsyncSession, test_user: User, test_workspace: Workspace, provider
 ):
+    wallet = await _default_wallet(session, test_workspace, test_user)
     existing = Asset(
         id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
         name="Apple", type="stock", currency="USD", valuation_method="market_price",
-        ticker="AAPL", units=Decimal("0"),
+        ticker="AAPL", units=Decimal("0"), group_id=wallet.id,
     )
     session.add(existing)
     await session.commit()
@@ -331,8 +410,6 @@ async def test_warns_when_the_ticker_already_sits_in_another_wallet(
 ):
     """Two brokers, two positions is legitimate; a mis-picked wallet looks the
     same, so the preview says it rather than leaving it to be noticed later."""
-    from app.models.asset_group import AssetGroup
-
     wallet = AssetGroup(id=uuid.uuid4(), workspace_id=test_workspace.id, user_id=test_user.id, name="Corretora B")
     session.add(wallet)
     await session.flush()
@@ -359,8 +436,6 @@ async def test_warns_harder_when_the_same_orders_are_already_in_another_wallet(
 ):
     """Importing the same file into a second wallet counts the shares twice,
     and the wallet-scoped dedup cannot see it."""
-    from app.models.asset_group import AssetGroup
-
     wallet = AssetGroup(id=uuid.uuid4(), workspace_id=test_workspace.id, user_id=test_user.id, name="Corretora B")
     session.add(wallet)
     await session.flush()
@@ -467,10 +542,11 @@ async def test_undo_leaves_a_pre_existing_holding_alone(
 ):
     from app.models.import_log import ImportLog
 
+    wallet = await _default_wallet(session, test_workspace, test_user)
     existing = Asset(
         id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
         name="Apple", type="stock", currency="USD", valuation_method="market_price",
-        ticker="AAPL", units=Decimal("0"),
+        ticker="AAPL", units=Decimal("0"), group_id=wallet.id,
     )
     session.add(existing)
     session.add(AssetTransaction(
@@ -864,10 +940,11 @@ async def test_the_escape_hatch_stays_shut_unless_it_is_asked_for(
 
 async def _snapshot_holding(session, workspace, user, *, units: str) -> Asset:
     """A holding a provider reported with no Trades behind it (CONTEXT.md)."""
+    wallet = await _default_wallet(session, workspace, user)
     asset = Asset(
         id=uuid.uuid4(), user_id=user.id, workspace_id=workspace.id,
         name="Apple", type="stock", currency="USD", valuation_method="market_price",
-        ticker="AAPL", units=Decimal(units), source="coinbase",
+        ticker="AAPL", units=Decimal(units), source="coinbase", group_id=wallet.id,
     )
     session.add(asset)
     await session.flush()

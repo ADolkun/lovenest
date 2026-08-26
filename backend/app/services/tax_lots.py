@@ -232,6 +232,10 @@ async def asset_tax_lots(
 
     `snapshot` marks a Holding whose quantity came from a provider with no
     Trades behind it: Holding Period is *unknown*, not short (ADR 0002).
+
+    `no_wallet` separates the third empty case: a Holding in no wallet has no
+    treatment to gate on, so it falls into the same silent branch as a
+    Tax-Advantaged one while meaning something else entirely.
     """
     row = (
         await session.execute(
@@ -262,6 +266,9 @@ async def asset_tax_lots(
         "ticker": asset.ticker,
         "tax_character": treatment in REPORTABLE_TAX_TREATMENTS,
         "snapshot": not txs and _d(asset.units) > 0,
+        # Distinct from a tax-advantaged wallet: there is no wallet to read a
+        # treatment from, so the emptiness is a missing answer, not an answer.
+        "no_wallet": asset.group_id is None,
     }
     if not head["tax_character"]:
         return {**head, "as_of": as_of.isoformat(), **_EMPTY}

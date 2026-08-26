@@ -176,6 +176,9 @@ function TaxLotsPanel({
   )
 
   if (!data) return hint(isError ? t('common.error') : t('common.loading'))
+  // Checked before tax character, which is also false here: no wallet means no
+  // treatment to read, so the answer is missing rather than "not reportable".
+  if (data.no_wallet) return hint(t('assets.lotsNoWallet'))
   // A gain in a Tax-Advantaged wallet is never Reportable, so it has no
   // long-versus-short answer to give.
   if (!data.tax_character) return hint(t('assets.lotsNoTaxCharacter'))
