@@ -764,7 +764,7 @@ async def import_transactions(
                 existing_statement.order_by(Transaction.created_at, Transaction.id)
             )
             duplicate = existing.scalars().first()
-            if not duplicate and not txn_data.external_id:
+            if not duplicate:
                 duplicate = await find_unique_transaction_match(
                     session,
                     account_id,
@@ -773,8 +773,7 @@ async def import_transactions(
                     exclude_ids=matched_existing_ids,
                 )
             if duplicate:
-                if not txn_data.external_id:
-                    matched_existing_ids.add(duplicate.id)
+                matched_existing_ids.add(duplicate.id)
                 skipped += 1
                 continue
 

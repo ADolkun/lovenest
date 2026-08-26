@@ -18,8 +18,17 @@ STALE_THRESHOLD = timedelta(hours=4)
 PROVIDER_REFRESH_THRESHOLD = timedelta(hours=20)
 
 
-def _should_trigger_provider_refresh(last_sync, now: datetime) -> bool:
-    return last_sync is None or now - last_sync >= PROVIDER_REFRESH_THRESHOLD
+def _should_trigger_provider_refresh(settings: dict | None, now: datetime) -> bool:
+    value = (settings or {}).get("last_provider_refresh_at")
+    if not isinstance(value, str):
+        return True
+    try:
+        last_refresh = datetime.fromisoformat(value)
+    except ValueError:
+        return True
+    if last_refresh.tzinfo is None:
+        return True
+    return now - last_refresh >= PROVIDER_REFRESH_THRESHOLD
 
 
 def _make_session_maker():
@@ -38,7 +47,10 @@ async def _sync_all() -> int:
         async with session_maker() as session:
             result = await session.execute(
                 select(
-                    BankConnection.id, BankConnection.user_id, BankConnection.last_sync_at
+                    BankConnection.id,
+                    BankConnection.user_id,
+                    BankConnection.last_sync_at,
+                    BankConnection.settings,
                 ).where(
                     BankConnection.status.in_(["active", "error"]),
                     (BankConnection.last_sync_at < cutoff)
@@ -53,7 +65,7 @@ async def _sync_all() -> int:
             cutoff.isoformat(),
         )
 
-        for conn_id, user_id, last_sync in connections:
+        for conn_id, user_id, last_sync, settings in connections:
             try:
                 logger.info("Syncing connection %s (last_sync=%s)", conn_id, last_sync)
                 await _sync_one(
@@ -61,7 +73,7 @@ async def _sync_all() -> int:
                     conn_id,
                     user_id,
                     trigger_provider_refresh=_should_trigger_provider_refresh(
-                        last_sync, datetime.now(timezone.utc)
+                        settings, datetime.now(timezone.utc)
                     ),
                 )
                 synced += 1

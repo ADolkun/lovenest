@@ -236,6 +236,8 @@ async def test_sync_trigger_refresh_needs_user_action(session: AsyncSession, tes
         select(BankConnection).where(BankConnection.id == conn.id)
     )).scalar_one()
     assert refreshed.status == "error"
+    assert refreshed.settings is not None
+    assert "last_provider_refresh_at" in refreshed.settings
 
 
 @pytest.mark.asyncio
@@ -258,6 +260,8 @@ async def test_sync_trigger_refresh_refreshed_then_reads(session: AsyncSession, 
             trigger_provider_refresh=True,
         )
     assert result.status == "active"
+    assert result.settings is not None
+    assert "last_provider_refresh_at" in result.settings
     mock_provider.trigger_refresh.assert_awaited_once()
 
 
