@@ -121,10 +121,14 @@ export function AssetImportPanel() {
 
   // One wallet in the workspace leaves nothing to choose, so choose it. Goes
   // through the change handler because the preview's holding counts are
-  // wallet-scoped, and it only ever fills a blank selection — a wallet the
-  // user picked is never replaced.
+  // wallet-scoped. The latch is what makes this a default rather than a
+  // correction: clearing the select back to blank is itself a choice, and
+  // without it the effect would immediately undo that and re-preview.
+  const autoSelected = useRef(false)
   useEffect(() => {
-    if (!groupId && wallets?.length === 1) handleWalletChange(wallets[0].id)
+    if (autoSelected.current || groupId || wallets?.length !== 1) return
+    autoSelected.current = true
+    handleWalletChange(wallets[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallets, groupId])
 
@@ -358,6 +362,14 @@ export function AssetImportPanel() {
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
+              {!groupId && (
+                <span className="flex items-center gap-1.5 text-xs text-amber-600">
+                  <AlertCircle size={12} />
+                  {wallets?.length === 0
+                    ? t('assetImport.noWalletsYet')
+                    : t('assetImport.walletRequired')}
+                </span>
+              )}
 
               {/* Auto settles `12/07/2021` from the whole file — one 12/16 in
                   it proves the month comes first. Only a file whose every
@@ -473,14 +485,10 @@ export function AssetImportPanel() {
           )}
 
           <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-4 sm:px-5">
-            {importable === 0 || !groupId ? (
+            {importable === 0 ? (
               <span className="flex items-center gap-1.5 text-xs text-amber-600">
                 <AlertCircle size={12} />
-                {importable === 0
-                  ? t('assetImport.nothingToImport')
-                  : wallets?.length === 0
-                    ? t('assetImport.noWalletsYet')
-                    : t('assetImport.walletRequired')}
+                {t('assetImport.nothingToImport')}
               </span>
             ) : (
               <span />

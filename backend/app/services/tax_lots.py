@@ -266,8 +266,6 @@ async def asset_tax_lots(
         "ticker": asset.ticker,
         "tax_character": treatment in REPORTABLE_TAX_TREATMENTS,
         "snapshot": not txs and _d(asset.units) > 0,
-        # Distinct from a tax-advantaged wallet: there is no wallet to read a
-        # treatment from, so the emptiness is a missing answer, not an answer.
         "no_wallet": asset.group_id is None,
     }
     if not head["tax_character"]:

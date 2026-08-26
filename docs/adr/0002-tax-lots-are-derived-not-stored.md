@@ -38,5 +38,11 @@ figure invites the reader to supply the other half. The derivation stays
 wallet-agnostic — `build_lots` never sees a tax treatment — so Wash Sale can
 still replay an IRA's ledger when it arrives.
 
+A Holding in no Wallet at all falls into the same branch — there is no treatment
+to read, so `tax_character` is false — while meaning something entirely
+different. The read surface carries `no_wallet` to separate the two, because one
+is a deliberate silence and the other is a missing answer, and a reader cannot
+tell them apart from the emptiness alone.
+
 If replaying the ledger ever measurably hurts, cache the derived figures on the
 Holding the way `average_price` already is. Do not promote the cache to a record.
