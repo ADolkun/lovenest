@@ -72,7 +72,12 @@ def upgrade() -> None:
             sa.ForeignKey("import_logs.id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "kind IN ('contribution', 'distribution')",
             name="ck_asset_contributions_kind",

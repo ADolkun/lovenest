@@ -1275,6 +1275,7 @@ export const contributions = {
   update: async (
     id: string,
     payload: Partial<{
+      group_id: string
       kind: string
       party: string
       amount: number

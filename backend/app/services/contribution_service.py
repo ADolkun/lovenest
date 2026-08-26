@@ -353,6 +353,8 @@ async def update_contribution(
         return None
 
     fields = data.model_dump(exclude_unset=True)
+    if fields.get("group_id") is not None:
+        await _require_group(session, fields["group_id"], workspace_id)
     for field, value in fields.items():
         setattr(row, field, value)
     # A date moved without a tax year moves the year with it; a tax year the

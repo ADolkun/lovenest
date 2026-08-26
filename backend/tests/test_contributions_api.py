@@ -217,6 +217,41 @@ async def test_a_viewer_may_read_the_figures_but_not_change_them(
     ).status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_a_movement_can_be_refiled_under_another_wallet(client, auth_headers):
+    """The dialog offers the wallet select; the payload has to be honoured, or
+    correcting a mis-filed contribution silently does nothing."""
+    first = await _wallet(client, auth_headers, "Roth IRA", tax_treatment="roth")
+    second = await _wallet(client, auth_headers, "401(k)", tax_treatment="traditional")
+    row = (await _contribute(client, auth_headers, first, amount=7000)).json()
+
+    moved = await client.patch(
+        f"/api/contributions/{row['id']}",
+        headers=auth_headers,
+        json={"group_id": str(second)},
+    )
+
+    assert moved.status_code == 200
+    assert moved.json()["group_id"] == str(second)
+
+
+@pytest.mark.asyncio
+async def test_a_movement_cannot_be_refiled_into_another_workspace(
+    client, auth_headers, other_workspace_headers
+):
+    mine = await _wallet(client, auth_headers, "Roth IRA", tax_treatment="roth")
+    theirs = await _wallet(client, other_workspace_headers, "Theirs")
+    row = (await _contribute(client, auth_headers, mine, amount=7000)).json()
+
+    refused = await client.patch(
+        f"/api/contributions/{row['id']}",
+        headers=auth_headers,
+        json={"group_id": theirs},
+    )
+
+    assert refused.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # The projection feed
 # ---------------------------------------------------------------------------

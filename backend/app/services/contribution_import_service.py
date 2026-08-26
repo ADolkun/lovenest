@@ -221,9 +221,22 @@ def _narrow_to_account(
             )
         return matched
 
+    # A row with no account of its own belongs to the named one only when the
+    # file names a single account anyway. In a file covering several, whose it
+    # is cannot be read, and merging it is the guess this refuses to make.
+    unattributed_is_ours = len(found) <= 1
     kept = []
     for row in matched:
-        if row.account is None or row.account.casefold() == wanted.casefold():
+        if row.account is None:
+            if unattributed_is_ours:
+                kept.append(row)
+            else:
+                skipped.append(ContributionImportSkip(
+                    row_number=row.row_number,
+                    action=row.action,
+                    reason="the file names no account for this row",
+                ))
+        elif row.account.casefold() == wanted.casefold():
             kept.append(row)
         else:
             skipped.append(ContributionImportSkip(
@@ -238,13 +251,22 @@ def _amount(row: ContributionImportRow) -> Decimal:
     return Decimal(str(row.amount))
 
 
-def _fingerprint(kind: str, party: str, amount: Decimal, when) -> tuple:
+def _fingerprint(kind: str, party: str, amount: Decimal, when, tax_year: int) -> tuple:
     """What makes two contributions the same contribution (ADR 0005).
 
     The wallet is not in the key because the count is only ever taken within
-    one wallet.
+    one wallet. `tax_year` is, because it is the one field the parser derives
+    rather than reads: between January and April 15 the same wallet takes an
+    identical amount on the same day for two different years, and a key
+    without it would file the second as a copy of the first.
     """
-    return (kind, party, amount.quantize(_CENTS, rounding=ROUND_HALF_UP), when)
+    return (
+        kind,
+        party,
+        amount.quantize(_CENTS, rounding=ROUND_HALF_UP),
+        when,
+        tax_year,
+    )
 
 
 async def _already_imported(
@@ -259,7 +281,8 @@ async def _already_imported(
         )
     ).scalars().all()
     return Counter(
-        _fingerprint(row.kind, row.party, Decimal(str(row.amount)), row.date) for row in rows
+        _fingerprint(row.kind, row.party, Decimal(str(row.amount)), row.date, row.tax_year)
+        for row in rows
     )
 
 
@@ -273,7 +296,7 @@ def _mark_duplicates(matched: list[ContributionImportRow], stored: Counter) -> i
     """
     duplicates = 0
     for row in matched:
-        key = _fingerprint(row.kind, row.party, _amount(row), row.date)
+        key = _fingerprint(row.kind, row.party, _amount(row), row.date, row.tax_year)
         if stored[key]:
             stored[key] -= 1
             row.duplicate = True
@@ -299,6 +322,7 @@ async def preview(
     # refusing: the accounts are in the response, so the panel can offer them.
     # The write path still refuses — that is where a wrong guess costs money.
     warnings = []
+    total_rows = len(matched) + len(skipped)
     if not (account or "").strip() and len(accounts) > 1:
         matched = []
         warnings.append(ContributionImportWarning(code="choose_account", count=len(accounts)))
@@ -311,7 +335,7 @@ async def preview(
     return ContributionImportPreview(
         columns=columns,
         accounts=accounts,
-        total_rows=len(matched) + len(skipped),
+        total_rows=total_rows,
         matched=matched,
         skipped=skipped,
         warnings=warnings,

@@ -479,12 +479,14 @@ function ContributionDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>{t('assets.contribKind')}</Label>
-            <div className="grid grid-cols-2 gap-2">
+            <Label id="contrib-kind-label">{t('assets.contribKind')}</Label>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="contrib-kind-label">
               {CONTRIBUTION_KINDS.map((k) => (
                 <button
                   key={k}
                   type="button"
+                  role="radio"
+                  aria-checked={draft.kind === k}
                   className={`rounded-lg border px-3 py-2 text-sm font-medium transition-all ${draft.kind === k ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/50'}`}
                   onClick={() => setKind(k)}
                 >
@@ -495,8 +497,9 @@ function ContributionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t('assets.contribWallet')}</Label>
+            <Label htmlFor="contrib-wallet">{t('assets.contribWallet')}</Label>
             <select
+              id="contrib-wallet"
               className={SELECT_CLASS}
               value={draft.groupId}
               onChange={(e) => set('groupId', e.target.value)}
@@ -509,8 +512,10 @@ function ContributionDialog({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>{t('assets.contribAmount')}</Label>
+              <Label htmlFor="contrib-amount">{t('assets.contribAmount')}</Label>
               <Input
+                id="contrib-amount"
+                aria-describedby={error ? 'contrib-error' : undefined}
                 type="number"
                 step="any"
                 min="0"
@@ -519,8 +524,9 @@ function ContributionDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label>{t('assets.contribParty')}</Label>
+              <Label htmlFor="contrib-party">{t('assets.contribParty')}</Label>
               <select
+                id="contrib-party"
                 className={SELECT_CLASS}
                 value={draft.party}
                 onChange={(e) => setParty(e.target.value as ContributionDraft['party'])}
@@ -540,8 +546,9 @@ function ContributionDialog({
               <DatePickerInput value={draft.date} onChange={(v) => set('date', v)} />
             </div>
             <div className="space-y-2">
-              <Label>{t('assets.contribTaxYear')}</Label>
+              <Label htmlFor="contrib-tax-year">{t('assets.contribTaxYear')}</Label>
               <Input
+                id="contrib-tax-year"
                 type="number"
                 step="1"
                 min="1900"
@@ -572,11 +579,13 @@ function ContributionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t('assets.contribNotes')}</Label>
-            <Input value={draft.notes} onChange={(e) => set('notes', e.target.value)} />
+            <Label htmlFor="contrib-notes">{t('assets.contribNotes')}</Label>
+            <Input id="contrib-notes" value={draft.notes} onChange={(e) => set('notes', e.target.value)} />
           </div>
 
-          {error && <p className="text-[11px] text-rose-500">{t(error)}</p>}
+          {error && (
+            <p id="contrib-error" role="alert" className="text-[11px] text-rose-500">{t(error)}</p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>

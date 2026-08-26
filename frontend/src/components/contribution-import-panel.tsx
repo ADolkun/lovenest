@@ -9,6 +9,10 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { assetErrorMessage, assetGroups as assetGroupsApi, contributions as contributionsApi } from '@/lib/api'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useAuth } from '@/contexts/auth-context'
+import { formatCurrency } from '@/lib/format'
 import type { ContributionImportPreview } from '@/types'
 
 const SELECT_CLASS =
@@ -26,6 +30,13 @@ export function ContributionImportPanel() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canWrite } = useWorkspace()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
+  const { mask } = usePrivacyMode()
+  const { user } = useAuth()
+  const currency = user?.preferences?.currency_display ?? 'USD'
+  const money = (value: number) => mask(formatCurrency(value, currency, locale))
+  const day = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString(dateLocale)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const [file, setFile] = useState<File | null>(null)
@@ -35,7 +46,6 @@ export function ContributionImportPanel() {
   // One export routinely covers several accounts while an import writes into
   // one wallet, so the backend refuses to guess and the choice is made here.
   const [account, setAccount] = useState('')
-  const [accountChoices, setAccountChoices] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -45,12 +55,15 @@ export function ContributionImportPanel() {
     queryFn: assetGroupsApi.list,
   })
 
+  const previewSeq = useRef(0)
+
   async function runPreview(
     selected: File,
     nextGroup: string,
     nextDateFormat: string,
     nextAccount: string,
   ) {
+    const seq = ++previewSeq.current
     if (!nextGroup) {
       setPreview(null)
       return
@@ -63,14 +76,14 @@ export function ContributionImportPanel() {
         nextDateFormat || undefined,
         nextAccount || undefined,
       )
+      if (seq !== previewSeq.current) return
       setPreview(result)
-      setAccountChoices(result.accounts)
     } catch (e) {
+      if (seq !== previewSeq.current) return
       toast.error(assetErrorMessage(e, t('contribImport.previewError')))
       setPreview(null)
-      setAccountChoices([])
     } finally {
-      setLoading(false)
+      if (seq === previewSeq.current) setLoading(false)
     }
   }
 
@@ -78,7 +91,6 @@ export function ContributionImportPanel() {
     setFile(selected)
     setPreview(null)
     setAccount('')
-    setAccountChoices([])
     if (selected) runPreview(selected, groupId, dateFormat, '')
   }
 
@@ -124,6 +136,7 @@ export function ContributionImportPanel() {
     }
   }
 
+  const accountChoices = preview?.accounts ?? []
   const matched = preview?.matched ?? []
   const skipped = preview?.skipped ?? []
   const warnings = preview?.warnings ?? []
@@ -267,7 +280,7 @@ export function ContributionImportPanel() {
           </div>
 
           {warnings.length > 0 && (
-            <div className="border-b border-border bg-amber-500/10 px-4 py-3 sm:px-5">
+            <div role="status" aria-live="polite" className="border-b border-border bg-amber-500/10 px-4 py-3 sm:px-5">
               <p className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
                 <AlertTriangle size={14} />
                 {t('contribImport.warningsTitle', { count: warnings.length })}
@@ -323,13 +336,13 @@ export function ContributionImportPanel() {
                 style={{ gridTemplateColumns: ROWS_GRID }}
               >
                 <div className="tabular-nums text-muted-foreground">{row.row_number}</div>
-                <div className="text-foreground">{row.date}</div>
+                <div className="text-foreground">{day(row.date)}</div>
                 <div className="text-right tabular-nums text-muted-foreground">{row.tax_year}</div>
                 <div className="text-muted-foreground">
                   {t(`assets.contribKind_${row.kind}`)}
                 </div>
                 <div className="text-muted-foreground">{t(`assets.contribParty_${row.party}`)}</div>
-                <div className="text-right tabular-nums text-foreground">{row.amount}</div>
+                <div className="text-right tabular-nums text-foreground">{money(row.amount)}</div>
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <span className="truncate">{row.action}</span>
                   {row.duplicate && (

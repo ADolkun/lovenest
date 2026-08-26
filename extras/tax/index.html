@@ -1397,8 +1397,13 @@ function taxApp() {
       this.projPrefillLoading = true; this.projPrefillMsg = ""; this.projPrefillHint = "";
       try {
         const r = await this.authFetch("api/projection-prefill");
+        if (!r.ok) throw new Error("The planner could not reach your data (HTTP " + r.status + ").");
         const d = await r.json();
         if (d.projection_error) { this.projPrefillMsg = "Couldn't read your balances: " + d.projection_error; return; }
+        // Cleared first: a wallet deleted since the last load drops out of
+        // `live`, and a badge left standing would claim a stale figure is
+        // still coming from Lovenest.
+        this.projLive = {};
         // The feed names the fields it actually sourced; anything outside that
         // list stays whatever the user typed, marked as an assumption.
         for (const k of (Array.isArray(d.live) ? d.live : [])) {

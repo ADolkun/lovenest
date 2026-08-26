@@ -40,6 +40,9 @@ class AssetContributionCreate(AssetContributionBase):
 
 
 class AssetContributionUpdate(BaseModel):
+    #: Refiling a movement under the wallet it actually belongs to. Authorized
+    #: against the caller's workspace like any other wallet reference.
+    group_id: Optional[uuid.UUID] = None
     kind: Optional[ContributionKind] = None
     party: Optional[ContributionParty] = None
     amount: Optional[Decimal] = Field(default=None, gt=0)

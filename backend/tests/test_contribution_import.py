@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.asset_contribution import AssetContribution
 from app.models.asset_group import AssetGroup
-from app.services.contribution_import_service import parse_history_csv
+from app.services.contribution_import_service import _narrow_to_account, parse_history_csv
 
 _HEADER = (
     "Run Date,Account,Account Number,Action,Symbol,Description,Type,Price ($),"
@@ -135,6 +135,42 @@ def test_a_file_without_an_amount_column_names_what_is_missing():
 
     assert exc.value.status_code == 400
     assert "amount" in exc.value.detail
+
+
+def test_a_thousands_separator_is_not_a_decimal_point():
+    """`7,000` is seven thousand dollars. Read as `7.000` it becomes seven,
+    and a deposit the feature exists to recognise is off by 1000x."""
+    _headers, matched, _skipped = parse_history_csv(
+        _history(_row("03/14/2025", "CASH CONTRIBUTION CURRENT YEAR", '"7,000"'))
+    )
+
+    assert [row.amount for row in matched] == [7000.00]
+
+
+def test_a_decimal_comma_is_still_a_decimal_comma():
+    """The grouping is what tells them apart, so a two-place comma survives."""
+    _headers, matched, _skipped = parse_history_csv(
+        _history(_row("03/14/2025", "CASH CONTRIBUTION CURRENT YEAR", '"1442,20"'))
+    )
+
+    assert [row.amount for row in matched] == [1442.20]
+
+
+def test_a_row_the_file_names_no_account_for_is_not_merged_in():
+    """In a file covering several accounts, whose an unattributed row is
+    cannot be read — and merging it is the guess this refuses to make."""
+    _headers, matched, skipped = parse_history_csv(
+        _history(
+            _row("03/14/2025", "CASH CONTRIBUTION CURRENT YEAR", "6535.95"),
+            _row("02/13/2025", "Electronic Funds Transfer Received", "10000.00",
+                 account="Individual - TOD"),
+            _row("01/09/2025", "Electronic Funds Transfer Received", "3000.00", account=""),
+        )
+    )
+    kept = _narrow_to_account(matched, skipped, "ROTH IRA")
+
+    assert [row.amount for row in kept] == [6535.95]
+    assert "names no account" in " ".join(s.reason for s in skipped)
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +342,28 @@ async def test_import_writes_the_contributions_and_can_be_undone(
 
     assert undo.status_code == 204
     assert await _stored(session, wallet) == []
+
+
+@pytest.mark.asyncio
+async def test_the_same_amount_for_two_tax_years_is_two_contributions(
+    client, auth_headers, session, wallet
+):
+    """Between January and April 15 a wallet takes an identical amount on the
+    same day for two different years. `tax_year` is the only thing telling
+    them apart, so it has to be in the duplicate key."""
+    prior = _history(_row("04/01/2026", "CASH CONTRIBUTION PRIOR YEAR", "7000.00"))
+    current = _history(_row("04/01/2026", "CASH CONTRIBUTION CURRENT YEAR", "7000.00"))
+
+    first = await client.post(
+        "/api/contributions/import", headers=auth_headers, **_upload(prior, wallet)
+    )
+    second = await client.post(
+        "/api/contributions/import", headers=auth_headers, **_upload(current, wallet)
+    )
+
+    assert first.json()["created"] == 1
+    assert (second.json()["created"], second.json()["duplicates"]) == (1, 0)
+    assert sorted(r.tax_year for r in await _stored(session, wallet)) == [2025, 2026]
 
 
 @pytest.mark.asyncio
