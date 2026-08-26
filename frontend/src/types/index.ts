@@ -937,6 +937,9 @@ export interface AssetGroup {
   asset_count: number
   current_value: number
   current_value_primary: number
+  /** What `current_value` is in. Null where the wallet's holdings disagree or
+      it has none, and then only `current_value_primary` means anything. */
+  currency: string | null
 }
 
 /** Which way the money crossed the Wallet's boundary. `amount` is always
@@ -984,6 +987,9 @@ export interface ContributionSummary {
   net: number
   return_net_of_contributions: number | null
   current_value: number | null
+  /** What every figure here is in — the wallet's own currency, not the
+      reader's. Null where the wallet's holdings disagree or it has none. */
+  currency: string | null
   years: ContributionYear[]
 }
 

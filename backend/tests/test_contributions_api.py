@@ -252,6 +252,28 @@ async def test_a_movement_cannot_be_refiled_into_another_workspace(
     assert refused.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_the_summary_reports_the_wallets_own_currency(client, auth_headers):
+    """A contribution carries no currency of its own — it is in the currency
+    of the wallet it was paid into. Comparing it against a balance converted
+    to the reader's display currency would subtract euros from dollars, and
+    two members of one workspace would read different returns off the same
+    rows."""
+    wallet = await _wallet(client, auth_headers, "Roth IRA", tax_treatment="roth")
+    await _contribute(client, auth_headers, wallet, amount=7000)
+
+    summary = (
+        await client.get("/api/contributions/summary", headers=auth_headers)
+    ).json()[0]
+
+    # No holdings, so the wallet has no currency and there is nothing to
+    # compare against — reported as unknown rather than as a wrong number.
+    assert summary["currency"] is None
+    assert summary["current_value"] is None
+    assert summary["return_net_of_contributions"] is None
+    assert summary["net"] == 7000.0
+
+
 # ---------------------------------------------------------------------------
 # The projection feed
 # ---------------------------------------------------------------------------

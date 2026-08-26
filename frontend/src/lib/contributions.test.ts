@@ -43,6 +43,7 @@ function summary(overrides: Partial<ContributionSummary> = {}): ContributionSumm
     net: 0,
     return_net_of_contributions: null,
     current_value: null,
+    currency: null,
     years: [],
     ...overrides,
   }

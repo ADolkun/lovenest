@@ -64,16 +64,21 @@ async def projection_feed(
             balances[bucket] += value
             tracked.add(group.tax_treatment)
 
+    # The engine adds the four buckets together, so everything it reads has to
+    # be in one currency — the same one the balances are already converted to.
+    primary_currency = await asset_group_service._primary_currency_for(session, user_id)
     basis = await contribution_service.basis_by_tax_treatment(
-        session, workspace_id, as_of=as_of
+        session, workspace_id, user_id, as_of=as_of, primary_currency=primary_currency
     )
     annual = await contribution_service.annual_by_tax_treatment(
-        session, workspace_id, tax_year=as_of.year
+        session, workspace_id, user_id,
+        tax_year=as_of.year, primary_currency=primary_currency,
     )
 
     feed = {
         "as_of": as_of.isoformat(),
         "tax_year": as_of.year,
+        "currency": primary_currency,
         **{bucket: contribution_service.cents(total) for bucket, total in balances.items()},
         # The projection's "withdrawable basis": what a Roth IRA can pay out
         # before retirement age without penalty, which is its Net Contribution.

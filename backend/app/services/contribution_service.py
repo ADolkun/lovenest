@@ -29,6 +29,7 @@ from app.schemas.asset_contribution import (
     ContributionYearRead,
 )
 from app.services import asset_group_service
+from app.services.fx_rate_service import convert
 
 # ---------------------------------------------------------------------------
 # Pure: classifying a broker's action text (no DB)
@@ -410,15 +411,28 @@ async def summaries(
     for row in rows:
         by_group[row.group_id].append(row)
 
-    values = {g.id: Decimal(str(g.current_value_primary)) for g in
-              await asset_group_service.get_groups(session, workspace_id, user_id)}
+    # The wallet's own currency, not the reader's. A contribution carries no
+    # currency of its own — it is recorded in the currency of the wallet it
+    # was paid into — so comparing it against a balance converted to whatever
+    # the reader displays would subtract euros from dollars, and two members
+    # of one workspace would read different returns off identical rows.
+    wallets = {
+        g.id: g for g in await asset_group_service.get_groups(session, workspace_id, user_id)
+    }
 
     out = []
     for group_id, group_rows in by_group.items():
-        summary = summarise(group_rows, as_of=as_of, current_value=values.get(group_id))
+        wallet = wallets.get(group_id)
+        comparable = wallet is not None and wallet.currency is not None
+        summary = summarise(
+            group_rows,
+            as_of=as_of,
+            current_value=Decimal(str(wallet.current_value)) if comparable else None,
+        )
         out.append(
             ContributionSummaryRead(
                 group_id=group_id,
+                currency=wallet.currency if wallet is not None else None,
                 **{k: v for k, v in summary.items() if k != "years"},
                 years=[ContributionYearRead(**y) for y in summary["years"]],
             )
@@ -426,8 +440,42 @@ async def summaries(
     return sorted(out, key=lambda s: str(s.group_id))
 
 
+async def _currencies_by_group(
+    session: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> dict[uuid.UUID, Optional[str]]:
+    return {
+        g.id: g.currency
+        for g in await asset_group_service.get_groups(session, workspace_id, user_id)
+    }
+
+
+async def _to_primary(
+    session: AsyncSession,
+    amount: Decimal,
+    currency: Optional[str],
+    primary_currency: str,
+) -> Decimal:
+    """A wallet's figure in the currency the projection runs in.
+
+    A contribution is recorded in the currency of the wallet it was paid into,
+    and the engine adds the four buckets together — so they have to arrive in
+    one currency, the same one `current_value_primary` is already converted to.
+    A wallet with no single currency is taken at face value rather than
+    guessed at; that is the same assumption its balance already makes.
+    """
+    if not amount or currency is None or currency == primary_currency:
+        return amount
+    converted, _rate = await convert(session, amount, currency, primary_currency)
+    return converted
+
+
 async def basis_by_tax_treatment(
-    session: AsyncSession, workspace_id: uuid.UUID, *, as_of: _date
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    as_of: _date,
+    primary_currency: str,
 ) -> dict[str, Decimal]:
     """Withdrawable basis per wallet tax character, for the projection feed.
 
@@ -437,6 +485,7 @@ async def basis_by_tax_treatment(
     """
     rows = await _load(session, workspace_id)
     treatments = await _treatments_by_group(session, workspace_id)
+    currencies = await _currencies_by_group(session, workspace_id, user_id)
 
     by_group: dict[uuid.UUID, list[AssetContribution]] = defaultdict(list)
     for row in rows:
@@ -447,12 +496,22 @@ async def basis_by_tax_treatment(
         treatment = treatments.get(group_id)
         if treatment is None:
             continue
-        totals[treatment] += withdrawable_basis(group_rows, as_of=as_of)
+        totals[treatment] += await _to_primary(
+            session,
+            withdrawable_basis(group_rows, as_of=as_of),
+            currencies.get(group_id),
+            primary_currency,
+        )
     return dict(totals)
 
 
 async def annual_by_tax_treatment(
-    session: AsyncSession, workspace_id: uuid.UUID, *, tax_year: int
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    *,
+    tax_year: int,
+    primary_currency: str,
 ) -> dict[str, Decimal]:
     """Gross contributions paid in for one tax year, per wallet tax character.
 
@@ -462,13 +521,16 @@ async def annual_by_tax_treatment(
     """
     rows = await _load(session, workspace_id, tax_year=tax_year)
     treatments = await _treatments_by_group(session, workspace_id)
+    currencies = await _currencies_by_group(session, workspace_id, user_id)
 
     totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for row in rows:
         treatment = treatments.get(row.group_id)
         if treatment is None or row.kind != "contribution":
             continue
-        totals[treatment] += _d(row.amount)
+        totals[treatment] += await _to_primary(
+            session, _d(row.amount), currencies.get(row.group_id), primary_currency
+        )
     return dict(totals)
 
 

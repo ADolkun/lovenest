@@ -90,8 +90,10 @@ export default function ContributionsTab({
     onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
   })
 
-  const money = (value: number | null | undefined) =>
-    value === null || value === undefined ? DASH : mask(formatCurrency(value, currency, locale))
+  const money = (value: number | null | undefined, inCurrency?: string | null) =>
+    value === null || value === undefined
+      ? DASH
+      : mask(formatCurrency(value, inCurrency ?? currency, locale))
   const day = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString(dateLocale)
 
   function openCreate(groupId: string) {
@@ -237,30 +239,35 @@ function SummaryStrip({
   money,
 }: {
   summary: ContributionSummary | undefined
-  money: (value: number | null | undefined) => string
+  money: (value: number | null | undefined, inCurrency?: string | null) => string
 }) {
   const { t } = useTranslation()
   if (!summary) return null
   const ret = summary.return_net_of_contributions
+  // Every figure here is in the wallet's own currency, not the reader's.
+  const walletMoney = (value: number | null | undefined) => money(value, summary.currency)
 
   return (
     <div className="grid grid-cols-2 gap-4 border-b border-border bg-muted/30 px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
-      <Stat label={t('assets.contribNet')} value={money(summary.net)} hint={t('assets.contribNetHint')} />
-      <Stat label={t('assets.contribOwn')} value={money(summary.own_contributions)} />
+      <Stat label={t('assets.contribNet')} value={walletMoney(summary.net)} hint={t('assets.contribNetHint')} />
+      <Stat label={t('assets.contribOwn')} value={walletMoney(summary.own_contributions)} />
       <Stat
         label={t('assets.contribEmployerVested')}
-        value={money(summary.employer_vested)}
+        value={walletMoney(summary.employer_vested)}
         hint={
           summary.employer_unvested > 0
-            ? t('assets.contribUnvestedExcluded', { amount: money(summary.employer_unvested) })
+            ? t('assets.contribUnvestedExcluded', { amount: walletMoney(summary.employer_unvested) })
             : undefined
         }
       />
-      <Stat label={t('assets.contribDistributions')} value={money(summary.distributions)} />
-      <Stat label={t('assets.contribCurrentValue')} value={money(summary.current_value)} />
+      <Stat label={t('assets.contribDistributions')} value={walletMoney(summary.distributions)} />
+      <Stat
+        label={t('assets.contribCurrentValue')}
+        value={walletMoney(summary.current_value)}
+      />
       <Stat
         label={t('assets.contribReturnNet')}
-        value={money(ret)}
+        value={walletMoney(ret)}
         tone={ret === null ? undefined : ret >= 0 ? 'text-emerald-600' : 'text-rose-500'}
       />
     </div>
@@ -272,7 +279,7 @@ function YearsTable({
   money,
 }: {
   summary: ContributionSummary | undefined
-  money: (value: number | null | undefined) => string
+  money: (value: number | null | undefined, inCurrency?: string | null) => string
 }) {
   const { t } = useTranslation()
   const years = annualRows(summary)
@@ -320,7 +327,7 @@ function MovementsTable({
   onDelete,
 }: {
   rows: AssetContribution[]
-  money: (value: number | null | undefined) => string
+  money: (value: number | null | undefined, inCurrency?: string | null) => string
   day: (value: string) => string
   canWrite: boolean
   onEdit: (row: AssetContribution) => void

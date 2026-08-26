@@ -99,4 +99,10 @@ class ContributionSummaryRead(BaseModel):
     #: shows no gain. Null where the wallet's value is unknown.
     return_net_of_contributions: Optional[float] = None
     current_value: Optional[float] = None
+    #: What every figure here is denominated in: a contribution is recorded in
+    #: the currency of the wallet it was paid into, so the comparison is made
+    #: there rather than in whatever currency the reader happens to display.
+    #: Null where the wallet has no single currency, and then `current_value`
+    #: and `return_net_of_contributions` are null too.
+    currency: Optional[str] = None
     years: list[ContributionYearRead] = []
