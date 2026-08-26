@@ -1,7 +1,7 @@
 """enforce normalized payee names within each workspace
 
-Revision ID: 074
-Revises: 073
+Revision ID: 076
+Revises: 075
 Create Date: 2026-07-19
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "074"
-down_revision: Union[str, None] = "073"
+revision: str = "076"
+down_revision: Union[str, None] = "075"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -21,7 +21,7 @@ def upgrade() -> None:
     # variants before adding the normalized invariant used by the service.
     op.execute(
         """
-        CREATE TEMP TABLE payee_dedupe_074 ON COMMIT DROP AS
+        CREATE TEMP TABLE payee_dedupe_076 ON COMMIT DROP AS
         SELECT id AS source_id, target_id
         FROM (
             SELECT
@@ -68,7 +68,7 @@ def upgrade() -> None:
                     DISTINCT NULLIF(btrim(payees.notes), ''),
                     E'\n' ORDER BY NULLIF(btrim(payees.notes), '')
                 ) AS notes
-            FROM payee_dedupe_074 duplicates
+            FROM payee_dedupe_076 duplicates
             JOIN payees
               ON payees.id = duplicates.source_id
               OR payees.id = duplicates.target_id
@@ -88,7 +88,7 @@ def upgrade() -> None:
                     ORDER BY tax_id.created_at, tax_id.id
                 ) AS keep_rank
             FROM payee_tax_ids tax_id
-            JOIN payee_dedupe_074 duplicates
+            JOIN payee_dedupe_076 duplicates
               ON duplicates.source_id = tax_id.payee_id
             WHERE NOT EXISTS (
                 SELECT 1
@@ -108,7 +108,7 @@ def upgrade() -> None:
         """
         UPDATE transactions
         SET payee_id = duplicates.target_id
-        FROM payee_dedupe_074 duplicates
+        FROM payee_dedupe_076 duplicates
         WHERE transactions.payee_id = duplicates.source_id
         """
     )
@@ -118,7 +118,7 @@ def upgrade() -> None:
         SET
             target_id = duplicates.target_id,
             workspace_id = target.workspace_id
-        FROM payee_dedupe_074 duplicates
+        FROM payee_dedupe_076 duplicates
         JOIN payees target ON target.id = duplicates.target_id
         WHERE payee_mapping.target_id = duplicates.source_id
         """
@@ -127,7 +127,7 @@ def upgrade() -> None:
         """
         INSERT INTO payee_mapping (id, user_id, workspace_id, target_id)
         SELECT source.id, source.user_id, source.workspace_id, duplicates.target_id
-        FROM payee_dedupe_074 duplicates
+        FROM payee_dedupe_076 duplicates
         JOIN payees source ON source.id = duplicates.source_id
         ON CONFLICT (id) DO UPDATE
         SET
@@ -156,7 +156,7 @@ def upgrade() -> None:
             FROM rules rules_to_update
             CROSS JOIN LATERAL json_array_elements(rules_to_update.actions)
                 WITH ORDINALITY AS action(item, ordinality)
-            LEFT JOIN payee_dedupe_074 duplicates
+            LEFT JOIN payee_dedupe_076 duplicates
               ON action.item->>'op' = 'set_payee'
              AND action.item->>'value' = duplicates.source_id::text
             GROUP BY rules_to_update.id
@@ -170,13 +170,46 @@ def upgrade() -> None:
         DO $$
         DECLARE duplicate record;
         BEGIN
-            FOR duplicate IN SELECT * FROM payee_dedupe_074 LOOP
+            FOR duplicate IN SELECT * FROM payee_dedupe_076 LOOP
                 UPDATE rules
-                SET conditions = replace(
-                    conditions::text,
-                    to_jsonb(duplicate.source_id::text)::text,
-                    to_jsonb(duplicate.target_id::text)::text
-                )::json
+                SET conditions = (
+                    SELECT jsonb_agg(
+                        CASE
+                            WHEN node.item ? 'conditions' THEN jsonb_set(
+                                node.item,
+                                '{conditions}',
+                                (
+                                    SELECT jsonb_agg(
+                                        CASE
+                                            WHEN leaf.item->>'field' = 'payee_id'
+                                             AND leaf.item->>'value' = duplicate.source_id::text
+                                            THEN jsonb_set(
+                                                leaf.item,
+                                                '{value}',
+                                                to_jsonb(duplicate.target_id::text)
+                                            )
+                                            ELSE leaf.item
+                                        END
+                                        ORDER BY leaf.ordinality
+                                    )
+                                    FROM jsonb_array_elements(node.item->'conditions')
+                                        WITH ORDINALITY AS leaf(item, ordinality)
+                                )
+                            )
+                            WHEN node.item->>'field' = 'payee_id'
+                             AND node.item->>'value' = duplicate.source_id::text
+                            THEN jsonb_set(
+                                node.item,
+                                '{value}',
+                                to_jsonb(duplicate.target_id::text)
+                            )
+                            ELSE node.item
+                        END
+                        ORDER BY node.ordinality
+                    )::json
+                    FROM jsonb_array_elements(conditions::jsonb)
+                        WITH ORDINALITY AS node(item, ordinality)
+                )
                 WHERE jsonb_path_exists(
                     conditions::jsonb,
                     '$.** ? (@.field == "payee_id" && @.value == $source)',
@@ -189,7 +222,7 @@ def upgrade() -> None:
     op.execute(
         """
         DELETE FROM payees
-        USING payee_dedupe_074 duplicates
+        USING payee_dedupe_076 duplicates
         WHERE payees.id = duplicates.source_id
         """
     )

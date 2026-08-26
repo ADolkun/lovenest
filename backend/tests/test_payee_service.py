@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -224,21 +224,35 @@ async def test_get_or_create_payee_empty_raises(session: AsyncSession, test_user
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_payee_returns_case_insensitive_concurrent_winner():
-    session = AsyncMock(spec=AsyncSession)
-    missing = MagicMock()
-    missing.scalar_one_or_none.return_value = None
-    winner = MagicMock(name="Same Payee")
-    found = MagicMock()
-    found.scalar_one_or_none.return_value = winner
-    session.execute.side_effect = [missing, found]
-    session.flush.side_effect = IntegrityError("INSERT", {}, Exception("duplicate"))
-
-    result = await get_or_create_payee(
-        session, uuid.uuid4(), "same payee", workspace_id=uuid.uuid4()
+async def test_get_or_create_payee_returns_case_insensitive_concurrent_winner(
+    session: AsyncSession, test_user, test_workspace, monkeypatch
+):
+    winner = await create_payee(
+        session,
+        test_workspace.id,
+        test_user.id,
+        PayeeCreate(name="Same Payee"),
     )
 
-    assert result is winner
+    real_execute = session.execute
+    missing = MagicMock()
+    missing.scalar_one_or_none.return_value = None
+    first_lookup = True
+
+    async def miss_once(*args, **kwargs):
+        nonlocal first_lookup
+        if first_lookup:
+            first_lookup = False
+            return missing
+        return await real_execute(*args, **kwargs)
+
+    monkeypatch.setattr(session, "execute", miss_once)
+
+    result = await get_or_create_payee(
+        session, test_user.id, "same payee", workspace_id=test_workspace.id
+    )
+
+    assert result.id == winner.id
 
 
 @pytest.mark.asyncio
