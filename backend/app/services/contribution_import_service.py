@@ -10,7 +10,6 @@ and to not write the same one twice.
 
 import csv
 import io
-import re
 import uuid
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal
@@ -43,10 +42,8 @@ from app.services.import_service import _sniff_csv_dialect
 
 _CENTS = Decimal("0.01")
 
-#: What `_decode` strips off the front, in bytes. Counting the lines it took
-#: keeps `row_number` pointing at the line the user will find in their own
-#: file rather than at the line left after the preamble was dropped.
-_PREAMBLE = re.compile(rb"^(?:\xef\xbb\xbf|[\r\n \t])*")
+#: What `_decode` strips off the front, as bytes.
+_PREAMBLE_BYTES = b"\xef\xbb\xbf\r\n \t"
 
 #: The three columns this import needs, and every spelling of them seen in the
 #: wild. Order matters: the first candidate that matches an unclaimed header
@@ -137,7 +134,11 @@ def parse_history_csv(
     # A row with fewer cells than the header is the disclaimer the export signs
     # off with, or a blank line. Reporting those as skipped rows would bury the
     # ones the user can act on, so they are not rows at all.
-    first_line = header_at + 2 + _PREAMBLE.match(content).group().count(b"\n")
+    # Counting the lines `_decode` took off the front keeps `row_number`
+    # pointing at the line the user will find in their own file, rather than at
+    # the line left after the preamble was dropped.
+    dropped = len(content) - len(content.lstrip(_PREAMBLE_BYTES))
+    first_line = header_at + 2 + content[:dropped].count(b"\n")
     data = [
         (first_line + offset, row)
         for offset, row in enumerate(rows[header_at + 1:])
@@ -154,7 +155,7 @@ def parse_history_csv(
         amount = _parse_decimal(cells["amount"])
 
         kind = classify_flow(action, amount)
-        if kind is None:
+        if kind is None or amount is None:
             skipped.append(ContributionImportSkip(
                 row_number=number,
                 action=action,

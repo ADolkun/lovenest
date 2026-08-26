@@ -989,11 +989,13 @@ export interface ContributionSummary {
 
 export interface ContributionImportRow {
   row_number: number
-  date: string | null
-  tax_year: number | null
-  kind: ContributionKind | null
+  /** Never null: the parser skips a row whose date, amount or direction it
+      could not read, so a matched row has all three. */
+  date: string
+  tax_year: number
+  kind: ContributionKind
   party: ContributionParty
-  amount: number | null
+  amount: number
   action: string
   /** The account the broker filed the row under, where the file names one. */
   account: string | null

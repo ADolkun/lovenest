@@ -5,10 +5,11 @@ is not reimplemented, moved or retested here. This module only assembles the
 figures it already asks for, under the exact key names it already reads, so the
 sidecar can merge the response into its form and calculate as before.
 
-Every figure names itself as live in `live`, and everything not in that list is
-still whatever the user typed. `hsa_receipts` never appears there: banked
-medical receipts are paper in a drawer, and nothing in this application knows
-about them.
+A figure names itself in `live` only where this application actually knows it,
+and everything not in that list is still whatever the user typed. A bucket the
+user keeps no wallet for is therefore absent even though its key is sent as
+zero. `hsa_receipts` never appears either: banked medical receipts are paper in
+a drawer, and nothing here knows about them.
 """
 
 import uuid
@@ -52,6 +53,7 @@ async def projection_feed(
     """Balances by bucket, withdrawable basis, and this year's contributions."""
     balances: dict[str, Decimal] = {bucket: Decimal("0") for bucket in _BUCKETS.values()}
     other = Decimal("0")
+    tracked: set[str] = set()
 
     for group in await asset_group_service.get_groups(session, workspace_id, user_id):
         value = Decimal(str(group.current_value_primary))
@@ -60,6 +62,7 @@ async def projection_feed(
             other += value
         else:
             balances[bucket] += value
+            tracked.add(group.tax_treatment)
 
     basis = await contribution_service.basis_by_tax_treatment(
         session, workspace_id, as_of=as_of
@@ -90,9 +93,14 @@ async def projection_feed(
             ),
         },
     }
+    # Only a bucket the user actually keeps a wallet for is live. Every key is
+    # still sent, but an untracked one is a zero this application invented, and
+    # claiming it would overwrite the real figure the user typed with 0 — and
+    # then colour it green. A tracked bucket holding nothing is a different
+    # thing: that zero is an answer, and it is claimed.
     feed["live"] = sorted(
-        key
-        for key in feed
-        if key not in ("as_of", "tax_year", "annual_is_year_to_date", "excluded", "live")
+        [_BUCKETS[treatment] for treatment in tracked]
+        + [_ANNUAL_KEYS[treatment] for treatment in tracked]
+        + (["roth_basis"] if "roth" in tracked else [])
     )
     return feed

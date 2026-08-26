@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict
 from datetime import date as _date
 from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Iterable, Optional, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -23,6 +23,8 @@ from app.schemas.asset_contribution import (
     AssetContributionCreate,
     AssetContributionRead,
     AssetContributionUpdate,
+    ContributionKind,
+    ContributionParty,
     ContributionSummaryRead,
     ContributionYearRead,
 )
@@ -237,12 +239,27 @@ def withdrawable_basis(rows: Iterable, *, as_of: _date) -> Decimal:
 # ---------------------------------------------------------------------------
 
 
+async def _treatments_by_group(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> dict[uuid.UUID, Optional[str]]:
+    return {
+        group_id: treatment
+        for group_id, treatment in (
+            await session.execute(
+                select(AssetGroup.id, AssetGroup.tax_treatment).where(
+                    AssetGroup.workspace_id == workspace_id
+                )
+            )
+        ).all()
+    }
+
+
 def _to_read(row: AssetContribution, as_of: _date) -> AssetContributionRead:
     return AssetContributionRead(
         id=row.id,
         group_id=row.group_id,
-        kind=row.kind,
-        party=row.party,
+        kind=cast(ContributionKind, row.kind),
+        party=cast(ContributionParty, row.party),
         amount=float(_d(row.amount)),
         date=row.date,
         tax_year=row.tax_year,
@@ -417,15 +434,7 @@ async def basis_by_tax_treatment(
     the penalty rule is applied account by account.
     """
     rows = await _load(session, workspace_id)
-    treatments = dict(
-        (
-            await session.execute(
-                select(AssetGroup.id, AssetGroup.tax_treatment).where(
-                    AssetGroup.workspace_id == workspace_id
-                )
-            )
-        ).all()
-    )
+    treatments = await _treatments_by_group(session, workspace_id)
 
     by_group: dict[uuid.UUID, list[AssetContribution]] = defaultdict(list)
     for row in rows:
@@ -450,15 +459,7 @@ async def annual_by_tax_treatment(
     and still compounds.
     """
     rows = await _load(session, workspace_id, tax_year=tax_year)
-    treatments = dict(
-        (
-            await session.execute(
-                select(AssetGroup.id, AssetGroup.tax_treatment).where(
-                    AssetGroup.workspace_id == workspace_id
-                )
-            )
-        ).all()
-    )
+    treatments = await _treatments_by_group(session, workspace_id)
 
     totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for row in rows:

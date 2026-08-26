@@ -8,11 +8,13 @@ class ContributionImportRow(BaseModel):
     """One row of the file that will become a Contribution or a Distribution."""
 
     row_number: int
-    date: _date | None
-    tax_year: int | None
-    kind: str | None  # contribution | distribution
+    #: Never null: the parser skips a row whose date, amount or direction it
+    #: could not read, so a matched row has all three.
+    date: _date
+    tax_year: int
+    kind: str  # contribution | distribution
     party: str  # self | employer
-    amount: float | None  # always positive; `kind` carries the sign
+    amount: float  # always positive; `kind` carries the sign
     #: The raw action text, so the reader can see *why* the row was read this
     #: way. Classification is a guess at prose, and a guess has to be checkable.
     action: str

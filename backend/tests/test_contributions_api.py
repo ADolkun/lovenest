@@ -249,6 +249,29 @@ async def test_the_feed_buckets_wallets_by_tax_character(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_a_bucket_with_no_wallet_is_not_claimed_as_live(client, auth_headers):
+    """The zero is this application's, not the user's. Claiming it would
+    overwrite a real HSA balance they typed into the planner with 0."""
+    await _wallet(client, auth_headers, "Roth IRA", tax_treatment="roth")
+
+    feed = (await client.get("/api/assets/projection-feed", headers=auth_headers)).json()
+    assert feed["hsa"] == 0.0
+    assert "hsa" not in feed["live"]
+    assert "annual_hsa" not in feed["live"]
+    assert "roth_ira" in feed["live"] and "roth_basis" in feed["live"]
+
+
+@pytest.mark.asyncio
+async def test_a_tracked_bucket_holding_nothing_is_still_claimed(client, auth_headers):
+    """A wallet the user keeps and has not funded is a real zero."""
+    await _wallet(client, auth_headers, "HSA", tax_treatment="hsa")
+
+    feed = (await client.get("/api/assets/projection-feed", headers=auth_headers)).json()
+    assert feed["annual_hsa"] == 0.0
+    assert "hsa" in feed["live"] and "annual_hsa" in feed["live"]
+
+
+@pytest.mark.asyncio
 async def test_the_feeds_withdrawable_basis_is_the_roth_wallets_net_contribution(
     client, auth_headers
 ):

@@ -14,7 +14,6 @@ import type { ContributionImportPreview } from '@/types'
 const SELECT_CLASS =
   'border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]'
 const ROWS_GRID = '3rem 1fr 0.7fr 1.1fr 0.9fr 1fr 1.1fr'
-const DASH = '—'
 
 /**
  * The contributions half of the import page (ADR 0001's 2026-08-23 amendment:
@@ -324,13 +323,13 @@ export function ContributionImportPanel() {
                 style={{ gridTemplateColumns: ROWS_GRID }}
               >
                 <div className="tabular-nums text-muted-foreground">{row.row_number}</div>
-                <div className="text-foreground">{row.date ?? DASH}</div>
-                <div className="text-right tabular-nums text-muted-foreground">{row.tax_year ?? DASH}</div>
+                <div className="text-foreground">{row.date}</div>
+                <div className="text-right tabular-nums text-muted-foreground">{row.tax_year}</div>
                 <div className="text-muted-foreground">
-                  {row.kind ? t(`assets.contribKind_${row.kind}`) : DASH}
+                  {t(`assets.contribKind_${row.kind}`)}
                 </div>
                 <div className="text-muted-foreground">{t(`assets.contribParty_${row.party}`)}</div>
-                <div className="text-right tabular-nums text-foreground">{row.amount ?? DASH}</div>
+                <div className="text-right tabular-nums text-foreground">{row.amount}</div>
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <span className="truncate">{row.action}</span>
                   {row.duplicate && (
