@@ -1237,27 +1237,14 @@ async def _find_existing_connected_account(
                 candidate for candidate in candidates
                 if candidate.institution_id is None
             ]
-            if len(candidates) > 1:
-                return None
     else:
         candidates = [
             candidate for candidate in candidates
             if candidate.institution_id is None
         ]
-    if not candidates:
+    if len(candidates) != 1:
         return None
 
-    # Prefer the user's established/customized account over a freshly-created
-    # duplicate: it usually has a display name, corrected type, and history.
-    candidates.sort(
-        key=lambda candidate: (
-            not candidate.is_closed,
-            candidate.display_name is not None,
-            candidate.type != acc_data.type,
-            candidate.external_id is not None,
-        ),
-        reverse=True,
-    )
     account = candidates[0]
     account.external_id = acc_data.external_id
     return account

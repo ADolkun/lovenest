@@ -1018,6 +1018,54 @@ async def test_simplefin_rekey_reserves_ids_from_later_accounts(
 
 
 @pytest.mark.asyncio
+async def test_simplefin_rekey_refuses_same_institution_ambiguity(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    institution = Institution(
+        connection_id=conn.id, external_id="bank-a", name="Bank A"
+    )
+    session.add(institution)
+    await session.flush()
+    accounts = [
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            institution_id=institution.id,
+            external_id=f"old-{index}",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+        )
+        for index in range(2)
+    ]
+    session.add_all(accounts)
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="rotated-id",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+            institution_external_id="bank-a",
+            institution_name="Bank A",
+        ),
+        institution,
+        {"rotated-id"},
+    )
+
+    assert matched is None
+    assert {account.external_id for account in accounts} == {"old-0", "old-1"}
+
+
+@pytest.mark.asyncio
 async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
     session: AsyncSession, test_user, test_workspace,
 ):

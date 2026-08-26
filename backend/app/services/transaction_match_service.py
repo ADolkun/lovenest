@@ -65,7 +65,11 @@ async def find_unique_transaction_match(
         for candidate in result.scalars().all()
         if any(
             descriptions_match(candidate_description, incoming_description)
-            for candidate_description in (candidate.description, candidate.payee)
+            for candidate_description in (
+                candidate.description,
+                candidate.original_description,
+                candidate.payee,
+            )
             for incoming_description in incoming_descriptions
         )
     ]
@@ -83,7 +87,11 @@ async def find_unique_transaction_match(
         if incoming_exact
         & {
             normalized
-            for value in (candidate.description, candidate.payee)
+            for value in (
+                candidate.description,
+                candidate.original_description,
+                candidate.payee,
+            )
             if (normalized := _normalize_description(value))
         }
     ]
