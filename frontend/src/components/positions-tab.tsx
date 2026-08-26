@@ -512,8 +512,8 @@ export default function PositionsTab({
     label: string,
     value: number,
     hint?: string,
-    emphasis = false,
     share?: number,
+    emphasis = false,
   ) {
     return (
       <div className="flex items-baseline justify-between gap-4 px-3 py-2 border-t border-border">
@@ -582,7 +582,6 @@ export default function PositionsTab({
             t('assets.posCashEquivalents'),
             portfolio.cashEquivalentTotal,
             t('assets.posCashEquivalentHint'),
-            false,
             shareOfTotal(portfolio.cashEquivalentTotal, portfolio.total),
           )}
         {portfolio.liquidCashTotal > 0 &&
@@ -590,12 +589,11 @@ export default function PositionsTab({
             t('assets.posLiquidCash'),
             portfolio.liquidCashTotal,
             t('assets.posLiquidCashHint'),
-            false,
             shareOfTotal(portfolio.liquidCashTotal, portfolio.total),
           )}
         {portfolio.dustTotal > 0 &&
           renderTotalRow(t('assets.posDust'), portfolio.dustTotal, t('assets.posDustHint'))}
-        {renderTotalRow(t('assets.posGrandTotal'), portfolio.total, undefined, true)}
+        {renderTotalRow(t('assets.posGrandTotal'), portfolio.total, undefined, undefined, true)}
       </div>
     </div>
   )

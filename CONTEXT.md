@@ -163,7 +163,11 @@ never a single-account question. It does not reach every asset class: crypto is
 property rather than a security, so no wash sale arises there.
 
 **Liquid Cash** — settled, uninvested cash sitting inside a brokerage account.
-Part of the account's total, but not part of any Holding.
+Part of the account's total, but not part of any Holding. Nothing reports it, so
+it is derived: the account balance less everything the Wallet holds, floored at
+zero. A provider that prices its own holdings against a zero balance would
+otherwise drive it negative. An incomplete subtraction derives nothing at all —
+an unpriced Holding leaves a remainder that is that Holding, not cash.
 
 **Cash Equivalent** — an instrument that is nominally a Holding but behaves as
 Liquid Cash: a government money-market fund, or a fiat-pegged stablecoin. It has

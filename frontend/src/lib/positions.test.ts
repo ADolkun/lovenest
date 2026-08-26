@@ -359,7 +359,6 @@ describe('liquid cash', () => {
   })
 
   it('derives no cash from a wallet whose account reported no balance', () => {
-    // Null is not zero: a manual wallet has no account behind it to subtract from.
     const { liquidCashTotal, total } = buildPortfolio(
       [holding({ ticker: 'VOO', value: 1000, groupId: 'w1' })],
       [wallet('w1', null)],
@@ -380,24 +379,67 @@ describe('liquid cash', () => {
     expect(byAccountType).toEqual([{ key: 'investment', value: 1000, weight: 1 }])
   })
 
-  it('adds the equivalents that behave as cash to the cash total', () => {
-    const { cashTotal, cashEquivalentTotal, liquidCashTotal } = buildPortfolio(
+  it('counts dust and cash equivalents against the balance too', () => {
+    // The provider's balance covers everything parked in the account, so
+    // anything left unsubtracted would resurface as cash that is not there.
+    const { cashEquivalentTotal, liquidCashTotal } = buildPortfolio(
       [
         holding({ ticker: 'SPAXX', type: CASH_EQUIVALENT_TYPE, value: 400, groupId: 'w1' }),
+        holding({ ticker: 'SHIB', value: 0.4, groupId: 'w1' }),
         holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
       ],
       [wallet('w1', 'investment', 'taxable', 1100)],
     )
 
     expect(cashEquivalentTotal).toBe(400)
+    expect(liquidCashTotal).toBe(99.6)
+  })
+
+  it('derives nothing from a wallet holding something nobody has priced', () => {
+    // The unpriced holding is worth an unknown amount, not zero — so the
+    // remainder of the balance is that holding, not settled cash.
+    const { liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'ILLIQ', units: 5, value: null, gain: null, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 1000)],
+    )
+
+    expect(liquidCashTotal).toBe(0)
+  })
+
+  it('counts an asset with no ticker against the balance', () => {
+    // Positions are built from ticker'd holdings only, but the account balance
+    // covers whatever else the wallet was given.
+    const { liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', value: 600, groupId: 'w1' }),
+        holding({ ticker: null, name: 'Gold bar', type: 'commodity', value: 300, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 1000)],
+    )
+
     expect(liquidCashTotal).toBe(100)
-    expect(cashTotal).toBe(500)
+  })
+
+  it('leaves sold and archived holdings out of the subtraction', () => {
+    const { liquidCashTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'SOLD', value: 999, sellDate: '2026-01-01', groupId: 'w1' }),
+        holding({ ticker: 'GONE', value: 999, archived: true, groupId: 'w1' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 1000)],
+    )
+
+    expect(liquidCashTotal).toBe(400)
   })
 })
 
 describe('shareOfTotal', () => {
   it('reads cash as a percentage of the whole portfolio', () => {
-    const { cashTotal, total } = buildPortfolio(
+    const { cashEquivalentTotal, liquidCashTotal, total } = buildPortfolio(
       [
         holding({ ticker: 'SPAXX', type: CASH_EQUIVALENT_TYPE, value: 100, groupId: 'w1' }),
         holding({ ticker: 'VOO', type: 'etf', value: 700, groupId: 'w1' }),
@@ -406,8 +448,8 @@ describe('shareOfTotal', () => {
     )
 
     expect(total).toBe(1000)
-    expect(cashTotal).toBe(300)
-    expect(shareOfTotal(cashTotal, total)).toBe(0.3)
+    expect(shareOfTotal(cashEquivalentTotal, total)).toBe(0.1)
+    expect(shareOfTotal(liquidCashTotal, total)).toBe(0.2)
   })
 
   it('gives no share of an empty portfolio rather than NaN', () => {

@@ -197,7 +197,7 @@ async def _institution_name_for(
     return row.scalar_one_or_none()
 
 
-async def _account_facts_for(
+async def _account_type_and_balance_for(
     session: AsyncSession, group: AssetGroup, primary_currency: str
 ) -> tuple[Optional[str], Optional[Decimal]]:
     """The (type, balance) of the provider account a synced wallet mirrors.
@@ -264,7 +264,7 @@ async def get_groups(
         if g.source != "manual" and count == 0:
             continue
         institution = await _institution_name_for(session, g.connection_id)
-        account_type, balance = await _account_facts_for(session, g, primary)
+        account_type, balance = await _account_type_and_balance_for(session, g, primary)
         reads.append(_group_to_read(g, count, cv, cvp, ccy, institution, account_type, balance))
     return reads
 
@@ -284,7 +284,7 @@ async def get_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    account_type, balance = await _account_facts_for(session, group, primary)
+    account_type, balance = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
 
@@ -344,7 +344,7 @@ async def update_group(
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group.connection_id)
-    account_type, balance = await _account_facts_for(session, group, primary)
+    account_type, balance = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
 
