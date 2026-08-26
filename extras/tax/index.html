@@ -1329,6 +1329,7 @@ function taxApp() {
       this.prefillLoading = true; this.prefillMsg = ""; this.prefillHint = "";
       try {
         const r = await this.authFetch("api/prefill");
+        if (!r.ok) throw new Error("The planner could not reach your data (HTTP " + r.status + ").");
         const d = await r.json();
         if (d.error) { this.prefillMsg = "Couldn't read your data: " + d.error; return; }
         // total_income is every non-transfer deposit YTD, not W-2 wages, so it
@@ -1417,6 +1418,11 @@ function taxApp() {
         if (ex.ungrouped) notes.push(`${this.usd(ex.ungrouped)} sits in holdings with no wallet and is not in these balances.`);
         if (d.annual_is_year_to_date) notes.push(`Annual contributions are ${d.tax_year || ""} year-to-date, not a full-year rate — raise them to your planned annual amount before projecting.`);
         notes.push("Ages, rates, spend, Roth conversion and banked HSA receipts stay yours — nothing in Lovenest tracks them.");
+        const applied = Object.keys(this.projLive).length;
+        if (!applied) {
+          this.projPrefillMsg = "Nothing to load — no wallet here has a tax character the projection models.";
+          return;
+        }
         this.projPrefillHint = notes.join(" ");
         this.projPrefillMsg = `Loaded balances as of ${d.as_of || "today"}. Fields marked live came from your data.`;
       } catch (e) {
@@ -1551,6 +1557,7 @@ function taxApp() {
       this.woLoading = true;
       try {
         const r = await this.authFetch("api/writeoffs");
+        if (!r.ok) throw new Error("The planner could not reach your data (HTTP " + r.status + ").");
         this.wo = await r.json();
         this.woLoaded = true;
       } catch (e) {

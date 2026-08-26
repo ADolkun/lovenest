@@ -156,6 +156,36 @@ def test_a_decimal_comma_is_still_a_decimal_comma():
     assert [row.amount for row in matched] == [1442.20]
 
 
+def test_a_broker_that_calls_it_acct_still_gets_the_refusal():
+    """The account column is what makes the multi-account refusal possible;
+    a spelling we do not know means a merge nobody is told about."""
+    header = "Run Date,Acct,Action,Amount"
+    body = (
+        "03/14/2025,ROTH IRA,CASH CONTRIBUTION CURRENT YEAR,6535.95\n"
+        "02/13/2025,Individual - TOD,Electronic Funds Transfer Received,10000.00\n"
+    )
+    _headers, matched, _skipped = parse_history_csv(
+        (header + "\n" + body).encode("utf-8")
+    )
+
+    assert sorted(row.account or "" for row in matched) == ["Individual - TOD", "ROTH IRA"]
+
+
+def test_a_balance_column_is_not_mistaken_for_the_account():
+    """A looser match would read a different value on every row and refuse a
+    single-account file as though it covered forty."""
+    header = "Run Date,Action,Amount,Account Balance"
+    body = (
+        "03/14/2025,CASH CONTRIBUTION CURRENT YEAR,6535.95,11000.00\n"
+        "04/02/2025,CASH CONTRIBUTION PRIOR YEAR,1500.00,12500.00\n"
+    )
+    _headers, matched, _skipped = parse_history_csv(
+        (header + "\n" + body).encode("utf-8")
+    )
+
+    assert {row.account for row in matched} == {None}
+
+
 def test_a_row_the_file_names_no_account_for_is_not_merged_in():
     """In a file covering several accounts, whose an unattributed row is
     cannot be read — and merging it is the guess this refuses to make."""

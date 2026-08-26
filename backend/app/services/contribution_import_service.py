@@ -69,7 +69,29 @@ _COLUMN_CANDIDATES = {
 #: taxable-brokerage transfer in such a file would be filed as an IRA
 #: contribution, against the wrong annual limit and the wrong withdrawable
 #: basis.
-_ACCOUNT_CANDIDATES = ("account", "account name", "account type", "account number")
+#:
+#: Matched exactly rather than by substring: "account balance" and "account
+#: value" would both be picked up by a looser rule, and a column of balances
+#: has a different value on every row — which this would then read as a file
+#: covering forty accounts and refuse outright. A spelling not on this list
+#: means no account column is found and a genuinely multi-account file is
+#: merged, so a broker beyond these belongs here rather than in a looser match.
+_ACCOUNT_CANDIDATES = (
+    "account",
+    "account name",
+    "account type",
+    "account number",
+    "account id",
+    "account #",
+    "acct",
+    "acct name",
+    "acct type",
+    "acct number",
+    "acct #",
+    "registration",
+    "portfolio",
+    "portfolio name",
+)
 
 
 def _account_column(headers: list[str], mapping: dict[str, str]) -> Optional[str]:
