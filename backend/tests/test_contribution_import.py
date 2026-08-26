@@ -176,14 +176,34 @@ _TWO_ACCOUNT_HISTORY = _history(
 
 
 @pytest.mark.asyncio
-async def test_a_file_covering_two_accounts_is_refused_rather_than_merged(
+async def test_a_file_covering_two_accounts_asks_rather_than_merging(
+    client, auth_headers, wallet
+):
+    """The preview names the accounts instead of guessing between them, so the
+    panel can offer the choice without scraping it out of an error."""
+    response = await client.post(
+        "/api/contributions/import/preview",
+        headers=auth_headers,
+        **_upload(_TWO_ACCOUNT_HISTORY, wallet),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert sorted(body["accounts"]) == ["Individual - TOD", "ROTH IRA"]
+    assert body["matched"] == []
+    assert [w["code"] for w in body["warnings"]] == ["choose_account"]
+
+
+@pytest.mark.asyncio
+async def test_importing_a_two_account_file_without_choosing_is_refused(
     client, auth_headers, session, wallet
 ):
     """An import writes into one Wallet. Filing the brokerage account's
     transfers under an IRA would put them against the wrong annual limit and
-    the wrong withdrawable basis."""
+    the wrong withdrawable basis, so the write path refuses where the preview
+    only asks."""
     response = await client.post(
-        "/api/contributions/import/preview",
+        "/api/contributions/import",
         headers=auth_headers,
         **_upload(_TWO_ACCOUNT_HISTORY, wallet),
     )

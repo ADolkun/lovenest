@@ -148,7 +148,7 @@ def _d(value) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value or 0))
 
 
-def _cents(value: Decimal) -> float:
+def cents(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.01")))
 
 
@@ -166,8 +166,10 @@ def summarise(
     in the account and growing, but it is not the user's yet, so it is reported
     beside the figure rather than inside it.
 
-    `return_net_of_contributions` is the wallet's value now minus that figure:
-    a balance that rose only because money was paid in shows no gain.
+    `return_net_of_contributions` is the wallet's value now minus every dollar
+    paid in, vested or not, less what was taken out: a balance that rose only
+    because money was deposited shows no gain. It cannot use `net` — unvested
+    employer money sits in the balance and would otherwise be counted as return.
 
     The per-year rows answer a different question — progress against an annual
     limit — and a limit is measured on money paid in, whether or not it has
@@ -196,24 +198,25 @@ def summarise(
             year["own"] += amount
 
     net = own + employer_vested - distributions
+    paid_in = own + employer - distributions
     return {
-        "own_contributions": _cents(own),
-        "employer_contributions": _cents(employer),
-        "employer_vested": _cents(employer_vested),
-        "employer_unvested": _cents(employer - employer_vested),
-        "distributions": _cents(distributions),
-        "net": _cents(net),
-        "current_value": None if current_value is None else _cents(_d(current_value)),
+        "own_contributions": cents(own),
+        "employer_contributions": cents(employer),
+        "employer_vested": cents(employer_vested),
+        "employer_unvested": cents(employer - employer_vested),
+        "distributions": cents(distributions),
+        "net": cents(net),
+        "current_value": None if current_value is None else cents(_d(current_value)),
         "return_net_of_contributions": (
-            None if current_value is None else _cents(_d(current_value) - net)
+            None if current_value is None else cents(_d(current_value) - paid_in)
         ),
         "years": [
             {
                 "tax_year": year,
-                "own": _cents(totals["own"]),
-                "employer": _cents(totals["employer"]),
-                "distributions": _cents(totals["distributions"]),
-                "net": _cents(totals["own"] + totals["employer"] - totals["distributions"]),
+                "own": cents(totals["own"]),
+                "employer": cents(totals["employer"]),
+                "distributions": cents(totals["distributions"]),
+                "net": cents(totals["own"] + totals["employer"] - totals["distributions"]),
             }
             for year, totals in sorted(per_year.items(), reverse=True)
         ],

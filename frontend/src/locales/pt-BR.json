@@ -1185,7 +1185,9 @@
     "colAction": "Ação",
     "account": "Conta no arquivo",
     "pickAccount": "Escolha uma conta",
-    "accountHint": "Este arquivo cobre mais de uma conta. Escolha a que corresponde a esta carteira."
+    "accountHint": "Este arquivo cobre mais de uma conta. Escolha a que corresponde a esta carteira.",
+    "warn_no_rows": "Nenhuma linha deste arquivo é um aporte ou uma retirada.",
+    "warn_choose_account": "Este arquivo cobre mais de uma conta. Escolha a que corresponde a esta carteira."
   },
   "assets": {
     "title": "Patrimônio",

@@ -954,8 +954,7 @@ export interface AssetContribution {
   party: ContributionParty
   amount: number
   date: string
-  /** The year it counts against — an IRA contribution made before April 15 may
-      be designated for the prior year, so this is not always `date`'s year. */
+  /** The year it counts against, which is not always `date`'s year. */
   tax_year: number
   vested_on: string | null
   /** Derived server-side against today, never stored. */
@@ -1007,6 +1006,12 @@ export interface ContributionImportSkip {
   reason: string
 }
 
+/** A code, not a sentence — the server does not speak the user's language. */
+export interface ContributionImportWarning {
+  code: string
+  count: number
+}
+
 export interface ContributionImportPreview {
   columns: string[]
   /** Every account the file names. More than one means a choice is required:
@@ -1015,7 +1020,7 @@ export interface ContributionImportPreview {
   total_rows: number
   matched: ContributionImportRow[]
   skipped: ContributionImportSkip[]
-  warnings: string[]
+  warnings: ContributionImportWarning[]
 }
 
 export interface ContributionImportResult {

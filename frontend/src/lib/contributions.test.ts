@@ -7,7 +7,6 @@ import {
   draftPayload,
   emptyDraft,
   isPriorYearEntry,
-  isUnvested,
   rowsByWallet,
   summariesByWallet,
   type ContributionDraft,
@@ -109,30 +108,6 @@ describe('isPriorYearEntry', () => {
   it('says nothing about a draft with no usable year', () => {
     expect(isPriorYearEntry(draft({ taxYear: '' }))).toBe(false)
     expect(isPriorYearEntry(draft({ date: '' }))).toBe(false)
-  })
-})
-
-describe('isUnvested', () => {
-  const today = '2026-08-25'
-
-  it('is unvested while the vesting date is still ahead', () => {
-    expect(isUnvested(contribution({ party: 'employer', vested_on: '2028-01-01' }), today)).toBe(true)
-  })
-
-  it('vests on the day itself, not the day after', () => {
-    expect(isUnvested(contribution({ party: 'employer', vested_on: today }), today)).toBe(false)
-  })
-
-  it('is vested once the date has passed', () => {
-    expect(isUnvested(contribution({ party: 'employer', vested_on: '2020-01-01' }), today)).toBe(false)
-  })
-
-  it('treats employer money with no vesting date as already the user`s', () => {
-    expect(isUnvested(contribution({ party: 'employer', vested_on: null }), today)).toBe(false)
-  })
-
-  it('never calls the user`s own money unvested', () => {
-    expect(isUnvested(contribution({ party: 'self', vested_on: '2028-01-01' }), today)).toBe(false)
   })
 })
 

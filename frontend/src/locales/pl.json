@@ -1263,7 +1263,9 @@
     "colAction": "Akcja",
     "account": "Konto w pliku",
     "pickAccount": "Wybierz konto",
-    "accountHint": "Ten plik obejmuje więcej niż jedno konto. Wybierz to, któremu odpowiada ten portfel."
+    "accountHint": "Ten plik obejmuje więcej niż jedno konto. Wybierz to, któremu odpowiada ten portfel.",
+    "warn_no_rows": "Żaden wiersz tego pliku nie jest wpłatą ani wypłatą.",
+    "warn_choose_account": "Ten plik obejmuje więcej niż jedno konto. Wybierz to, któremu odpowiada ten portfel."
   },
   "assets": {
     "title": "Aktywa",

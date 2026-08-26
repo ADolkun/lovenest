@@ -1185,7 +1185,9 @@
     "colAction": "Aktion",
     "account": "Konto in der Datei",
     "pickAccount": "Konto auswählen",
-    "accountHint": "Diese Datei enthält mehrere Konten. Wählen Sie das Konto dieser Wallet."
+    "accountHint": "Diese Datei enthält mehrere Konten. Wählen Sie das Konto dieser Wallet.",
+    "warn_no_rows": "Keine Zeile dieser Datei ist eine Einzahlung oder Entnahme.",
+    "warn_choose_account": "Diese Datei enthält mehrere Konten. Wählen Sie das Konto dieser Wallet."
   },
   "assets": {
     "title": "Vermögenswerte",

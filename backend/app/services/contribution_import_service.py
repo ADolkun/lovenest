@@ -27,9 +27,11 @@ from app.schemas.contribution_import import (
     ContributionImportResult,
     ContributionImportRow,
     ContributionImportSkip,
+    ContributionImportWarning,
 )
 from app.services import contribution_service
 from app.services.asset_import_service import (
+    _auto_mapping,
     _date_formats,
     _decode,
     _header_index,
@@ -73,21 +75,6 @@ _COLUMN_CANDIDATES = {
 _ACCOUNT_CANDIDATES = ("account", "account name", "account type", "account number")
 
 
-def _map_columns(headers: list[str]) -> dict[str, str]:
-    """Which header answers for which field, as far as this row gets."""
-    index = _header_index(headers)
-    mapping: dict[str, str] = {}
-    taken: set[str] = set()
-    for field, candidates in _COLUMN_CANDIDATES.items():
-        for candidate in candidates:
-            header = index.get(candidate)
-            if header is not None and header not in taken:
-                mapping[field] = header
-                taken.add(header)
-                break
-    return mapping
-
-
 def _account_column(headers: list[str], mapping: dict[str, str]) -> Optional[str]:
     """The account header, if the file has one the required columns did not
     already claim."""
@@ -112,7 +99,7 @@ def _find_header(rows: list[list[str]]) -> tuple[int, list[str], dict[str, str]]
     best: dict[str, str] = {}
     for position, row in enumerate(rows):
         headers = [cell.strip() for cell in row]
-        mapping = _map_columns(headers)
+        mapping = _auto_mapping(headers, _COLUMN_CANDIDATES)
         if len(mapping) == len(_COLUMN_CANDIDATES):
             return position, headers, mapping
         if len(mapping) > len(best):
@@ -306,16 +293,19 @@ async def preview(
     await contribution_service._require_group(session, group_id, workspace_id)
     columns, matched, skipped = parse_history_csv(content, date_format)
     accounts = _accounts_in(matched)
-    matched = _narrow_to_account(matched, skipped, account)
-    duplicates = _mark_duplicates(matched, await _already_imported(session, workspace_id, group_id))
 
+    # A preview of a multi-account file asks for the account rather than
+    # refusing: the accounts are in the response, so the panel can offer them.
+    # The write path still refuses — that is where a wrong guess costs money.
     warnings = []
-    if not matched:
-        warnings.append(
-            "No contributions or distributions found — this history may be all trades."
-        )
-    if duplicates:
-        warnings.append(f"{duplicates} of these are already recorded and will be skipped.")
+    if not (account or "").strip() and len(accounts) > 1:
+        matched = []
+        warnings.append(ContributionImportWarning(code="choose_account", count=len(accounts)))
+    else:
+        matched = _narrow_to_account(matched, skipped, account)
+        _mark_duplicates(matched, await _already_imported(session, workspace_id, group_id))
+        if not matched:
+            warnings.append(ContributionImportWarning(code="no_rows"))
 
     return ContributionImportPreview(
         columns=columns,

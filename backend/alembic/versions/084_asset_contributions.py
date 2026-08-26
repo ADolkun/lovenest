@@ -65,7 +65,6 @@ def upgrade() -> None:
         sa.Column("tax_year", sa.Integer(), nullable=False),
         sa.Column("vested_on", sa.Date(), nullable=True),
         sa.Column("source", sa.String(length=20), nullable=False, server_default="manual"),
-        sa.Column("external_id", sa.String(length=255), nullable=True),
         sa.Column("notes", sa.String(length=500), nullable=True),
         sa.Column(
             "import_id",

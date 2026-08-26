@@ -147,6 +147,20 @@ def test_return_is_shown_net_of_contributions():
     assert grown["return_net_of_contributions"] == 1500.0
 
 
+def test_unvested_employer_money_is_not_counted_as_return():
+    """It sits in the balance but nobody paid it as growth."""
+    summary = cs.summarise(
+        [
+            _row("contribution", 5000),
+            _row("contribution", 4000, party="employer", vested_on=date(2027, 6, 1)),
+        ],
+        as_of=TODAY,
+        current_value=Decimal("10000"),
+    )
+    assert summary["net"] == 5000.0
+    assert summary["return_net_of_contributions"] == 1000.0
+
+
 def test_return_is_unknown_rather_than_zero_when_the_wallet_has_no_value():
     summary = cs.summarise([_row("contribution", 100)], as_of=TODAY)
     assert summary["return_net_of_contributions"] is None

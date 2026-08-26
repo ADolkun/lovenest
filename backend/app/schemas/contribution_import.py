@@ -32,6 +32,15 @@ class ContributionImportSkip(BaseModel):
     reason: str
 
 
+class ContributionImportWarning(BaseModel):
+    """A warning as a code, not a sentence: the panel is translated into ten
+    languages and English prose from the server would be the only part that
+    is not."""
+
+    code: str  # no_rows | duplicates | choose_account
+    count: int = 0
+
+
 class ContributionImportPreview(BaseModel):
     columns: list[str] = []
     #: Every account named in the file, so the caller can say which one this
@@ -40,7 +49,7 @@ class ContributionImportPreview(BaseModel):
     total_rows: int = 0
     matched: list[ContributionImportRow] = []
     skipped: list[ContributionImportSkip] = []
-    warnings: list[str] = []
+    warnings: list[ContributionImportWarning] = []
 
 
 class ContributionImportResult(BaseModel):

@@ -1185,7 +1185,9 @@
     "colAction": "Action",
     "account": "Compte dans le fichier",
     "pickAccount": "Choisissez un compte",
-    "accountHint": "Ce fichier couvre plusieurs comptes. Choisissez celui qui correspond à ce portefeuille."
+    "accountHint": "Ce fichier couvre plusieurs comptes. Choisissez celui qui correspond à ce portefeuille.",
+    "warn_no_rows": "Aucune ligne de ce fichier n'est un versement ni un retrait.",
+    "warn_choose_account": "Ce fichier couvre plusieurs comptes. Choisissez celui qui correspond à ce portefeuille."
   },
   "assets": {
     "title": "Actifs",

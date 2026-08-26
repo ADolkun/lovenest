@@ -20,9 +20,8 @@ class AssetContributionBase(BaseModel):
     party: ContributionParty = "self"
     amount: Decimal = Field(gt=0)
     date: _date
-    #: The year this counts against, which is not always `date.year` — an IRA
-    #: contribution made before April 15 may be designated for the prior year.
-    #: Defaults to `date.year` when the caller does not say.
+    #: CONTEXT.md's Tax Year, which is not always `date.year`. Defaults to
+    #: `date.year` when the caller does not say.
     tax_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     vested_on: Optional[_date] = None
     notes: Optional[str] = Field(default=None, max_length=500)
@@ -92,9 +91,9 @@ class ContributionSummaryRead(BaseModel):
     employer_unvested: float
     distributions: float
     net: float
-    #: Wallet value now minus `net` — return with deposits taken out, so a
-    #: balance that rose only because money was paid in shows no gain. Null
-    #: where the wallet's value is unknown.
+    #: Wallet value now minus every dollar paid in (vested or not) less what
+    #: was taken out, so a balance that rose only because money was deposited
+    #: shows no gain. Null where the wallet's value is unknown.
     return_net_of_contributions: Optional[float] = None
     current_value: Optional[float] = None
     years: list[ContributionYearRead] = []

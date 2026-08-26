@@ -79,15 +79,6 @@ export function isPriorYearEntry(draft: ContributionDraft): boolean {
 }
 
 /**
- * Employer money the user does not own yet. Dates are yyyy-MM-dd, so a string
- * compare is the chronological one and skips a timezone round trip.
- */
-export function isUnvested(row: AssetContribution, today: string): boolean {
-  if (row.party !== 'employer' || !row.vested_on) return false
-  return row.vested_on > today
-}
-
-/**
  * The first thing wrong with the draft, as an i18n key, or null. The last two
  * checks mirror the server's validator so the user is told before a 422.
  */

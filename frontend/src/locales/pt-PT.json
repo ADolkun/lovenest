@@ -1185,7 +1185,9 @@
     "colAction": "Ação",
     "account": "Conta no ficheiro",
     "pickAccount": "Escolha uma conta",
-    "accountHint": "Este ficheiro abrange mais do que uma conta. Escolha a que corresponde a esta carteira."
+    "accountHint": "Este ficheiro abrange mais do que uma conta. Escolha a que corresponde a esta carteira.",
+    "warn_no_rows": "Nenhuma linha deste ficheiro é uma contribuição ou um levantamento.",
+    "warn_choose_account": "Este ficheiro abrange mais do que uma conta. Escolha a que corresponde a esta carteira."
   },
   "assets": {
     "title": "Património",

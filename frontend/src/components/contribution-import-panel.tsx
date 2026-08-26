@@ -16,16 +16,6 @@ const SELECT_CLASS =
 const ROWS_GRID = '3rem 1fr 0.7fr 1.1fr 0.9fr 1fr 1.1fr'
 const DASH = '—'
 
-/** The names inside "…(A, B). Choose which one this wallet is." — the refusal
-    is the only place a multi-account file's accounts are reported, because the
-    preview it would have come with is exactly what was refused. */
-function accountsNamedIn(error: unknown): string[] {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  if (typeof detail !== 'string') return []
-  const listed = /\(([^)]+)\)/.exec(detail)
-  return listed ? listed[1].split(',').map((name) => name.trim()).filter(Boolean) : []
-}
-
 /**
  * The contributions half of the import page (ADR 0001's 2026-08-23 amendment:
  * views live on `/assets`, files are uploaded here). A brokerage history file
@@ -77,11 +67,9 @@ export function ContributionImportPanel() {
       setPreview(result)
       setAccountChoices(result.accounts)
     } catch (e) {
-      // A multi-account file is refused until one is named, and the refusal
-      // lists them — so the message is the instruction, not just an error.
       toast.error(assetErrorMessage(e, t('contribImport.previewError')))
       setPreview(null)
-      setAccountChoices(accountsNamedIn(e))
+      setAccountChoices([])
     } finally {
       setLoading(false)
     }
@@ -286,7 +274,11 @@ export function ContributionImportPanel() {
                 {t('contribImport.warningsTitle', { count: warnings.length })}
               </p>
               <ul className="space-y-1 text-xs text-muted-foreground">
-                {warnings.map((warning, i) => <li key={i}>{warning}</li>)}
+                {warnings.map((warning) => (
+                  <li key={warning.code}>
+                    {t(`contribImport.warn_${warning.code}`, { count: warning.count })}
+                  </li>
+                ))}
               </ul>
             </div>
           )}

@@ -42,10 +42,6 @@ _ANNUAL_KEYS = {
 }
 
 
-def _cents(value: Decimal) -> float:
-    return float(value.quantize(Decimal("0.01")))
-
-
 async def projection_feed(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -75,12 +71,12 @@ async def projection_feed(
     feed = {
         "as_of": as_of.isoformat(),
         "tax_year": as_of.year,
-        **{bucket: _cents(total) for bucket, total in balances.items()},
+        **{bucket: contribution_service.cents(total) for bucket, total in balances.items()},
         # The projection's "withdrawable basis": what a Roth IRA can pay out
         # before retirement age without penalty, which is its Net Contribution.
-        "roth_basis": _cents(basis.get("roth", Decimal("0"))),
+        "roth_basis": contribution_service.cents(basis.get("roth", Decimal("0"))),
         **{
-            key: _cents(annual.get(treatment, Decimal("0")))
+            key: contribution_service.cents(annual.get(treatment, Decimal("0")))
             for treatment, key in _ANNUAL_KEYS.items()
         },
         # Year to date, not a full year: eight months of contributions is not
@@ -88,8 +84,8 @@ async def projection_feed(
         # under-project every year of the plan. The caller has to say so.
         "annual_is_year_to_date": True,
         "excluded": {
-            "other": _cents(other),
-            "ungrouped": _cents(
+            "other": contribution_service.cents(other),
+            "ungrouped": contribution_service.cents(
                 await asset_group_service.ungrouped_value(session, workspace_id, user_id)
             ),
         },

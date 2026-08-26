@@ -1185,7 +1185,9 @@
     "colAction": "Acción",
     "account": "Cuenta en el archivo",
     "pickAccount": "Elige una cuenta",
-    "accountHint": "Este archivo abarca más de una cuenta. Elige la que corresponde a esta cartera."
+    "accountHint": "Este archivo abarca más de una cuenta. Elige la que corresponde a esta cartera.",
+    "warn_no_rows": "Ninguna fila de este archivo es una aportación ni una retirada.",
+    "warn_choose_account": "Este archivo abarca más de una cuenta. Elige la que corresponde a esta cartera."
   },
   "assets": {
     "title": "Activos",

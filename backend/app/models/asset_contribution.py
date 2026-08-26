@@ -77,7 +77,6 @@ class AssetContribution(Base):
     #: immediately-vested safe-harbour match actually is.
     vested_on: Mapped[Optional[_date]] = mapped_column(Date, nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual, import
-    external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     #: The import that wrote this row, so deleting that import can take it back
     #: out again — the same undo contract asset_transactions has.

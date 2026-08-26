@@ -1185,7 +1185,9 @@
     "colAction": "Azione",
     "account": "Conto nel file",
     "pickAccount": "Scegli un conto",
-    "accountHint": "Questo file copre più di un conto. Scegli quello corrispondente a questo portafoglio."
+    "accountHint": "Questo file copre più di un conto. Scegli quello corrispondente a questo portafoglio.",
+    "warn_no_rows": "Nessuna riga di questo file è un versamento o un prelievo.",
+    "warn_choose_account": "Questo file copre più di un conto. Scegli quello corrispondente a questo portafoglio."
   },
   "assets": {
     "title": "Beni",

@@ -1185,7 +1185,9 @@
     "colAction": "Action",
     "account": "Account in the file",
     "pickAccount": "Choose an account",
-    "accountHint": "This file covers more than one account. Pick the one this wallet is."
+    "accountHint": "This file covers more than one account. Pick the one this wallet is.",
+    "warn_no_rows": "No row in this file is a contribution or a distribution.",
+    "warn_choose_account": "This file covers more than one account. Pick the one this wallet is."
   },
   "assets": {
     "title": "Assets",

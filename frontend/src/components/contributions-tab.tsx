@@ -29,7 +29,6 @@ import {
   draftPayload,
   emptyDraft,
   isPriorYearEntry,
-  isUnvested,
   rowsByWallet,
   summariesByWallet,
   type ContributionDraft,
@@ -174,7 +173,6 @@ export default function ContributionsTab({
 
             <MovementsTable
               rows={byWallet.get(wallet.id) ?? []}
-              today={today}
               money={money}
               day={day}
               canWrite={canWrite}
@@ -315,7 +313,6 @@ function YearsTable({
 
 function MovementsTable({
   rows,
-  today,
   money,
   day,
   canWrite,
@@ -323,7 +320,6 @@ function MovementsTable({
   onDelete,
 }: {
   rows: AssetContribution[]
-  today: string
   money: (value: number | null | undefined) => string
   day: (value: string) => string
   canWrite: boolean
@@ -350,7 +346,7 @@ function MovementsTable({
         <div />
       </div>
       {rows.map((row) => {
-        const unvested = isUnvested(row, today)
+        const unvested = !row.is_vested
         return (
           <div
             key={row.id}
