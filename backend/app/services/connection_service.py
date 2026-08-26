@@ -1196,6 +1196,8 @@ async def _find_existing_connected_account(
     session: AsyncSession,
     connection: BankConnection,
     acc_data: AccountData,
+    institution: Optional[Institution],
+    incoming_external_ids: set[str],
 ) -> Optional[Account]:
     """Find an existing account for incoming provider account data.
 
@@ -1227,9 +1229,28 @@ async def _find_existing_connected_account(
     candidates = [
         candidate
         for candidate in candidates_result.scalars().all()
-        if not candidate.is_closed
+        if candidate.external_id not in incoming_external_ids
         and _normalized_account_name(candidate.name) == normalized_name
     ]
+    if institution is not None:
+        matched_institution = [
+            candidate for candidate in candidates
+            if candidate.institution_id == institution.id
+        ]
+        if matched_institution:
+            candidates = matched_institution
+        else:
+            candidates = [
+                candidate for candidate in candidates
+                if candidate.institution_id is None
+            ]
+            if len(candidates) > 1:
+                return None
+    else:
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.institution_id is None
+        ]
     if not candidates:
         return None
 
@@ -1237,6 +1258,7 @@ async def _find_existing_connected_account(
     # duplicate: it usually has a display name, corrected type, and history.
     candidates.sort(
         key=lambda candidate: (
+            not candidate.is_closed,
             candidate.display_name is not None,
             candidate.type != acc_data.type,
             candidate.external_id is not None,
@@ -1835,6 +1857,10 @@ async def sync_connection(
         # read. Providers that don't expose an on-demand refresh return
         # "skipped" via the default implementation and we proceed normally.
         if trigger_provider_refresh:
+            connection.settings = {
+                **conn_settings,
+                "last_provider_refresh_at": datetime.now(timezone.utc).isoformat(),
+            }
             outcome = await provider.trigger_refresh(credentials)
             if outcome == "needs_user_action":
                 # Surfacing reconnect immediately is better than silently
@@ -1857,15 +1883,19 @@ async def sync_connection(
         new_tx_ids: list[uuid.UUID] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
+        incoming_external_ids = {acc.external_id for acc in accounts_data}
         institution_cache: dict[str, Institution] = {}
         for acc_data in accounts_data:
             syncing_account_id = None
-            account = await _find_existing_connected_account(
-                session, connection, acc_data
-            )
-
             institution = await _resolve_institution(
                 session, connection.id, institution_cache, acc_data
+            )
+            account = await _find_existing_connected_account(
+                session,
+                connection,
+                acc_data,
+                institution,
+                incoming_external_ids,
             )
 
             # Honor user intent: a closed connected account stays closed and is

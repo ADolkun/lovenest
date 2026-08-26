@@ -13,6 +13,7 @@ from app.models.asset import Asset
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.import_log import ImportLog
+from app.models.institution import Institution
 from app.models.transaction import Transaction
 from app.schemas.rule import RuleAction, RuleCondition, RuleCreate
 from app.providers.base import (
@@ -27,6 +28,7 @@ from app.providers.base import (
 )
 from app.services.connection_service import (
     _description_similarity,
+    _find_existing_connected_account,
     _merge_sync_metadata,
     _match_pluggy_category,
     _set_sync_status_if_current,
@@ -1018,6 +1020,105 @@ async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
     assert len(sync_txs) == 1
     assert sync_txs[0].id == existing.id
     assert sync_txs[0].external_id == "new-tx-id"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_respects_institution_and_closed_account(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    bank_a = Institution(
+        connection_id=conn.id, external_id="bank-a", name="Bank A"
+    )
+    bank_b = Institution(
+        connection_id=conn.id, external_id="bank-b", name="Bank B"
+    )
+    session.add_all([bank_a, bank_b])
+    await session.flush()
+    closed_bank_a = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=bank_a.id,
+        external_id="old-bank-a",
+        name="Checking",
+        type="checking",
+        balance=Decimal("10"),
+        currency="USD",
+        is_closed=True,
+    )
+    customized_bank_b = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=bank_b.id,
+        external_id="old-bank-b",
+        name="Checking",
+        display_name="My Bank B",
+        type="checking",
+        balance=Decimal("20"),
+        currency="USD",
+    )
+    session.add_all([closed_bank_a, customized_bank_b])
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="new-bank-a",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+            institution_external_id="bank-a",
+            institution_name="Bank A",
+        ),
+        bank_a,
+        {"new-bank-a"},
+    )
+
+    assert matched is closed_bank_a
+    assert closed_bank_a.external_id == "new-bank-a"
+    assert customized_bank_b.external_id == "old-bank-b"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_from_later_accounts(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    later_account = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        external_id="later-account-id",
+        name="Checking",
+        type="checking",
+        balance=Decimal("10"),
+        currency="USD",
+    )
+    session.add(later_account)
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="new-account-id",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+        ),
+        None,
+        {"new-account-id", "later-account-id"},
+    )
+
+    assert matched is None
+    assert later_account.external_id == "later-account-id"
 
 
 @pytest.mark.asyncio
