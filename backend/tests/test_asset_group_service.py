@@ -80,7 +80,7 @@ async def test_get_groups_reports_the_account_type_a_wallet_mirrors(
         workspace_id=test_workspace.id,
         name="ROTH IRA",
         source="simplefin",
-        external_id="acc-roth-6548",
+        external_id="conn-abc::acc-roth-6548",
     )
     manual = AssetGroup(
         id=uuid.uuid4(),
@@ -100,6 +100,7 @@ async def test_get_groups_reports_the_account_type_a_wallet_mirrors(
             type="etf",
             currency="USD",
             purchase_price=Decimal("100.00"),
+            account_external_id="acc-roth-6548",
         )
     )
     await session.commit()
@@ -121,6 +122,14 @@ async def test_account_type_does_not_leak_across_workspaces(
     )
     session.add(other_workspace)
     await session.flush()
+    mine = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Mine",
+        source="simplefin",
+        external_id="conn-other::acc-shared-id",
+    )
     session.add_all(
         [
             Account(
@@ -133,15 +142,21 @@ async def test_account_type_does_not_leak_across_workspaces(
                 balance=Decimal("0"),
                 currency="USD",
             ),
-            AssetGroup(
-                id=uuid.uuid4(),
-                user_id=test_user.id,
-                workspace_id=test_workspace.id,
-                name="Mine",
-                source="manual",
-                external_id="acc-shared-id",
-            ),
+            mine,
         ]
+    )
+    session.add(
+        Asset(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            group_id=mine.id,
+            name="Something",
+            type="stock",
+            currency="USD",
+            purchase_price=Decimal("10.00"),
+            account_external_id="acc-shared-id",
+        )
     )
     await session.commit()
 
@@ -172,7 +187,7 @@ async def test_get_groups_reports_the_balance_liquid_cash_is_derived_against(
         workspace_id=test_workspace.id,
         name="Robinhood Individual",
         source="simplefin",
-        external_id="acc-robinhood-9464",
+        external_id="conn-abc::acc-robinhood-9464",
     )
     manual = AssetGroup(
         id=uuid.uuid4(),
@@ -192,6 +207,7 @@ async def test_get_groups_reports_the_balance_liquid_cash_is_derived_against(
             type="stock",
             currency="USD",
             purchase_price=Decimal("137.96"),
+            account_external_id="acc-robinhood-9464",
         )
     )
     await session.commit()

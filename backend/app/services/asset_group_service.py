@@ -207,31 +207,38 @@ async def _account_type_and_balance_for(
 ) -> tuple[Optional[str], Optional[Decimal]]:
     """The (type, balance) of the provider account a synced wallet mirrors.
 
-    One wallet per provider account (#76), so the wallet's `external_id` is
-    the account's — the join that lets allocation be grouped by account type,
-    and that carries the balance Liquid Cash is derived against. Both are None
-    for manual wallets, and for a connection-level wallet holding positions the
-    provider attributed to no account.
+    One wallet per provider account (#76), reached through the holdings it
+    owns: the wallet's own `external_id` is "{connection}::{account}" and is
+    digest-truncated when that overflows the column, so it does not parse back
+    into an account id. `Asset.account_external_id` carries the attribution
+    unchanged. This is the join that lets allocation be grouped by account
+    type, and that carries the balance Liquid Cash is derived against.
+
+    Both are None for manual wallets, for a connection-level wallet holding
+    positions the provider attributed to no account, and whenever the wallet's
+    holdings name more than one account — an unsplit legacy wallet has no
+    single balance to subtract from, and guessing one would invent cash.
 
     The balance comes back in the primary currency, because the only thing that
     subtracts from it is `current_value_primary`. `Account.balance_primary` is
     not stored — the accounts API converts on read — so this converts the same
     way rather than trusting a column nothing fills.
     """
-    if not group.external_id:
-        return None, None
-    row = await session.execute(
-        select(Account.type, Account.balance, Account.currency)
-        .where(
-            Account.workspace_id == group.workspace_id,
-            Account.external_id == group.external_id,
+    rows = (
+        await session.execute(
+            select(Account.id, Account.type, Account.balance, Account.currency)
+            .join(Asset, Asset.account_external_id == Account.external_id)
+            .where(
+                Asset.group_id == group.id,
+                Account.workspace_id == group.workspace_id,
+            )
+            .distinct()
+            .limit(2)
         )
-        .limit(1)
-    )
-    account = row.first()
-    if account is None:
+    ).all()
+    if len(rows) != 1:
         return None, None
-    account_type, balance, currency = account
+    _, account_type, balance, currency = rows[0]
     if balance is None:
         return account_type, None
     if currency == primary_currency:

@@ -39,6 +39,7 @@ from app.providers.base import (
 )
 from app.schemas.asset import AssetValueCreate
 from app.services import asset_service
+from app.services.asset_group_service import get_groups
 from app.services.connection_service import _sync_holdings, _upsert_asset_value_for_today
 
 
@@ -1161,3 +1162,33 @@ async def test_sync_never_adopts_a_hand_made_holding(
     assert await _values_for(session, manual.id) == []
     # The provider's holding became its own asset rather than overwriting this one.
     assert {a.source for a in await _assets_for(session, test_user)} == {"manual", "mock"}
+
+
+@pytest.mark.asyncio
+async def test_allocation_resolves_the_account_behind_a_compound_keyed_wallet(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """A synced wallet is keyed "{connection}::{account}", not by account id.
+
+    Allocation by account type and Liquid Cash both hang off the account a
+    wallet mirrors, so they have to reach it through the holdings rather than
+    by reading the wallet key as an account id.
+    """
+    roth = await session.scalar(
+        select(Account).where(Account.external_id == "acc-roth")
+    )
+    assert roth is not None
+    roth.balance = Decimal("535.26")
+
+    _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-roth")]
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    wallets = await get_groups(session, brokerage_connection.workspace_id, test_user.id)
+    wallet = next(w for w in wallets if w.name == "ROTH IRA (6548)")
+
+    assert wallet.account_type == "investment"
+    assert wallet.account_balance == 535.26
