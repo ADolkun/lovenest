@@ -3394,6 +3394,66 @@ async def test_sync_holdings_keeps_emptied_wallet_a_goal_tracks(
 
 
 @pytest.mark.asyncio
+async def test_sync_holdings_keeps_emptied_wallet_a_contribution_was_paid_into(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """Contributions CASCADE off the wallet, so the reap has to see them.
+
+    Net Contribution and every return figure derived from it are the years of
+    history recorded here — deleting the wallet takes them with it, and the
+    per-account split is exactly what empties a wallet.
+    """
+    from app.models.asset_contribution import AssetContribution
+    from app.models.asset_group import AssetGroup
+    from app.services.connection_service import _sync_holdings
+
+    conn = await _make_connection(session, test_user.id, "Vanguard")
+
+    session.add(Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        connection_id=conn.id, external_id="acc-1", name="Roth IRA",
+        type="investment", balance=Decimal("0"), currency="USD",
+    ))
+    legacy = AssetGroup(
+        user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Vanguard", source="test",
+        connection_id=conn.id, external_id="gone::acc-9",
+    )
+    session.add(legacy)
+    await session.flush()
+    legacy_id = legacy.id
+    asset = Asset(
+        user_id=test_user.id, workspace_id=test_workspace.id,
+        connection_id=conn.id, source="test", external_id="h-1",
+        name="VTSAX", type="investment", currency="USD",
+        valuation_method="manual", group_id=legacy_id,
+    )
+    contribution = AssetContribution(
+        workspace_id=test_workspace.id, group_id=legacy_id,
+        kind="contribution", party="self", amount=Decimal("7000.00"),
+        date=date(2026, 1, 15), tax_year=2026,
+    )
+    session.add_all([asset, contribution])
+    await session.commit()
+    contribution_id = contribution.id
+
+    mock_provider = AsyncMock()
+    mock_provider.get_holdings.return_value = [
+        HoldingData(
+            external_id="h-1", name="VTSAX", currency="USD",
+            current_value=Decimal("10"),
+            account_external_id="acc-1", account_name="Roth IRA",
+        ),
+    ]
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider):
+        await _sync_holdings(session, test_user.id, conn, {"token": "t"})
+    await session.commit()
+
+    assert (await session.get(AssetGroup, legacy_id)) is not None
+    assert (await session.get(AssetContribution, contribution_id)) is not None
+
+
+@pytest.mark.asyncio
 async def test_sync_holdings_adoption_preserves_wallet_customization(
     session: AsyncSession, test_user, test_workspace,
 ):

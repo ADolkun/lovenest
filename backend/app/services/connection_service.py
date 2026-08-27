@@ -18,6 +18,7 @@ from app.core.connection_settings import (
     known_account_ids,
 )
 from app.models.asset import Asset
+from app.models.asset_contribution import AssetContribution
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.models.asset_value import AssetValue
@@ -694,9 +695,13 @@ async def _sync_holdings(
     # Sync owns its wallets: drop any it emptied by re-attribution above
     # (e.g. the single connection-named wallet that predates per-institution
     # ones). Wallets still holding assets — or used this run — are kept, and
-    # so is anything a goal tracks or a collection contains: deleting those
-    # would SET NULL the goal's target and CASCADE the membership away,
-    # silently breaking things the user built on the wallet.
+    # so is anything a goal tracks, a collection contains, or a contribution
+    # was recorded against: deleting those would SET NULL the goal's target and
+    # CASCADE the membership and the contribution history away, silently
+    # breaking things the user built on the wallet. A wallet whose tax
+    # character the user set is kept for the same reason — no provider reports
+    # it, so a deleted row comes back `taxable` and quietly makes shielded
+    # gains reportable.
     if holdings:
         await session.flush()
         used_ids = {g.id for g in groups_by_key.values()}
@@ -709,6 +714,7 @@ async def _sync_holdings(
             referenced = await session.scalar(
                 select(
                     exists().where(Goal.asset_group_id == gid)
+                    | exists().where(AssetContribution.group_id == gid)
                     | exists()
                     .select_from(collection_asset_groups)
                     .where(collection_asset_groups.c.asset_group_id == gid)
@@ -717,8 +723,9 @@ async def _sync_holdings(
             if referenced:
                 continue
             emptied = await session.get(AssetGroup, gid)
-            if emptied is not None:
-                await session.delete(emptied)
+            if emptied is None or emptied.tax_treatment != "taxable":
+                continue
+            await session.delete(emptied)
 
 
 async def _sync_trades(
