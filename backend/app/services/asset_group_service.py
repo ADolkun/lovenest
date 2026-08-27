@@ -214,28 +214,46 @@ async def _account_type_and_balance_for(
     unchanged. This is the join that lets allocation be grouped by account
     type, and that carries the balance Liquid Cash is derived against.
 
-    Both are None for manual wallets, for a connection-level wallet holding
-    positions the provider attributed to no account, and whenever the wallet's
-    holdings name more than one account — an unsplit legacy wallet has no
-    single balance to subtract from, and guessing one would invent cash.
+    Both are None for a manual wallet — a synced holding the user dragged into
+    one still belongs to the account it came from, but the wallet does not, and
+    reporting the balance twice would invent the cash a second time. Both are
+    None too for a connection-level wallet holding positions the provider
+    attributed to no account, and whenever the live holdings name more than one
+    account — an unsplit legacy wallet has no single balance to subtract from,
+    and guessing one would invent cash just the same.
+
+    Counts the same holdings `_rollup` does, and no others: an archived or sold
+    row left behind by a sibling account would otherwise read as a second
+    account forever, silently switching allocation off for a wallet the UI
+    still shows as live.
 
     The balance comes back in the primary currency, because the only thing that
     subtracts from it is `current_value_primary`. `Account.balance_primary` is
     not stored — the accounts API converts on read — so this converts the same
     way rather than trusting a column nothing fills.
     """
-    rows = (
-        await session.execute(
-            select(Account.id, Account.type, Account.balance, Account.currency)
-            .join(Asset, Asset.account_external_id == Account.external_id)
-            .where(
-                Asset.group_id == group.id,
-                Account.workspace_id == group.workspace_id,
-            )
-            .distinct()
-            .limit(2)
+    if group.source == "manual":
+        return None, None
+    query = (
+        select(Account.id, Account.type, Account.balance, Account.currency)
+        .join(Asset, Asset.account_external_id == Account.external_id)
+        .where(
+            Asset.group_id == group.id,
+            Asset.workspace_id == group.workspace_id,
+            Asset.is_archived == False,  # noqa: E712 — SQL, not Python truthiness
+            Asset.sell_date.is_(None),
+            Account.workspace_id == group.workspace_id,
         )
-    ).all()
+    )
+    if group.connection_id is not None:
+        # `accounts.external_id` is unique per connection, not per workspace, so
+        # two live connections carrying the same provider id would otherwise let
+        # a wallet read the sibling's balance.
+        query = query.where(Account.connection_id == group.connection_id)
+    # The PK is what makes DISTINCT mean *distinct accounts*: two accounts that
+    # happen to share a type, balance and currency would collapse into one row
+    # and read as unambiguous.
+    rows = (await session.execute(query.distinct().limit(2))).all()
     if len(rows) != 1:
         return None, None
     _, account_type, balance, currency = rows[0]
