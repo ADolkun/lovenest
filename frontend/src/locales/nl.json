@@ -853,6 +853,16 @@
     "confirmDeleteDescription": "De terugkerende definitie \"{{description}}\" wordt permanent verwijderd. Bestaande transacties blijven bestaan, maar verliezen hun koppeling met de terugkerende transactie. Deze actie kan niet ongedaan worden gemaakt."
   },
   "rules": {
+    "preview": "Voorbeeld",
+    "previewMatched": "{{matched}} overeenkomsten",
+    "previewSummary": "{{matched}} overeenkomende transacties · {{changed}} zouden wijzigen",
+    "previewSampleNote": "de {{shown}} meest recente worden getoond",
+    "previewLoadMore": "{{more}} meer laden",
+    "previewNoChange": "geen wijziging",
+    "previewEmpty": "Geen transactie voldoet aan deze voorwaarden",
+    "previewInactive": "regel is inactief, er wijzigt nog niets",
+    "previewNotAppliedToExisting": "wordt niet toegepast op bestaande transacties",
+    "previewError": "Voorbeeld kon niet worden geladen",
     "section": "Automatisering",
     "packs": "Regelpakketten",
     "packRuleCount": "{{count}} regels",

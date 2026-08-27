@@ -861,6 +861,16 @@
     "confirmDeleteDescription": "Определение регулярной транзакции «{{description}}» будет удалено навсегда. Существующие транзакции останутся, но потеряют связь с регулярной транзакцией. Это действие нельзя отменить."
   },
   "rules": {
+    "preview": "Предпросмотр",
+    "previewMatched": "совпадений: {{matched}}",
+    "previewSummary": "подходящих транзакций: {{matched}} · изменится: {{changed}}",
+    "previewSampleNote": "показаны {{shown}} последних",
+    "previewLoadMore": "Загрузить ещё {{more}}",
+    "previewNoChange": "без изменений",
+    "previewEmpty": "Ни одна транзакция не подходит под эти условия",
+    "previewInactive": "правило неактивно, пока ничего не изменится",
+    "previewNotAppliedToExisting": "не применяется к существующим транзакциям",
+    "previewError": "Не удалось загрузить предпросмотр",
     "section": "Автоматизация",
     "packs": "Пакеты правил",
     "packRuleCount": "{{count}} правил",
