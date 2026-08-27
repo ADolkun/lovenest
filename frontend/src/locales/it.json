@@ -1366,6 +1366,8 @@
     "taxIdKind": "Tipo di documento",
     "searchTaxIdKind": "Cerca documento o paese…",
     "invalidTaxId": "Controlla questo documento: non sembra valido.",
+    "duplicateName": "Esiste già una persona con questo nome.",
+    "duplicateTaxId": "questo documento è già su questa persona.",
     "add": "Aggiungi beneficiario",
     "edit": "Modifica beneficiario",
     "created": "Beneficiario creato",

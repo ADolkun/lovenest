@@ -1366,6 +1366,8 @@
     "taxIdKind": "Tipo de documento",
     "searchTaxIdKind": "Buscar documento ou país…",
     "invalidTaxId": "Confira este documento: ele não parece válido.",
+    "duplicateName": "Já existe uma pessoa com este nome.",
+    "duplicateTaxId": "este documento já está nesta pessoa.",
     "add": "Adicionar Pessoa",
     "edit": "Editar Pessoa",
     "created": "Pessoa criada",

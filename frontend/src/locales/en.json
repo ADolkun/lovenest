@@ -1365,6 +1365,8 @@
     "taxIdKind": "Document type",
     "searchTaxIdKind": "Search document or country…",
     "invalidTaxId": "Check this document: it does not look valid.",
+    "duplicateName": "A person with this name already exists.",
+    "duplicateTaxId": "this document is already on this person.",
     "add": "Add Payee",
     "edit": "Edit Payee",
     "created": "Payee created",

@@ -1366,6 +1366,8 @@
     "taxIdKind": "Dokumentart",
     "searchTaxIdKind": "Dokument oder Land suchen…",
     "invalidTaxId": "Prüfe dieses Dokument: es sieht nicht gültig aus.",
+    "duplicateName": "Eine Person mit diesem Namen existiert bereits.",
+    "duplicateTaxId": "dieses Dokument ist bereits bei dieser Person.",
     "add": "Empfänger hinzufügen",
     "edit": "Empfänger bearbeiten",
     "created": "Zahlungsempfänger erstellt",

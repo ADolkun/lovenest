@@ -1446,6 +1446,8 @@
     "taxIdKind": "Typ dokumentu",
     "searchTaxIdKind": "Szukaj dokumentu lub kraju…",
     "invalidTaxId": "Sprawdź ten dokument: nie wygląda na prawidłowy.",
+    "duplicateName": "Osoba o tej nazwie już istnieje.",
+    "duplicateTaxId": "ten dokument jest już przypisany do tej osoby.",
     "add": "Dodaj odbiorcę",
     "edit": "Edytuj odbiorcę",
     "created": "Utworzono odbiorcę",
