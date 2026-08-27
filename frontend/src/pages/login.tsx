@@ -403,7 +403,7 @@ export default function LoginPage() {
               )}
             </CardContent>
           )}
-          {!authConfigLoading && !noAuthMethodConfigured && (
+          {!authConfigLoading && !noAuthMethodConfigured && localAuthEnabled && (
             <CardFooter className="flex flex-col gap-4 px-8 pb-8 pt-2">
               {showPasswordForm && (
                 <Button type="submit" className="w-full" disabled={isLoading || isPasskeyLoading}>
