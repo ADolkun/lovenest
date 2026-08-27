@@ -29,6 +29,7 @@ permissions:
 
 jobs:
   label:
+    if: github.repository == 'securo-finance/securo'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7

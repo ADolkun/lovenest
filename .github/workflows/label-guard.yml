@@ -20,9 +20,11 @@ permissions:
 jobs:
   revert:
     if: >-
-      startsWith(github.event.label.name, 'prio:') ||
-      startsWith(github.event.label.name, 'risk:') ||
-      startsWith(github.event.label.name, 'roadmap:')
+      github.repository == 'securo-finance/securo' && (
+        startsWith(github.event.label.name, 'prio:') ||
+        startsWith(github.event.label.name, 'risk:') ||
+        startsWith(github.event.label.name, 'roadmap:')
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
