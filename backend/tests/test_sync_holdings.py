@@ -1,10 +1,13 @@
 """Cover the Asset lifecycle through `_sync_holdings`.
 
 The sync contract is a bit subtle: provider data drives creation *and*
-closure of Assets, but user-set fields (sell_date, group_id) are load-
-bearing and must never be overwritten. These tests pin the full matrix:
-new/existing × active/withdrawn, same-day vs next-day re-syncs,
-historical seeding idempotency, and sparse-field merging.
+closure of Assets, but user-set fields are load-bearing — sell_date is
+never overwritten, and group_id is rewritten only between wallets the
+sync itself owns (per-account re-attribution, issue #345); a wallet the
+user chose is never touched (see test_connection_service.py for the
+re-attribution matrix). These tests pin the rest: new/existing ×
+active/withdrawn, same-day vs next-day re-syncs, historical seeding
+idempotency, and sparse-field merging.
 """
 
 from __future__ import annotations
@@ -846,7 +849,8 @@ async def test_holdings_land_in_a_wallet_per_provider_account(
     roth = await _wallet_of(session, assets["h-2"])
     assert tod.name == "Individual - TOD (5044)"
     assert roth.name == "ROTH IRA (6548)"
-    assert tod.external_id == "acc-tod" and roth.external_id == "acc-roth"
+    assert tod.external_id == f"{brokerage_connection.external_id}::acc-tod"
+    assert roth.external_id == f"{brokerage_connection.external_id}::acc-roth"
     # Tax character is user-set: no provider reports it, so a wallet named
     # "ROTH IRA" is still born taxable.
     assert roth.tax_treatment == "taxable"
@@ -929,10 +933,16 @@ async def test_existing_connection_wallet_splits_by_account(
     await session.commit()
 
     assets = {a.external_id: a for a in await _assets_for(session, test_user)}
-    assert assets["h-1"].group_id != legacy.id
+    # The first account adopts the legacy row so its customization survives;
+    # the second gets a new per-account wallet.
+    assert assets["h-1"].group_id == legacy.id
     assert assets["h-2"].group_id != legacy.id
-    assert (await _wallet_of(session, assets["h-1"])).external_id == "acc-tod"
-    assert (await _wallet_of(session, assets["h-2"])).external_id == "acc-roth"
+    assert (await _wallet_of(session, assets["h-1"])).external_id == (
+        f"{brokerage_connection.external_id}::acc-tod"
+    )
+    assert (await _wallet_of(session, assets["h-2"])).external_id == (
+        f"{brokerage_connection.external_id}::acc-roth"
+    )
 
 
 @pytest.mark.asyncio
@@ -952,7 +962,9 @@ async def test_holding_follows_the_account_the_provider_moves_it_to(
     )
     await session.commit()
     [asset] = await _assets_for(session, test_user)
-    assert (await _wallet_of(session, asset)).external_id == "acc-tod"
+    assert (await _wallet_of(session, asset)).external_id == (
+        f"{brokerage_connection.external_id}::acc-tod"
+    )
 
     _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-roth")]
     await _sync_holdings(
@@ -962,7 +974,9 @@ async def test_holding_follows_the_account_the_provider_moves_it_to(
     await session.refresh(asset)
 
     assert asset.account_external_id == "acc-roth"
-    assert (await _wallet_of(session, asset)).external_id == "acc-roth"
+    assert (await _wallet_of(session, asset)).external_id == (
+        f"{brokerage_connection.external_id}::acc-roth"
+    )
 
 
 @pytest.mark.asyncio

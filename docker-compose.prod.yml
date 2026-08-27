@@ -38,6 +38,7 @@ x-backend-env: &backend-env
   OIDC_ROLES_CLAIM: ${OIDC_ROLES_CLAIM:-groups}
   OIDC_ADMIN_ROLES: ${OIDC_ADMIN_ROLES:-}
   OIDC_WORKSPACE_ROLE_MAP: ${OIDC_WORKSPACE_ROLE_MAP:-}
+  LOCAL_AUTH_ENABLED: ${LOCAL_AUTH_ENABLED:-true}
   OPENEXCHANGERATES_APP_ID: ${OPENEXCHANGERATES_APP_ID:-}
   FX_SYNC_MODE: ${FX_SYNC_MODE:-on_demand}
   TESOURO_DIRETO_ENABLED: ${TESOURO_DIRETO_ENABLED:-true}
@@ -73,7 +74,7 @@ x-backend-base: &backend-base
   # Built from this branch so the image includes Lovenest customizations.
   build:
     context: ./backend
-  image: lovenest-backend:0.14.3-lovenest
+  image: lovenest-backend:0.14.4-lovenest
   environment: *backend-env
   # Lets a connection point at a model server running on the host (LM Studio,
   # Ollama, llama.cpp) as http://host.docker.internal:<port>. Docker Desktop
@@ -127,7 +128,7 @@ services:
   tax-planner:
     build:
       context: ./extras/tax
-    image: lovenest-tax-planner:0.14.3-lovenest
+    image: lovenest-tax-planner:0.14.4-lovenest
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/securo
       BACKEND_URL: http://backend:8000
@@ -147,8 +148,8 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_APP_VERSION: "0.14.3"
-    image: lovenest-frontend:0.14.3-lovenest
+        VITE_APP_VERSION: "0.14.4"
+    image: lovenest-frontend:0.14.4-lovenest
     ports:
       - "${FRONTEND_PORT:-3000}:8080"
     environment:

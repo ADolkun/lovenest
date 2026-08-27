@@ -717,6 +717,7 @@ export default function AccountDetailPage() {
             icon: p.category_icon ?? '',
             color: p.category_color ?? '',
             is_system: false,
+            is_hidden: false,
             treat_as_transfer: false,
             is_ignored: false,
           }
