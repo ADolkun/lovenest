@@ -95,8 +95,14 @@ export interface Category {
   icon: string
   color: string
   is_system: boolean
+  is_hidden: boolean
   treat_as_transfer: boolean
   is_ignored: boolean
+}
+
+/** Active rules that assign a category, used when retiring one. */
+export interface CategoryRuleUsage {
+  rules: { id: string; name: string }[]
 }
 
 export interface CategoryGroup {
@@ -107,7 +113,13 @@ export interface CategoryGroup {
   color: string
   position: number
   is_system: boolean
+  is_hidden: boolean
   categories: Category[]
+}
+
+export interface ConnectionInstitution {
+  name: string
+  logo_url: string | null
 }
 
 export interface BankConnection {
@@ -124,6 +136,9 @@ export interface BankConnection {
   last_sync_at: string | null
   last_sync_error_account_id: string | null
   created_at: string
+  // Institutions this link spans (issue #345). Empty for one-institution
+  // providers — institution_name covers those.
+  institutions: ConnectionInstitution[]
 }
 
 export interface ConnectionSettings {
@@ -502,6 +517,35 @@ export interface RuleImportResponse {
   imported: number
   skipped: number
   overwritten: number
+}
+
+/** One matched transaction in a rule preview, with the category the draft rule
+ * would leave it in. `will_change` is false when the rule matches but changes
+ * nothing — usually a transaction that already has a category the draft keeps. */
+export interface RulePreviewItem {
+  id: string
+  date: string
+  description: string
+  amount: number
+  currency: string
+  type: 'debit' | 'credit'
+  current_category_id: string | null
+  current_category_name: string | null
+  new_category_id: string | null
+  new_category_name: string | null
+  will_change: boolean
+}
+
+export interface RulePreviewResponse {
+  matched: number
+  will_change: number
+  /** False when the draft's flags mean saving it changes nothing right now —
+   * an inactive rule, or one not being applied to existing transactions. */
+  will_apply: boolean
+  /** One window of the matches, newest first: `offset` through
+   * `offset + limit`. More remain while `offset + sample.length < matched`. */
+  sample: RulePreviewItem[]
+  offset: number
 }
 
 export interface ImportLog {

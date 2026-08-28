@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +17,22 @@ if TYPE_CHECKING:
 
 class Asset(Base):
     __tablename__ = "assets"
+    __table_args__ = (
+        # Mirrors migration 088. Declared here so the SQLite test database
+        # enforces it too — the user-scoped index it replaces lived only in the
+        # migration, so a cross-workspace duplicate passed every test and
+        # failed on Postgres.
+        Index(
+            "ux_assets_workspace_source_external",
+            "workspace_id",
+            "user_id",
+            "source",
+            "external_id",
+            unique=True,
+            sqlite_where=text("external_id IS NOT NULL"),
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))

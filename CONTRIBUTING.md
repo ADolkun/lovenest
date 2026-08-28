@@ -128,10 +128,29 @@ uv sync --all-extras   # first time only — builds .venv from uv.lock, same ver
 # After changing dependencies in pyproject.toml: regenerate the lock and
 # commit uv.lock along with it (CI enforces this)
 ./scripts/lock.sh
+
+# After adding a migration: check the revision chain is still a single line
+python3 scripts/check_migration_chain.py
 ```
 
 CI fails the build if `ruff check` reports any issues or if coverage drops below **60%**. Add tests
 for new backend behavior.
+
+### Adding a migration
+
+Number the file after the current head and chain it there, so
+`backend/alembic/versions/` sorts in apply order:
+
+```python
+revision: str = "089"
+down_revision: Union[str, None] = "088"
+```
+
+lovenest's head is ahead of upstream's because this fork carries its own
+migrations, so an upstream migration arriving in a sync is renumbered onto
+lovenest's head rather than kept at the number Securo gave it. CI catches a
+clash: the Migration Chain job runs against your branch merged with the base,
+so it fails there rather than on someone's `alembic upgrade head`.
 
 ### Frontend (Node 22, from `frontend/`)
 
@@ -142,6 +161,19 @@ npm run lint                   # ESLint (must be clean)
 npm run build                  # type-check + production build (must succeed)
 npm test                       # Vitest (must pass)
 ```
+
+### Adding a frontend dependency
+
+`frontend/.npmrc` disables package install scripts and skips releases younger than seven days.
+The cooldown requires npm 11.10 or newer, so upgrade npm before adding a dependency:
+
+```bash
+npm install --global npm@latest
+cd frontend && npm install <package>
+```
+
+Commit both `package.json` and `package-lock.json`. If the newest package release is less than a
+week old, wait or explain the exception in the PR.
 
 ## Commit messages
 

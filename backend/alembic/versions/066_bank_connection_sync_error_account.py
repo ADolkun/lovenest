@@ -3,6 +3,13 @@
 Revision ID: 066
 Revises: 065
 Create Date: 2026-07-19
+
+This is also where `uq_payees_workspace_id_lower_name` comes from on this
+fork. Upstream reached the same invariant later, in its own revision 076,
+which the v0.14.5 sync therefore did not carry: renumbering it onto this
+chain would only re-create an index that has existed since 066, and its
+dedupe has nothing left to find. A future sync touching that index should
+read this migration, not upstream's numbering, as its origin.
 """
 
 from typing import Sequence, Union
