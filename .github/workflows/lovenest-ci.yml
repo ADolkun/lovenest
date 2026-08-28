@@ -39,6 +39,12 @@ jobs:
       - name: Lint with Ruff
         run: ruff check .
 
+      # Upstream runs this in its own workflow, which only fires on `main`.
+      # This fork renumbers every upstream migration onto its own head, so the
+      # clash the guard exists for is more likely here, not less.
+      - name: Check the Alembic revision chain
+        run: python3 scripts/check_migration_chain.py
+
       - name: Type check with ty
         run: ty check .
 
