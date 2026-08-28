@@ -373,6 +373,11 @@ async def _sync_holdings(
     # breaking future syncs (matching is by external_id).
     groups_by_key: dict[Optional[str], AssetGroup] = {}
     holding_ids = {h.external_id for h in holdings if h.external_id}
+    # How many accounts this payload spreads across. A wallet being split
+    # between several of them cannot state any one account's tax character.
+    payload_account_keys = {
+        h.account_external_id for h in holdings if h.account_external_id
+    }
     # Snapshots before any bucket runs, so payload order can't change them.
     # Once per-account wallets exist under the current connection key, the
     # plain-keyed wallet is the live connection-default, not a legacy row
@@ -529,7 +534,23 @@ async def _sync_holdings(
                     for g in candidates
                     if g.external_id and "::" not in g.external_id
                 ]
-                pool = suffixed or (
+                # A bare key that *is* this account's id can only ever be this
+                # account's wallet — the fork wrote exactly that shape, and a
+                # connection-level wallet carries the connection's id instead.
+                # It skips the gate below because migration 087 cannot re-key a
+                # wallet orphaned by a disconnect (no connection left to build
+                # the key from), while re-keying that orphan's live siblings is
+                # itself what flips the gate. Gated, the orphan would strand
+                # with the user's tax_treatment on it and a fresh `taxable`
+                # wallet would take its holdings.
+                exact_bare = [g for g in candidates if key and g.external_id == key]
+                # Both pools above name one account: a suffixed key carries it,
+                # and a bare key that equals it is the fork's own per-account
+                # shape. Anything adopted outside them held the whole
+                # connection, which is what the tax_treatment reset below turns
+                # on.
+                per_account_ids = {g.id for g in suffixed} | {g.id for g in exact_bare}
+                pool = suffixed or exact_bare or (
                     []
                     if (has_any_split_wallets if key else has_split_wallets)
                     else plain
@@ -555,6 +576,19 @@ async def _sync_holdings(
                 # re-selects the winner's row.
                 try:
                     async with session.begin_nested():
+                        # A plainly-keyed wallet held every account's holdings
+                        # at once, so the tax character on it was stated for the
+                        # whole connection, not for the one account adopting it
+                        # here — and which account that is comes down to payload
+                        # order. Hand it back the default instead of letting one
+                        # account inherit a setting made for several (#76): the
+                        # user re-states it per wallet, and the direction that
+                        # errs keeps gains reportable rather than hiding them.
+                        if (
+                            legacy.id not in per_account_ids
+                            and len(payload_account_keys) > 1
+                        ):
+                            legacy.tax_treatment = "taxable"
                         legacy.external_id = wallet_key
                         legacy.connection_id = connection.id
                         if _is_auto_wallet_name(
@@ -723,7 +757,13 @@ async def _sync_holdings(
             if referenced:
                 continue
             emptied = await session.get(AssetGroup, gid)
-            if emptied is None or emptied.tax_treatment != "taxable":
+            # Orphans of *other* connections ride along in sync_owned so their
+            # assets can be re-filed, but they are not this sync's to delete —
+            # a connection removed long ago can leave a wallet the user keeps
+            # on purpose, and this sync knows nothing about it.
+            if emptied is None or emptied.connection_id != connection.id:
+                continue
+            if emptied.tax_treatment != "taxable":
                 continue
             await session.delete(emptied)
 
@@ -976,9 +1016,15 @@ async def _upsert_asset_from_holding(
     # Fields Pluggy consistently returns — safe to overwrite each sync.
     asset.name = holding.name
     asset.currency = holding.currency
-    # Provider-owned: the account a holding sits in is the provider's to state,
-    # including when it stops stating one.
-    asset.account_external_id = holding.account_external_id
+    # Provider-owned while the provider states it. A payload that names no
+    # account keeps the attribution already on the row: it is the join
+    # `asset_group_service._account_type_and_balance_for` walks to reach the
+    # account, so erasing it silently empties allocation-by-account-type and
+    # Liquid Cash for the whole wallet until a healthy payload arrives. Same
+    # reasoning as `hint_lost` in `_sync_holdings`, which refuses to re-file a
+    # holding on the strength of a hint the provider stopped sending.
+    if holding.account_external_id is not None:
+        asset.account_external_id = holding.account_external_id
     # external_metadata is a snapshot blob: we want the latest every time.
     asset.external_metadata = holding.metadata
     previous_connection_id = asset.connection_id

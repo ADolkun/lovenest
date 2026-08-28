@@ -19,7 +19,7 @@ from typing import Optional
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -520,6 +520,16 @@ async def test_returned_holding_is_unarchived_after_reconnect(
 
     # Simulate unlink/reconnect: old connection disappears and a new one syncs.
     await session.delete(mock_connection)
+    # `assets.connection_id` is ON DELETE SET NULL, which is what leaves the
+    # archived holding adoptable. SQLite runs these tests without
+    # `PRAGMA foreign_keys`, so the action never fires and the row would keep a
+    # dangling id — the re-sync would then miss it and insert a duplicate that
+    # ux_assets_workspace_source_external rejects on Postgres.
+    await session.execute(
+        update(Asset)
+        .where(Asset.connection_id == mock_connection.id)
+        .values(connection_id=None)
+    )
     await session.commit()
 
     reconnected = BankConnection(
