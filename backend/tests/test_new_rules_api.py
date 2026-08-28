@@ -1363,3 +1363,92 @@ async def test_preview_rule_reports_no_change_when_the_draft_would_not_be_applie
     assert applied["will_apply"] is True
     assert applied["will_change"] == 1
     assert applied["sample"][0]["new_category_name"] == target.name
+
+
+@pytest.mark.asyncio
+async def test_preview_rule_is_scoped_to_the_selected_workspace(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+    test_categories,
+    test_transactions,
+):
+    """The preview reads the selected workspace's ledger, never the user's.
+
+    The same person is a member of both workspaces here, so a query scoped by
+    user instead of workspace would still answer 200 and simply report the
+    other workspace's transactions — the failure this pins is a silent leak of
+    descriptions, dates and amounts across the boundary, not an error.
+    """
+    from app.services.workspace_service import create_workspace
+
+    second = await create_workspace(
+        session,
+        name="Second",
+        creator=test_user,
+        self_membership=True,
+        seed_defaults=True,
+    )
+    body = {
+        "conditions_op": "and",
+        "conditions": [{"field": "description", "op": "contains", "value": "NETFLIX"}],
+        "actions": [],
+    }
+
+    own = (await client.post("/api/rules/preview", json=body, headers=auth_headers)).json()
+    assert own["matched"] == 1
+
+    other = await client.post(
+        "/api/rules/preview",
+        json=body,
+        headers={**auth_headers, "X-Workspace-Id": str(second.id)},
+    )
+    assert other.status_code == 200
+    assert other.json() == {
+        "matched": 0, "will_change": 0, "will_apply": True, "sample": [], "offset": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_preview_rule_skips_a_hidden_category_like_the_save_path(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_categories,
+    test_transactions,
+):
+    """A rule filing into a hidden category changes nothing, and preview says so.
+
+    Hiding a category does not deactivate the rules pointing at it, so this is
+    a reachable state rather than a corner. `apply_rule_actions` drops the
+    `set_category` for a hidden target; a preview that did not would promise a
+    move that saving never makes.
+    """
+    target = test_categories[0]
+    target.is_hidden = True
+    await session.commit()
+
+    body = {
+        "conditions_op": "and",
+        "conditions": [{"field": "description", "op": "contains", "value": "NETFLIX"}],
+        "actions": [{"op": "set_category", "value": str(target.id)}],
+    }
+    data = (await client.post("/api/rules/preview", json=body, headers=auth_headers)).json()
+    assert data["matched"] == 1
+    assert data["will_change"] == 0
+    item = data["sample"][0]
+    assert item["will_change"] is False
+    assert item["new_category_id"] == item["current_category_id"] is None
+
+    # Saving agrees: the transaction keeps the category it had.
+    created = await client.post(
+        "/api/rules",
+        json={**body, "name": "Hidden target", "apply_to_existing": True},
+        headers=auth_headers,
+    )
+    assert created.status_code == 201
+    txn = (
+        await client.get(f"/api/transactions/{item['id']}", headers=auth_headers)
+    ).json()
+    assert txn["category_id"] is None

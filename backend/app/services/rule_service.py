@@ -1302,6 +1302,10 @@ async def preview_rule(
         action if isinstance(action, dict) else action.model_dump() for action in actions or []
     ]
 
+    # The save path skips `set_category` at a hidden target, so a preview that
+    # did not would promise a move that saving never makes.
+    hidden_categories = await get_hidden_category_ids(session, workspace_id)
+
     matched = 0
     changed = 0
     sample: list[RulePreviewItem] = []
@@ -1329,6 +1333,7 @@ async def preview_rule(
                 category_already_set=tx.category_id is not None
                 and not overwrite_existing_categories,
                 skip_description=_has_manual_description(tx),
+                hidden_category_ids=hidden_categories,
             )
             will_change = _rule_effect_state(draft) != before
             if will_change:

@@ -331,14 +331,14 @@ function RulePreviewPanel({
                   <> · {t('rules.previewSampleNote', { shown: sample.length })}</>
                 )}
               </p>
-              <div className="max-h-56 overflow-y-auto overflow-x-auto">
-                <table className="w-full text-xs">
+              <div className="max-h-56 overflow-y-auto overflow-x-auto overscroll-contain">
+                <table className="w-full table-fixed text-xs">
                   <thead className="sticky top-0 bg-card text-muted-foreground">
                     <tr className="border-b border-border text-left">
-                      <th className="py-1.5 pr-2 font-medium">{t('transactions.date')}</th>
+                      <th className="w-24 py-1.5 pr-2 font-medium">{t('transactions.date')}</th>
                       <th className="py-1.5 pr-2 font-medium">{t('transactions.description')}</th>
-                      <th className="py-1.5 pr-2 text-right font-medium">{t('transactions.amount')}</th>
-                      <th className="py-1.5 font-medium">{t('transactions.category')}</th>
+                      <th className="w-24 py-1.5 pr-2 text-right font-medium">{t('transactions.amount')}</th>
+                      <th className="w-[35%] py-1.5 font-medium">{t('transactions.category')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -347,7 +347,7 @@ function RulePreviewPanel({
                         <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums">
                           {new Date(item.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                         </td>
-                        <td className="max-w-[22rem] truncate py-1.5 pr-2" title={item.description}>
+                        <td className="truncate py-1.5 pr-2" title={item.description}>
                           {item.description}
                         </td>
                         <td className={cn(
@@ -359,17 +359,17 @@ function RulePreviewPanel({
                         <td className="py-1.5">
                           {item.will_change ? (
                             <span className="flex items-center gap-1">
-                              <span className="truncate">
+                              <span className="min-w-0 truncate">
                                 {item.current_category_name ?? t('transactions.uncategorized')}
                               </span>
                               <ArrowRight size={11} className="shrink-0 text-muted-foreground" />
-                              <span className="truncate font-medium text-emerald-600">
+                              <span className="min-w-0 truncate font-medium text-emerald-600">
                                 {item.new_category_name ?? t('transactions.uncategorized')}
                               </span>
                             </span>
                           ) : (
                             <span className="flex items-center gap-1">
-                              <span className="truncate">
+                              <span className="min-w-0 truncate">
                                 {item.current_category_name ?? t('transactions.uncategorized')}
                               </span>
                               <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-semibold">
