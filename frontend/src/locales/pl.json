@@ -753,7 +753,8 @@
         "description": "Banki w USA i międzynarodowe przez SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank połączony ponownie"
+    "reconnected": "Bank połączony ponownie",
+    "noAccount": "Brak konta"
   },
   "connections": {
     "settings": "Ustawienia połączenia",
@@ -1749,7 +1750,8 @@
     "previous": "Poprzedni",
     "next": "Następny",
     "rowsPerPage": "Wierszy na stronę",
-    "noResults": "Brak wyników"
+    "noResults": "Brak wyników",
+    "remove": "Usuń"
   },
   "splitGroups": {
     "title": "Grupy",

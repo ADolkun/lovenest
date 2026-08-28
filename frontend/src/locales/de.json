@@ -711,7 +711,8 @@
         "description": "US-amerikanische und internationale Banken via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank erfolgreich erneut verbunden"
+    "reconnected": "Bank erfolgreich erneut verbunden",
+    "noAccount": "Kein Konto"
   },
   "connections": {
     "settings": "Verbindungseinstellungen",
@@ -1638,7 +1639,8 @@
     "previous": "Vorherige",
     "next": "Nächste",
     "rowsPerPage": "Zeilen pro Seite",
-    "noResults": "Keine Ergebnisse"
+    "noResults": "Keine Ergebnisse",
+    "remove": "Entfernen"
   },
   "splitGroups": {
     "title": "Gruppen",

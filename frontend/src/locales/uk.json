@@ -717,7 +717,8 @@
         "description": "Банки США та інших країн через SimpleFIN Bridge"
       }
     },
-    "reconnected": "Банк успішно перепідключено"
+    "reconnected": "Банк успішно перепідключено",
+    "noAccount": "Немає рахунку"
   },
   "connections": {
     "settings": "Налаштування підключення",
@@ -1650,7 +1651,8 @@
     "previous": "Назад",
     "next": "Далі",
     "rowsPerPage": "Рядків на сторінці",
-    "noResults": "Немає результатів"
+    "noResults": "Немає результатів",
+    "remove": "Видалити"
   },
   "splitGroups": {
     "title": "Групи",
