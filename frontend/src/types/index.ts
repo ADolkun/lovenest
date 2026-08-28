@@ -95,8 +95,14 @@ export interface Category {
   icon: string
   color: string
   is_system: boolean
+  is_hidden: boolean
   treat_as_transfer: boolean
   is_ignored: boolean
+}
+
+/** Active rules that assign a category, used when retiring one. */
+export interface CategoryRuleUsage {
+  rules: { id: string; name: string }[]
 }
 
 export interface CategoryGroup {
@@ -107,7 +113,13 @@ export interface CategoryGroup {
   color: string
   position: number
   is_system: boolean
+  is_hidden: boolean
   categories: Category[]
+}
+
+export interface ConnectionInstitution {
+  name: string
+  logo_url: string | null
 }
 
 export interface BankConnection {
@@ -124,6 +136,9 @@ export interface BankConnection {
   last_sync_at: string | null
   last_sync_error_account_id: string | null
   created_at: string
+  // Institutions this link spans (issue #345). Empty for one-institution
+  // providers — institution_name covers those.
+  institutions: ConnectionInstitution[]
 }
 
 export interface ConnectionSettings {

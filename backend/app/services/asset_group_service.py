@@ -4,6 +4,7 @@ from typing import Optional, cast
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -182,17 +183,21 @@ async def ungrouped_value(
 
 
 async def _institution_name_for(
-    session: AsyncSession, connection_id: Optional[uuid.UUID]
+    session: AsyncSession, group: AssetGroup
 ) -> Optional[str]:
     """Fetch the bank/broker institution name for a synced wallet.
 
-    Returns None for manual wallets (no connection) or if the connection
-    was deleted — callers render the subtitle conditionally on this.
+    Prefers the wallet's own institution (issue #345), falling back to the
+    connection's label. Returns None for manual wallets (no connection) or
+    if the connection was deleted — callers render the subtitle
+    conditionally on this.
     """
-    if connection_id is None:
+    if group.institution is not None:
+        return group.institution.name
+    if group.connection_id is None:
         return None
     row = await session.execute(
-        select(BankConnection.institution_name).where(BankConnection.id == connection_id)
+        select(BankConnection.institution_name).where(BankConnection.id == group.connection_id)
     )
     return row.scalar_one_or_none()
 
@@ -202,31 +207,56 @@ async def _account_type_and_balance_for(
 ) -> tuple[Optional[str], Optional[Decimal]]:
     """The (type, balance) of the provider account a synced wallet mirrors.
 
-    One wallet per provider account (#76), so the wallet's `external_id` is
-    the account's — the join that lets allocation be grouped by account type,
-    and that carries the balance Liquid Cash is derived against. Both are None
-    for manual wallets, and for a connection-level wallet holding positions the
-    provider attributed to no account.
+    One wallet per provider account (#76), reached through the holdings it
+    owns: the wallet's own `external_id` is "{connection}::{account}" and is
+    digest-truncated when that overflows the column, so it does not parse back
+    into an account id. `Asset.account_external_id` carries the attribution
+    unchanged. This is the join that lets allocation be grouped by account
+    type, and that carries the balance Liquid Cash is derived against.
+
+    Both are None for a manual wallet — a synced holding the user dragged into
+    one still belongs to the account it came from, but the wallet does not, and
+    reporting the balance twice would invent the cash a second time. Both are
+    None too for a connection-level wallet holding positions the provider
+    attributed to no account, and whenever the live holdings name more than one
+    account — an unsplit legacy wallet has no single balance to subtract from,
+    and guessing one would invent cash just the same.
+
+    Counts the same holdings `_rollup` does, and no others: an archived or sold
+    row left behind by a sibling account would otherwise read as a second
+    account forever, silently switching allocation off for a wallet the UI
+    still shows as live.
 
     The balance comes back in the primary currency, because the only thing that
     subtracts from it is `current_value_primary`. `Account.balance_primary` is
     not stored — the accounts API converts on read — so this converts the same
     way rather than trusting a column nothing fills.
     """
-    if not group.external_id:
+    if group.source == "manual":
         return None, None
-    row = await session.execute(
-        select(Account.type, Account.balance, Account.currency)
+    query = (
+        select(Account.id, Account.type, Account.balance, Account.currency)
+        .join(Asset, Asset.account_external_id == Account.external_id)
         .where(
+            Asset.group_id == group.id,
+            Asset.workspace_id == group.workspace_id,
+            Asset.is_archived == False,  # noqa: E712 — SQL, not Python truthiness
+            Asset.sell_date.is_(None),
             Account.workspace_id == group.workspace_id,
-            Account.external_id == group.external_id,
         )
-        .limit(1)
     )
-    account = row.first()
-    if account is None:
+    if group.connection_id is not None:
+        # `accounts.external_id` is unique per connection, not per workspace, so
+        # two live connections carrying the same provider id would otherwise let
+        # a wallet read the sibling's balance.
+        query = query.where(Account.connection_id == group.connection_id)
+    # The PK is what makes DISTINCT mean *distinct accounts*: two accounts that
+    # happen to share a type, balance and currency would collapse into one row
+    # and read as unambiguous.
+    rows = (await session.execute(query.distinct().limit(2))).all()
+    if len(rows) != 1:
         return None, None
-    account_type, balance, currency = account
+    _, account_type, balance, currency = rows[0]
     if balance is None:
         return account_type, None
     if currency == primary_currency:
@@ -263,7 +293,7 @@ async def get_groups(
         # "MeuPluggy 4 · 0 items" after reconnects/migrations.
         if g.source != "manual" and count == 0:
             continue
-        institution = await _institution_name_for(session, g.connection_id)
+        institution = await _institution_name_for(session, g)
         account_type, balance = await _account_type_and_balance_for(session, g, primary)
         reads.append(_group_to_read(g, count, cv, cvp, ccy, institution, account_type, balance))
     return reads
@@ -283,7 +313,7 @@ async def get_group(
         return None
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
-    institution = await _institution_name_for(session, group.connection_id)
+    institution = await _institution_name_for(session, group)
     account_type, balance = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
@@ -343,7 +373,7 @@ async def update_group(
     await session.refresh(group)
     primary = await _primary_currency_for(session, user_id)
     count, cv, cvp, ccy = await _rollup(session, group, primary)
-    institution = await _institution_name_for(session, group.connection_id)
+    institution = await _institution_name_for(session, group)
     account_type, balance = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
 
@@ -368,6 +398,7 @@ async def ensure_group_for_connection(
     source: str,
     external_id: Optional[str],
     default_name: str,
+    institution_id: Optional[uuid.UUID] = None,
 ) -> AssetGroup:
     """Return (creating if absent) the group that owns a connection's assets.
 
@@ -383,6 +414,17 @@ async def ensure_group_for_connection(
     alongside it, so two members of a shared workspace who each link the same
     institution get a wallet apiece rather than sharing one row.
     """
+
+    def _align(g: AssetGroup) -> AssetGroup:
+        # Re-link if the connection was recreated. Name and workspace are
+        # preserved; the query below is already scoped to this workspace.
+        if g.connection_id != connection_id:
+            g.connection_id = connection_id
+        # Backfills groups that predate institution tracking (issue #345).
+        if institution_id is not None and g.institution_id != institution_id:
+            g.institution_id = institution_id
+        return g
+
     # Prefer matching by external_id (Pluggy item id). Falls back to
     # connection_id which is less stable (connection can be deleted/recreated).
     query = select(AssetGroup).where(
@@ -398,18 +440,16 @@ async def ensure_group_for_connection(
     result = await session.execute(query)
     group = result.scalar_one_or_none()
     if group:
-        # Re-link if the connection was recreated. Name is preserved.
-        if group.connection_id != connection_id:
-            group.connection_id = connection_id
-        return group
+        return _align(group)
 
     position = await _next_position(session, workspace_id)
     # Disambiguate when the user has multiple connections from the same
     # institution (common with Pluggy sandbox, where every item comes back
     # as "MeuPluggy"). Appends " 2", " 3", etc. until we find a free name.
     # User can rename freely afterwards without affecting sync matching,
-    # which keys on external_id, not on name.
-    unique_name = await _unique_default_name(session, workspace_id, default_name)
+    # which keys on external_id, not on name. Clamped so the disambiguating
+    # suffix still fits the 100-char name column.
+    unique_name = await _unique_default_name(session, workspace_id, default_name[:95])
     group = AssetGroup(
         user_id=user_id,
         workspace_id=workspace_id,
@@ -420,19 +460,36 @@ async def ensure_group_for_connection(
         source=source,
         connection_id=connection_id,
         external_id=external_id,
+        institution_id=institution_id,
     )
-    session.add(group)
-    await session.flush()
+    # A concurrent sync (scheduled + manual) can mint the same key; the
+    # savepoint keeps the loser's IntegrityError from poisoning the
+    # session — re-select and use the winner's row.
+    try:
+        async with session.begin_nested():
+            session.add(group)
+            await session.flush()
+    except IntegrityError:
+        result = await session.execute(query)
+        group = _align(result.scalar_one())
     return group
 
 
 async def _unique_default_name(
-    session: AsyncSession, workspace_id: uuid.UUID, base: str
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    base: str,
+    exclude_group_id: Optional[uuid.UUID] = None,
 ) -> str:
-    """Return `base` or the first free `base N` in this workspace."""
-    existing_rows = await session.execute(
-        select(AssetGroup.name).where(AssetGroup.workspace_id == workspace_id)
-    )
+    """Return `base` or the first free `base N` in this workspace.
+
+    A group being renamed in place passes its own id so its current name
+    doesn't count as taken.
+    """
+    query = select(AssetGroup.name).where(AssetGroup.workspace_id == workspace_id)
+    if exclude_group_id is not None:
+        query = query.where(AssetGroup.id != exclude_group_id)
+    existing_rows = await session.execute(query)
     taken = {row[0] for row in existing_rows.all()}
     if base not in taken:
         return base

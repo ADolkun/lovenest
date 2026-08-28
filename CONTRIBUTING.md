@@ -143,6 +143,19 @@ npm run build                  # type-check + production build (must succeed)
 npm test                       # Vitest (must pass)
 ```
 
+### Adding a frontend dependency
+
+`frontend/.npmrc` disables package install scripts and skips releases younger than seven days.
+The cooldown requires npm 11.10 or newer, so upgrade npm before adding a dependency:
+
+```bash
+npm install --global npm@latest
+cd frontend && npm install <package>
+```
+
+Commit both `package.json` and `package-lock.json`. If the newest package release is less than a
+week old, wait or explain the exception in the PR.
+
 ## Commit messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org). Keep the subject imperative and

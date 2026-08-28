@@ -1,10 +1,13 @@
 """Cover the Asset lifecycle through `_sync_holdings`.
 
 The sync contract is a bit subtle: provider data drives creation *and*
-closure of Assets, but user-set fields (sell_date, group_id) are load-
-bearing and must never be overwritten. These tests pin the full matrix:
-new/existing × active/withdrawn, same-day vs next-day re-syncs,
-historical seeding idempotency, and sparse-field merging.
+closure of Assets, but user-set fields are load-bearing — sell_date is
+never overwritten, and group_id is rewritten only between wallets the
+sync itself owns (per-account re-attribution, issue #345); a wallet the
+user chose is never touched (see test_connection_service.py for the
+re-attribution matrix). These tests pin the rest: new/existing ×
+active/withdrawn, same-day vs next-day re-syncs, historical seeding
+idempotency, and sparse-field merging.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from typing import Optional
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -36,6 +39,7 @@ from app.providers.base import (
 )
 from app.schemas.asset import AssetValueCreate
 from app.services import asset_service
+from app.services.asset_group_service import get_groups
 from app.services.connection_service import _sync_holdings, _upsert_asset_value_for_today
 
 
@@ -516,6 +520,16 @@ async def test_returned_holding_is_unarchived_after_reconnect(
 
     # Simulate unlink/reconnect: old connection disappears and a new one syncs.
     await session.delete(mock_connection)
+    # `assets.connection_id` is ON DELETE SET NULL, which is what leaves the
+    # archived holding adoptable. SQLite runs these tests without
+    # `PRAGMA foreign_keys`, so the action never fires and the row would keep a
+    # dangling id — the re-sync would then miss it and insert a duplicate that
+    # ux_assets_workspace_source_external rejects on Postgres.
+    await session.execute(
+        update(Asset)
+        .where(Asset.connection_id == mock_connection.id)
+        .values(connection_id=None)
+    )
     await session.commit()
 
     reconnected = BankConnection(
@@ -846,7 +860,8 @@ async def test_holdings_land_in_a_wallet_per_provider_account(
     roth = await _wallet_of(session, assets["h-2"])
     assert tod.name == "Individual - TOD (5044)"
     assert roth.name == "ROTH IRA (6548)"
-    assert tod.external_id == "acc-tod" and roth.external_id == "acc-roth"
+    assert tod.external_id == f"{brokerage_connection.external_id}::acc-tod"
+    assert roth.external_id == f"{brokerage_connection.external_id}::acc-roth"
     # Tax character is user-set: no provider reports it, so a wallet named
     # "ROTH IRA" is still born taxable.
     assert roth.tax_treatment == "taxable"
@@ -929,10 +944,16 @@ async def test_existing_connection_wallet_splits_by_account(
     await session.commit()
 
     assets = {a.external_id: a for a in await _assets_for(session, test_user)}
-    assert assets["h-1"].group_id != legacy.id
+    # The first account adopts the legacy row so its customization survives;
+    # the second gets a new per-account wallet.
+    assert assets["h-1"].group_id == legacy.id
     assert assets["h-2"].group_id != legacy.id
-    assert (await _wallet_of(session, assets["h-1"])).external_id == "acc-tod"
-    assert (await _wallet_of(session, assets["h-2"])).external_id == "acc-roth"
+    assert (await _wallet_of(session, assets["h-1"])).external_id == (
+        f"{brokerage_connection.external_id}::acc-tod"
+    )
+    assert (await _wallet_of(session, assets["h-2"])).external_id == (
+        f"{brokerage_connection.external_id}::acc-roth"
+    )
 
 
 @pytest.mark.asyncio
@@ -952,7 +973,9 @@ async def test_holding_follows_the_account_the_provider_moves_it_to(
     )
     await session.commit()
     [asset] = await _assets_for(session, test_user)
-    assert (await _wallet_of(session, asset)).external_id == "acc-tod"
+    assert (await _wallet_of(session, asset)).external_id == (
+        f"{brokerage_connection.external_id}::acc-tod"
+    )
 
     _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-roth")]
     await _sync_holdings(
@@ -962,7 +985,9 @@ async def test_holding_follows_the_account_the_provider_moves_it_to(
     await session.refresh(asset)
 
     assert asset.account_external_id == "acc-roth"
-    assert (await _wallet_of(session, asset)).external_id == "acc-roth"
+    assert (await _wallet_of(session, asset)).external_id == (
+        f"{brokerage_connection.external_id}::acc-roth"
+    )
 
 
 @pytest.mark.asyncio
@@ -1147,3 +1172,33 @@ async def test_sync_never_adopts_a_hand_made_holding(
     assert await _values_for(session, manual.id) == []
     # The provider's holding became its own asset rather than overwriting this one.
     assert {a.source for a in await _assets_for(session, test_user)} == {"manual", "mock"}
+
+
+@pytest.mark.asyncio
+async def test_allocation_resolves_the_account_behind_a_compound_keyed_wallet(
+    session: AsyncSession, test_user: User, brokerage_connection: BankConnection
+):
+    """A synced wallet is keyed "{connection}::{account}", not by account id.
+
+    Allocation by account type and Liquid Cash both hang off the account a
+    wallet mirrors, so they have to reach it through the holdings rather than
+    by reading the wallet key as an account id.
+    """
+    roth = await session.scalar(
+        select(Account).where(Account.external_id == "acc-roth")
+    )
+    assert roth is not None
+    roth.balance = Decimal("535.26")
+
+    _MockProvider._holdings = [_holding(external_id="h-1", account_external_id="acc-roth")]
+    assert brokerage_connection.credentials is not None
+    await _sync_holdings(
+        session, test_user.id, brokerage_connection, brokerage_connection.credentials
+    )
+    await session.commit()
+
+    wallets = await get_groups(session, brokerage_connection.workspace_id, test_user.id)
+    wallet = next(w for w in wallets if w.name == "ROTH IRA (6548)")
+
+    assert wallet.account_type == "investment"
+    assert wallet.account_balance == 535.26

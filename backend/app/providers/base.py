@@ -128,6 +128,13 @@ class AccountData:
     # abstention: answering False there would tell the user an investment
     # account holds nothing.
     has_holdings: Optional[bool] = None
+    # Per-account institution override (SimpleFIN — issue #345). None = same
+    # as connection. The external id is the provider's stable org id
+    # (SimpleFIN conn_id) so a renamed bank updates its row instead of
+    # minting a new one; name-only hints fall back to name identity.
+    institution_external_id: Optional[str] = None
+    institution_name: Optional[str] = None
+    institution_logo_url: Optional[str] = None
 
 
 @dataclass
@@ -220,6 +227,10 @@ class HoldingData:
     # relationship. Stays None for providers whose holdings are connection-level
     # (Pluggy investments), so an unset value means "unattributable", not "none".
     account_external_id: Optional[str] = None
+
+    # Provider display name for the owning account, used as the synced wallet's
+    # default name. Users can still rename the wallet after it is created.
+    account_name: Optional[str] = None
 
 
 @dataclass

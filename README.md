@@ -14,7 +14,7 @@
 
 The core application — every feature listed below — is the work of the Securo project and its contributors. lovenest is a thin **customization and deployment layer** on top of that work: it does not reimplement the app, and it does not claim Securo's features as its own. Upstream copyright and the AGPL-3.0 license are preserved in full (see [LICENSE](LICENSE)).
 
-If you want the canonical project, its docs, demo, and community, go to **[Securo](https://github.com/securo-finance/securo)** ([website](https://usesecuro.com/) · [docs](https://docs.usesecuro.com/) · [demo](https://demo.usesecuro.com/)).
+If you want the canonical project, its docs, demo, and community, go to **[Securo](https://github.com/securo-finance/securo)** ([website](https://usesecuro.com/) · [roadmap](https://www.usesecuro.com/roadmap) · [docs](https://docs.usesecuro.com/) · [demo](https://demo.usesecuro.com/)).
 
 ## What lovenest adds
 
@@ -58,7 +58,7 @@ The following is **Securo's feature set**, inherited unchanged by lovenest:
 - Multi-currency support with automatic FX conversion
 - Multi-user support with an admin panel and registration controls
 - Two-factor authentication (TOTP) with brute-force protection, plus passkey support
-- OIDC login for Authentik, Pocket ID, and other standard providers
+- OIDC login for Authentik, Pocket ID, and other standard providers, including OIDC-only deployments
 - AI Agents (optional): self-hosted LLM chat with tool-use over your data, plus a per-agent RAG knowledge base
 
 For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exchange rates, and AI Agents, follow **[Securo's documentation](https://docs.usesecuro.com/)** — the underlying configuration keys are unchanged in this fork.
