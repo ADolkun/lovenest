@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional, cast
 
-from sqlalchemy import CursorResult, case, delete, func, select, update
+from sqlalchemy import CursorResult, case, select, func, update, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,14 +71,10 @@ async def get_or_create_payee(
     user_id: uuid.UUID,
     name: str,
     *,
-    workspace_id: Optional[uuid.UUID] = None,
+    workspace_id: uuid.UUID,
     source: str = "sync",
 ) -> Payee:
-    """Find a payee by name (case-insensitive) or create a new one.
-
-    `user_id` is kept first for backwards compatibility with import/connection
-    sync paths. When `workspace_id` is provided, the lookup scopes by workspace;
-    otherwise the autostamp listener fills it in on insert.
+    """Find a normalized workspace payee or create it.
 
     `source` is stamped only on rows this call creates. An existing payee is
     returned untouched, so a counterparty somebody entered by hand keeps
@@ -95,22 +91,23 @@ async def get_or_create_payee(
 
     if len(name) > 255:
         name = name[:255]
-
+    # Mirrors the uq_payees_workspace_id_lower_name index exactly, so the
+    # lookup hits the same row the unique constraint would reject.
     lookup = select(Payee).where(
-        func.lower(func.trim(Payee.name)) == name.lower()
+        Payee.workspace_id == workspace_id,
+        func.lower(func.trim(Payee.name)) == name.lower(),
     )
-    if workspace_id is not None:
-        lookup = lookup.where(Payee.workspace_id == workspace_id)
-    else:
-        lookup = lookup.where(Payee.user_id == user_id)
     result = await session.execute(lookup)
     payee = result.scalar_one_or_none()
     if payee:
         return payee
 
-    payee = Payee(user_id=user_id, name=name, source=source)
-    if workspace_id is not None:
-        payee.workspace_id = workspace_id
+    payee = Payee(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        name=name,
+        source=source,
+    )
     try:
         async with session.begin_nested():
             session.add(payee)
@@ -194,7 +191,8 @@ async def create_payee(
     if not name:
         raise ValueError("Payee name cannot be empty")
 
-    # Check uniqueness
+    # Raised as a code, like the tax-id errors above: the client turns it into
+    # a translated sentence, which prose in English here could never be.
     existing = await session.execute(
         select(Payee).where(
             Payee.workspace_id == workspace_id,
@@ -202,7 +200,7 @@ async def create_payee(
         )
     )
     if existing.scalar_one_or_none():
-        raise ValueError("A payee with this name already exists")
+        raise ValueError("duplicate_payee_name")
 
     fields = data.model_dump(exclude={"name", "tax_ids"})
     # Stamped here rather than taken from the request: this is the path a
@@ -254,7 +252,7 @@ async def update_payee(
             )
         )
         if existing.scalar_one_or_none():
-            raise ValueError("A payee with this name already exists")
+            raise ValueError("duplicate_payee_name")
 
     for key, value in update_data.items():
         setattr(payee, key, value)
