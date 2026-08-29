@@ -362,10 +362,17 @@ async def test_total_balance_computed_from_transactions(client, auth_headers):
 
 @pytest.mark.asyncio
 async def test_pending_and_future_rows_are_current_vs_projected(
-    client, auth_headers
+    client, auth_headers, monkeypatch
 ):
     """Pending and future rows affect the forecast, never a manual current balance."""
-    today = date.today()
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 8, 15)
+
+    monkeypatch.setattr("app.services.account_service._Date", FixedDate)
+    monkeypatch.setattr("app.services.dashboard_service.date", FixedDate)
+    today = FixedDate.today()
     acc_resp = await client.post(
         "/api/accounts",
         json={"name": "Forecast split", "type": "checking", "balance": 1000.00, "currency": "BRL"},
@@ -398,7 +405,7 @@ async def test_pending_and_future_rows_are_current_vs_projected(
 
     resp = await client.get(
         "/api/dashboard/summary",
-        params={"month": _current_month_str()},
+        params={"month": today.replace(day=1).isoformat()},
         headers=auth_headers,
     )
     assert resp.status_code == 200
