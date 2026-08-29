@@ -61,16 +61,16 @@ from app.services.rule_engine import _strip_accents
 logger = logging.getLogger(__name__)
 
 #: What makes a holding one this importer may add orders to. `market_price` is
-#: the normal case. The second is narrower than it looks: an unpriced holding
-#: falls back to `manual`, and has to be matched or the next import of the same
-#: ticker would build a duplicate beside it — but only the ones this importer
-#: created. A hand-made manual asset that happens to carry a ticker is the
-#: user's own record, and rewriting its units from a file it never came from
-#: would be this module taking something that is not its.
+#: the normal case. The second is narrower than it looks: an unpriced or
+#: provider-synced holding falls back to `manual`, and has to be matched or the
+#: import would build a duplicate beside it. A hand-made manual asset that
+#: happens to carry a ticker is the user's own record, and rewriting its units
+#: from a file it never came from would be this module taking something that is
+#: not its.
 def _is_importable_holding():
     return or_(
         Asset.valuation_method == 'market_price',
-        and_(Asset.valuation_method == 'manual', Asset.source == 'import'),
+        and_(Asset.valuation_method == 'manual', Asset.source != 'manual'),
     )
 
 #: How many tickers the bulk lookup may miss before we stop double-checking
