@@ -366,6 +366,7 @@ async def test_pending_and_future_rows_are_current_vs_projected(
 ):
     """Pending and future rows affect the forecast, never a manual current balance."""
     today = date.today()
+    future = today + timedelta(days=3)
     acc_resp = await client.post(
         "/api/accounts",
         json={"name": "Forecast split", "type": "checking", "balance": 1000.00, "currency": "BRL"},
@@ -388,7 +389,7 @@ async def test_pending_and_future_rows_are_current_vs_projected(
             "amount": 200.00,
             "currency": "BRL",
             "type": "debit",
-            "date": (today + timedelta(days=3)).isoformat(),
+            "date": future.isoformat(),
             "status": "posted",
         },
     ):
@@ -396,9 +397,12 @@ async def test_pending_and_future_rows_are_current_vs_projected(
         tx_resp = await client.post("/api/transactions", json=payload, headers=auth_headers)
         assert tx_resp.status_code == 201
 
+    # Ask for the month that holds the future row. The forecast window ends at
+    # the selected month_end, so anchoring on today's month drops the row on the
+    # last days of a month; the pending row is carried in from any date.
     resp = await client.get(
         "/api/dashboard/summary",
-        params={"month": _current_month_str()},
+        params={"month": future.replace(day=1).isoformat()},
         headers=auth_headers,
     )
     assert resp.status_code == 200
