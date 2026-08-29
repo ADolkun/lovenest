@@ -101,7 +101,9 @@ async def _resolve_current_amount(
             total += await _convert_amount(session, bal, acc.currency, goal_currency)
 
         # Add asset values (scoped by the goal's workspace).
-        assets_by_currency, _ = await get_asset_values_at(session, workspace_id, by_workspace=True)
+        assets_by_currency, _ = await get_asset_values_at(
+            session, workspace_id, by_workspace=True, for_net_worth=True
+        )
         total += await _sum_native_totals_in_currency(session, assets_by_currency, goal_currency)
 
         return total

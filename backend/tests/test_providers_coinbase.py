@@ -393,10 +393,12 @@ async def test_many_coins_collapse_into_one_exchange_account():
     exchange, fiat = accounts
     assert exchange.external_id == PORTFOLIO_ID
     assert exchange.name == "Coinbase"
-    # The positions arrive as holdings; counting them here too would double them.
+    # An account balance is the account's total, holdings included — what
+    # Liquid Cash is derived by subtracting from (CONTEXT.md). XRP 77.5 @ 0.5
+    # plus ADA 10 @ 0.25; the empty AMP wallet adds nothing.
     assert (exchange.type, exchange.balance, exchange.currency) == (
         "investment",
-        Decimal("0"),
+        Decimal("41.25"),
         "USD",
     )
     assert exchange.has_holdings is True

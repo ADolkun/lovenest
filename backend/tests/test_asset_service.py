@@ -968,3 +968,87 @@ async def test_get_assets_excludes_archived_by_default(session: AsyncSession, te
     names = [a.name for a in assets]
     assert "Visible" in names
     assert "Archived" not in names
+
+
+async def _account_backed_holding(
+    session: AsyncSession, test_user: User, test_workspace, test_account
+) -> Asset:
+    """A Holding the provider filed under `test_account`, valued today."""
+    asset = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=test_account.connection_id,
+        account_external_id=test_account.external_id,
+        source="test",
+        external_id="hold-1",
+        name="ACME",
+        ticker="ACME",
+        type="investment",
+        currency="BRL",
+        valuation_method="manual",
+        units=Decimal("10"),
+    )
+    session.add(asset)
+    await session.flush()
+    session.add(
+        AssetValue(
+            id=uuid.uuid4(),
+            asset_id=asset.id,
+            amount=Decimal("500.00"),
+            date=date.today(),
+            source="sync",
+        )
+    )
+    await session.commit()
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_net_worth_drops_holdings_their_account_balance_already_carries(
+    session: AsyncSession, test_user: User, test_workspace, test_account
+):
+    """A synced account's balance is its total, so its Holdings count once."""
+    await _account_backed_holding(session, test_user, test_workspace, test_account)
+
+    everything, _ = await asset_service.get_asset_values_at(
+        session, test_workspace.id, by_workspace=True
+    )
+    for_net_worth, _ = await asset_service.get_asset_values_at(
+        session, test_workspace.id, by_workspace=True, for_net_worth=True
+    )
+
+    assert everything.get("BRL", 0.0) == pytest.approx(500.0)
+    assert for_net_worth.get("BRL", 0.0) == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_net_worth_keeps_a_holding_no_open_account_carries(
+    session: AsyncSession, test_user: User, test_workspace, test_account
+):
+    """Closing the account leaves the Holding the only place its value is."""
+    await _account_backed_holding(session, test_user, test_workspace, test_account)
+    test_account.is_closed = True
+    await session.commit()
+
+    for_net_worth, _ = await asset_service.get_asset_values_at(
+        session, test_workspace.id, by_workspace=True, for_net_worth=True
+    )
+
+    assert for_net_worth.get("BRL", 0.0) == pytest.approx(500.0)
+
+
+@pytest.mark.asyncio
+async def test_net_worth_keeps_a_holding_the_provider_could_not_attribute(
+    session: AsyncSession, test_user: User, test_workspace, test_account
+):
+    """Pluggy files investments at the item, not the account — still counted."""
+    asset = await _account_backed_holding(session, test_user, test_workspace, test_account)
+    asset.account_external_id = None
+    await session.commit()
+
+    for_net_worth, _ = await asset_service.get_asset_values_at(
+        session, test_workspace.id, by_workspace=True, for_net_worth=True
+    )
+
+    assert for_net_worth.get("BRL", 0.0) == pytest.approx(500.0)
