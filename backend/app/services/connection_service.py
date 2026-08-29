@@ -1666,6 +1666,33 @@ def _description_similarity(a: str | None, b: str | None) -> float:
     return len(intersection) / max(len(tokens_a), len(tokens_b))
 
 
+def _sync_duplicate_description_match(a: str | None, b: str | None) -> bool:
+    """Match stable merchant text across posting suffix/reference changes."""
+    if not a or not b:
+        return False
+    left = " ".join(a.casefold().split())
+    right = " ".join(b.casefold().split())
+    if not left or not right:
+        return False
+    if _description_similarity(left, right) >= 0.9:
+        return True
+    left_tokens = left.split()
+    right_tokens = right.split()
+    if (
+        len(left_tokens) == len(right_tokens)
+        and len(left_tokens) > 1
+        and left_tokens[:-1] == right_tokens[:-1]
+        and left_tokens[-1].isdigit()
+        and right_tokens[-1].isdigit()
+    ):
+        return True
+    shorter, longer = sorted((left, right), key=len)
+    if not longer.startswith(shorter):
+        return False
+    suffix = longer.removeprefix(shorter).lstrip()
+    return bool(suffix) and not suffix[0].isalnum()
+
+
 def _normalized_account_name(name: str | None) -> str:
     """Normalize provider account names for fallback matching.
 
@@ -1948,10 +1975,10 @@ async def _find_synced_duplicate(
     for candidate in result.scalars():
         if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
             continue
-        if _description_similarity(
+        if _sync_duplicate_description_match(
             candidate.original_description or candidate.description,
             txn_data.description,
-        ) >= 0.7:
+        ):
             return candidate
 
     # Path 3: exact transaction timestamp fingerprint. Some SimpleFIN
@@ -1973,12 +2000,11 @@ async def _find_synced_duplicate(
             if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
-            if (
-                candidate_raw.get("transacted_at") == transacted_at
-                and _description_similarity(
+            if candidate_raw.get("transacted_at") == transacted_at and (
+                _sync_duplicate_description_match(
                     candidate_raw.get("description") or candidate.description,
                     txn_data.description,
-                ) >= 0.9
+                )
             ):
                 return candidate
 
@@ -2020,7 +2046,7 @@ async def _find_synced_duplicate(
                 raw.get("description"), txn_data.payee, txn_data.description,
             )
             description_matches = any(
-                left and right and _description_similarity(left, right) >= 0.9
+                _sync_duplicate_description_match(left, right)
                 for left in candidate_descriptions
                 for right in incoming_descriptions
             )
