@@ -19,6 +19,7 @@ from app.providers.market_price import (
     get_market_price_provider,
 )
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetRead, AssetValueRead
+from app.services._query_filters import holding_inside_account_balance
 from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.fx_rate_service import convert, stamp_primary_amount
 
@@ -995,6 +996,7 @@ async def get_asset_values_at(
     *,
     by_workspace: bool = False,
     group_ids: Optional[list[uuid.UUID]] = None,
+    for_net_worth: bool = False,
 ) -> tuple[dict[str, float], float]:
     """Return (per_currency_totals, primary_total) for all active assets.
 
@@ -1007,6 +1009,12 @@ async def get_asset_values_at(
     - as_of_date set: uses the latest AssetValue on or before that date,
       falling back to purchase_price only if the asset existed by that date.
     - primary_currency=None: primary_total is 0.0.
+
+    ``for_net_worth`` drops the Holdings a synced Account's own balance already
+    carries, so a caller adding this total to the account balances books each
+    dollar once (``holding_inside_account_balance``). Off by default: a caller
+    asking what a wallet holds wants every Holding in it, whatever else counts
+    them.
     """
     scope_filter = (
         Asset.workspace_id == scope_id if by_workspace else Asset.user_id == scope_id
@@ -1022,6 +1030,8 @@ async def get_asset_values_at(
     )
     if group_ids:
         stmt = stmt.where(Asset.group_id.in_(group_ids))
+    if for_net_worth:
+        stmt = stmt.where(~holding_inside_account_balance())
     result = await session.execute(stmt)
     assets = list(result.scalars().all())
 

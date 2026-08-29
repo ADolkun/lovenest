@@ -17,6 +17,7 @@ from app.models.user import User
 from app.services._query_filters import (
     counts_as_pnl,
     counts_as_user_pnl,
+    holding_inside_account_balance,
     owner_split_offset_by_category,
     reporting_date_col,
     user_pnl_expense_amount,
@@ -167,6 +168,9 @@ async def _net_worth_at(
         Asset.workspace_id == workspace_id,
         Asset.is_archived == False,
         Asset.sell_date.is_(None),
+        # Its Account's balance is already in `accounts_total` above, holdings
+        # and all — counting it here too books the same dollars twice.
+        ~holding_inside_account_balance(),
     )
     if filtered:
         asset_stmt = asset_stmt.where(Asset.group_id.in_(asset_group_ids or []))

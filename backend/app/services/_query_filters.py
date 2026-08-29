@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.models.account import Account
+from app.models.asset import Asset
 from app.models.category import Category
 from app.models.transaction import Transaction
 from app.services.transaction_semantics import (
@@ -572,3 +573,28 @@ async def viewer_shared_spending_by_category(
         converted, _ = await _convert(session, _Decimal(str(total)), cur, primary_currency)
         out[cat_id] = out.get(cat_id, 0.0) + float(converted)
     return out
+
+
+def holding_inside_account_balance():
+    """SQL predicate: a Holding its own Account's balance already carries.
+
+    An Account's balance is the account's *total* — the Liquid Cash and the
+    Holdings together, which is why Liquid Cash is derived by subtracting the
+    Holdings from it (CONTEXT.md). Net worth adds Accounts and Assets, so a
+    Holding attributed to a synced Account has to be counted on one side only,
+    and the Account's side is the one a provider actually reports.
+
+    Matched on the account the provider attributed the Holding to. A Holding
+    the provider could not attribute (Pluggy files investments at the item, not
+    the account) matches nothing and stays counted, as does one whose account
+    is closed — a closed account is left out of the balance sum entirely, so
+    its Holdings are the only place its value is left.
+    """
+    return exists(
+        select(1).where(
+            Account.connection_id == Asset.connection_id,
+            Account.external_id == Asset.account_external_id,
+            Account.workspace_id == Asset.workspace_id,
+            Account.is_closed == False,  # noqa: E712 — SQL, not Python truth
+        )
+    )

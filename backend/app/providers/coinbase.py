@@ -525,21 +525,33 @@ class CoinbaseProvider(BankProvider):
         character attaches to a Wallet, so the user would be asked to classify
         the same exchange account dozens of times.
 
-        So every crypto wallet folds into one investment account carrying no
-        cash balance — its value arrives as holdings, and counting it here too
-        would double it in net worth. A fiat wallet is the opposite: it is
-        cash, it is genuinely its own account, and it has no holding.
+        So every crypto wallet folds into one investment account, and its
+        balance is what those wallets are worth: an account balance is the
+        account's *total*, holdings included, which is what Liquid Cash is
+        derived by subtracting from (CONTEXT.md). Reporting zero here instead
+        would leave the account reading $0 next to real positions. A fiat
+        wallet is the opposite: it is cash, it is genuinely its own account,
+        and it has no holding.
         """
         raw_accounts = await self._walk_accounts(credentials)
         identified = [raw for raw in raw_accounts if str(raw.get("id") or "")]
         accounts: list[AccountData] = []
-        if any(not self._is_fiat(raw) for raw in identified):
+        crypto = [raw for raw in identified if not self._is_fiat(raw)]
+        if crypto:
+            prices = await self._usd_prices()
             accounts.append(
                 AccountData(
                     external_id=self._portfolio_id(identified),
                     name="Coinbase",
                     type="investment",
-                    balance=Decimal("0"),
+                    balance=sum(
+                        (
+                            quantity * price
+                            for _, _, quantity, price in self._crypto_positions(crypto, prices)
+                            if price is not None
+                        ),
+                        Decimal("0"),
+                    ),
                     currency="USD",
                     has_holdings=True,
                 )
@@ -586,6 +598,37 @@ class CoinbaseProvider(BankProvider):
                 continue
         return prices
 
+    @classmethod
+    def _crypto_positions(
+        cls, raw_accounts: list[dict], prices: dict[str, Decimal]
+    ) -> list[tuple[dict, str, Decimal, Optional[Decimal]]]:
+        """(wallet, asset code, quantity, USD unit price) per crypto wallet.
+
+        Shared by ``get_accounts`` and ``get_holdings`` so the account balance
+        and the holdings under it are the same positions at the same prices —
+        derived apart they would disagree, and the difference would surface as
+        Liquid Cash the account does not hold.
+
+        A wallet whose asset Coinbase cannot price is left out rather than
+        counted at an unknown value — except an empty one, which is worth zero
+        whatever the price turns out to be, and is kept so a fully-sold
+        position stays on the books instead of being archived.
+        """
+        positions: list[tuple[dict, str, Decimal, Optional[Decimal]]] = []
+        for raw in raw_accounts:
+            if not str(raw.get("id") or "") or cls._is_fiat(raw):
+                continue
+            code = cls._asset_code(raw)
+            quantity = _to_decimal(cls._balance(raw).get("amount"))
+            if code is None or quantity is None:
+                continue
+            price = prices.get(code)
+            if price is None and quantity != 0:
+                logger.warning("Coinbase has no USD price for %s; skipping holding", code)
+                continue
+            positions.append((raw, code, quantity, price))
+        return positions
+
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
         """One holding per crypto wallet, valued in USD at sync time.
 
@@ -595,10 +638,8 @@ class CoinbaseProvider(BankProvider):
         it is the stable upsert key, and the handle ``get_trades`` fetches
         per-account transaction history by.
 
-        A wallet whose asset Coinbase cannot price is skipped rather than
-        recorded at an unknown value — except an empty one, which is worth
-        zero whatever the price turns out to be, and is kept so a
-        fully-sold position stays on the books instead of being archived.
+        Which wallets get a holding, and at what price, is
+        ``_crypto_positions``.
         """
         raw_accounts = await self._walk_accounts(credentials)
         prices = await self._usd_prices()
@@ -606,18 +647,8 @@ class CoinbaseProvider(BankProvider):
             [raw for raw in raw_accounts if str(raw.get("id") or "")]
         )
         holdings: list[HoldingData] = []
-        for raw in raw_accounts:
-            account_id = str(raw.get("id") or "")
-            if not account_id or self._is_fiat(raw):
-                continue
-            code = self._asset_code(raw)
-            quantity = _to_decimal(self._balance(raw).get("amount"))
-            if code is None or quantity is None:
-                continue
-            price = prices.get(code)
-            if price is None and quantity != 0:
-                logger.warning("Coinbase has no USD price for %s; skipping holding", code)
-                continue
+        for raw, code, quantity, price in self._crypto_positions(raw_accounts, prices):
+            account_id = str(raw["id"])
             holdings.append(
                 HoldingData(
                     external_id=account_id,

@@ -468,8 +468,16 @@ async def get_summary(
         group_ids=(asset_group_ids or []) if filtered else None,
     )
 
-    # Add asset values to total balance
-    for currency, amount in assets_value.items():
+    # What the total may take from them is smaller: a Holding inside a synced
+    # account is already in that account's balance above, so the reported
+    # figure is every asset the user owns while the total counts each once.
+    assets_in_total, _ = await get_asset_values_at(
+        session, workspace_id, as_of_date=cutoff,
+        by_workspace=True,
+        group_ids=(asset_group_ids or []) if filtered else None,
+        for_net_worth=True,
+    )
+    for currency, amount in assets_in_total.items():
         total_balance[currency] = total_balance.get(currency, 0.0) + amount
         projected_balance[currency] = projected_balance.get(currency, 0.0) + amount
 
