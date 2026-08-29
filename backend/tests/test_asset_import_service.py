@@ -943,7 +943,7 @@ async def _snapshot_holding(session, workspace, user, *, units: str) -> Asset:
     wallet = await _default_wallet(session, workspace, user)
     asset = Asset(
         id=uuid.uuid4(), user_id=user.id, workspace_id=workspace.id,
-        name="Apple", type="stock", currency="USD", valuation_method="market_price",
+        name="Apple", type="stock", currency="USD", valuation_method="manual",
         ticker="AAPL", units=Decimal(units), source="coinbase", group_id=wallet.id,
     )
     session.add(asset)
@@ -962,9 +962,11 @@ async def test_a_partial_history_over_a_snapshot_holding_is_flagged_not_absorbed
         "ticker,date,quantity,price", "AAPL,2026-01-15,8,100.00",
     ), provider)
 
+    assert summary["holdings_created"] == 0
     warning = next(w for w in summary["warnings"] if w.reason == "units_differ_from_provider")
     assert warning.ticker == "AAPL"
     assert (warning.imported_units, warning.reported_units) == ("8", "20")
+    await _only_asset(session, test_workspace)
 
 
 @pytest.mark.asyncio
