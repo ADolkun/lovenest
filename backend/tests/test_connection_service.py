@@ -29,6 +29,7 @@ from app.services.connection_service import (
     _merge_sync_metadata,
     _match_pluggy_category,
     _set_sync_status_if_current,
+    _sync_duplicate_description_match,
     create_connect_token,
     delete_connection,
     get_connection,
@@ -135,6 +136,11 @@ def test_description_similarity_empty():
 def test_description_similarity_case_insensitive():
     score = _description_similarity("Hello World", "hello world")
     assert score == 1.0
+
+
+def test_sync_duplicate_description_match_accepts_short_posting_suffix():
+    assert _sync_duplicate_description_match("CAFE", "CAFE (CO")
+    assert not _sync_duplicate_description_match("CAFE", "CAFE BOOKS")
 
 
 # ---------------------------------------------------------------------------
@@ -925,7 +931,7 @@ async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
         workspace_id=test_workspace.id,
         account_id=account.id,
         external_id="old-tx-id",
-        description="ROBINHOOD FUNDS",
+        description="ROBINHOOD CASH ACCOUNT FUNDS",
         amount=Decimal("3086.00"),
         date=date(2026, 6, 16),
         type="credit",
@@ -952,7 +958,7 @@ async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
     mock_provider.get_transactions = AsyncMock(return_value=[
         TransactionData(
             external_id="new-tx-id",
-            description="ROBINHOOD FUNDS",
+            description="ROBINHOOD CASH ACCOUNT FUNDS (CO",
             amount=Decimal("3086.00"),
             date=date(2026, 6, 16),
             type="credit",
@@ -2659,15 +2665,17 @@ async def test_sync_keeps_unrelated_pending_and_posted_with_different_descriptio
     mock_provider.get_transactions = AsyncMock(return_value=[
         TransactionData(
             external_id="unrelated-pending",
-            description="STARBUCKS COFFEE",
+            description="SQ MARKET STREET CAFE",
             amount=Decimal("25.00"), date=date(2026, 4, 22),
             type="debit", currency="BRL", status="pending",
+            raw_data={"posted": 0, "transacted_at": 1776816000},
         ),
         TransactionData(
             external_id="unrelated-posted",
-            description="UBER TRIP",
+            description="SQ MARKET STREET BOOKS",
             amount=Decimal("25.00"), date=date(2026, 4, 22),
             type="debit", currency="BRL", status="posted",
+            raw_data={"posted": 1776816100, "transacted_at": 1776816000},
         ),
     ])
 
@@ -2704,10 +2712,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     ])
     pending = TransactionData(
         external_id="provider-pending",
-        description="UEP*YGF MALATANG ARTESIA",
-        amount=Decimal("108.04"), date=date(2026, 4, 20),
-        type="debit", currency="BRL", status="pending",
-        raw_data={"posted": 0, "transacted_at": 1776643200},
+        description="SQ *CASSEL EARTH, INC",
+        amount=Decimal("13.00"), date=date(2026, 8, 20),
+        type="debit", currency="USD", status="pending",
+        raw_data={"posted": 0, "transacted_at": 1787228524},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending])
 
@@ -2722,10 +2730,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # scheduled row immediately).
     posted = TransactionData(
         external_id="provider-posted",
-        description="UEP*YGF MALATANG ARTESIA",
-        amount=Decimal("120.04"), date=date(2026, 4, 22),
-        type="debit", currency="BRL", status="posted",
-        raw_data={"posted": 1776816000, "transacted_at": 1776643200},
+        description="SQ *CASSEL EARTH, INC (CO",
+        amount=Decimal("14.95"), date=date(2026, 8, 21),
+        type="debit", currency="USD", status="posted",
+        raw_data={"posted": 1787309722, "transacted_at": 1787228524},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending, posted])
 
@@ -2746,9 +2754,9 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # so subsequent syncs match by id.
     assert rows[0].status == "posted"
     assert rows[0].external_id == "provider-posted"
-    assert rows[0].amount == Decimal("120.04")
-    assert rows[0].date == date(2026, 4, 22)
-    assert rows[0].effective_date == date(2026, 4, 22)
+    assert rows[0].amount == Decimal("14.95")
+    assert rows[0].date == date(2026, 8, 21)
+    assert rows[0].effective_date == date(2026, 8, 21)
     assert rows[0].raw_data == posted.raw_data
 
     # A stale pending row may remain in later provider responses. Posted truth
@@ -2768,7 +2776,7 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     )).scalars().all()
     assert len(rows) == 1
     assert rows[0].external_id == "provider-posted"
-    assert rows[0].amount == Decimal("120.04")
+    assert rows[0].amount == Decimal("14.95")
 
 
 @pytest.mark.asyncio
