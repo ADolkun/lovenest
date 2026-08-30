@@ -1218,6 +1218,7 @@ async def test_a_written_contract_left_open_reports_a_negative_position(
     # The credit it was opened for, not a cost — so `gain_loss` still reads as
     # the unrealized gain of buying it back.
     assert holding.purchase_price == Decimal("-799.94")
+    assert holding.average_price is not None
     assert holding.average_price.quantize(Decimal("0.01")) == Decimal("399.97")
 
 

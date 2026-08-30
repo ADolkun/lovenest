@@ -58,19 +58,40 @@ def multiplier_for(asset_type: Optional[str]) -> Decimal:
     return CONTRACT_MULTIPLIER if is_option(asset_type) else Decimal("1")
 
 
-def underlying_of(symbol: str) -> Optional[str]:
-    return symbol.strip().upper()[:-_TAIL] if is_option_symbol(symbol) else None
+def _parsed(symbol: Optional[str]) -> Optional[tuple[str, date, str, Decimal]]:
+    """Root, expiry, right and strike, or None when this is not a contract.
+
+    One narrowing point. Every accessor below is a projection of this tuple
+    rather than its own parse, so the Optional resolves once instead of at
+    four call sites that each have to re-prove the symbol is a string.
+    """
+    if symbol is None:
+        return None
+    normalized = symbol.strip().upper()
+    if not _OCC.match(normalized):
+        return None
+    tail = normalized[-_TAIL:]
+    return (
+        normalized[:-_TAIL],
+        date(2000 + int(tail[0:2]), int(tail[2:4]), int(tail[4:6])),
+        "Call" if tail[6] == "C" else "Put",
+        Decimal(tail[7:]) / 1000,
+    )
+
+
+def underlying_of(symbol: Optional[str]) -> Optional[str]:
+    parsed = _parsed(symbol)
+    return parsed[0] if parsed else None
 
 
 def expiry_of(symbol: Optional[str]) -> Optional[date]:
-    if not is_option_symbol(symbol):
-        return None
-    tail = symbol.strip().upper()[-_TAIL:]
-    return date(2000 + int(tail[0:2]), int(tail[2:4]), int(tail[4:6]))
+    parsed = _parsed(symbol)
+    return parsed[1] if parsed else None
 
 
-def strike_of(symbol: str) -> Optional[Decimal]:
-    return Decimal(symbol.strip().upper()[-8:]) / 1000 if is_option_symbol(symbol) else None
+def strike_of(symbol: Optional[str]) -> Optional[Decimal]:
+    parsed = _parsed(symbol)
+    return parsed[3] if parsed else None
 
 
 def describe(symbol: Optional[str]) -> Optional[str]:
@@ -80,12 +101,8 @@ def describe(symbol: Optional[str]) -> Optional[str]:
     separator included, so a holding created from a file reads the same as the
     row it came from and the two can be matched by eye.
     """
-    if not is_option_symbol(symbol):
+    parsed = _parsed(symbol)
+    if parsed is None:
         return None
-    symbol = symbol.strip().upper()
-    expiry = expiry_of(symbol)
-    right = "Call" if symbol[-9] == "C" else "Put"
-    return (
-        f"{underlying_of(symbol)} {expiry.month}/{expiry.day}/{expiry.year} "
-        f"{right} ${strike_of(symbol):,.2f}"
-    )
+    root, expiry, right, strike = parsed
+    return f"{root} {expiry.month}/{expiry.day}/{expiry.year} {right} ${strike:,.2f}"
