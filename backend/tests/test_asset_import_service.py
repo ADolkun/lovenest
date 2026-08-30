@@ -1120,3 +1120,132 @@ def test_the_disposal_date_votes_on_the_order_too():
     ))
     assert errors == []
     assert [str(o.date) for o in orders] == ["2024-01-02", "2024-06-30"]
+
+
+# ---------------------------------------------------------------------------
+# Option orders
+# ---------------------------------------------------------------------------
+
+def test_the_four_legs_of_an_option_order_read_as_buys_and_sells():
+    """A US broker names the leg, not the side. Opening a written contract and
+    closing a bought one are both sells; the position tells them apart."""
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price,kind",
+        "NVDA250117C00140000,2024-12-17,2,4.00,BTO",
+        "NVDA250117C00140000,2024-12-19,1,4.66,STC",
+        "NVDA250117C00140000,2024-12-20,1,4.66,Sell to open",
+        "NVDA250117C00140000,2024-12-23,1,1.00,BTC",
+    ))
+    assert (errors, skips) == ([], [])
+    assert [o.kind for o in orders] == ["buy", "sell", "sell", "buy"]
+
+
+def test_an_assignment_row_is_an_error_not_a_skip():
+    """An assigned option produces no gain of its own — its premium belongs in
+    the *stock's* basis, which nothing here can reach. A skipped row would
+    leave a stock basis quietly wrong at every later sale, so the file is
+    refused instead."""
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(_csv(
+        "ticker,date,quantity,price,kind",
+        "NVDA250117C00140000,2024-12-17,2,4.00,BTO",
+        "NVDA250117C00140000,2025-01-17,1,0.00,OASGN",
+        "NVDA250117C00140000,2025-01-17,1,0.00,Option Exercise",
+    ))
+    assert [o.kind for o in orders] == ["buy"]
+    assert skips == []
+    assert [(e.row, e.reason) for e in errors] == [
+        (3, "option_assignment_unsupported"), (4, "option_assignment_unsupported"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_closes_the_whole_position_it_finds(
+    session: AsyncSession, test_user: User, test_workspace: Workspace
+):
+    """Robinhood writes "6S" in an expiry's quantity column and nothing in its
+    price. Both come from the position instead: six contracts, worth nothing."""
+    provider = FakeProvider(known=("F260612C00020000",))
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,fee,kind",
+        "F260612C00020000,2026-05-29,6,0.15,0.24,BTO",
+        "F260612C00020000,2026-06-12,6S,,,OEXP",
+    ), provider)
+
+    assert summary["errors"] == []
+    assert [(o.kind, o.quantity, o.price) for o in summary["accepted"]] == [
+        ("buy", Decimal("6"), Decimal("0.15")),
+        ("sell", Decimal("6"), Decimal("0")),
+    ]
+    holding = await _only_asset(session, test_workspace)
+    assert holding.type == "option"
+    assert holding.name == "F 6/12/2026 Call $20.00"
+    assert holding.maturity_date == date(2026, 6, 12)
+    assert holding.units == Decimal("0")
+    assert holding.realized_gain == Decimal("-90.24")
+
+
+@pytest.mark.asyncio
+async def test_a_written_contract_round_trips(
+    session: AsyncSession, test_user: User, test_workspace: Workspace
+):
+    """Sold to open and bought back cheaper: a position the ledger would
+    otherwise refuse as an over-sell of units nobody bought."""
+    provider = FakeProvider(known=("NVDA250117C00140000",))
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,fee,kind",
+        "NVDA250117C00140000,2024-12-17,1,4.00,0.03,STO",
+        "NVDA250117C00140000,2024-12-19,1,1.00,0.02,BTC",
+    ), provider)
+
+    assert summary["errors"] == []
+    holding = await _only_asset(session, test_workspace)
+    assert holding.realized_gain == Decimal("299.95")
+    assert holding.units == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_a_written_contract_left_open_reports_a_negative_position(
+    session: AsyncSession, test_user: User, test_workspace: Workspace
+):
+    provider = FakeProvider(known=("NVDA250117C00140000",))
+    await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,fee,kind",
+        "NVDA250117C00140000,2024-12-17,2,4.00,0.06,STO",
+    ), provider)
+
+    holding = await _only_asset(session, test_workspace)
+    assert holding.units == Decimal("-2")
+    # The credit it was opened for, not a cost — so `gain_loss` still reads as
+    # the unrealized gain of buying it back.
+    assert holding.purchase_price == Decimal("-799.94")
+    assert holding.average_price is not None
+    assert holding.average_price.quantize(Decimal("0.01")) == Decimal("399.97")
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_with_nothing_open_is_refused(
+    session: AsyncSession, test_user: User, test_workspace: Workspace
+):
+    provider = FakeProvider(known=("F260612C00020000",))
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,kind",
+        "F260612C00020000,2026-06-12,6S,,OEXP",
+    ), provider)
+
+    assert summary["imported"] == 0
+    assert [(e.row, e.reason) for e in summary["errors"]] == [(2, "expiry_without_position")]
+
+
+@pytest.mark.asyncio
+async def test_a_share_sold_beyond_the_position_is_still_an_over_sell(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """Only a contract may be written; the rest of the portfolio stays
+    buy-and-hold, so `sell to open` on a share is the same refusal as before."""
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,kind",
+        "AAPL,2026-01-15,5,100.00,BTO",
+        "AAPL,2026-02-15,9,120.00,STO",
+    ), provider)
+
+    assert [(e.row, e.reason) for e in summary["errors"]] == [(3, "oversell")]

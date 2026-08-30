@@ -119,10 +119,13 @@ def test_a_loss_in_a_non_taxable_wallet_does_not_warn():
 # Asset class (no DB)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("asset_type", ["stock", "etf", "fund", "investment"])
+@pytest.mark.parametrize("asset_type", ["stock", "etf", "fund", "investment", "option"])
 def test_securities_are_covered(asset_type: str):
     # `investment` is the bucket every synced brokerage holding lands in, so
     # leaving it out would make the check inert on real portfolios.
+    # An option is a security too, though only its own OCC symbol can match
+    # it — the underlying and a neighbouring strike are the "substantially
+    # identical" call nothing here is equipped to make.
     assert is_covered(asset_type) is True
     assert _assess([_buy(date(2026, 6, 20))], asset_type=asset_type)["warning"] is True
 
@@ -441,3 +444,47 @@ async def test_another_workspaces_holding_of_the_same_ticker_is_invisible(
 @pytest.mark.asyncio
 async def test_missing_asset_is_not_found(session: AsyncSession, test_workspace):
     assert await wash_sale_exposure(session, uuid.uuid4(), test_workspace.id) is None
+
+
+@pytest.mark.asyncio
+async def test_a_contract_above_its_premium_is_not_a_loss(
+    session: AsyncSession, test_workspace, test_user: User
+):
+    """Average Price is per contract where a quote is per share, so the two
+    only compare once the quote is scaled. Unscaled, $5.00 reads as far below
+    a $400.00 average and every profitable contract warns."""
+    taxable = await _wallet(session, test_user, test_workspace, "Individual", "taxable")
+    holding = await _holding(
+        session, test_user, test_workspace, taxable.id, ticker="NVDA250117C00140000",
+        buys=[("2", date(2026, 6, 20))], asset_type="option",
+        last_price="5.00", average_price="400",
+    )
+
+    result = await wash_sale_exposure(session, holding.id, test_workspace.id, sell_date=SELL)
+
+    assert result is not None
+    assert result["covered"] is True
+    assert result["at_loss"] is False
+    assert result["warning"] is False
+
+
+@pytest.mark.asyncio
+async def test_buying_a_written_contract_back_dearer_is_the_loss(
+    session: AsyncSession, test_workspace, test_user: User
+):
+    """A written contract is closed by buying it back, so it loses when the
+    buy-back costs more than the premium it was opened for."""
+    taxable = await _wallet(session, test_user, test_workspace, "Individual", "taxable")
+    holding = await _holding(
+        session, test_user, test_workspace, taxable.id, ticker="NVDA250117C00140000",
+        buys=[("2", date(2026, 6, 20))], asset_type="option",
+        last_price="5.00", average_price="400",
+    )
+    holding.units = Decimal("-2")
+    await session.commit()
+
+    result = await wash_sale_exposure(session, holding.id, test_workspace.id, sell_date=SELL)
+
+    assert result is not None
+    assert result["at_loss"] is True
+    assert result["warning"] is True

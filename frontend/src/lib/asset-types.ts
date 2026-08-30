@@ -8,6 +8,7 @@ import {
   LineChart,
   Package,
   PieChart,
+  ScrollText,
   TrendingUp,
 } from 'lucide-react'
 import type { ElementType } from 'react'
@@ -22,6 +23,7 @@ export const ASSET_TYPE_CONFIG: Record<string, { icon: ElementType; color: strin
   crypto: { icon: Bitcoin, color: 'text-orange-600', bg: 'bg-orange-100' },
   fund: { icon: PieChart, color: 'text-indigo-600', bg: 'bg-indigo-100' },
   cash_equivalent: { icon: Banknote, color: 'text-lime-600', bg: 'bg-lime-100' },
+  option: { icon: ScrollText, color: 'text-fuchsia-600', bg: 'bg-fuchsia-100' },
   other: { icon: Package, color: 'text-slate-600', bg: 'bg-slate-100' },
 }
 
@@ -35,6 +37,11 @@ export function assetTypeI18nKey(type: string): string {
   return `assets.type${camel.charAt(0).toUpperCase()}${camel.slice(1)}`
 }
 
+// The classes a holding may be re-typed to by hand. Deliberately not every
+// class the app renders: `option` is missing because an option's cost basis is
+// per contract of a hundred shares, so retyping one to `stock` would divide it
+// by a hundred without saying so. The class comes from the OCC symbol and is
+// not the user's to change.
 export const ASSET_TYPES = [
   'stock',
   'etf',

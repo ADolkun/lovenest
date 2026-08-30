@@ -29,7 +29,8 @@ from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
-from app.services.asset_transaction_service import _d, _recompute
+from app.services.asset_transaction_service import _d, _recompute, _split_trade
+from app.services.option_contract import is_option, multiplier_for
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
@@ -60,23 +61,34 @@ def days_until_long_term(acquired: date, as_of: date) -> int:
     return max((long_term_on(acquired) - as_of).days, 0)
 
 
-def _lot_view(acquired: date, quantity: Decimal, unit_price: Decimal, as_of: date) -> dict:
+def _lot_view(
+    acquired: date, quantity: Decimal, unit_price: Decimal, as_of: date, written: bool
+) -> dict:
     return {
         "acquired": acquired,
         "quantity": quantity,
         "unit_price": unit_price.quantize(_UNIT_PRICE),
         # From the unrounded price, so a partially sold lot still reports the
-        # cost of what is left of it rather than a rounded multiple.
+        # cost of what is left of it rather than a rounded multiple. A written
+        # lot states the premium it was opened for, as a magnitude — the sign
+        # of the position lives on the Holding, not on each lot.
         "cost": quantity * unit_price,
         # A buy dated in the future has been held no time at all, not a
         # negative one; `days_until_long_term` still counts from its own date.
         "holding_days": max((as_of - acquired).days, 0),
-        "long_term": is_long_term(acquired, as_of),
-        "days_until_long_term": days_until_long_term(acquired, as_of),
+        "written": written,
+        # IRC §1234: gain or loss on a written option is short-term however
+        # long the contract was open, so there is no anniversary to report and
+        # no wait to count down to. `written` is what tells the two zeroes
+        # apart from a lot that simply has not aged yet.
+        "long_term": not written and is_long_term(acquired, as_of),
+        "days_until_long_term": 0 if written else days_until_long_term(acquired, as_of),
     }
 
 
-def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
+def build_lots(
+    transactions: list[AssetTransaction], *, as_of: date, asset_type: Optional[str] = None
+) -> dict:
     """Replay a Holding's ledger → its open Lots and its realised gain by
     holding period.
 
@@ -84,33 +96,47 @@ def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
     a sale is measured against its own sell date. Fees are folded into the unit
     price of the lot they were paid on, matching how the ledger books cost.
 
+    A written option opens its lots with a *sell* and closes them with a buy,
+    so "which lot did this trade consume" is a question about the direction the
+    position runs rather than about the word on the row. `_split_trade` decides
+    that once, for this replay and for the ledger's, so the two cannot drift.
+
     Returns open `lots` oldest-first, the long/short split of the open quantity
     and cost, and one record per `sale`.
     """
+    multiplier = multiplier_for(asset_type)
+    allow_short = is_option(asset_type)
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or _EPOCH))
-    # The ledger owns what a sell gained; this replay only decides which units
-    # it took. Both sort on (date, created_at), so the nth sell reached here is
-    # the nth realised event — asserted below rather than assumed.
-    realised = _recompute(transactions)["realized_events"]
-    open_lots: list[dict] = []  # {acquired, quantity, unit_price}
+    # The ledger owns what a trade gained; this replay only decides which units
+    # it took. Both sort on (date, created_at) and split each trade the same
+    # way, so the nth closing trade reached here is the nth realised event —
+    # asserted below rather than assumed.
+    realised = _recompute(transactions, asset_type=asset_type)["realized_events"]
+    open_lots: list[dict] = []  # {acquired, quantity, unit_price, written}
     sales: list[dict] = []
+    position = Decimal("0")
 
     for tx in txs:
         q = _d(tx.quantity)
-        if tx.kind == "buy":
-            gross = q * _d(tx.price) + _d(tx.fee)
-            open_lots.append({"acquired": tx.date, "quantity": q, "unit_price": gross / q})
-        elif tx.kind == "sell":
+        fee = _d(tx.fee)
+        signed = q if tx.kind == "buy" else -q
+        closing, opening = _split_trade(signed, position, allow_short=allow_short)
+        traded = closing + opening
+        fee_close = fee if traded == 0 else fee * closing / traded
+
+        if closing or traded == 0:
             sold_on, gain = realised[len(sales)]
             assert sold_on == tx.date, "ledger and lot replay disagree on sell order"
 
-            remaining = q
+            remaining = closing
             long_qty = Decimal("0")
             short_qty = Decimal("0")
             while remaining > 0 and open_lots:
                 lot = open_lots[0]
                 taken = lot["quantity"] if lot["quantity"] <= remaining else remaining
-                if is_long_term(lot["acquired"], tx.date):
+                # §1234 again: a written lot never ages into the long column,
+                # however many anniversaries it sat through.
+                if not lot["written"] and is_long_term(lot["acquired"], tx.date):
                     long_qty += taken
                 else:
                     short_qty += taken
@@ -134,8 +160,24 @@ def build_lots(transactions: list[AssetTransaction], *, as_of: date) -> dict:
                 # back to the gain even where the ratio does not divide evenly.
                 "short_gain": gain - long_gain,
             })
+            position -= (Decimal("1") if position > 0 else Decimal("-1")) * closing
+        if opening:
+            side = Decimal("1") if signed > 0 else Decimal("-1")
+            # The magnitude the position was opened at: cost plus fee for a
+            # buy, premium less fee for a written contract.
+            gross = side * (side * opening * _d(tx.price) * multiplier + (fee - fee_close))
+            open_lots.append({
+                "acquired": tx.date,
+                "quantity": opening,
+                "unit_price": gross / opening,
+                "written": side < 0,
+            })
+            position += side * opening
 
-    lots = [_lot_view(lot["acquired"], lot["quantity"], lot["unit_price"], as_of) for lot in open_lots]
+    lots = [
+        _lot_view(lot["acquired"], lot["quantity"], lot["unit_price"], as_of, lot["written"])
+        for lot in open_lots
+    ]
     return {
         "as_of": as_of,
         "lots": lots,
@@ -189,6 +231,7 @@ def _serialise(position: dict) -> dict:
                 "unit_price": float(lot["unit_price"]),
                 "cost": _money(lot["cost"]),
                 "holding_days": lot["holding_days"],
+                "written": lot["written"],
                 "long_term": lot["long_term"],
                 "days_until_long_term": lot["days_until_long_term"],
             }
@@ -270,4 +313,4 @@ async def asset_tax_lots(
     }
     if not head["tax_character"]:
         return {**head, "as_of": as_of.isoformat(), **_EMPTY}
-    return {**head, **_serialise(build_lots(txs, as_of=as_of))}
+    return {**head, **_serialise(build_lots(txs, as_of=as_of, asset_type=asset.type))}

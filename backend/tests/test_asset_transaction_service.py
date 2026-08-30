@@ -548,3 +548,208 @@ async def test_deleting_the_sell_first_then_the_buy_is_allowed(
         session, market_asset.id, test_workspace.id
     )
     assert remaining == []
+
+
+# ---------------------------------------------------------------------------
+# Option contracts: the hundred-share multiplier and written positions
+# ---------------------------------------------------------------------------
+
+def test_a_contract_is_a_hundred_shares():
+    # NVDA 1/17/2025 Call $140: bought 2 at $4.00 for $800.06, sold one at a
+    # time at $4.66 for $465.94 each. The broker booked $131.82.
+    pos = _recompute([
+        _tx("buy", "2", "4.00", date(2024, 12, 17), fee="0.06"),
+        _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06"),
+        _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06"),
+    ], asset_type="option")
+    assert pos["realized_gain"] == Decimal("131.82")
+    # Per contract, not per share — `cost_basis = average_price × quantity` is
+    # what the read surface is built on, so the average carries the multiplier.
+    assert pos["average_price"] is None
+    assert pos["units"] == Decimal("0")
+
+
+def test_the_multiplier_does_not_reach_a_stock():
+    """The same ledger typed `stock` is two shares, not two contracts — and
+    not the contract figure over a hundred either, because a fee is the same
+    number of dollars whichever instrument paid it."""
+    ledger = [
+        _tx("buy", "2", "4.00", date(2024, 12, 17), fee="0.06"),
+        _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06"),
+        _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06"),
+    ]
+    assert _recompute(ledger, asset_type="stock")["realized_gain"] == Decimal("1.14")
+    # And an unstated class is a share, which is what leaves every holding
+    # already on the ledger exactly where it was.
+    assert _recompute(ledger)["realized_gain"] == Decimal("1.14")
+
+
+def test_an_open_contract_averages_per_contract():
+    pos = _recompute([_tx("buy", "2", "4.00", date(2024, 12, 17), fee="0.06")], asset_type="option")
+    assert pos["units"] == Decimal("2")
+    assert pos["average_price"] == Decimal("400.03")
+    assert pos["cost_basis"] == Decimal("800.06")
+
+
+def test_expiring_worthless_realises_the_whole_premium():
+    # F 6/12/2026 Call $20: six contracts at $0.15 that ran out of time. The
+    # expiry is an ordinary sell at nothing, so the premium is the loss.
+    pos = _recompute([
+        _tx("buy", "6", "0.15", date(2026, 5, 29), fee="0.24"),
+        _tx("sell", "6", "0", date(2026, 6, 12)),
+    ], asset_type="option")
+    assert pos["realized_gain"] == Decimal("-90.24")
+    assert pos["units"] == Decimal("0")
+
+
+def test_a_written_contract_opens_for_a_credit():
+    """Selling a contract nobody bought is writing it: the position goes
+    negative and the basis is the premium received, not a cost."""
+    pos = _recompute([_tx("sell", "1", "4.00", date(2026, 1, 2), fee="0.03")], asset_type="option")
+    assert pos["units"] == Decimal("-1")
+    assert pos["cost_basis"] == Decimal("-399.97")
+    # A magnitude either way: the premium per contract, as the average of a
+    # bought contract is its cost per contract.
+    assert pos["average_price"] == Decimal("399.97")
+    # Premium received is not income at receipt — nothing is realised until the
+    # contract is bought back or expires.
+    assert pos["realized_gain"] == Decimal("0")
+
+
+def test_buying_a_written_contract_back_cheaper_is_the_gain():
+    pos = _recompute([
+        _tx("sell", "1", "4.00", date(2026, 1, 2), fee="0.03"),
+        _tx("buy", "1", "1.00", date(2026, 2, 2), fee="0.02"),
+    ], asset_type="option")
+    assert pos["realized_gain"] == Decimal("299.95")
+    assert pos["units"] == Decimal("0")
+
+
+def test_a_written_contract_that_expires_keeps_the_whole_premium():
+    pos = _recompute([
+        _tx("sell", "2", "1.10", date(2026, 1, 2), fee="0.04"),
+        _tx("buy", "2", "0", date(2026, 2, 20)),
+    ], asset_type="option")
+    assert pos["realized_gain"] == Decimal("219.96")
+    assert pos["units"] == Decimal("0")
+
+
+def test_a_stock_still_cannot_go_short():
+    """The clamp `_recompute` has always applied stays put for everything that
+    is not a contract — an over-sell holds the position at zero."""
+    pos = _recompute([_tx("sell", "5", "100", date(2026, 1, 2))])
+    assert pos["units"] == Decimal("0")
+    assert pos["cost_basis"] == Decimal("0")
+
+
+def test_selling_through_flat_turns_a_contract_around():
+    pos = _recompute([
+        _tx("buy", "1", "2.00", date(2026, 1, 2)),
+        _tx("sell", "3", "3.00", date(2026, 2, 2)),
+    ], asset_type="option")
+    # One contract closed at a 100 gain, two written for 600 of premium.
+    assert pos["realized_gain"] == Decimal("100")
+    assert pos["units"] == Decimal("-2")
+    assert pos["cost_basis"] == Decimal("-600")
+
+
+def test_a_year_of_contracts_nets_what_the_broker_reported():
+    """Six real round trips, netting the $691.04 the broker's own history
+    shows: $261.66 in 2024, $519.62 in 2025, and the $90.24 that expired."""
+    ledgers = [
+        [_tx("buy", "2", "4.00", date(2024, 12, 17), fee="0.06"),
+         _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06"),
+         _tx("sell", "1", "4.66", date(2024, 12, 19), fee="0.06")],
+        [_tx("buy", "2", "1.25", date(2024, 12, 20), fee="0.06"),
+         _tx("sell", "1", "1.90", date(2024, 12, 23), fee="0.05"),
+         _tx("sell", "1", "1.90", date(2024, 12, 23), fee="0.05")],
+        [_tx("buy", "1", "9.00", date(2024, 12, 23), fee="0.03"),
+         _tx("sell", "1", "12.00", date(2025, 1, 6), fee="0.08")],
+        [_tx("buy", "1", "2.70", date(2024, 12, 27), fee="0.03"),
+         _tx("sell", "1", "3.50", date(2025, 1, 6), fee="0.05")],
+        [_tx("buy", "2", "1.45", date(2025, 1, 13), fee="0.08"),
+         _tx("sell", "2", "2.15", date(2025, 1, 14), fee="0.11")],
+        [_tx("buy", "6", "0.15", date(2026, 5, 29), fee="0.24"),
+         _tx("sell", "6", "0", date(2026, 6, 12))],
+    ]
+    by_year: dict[int, Decimal] = {}
+    for ledger in ledgers:
+        for when, gain in _recompute(ledger, asset_type="option")["realized_events"]:
+            by_year[when.year] = by_year.get(when.year, Decimal("0")) + gain
+    assert by_year == {
+        2024: Decimal("261.66"), 2025: Decimal("519.62"), 2026: Decimal("-90.24"),
+    }
+    assert sum(by_year.values()) == Decimal("691.04")
+
+
+@pytest_asyncio.fixture
+async def contract(session: AsyncSession, test_user: User, test_workspace) -> Asset:
+    asset = Asset(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="TSM 1/17/2025 Call $210.00", type="option", currency="USD",
+        valuation_method="market_price", ticker="TSM250117C00210000",
+        last_price=Decimal("12.00"),
+    )
+    session.add(asset)
+    await session.commit()
+    await session.refresh(asset)
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_writing_a_contract_is_allowed_where_an_over_sell_is_not(
+    session, test_workspace, contract, market_asset
+):
+    from fastapi import HTTPException
+
+    read = await asset_transaction_service.add_transaction(
+        session, contract.id, test_workspace.id,
+        AssetTransactionCreate(
+            kind="sell", quantity=Decimal("1"), price=Decimal("4.00"), date=date(2026, 1, 2)
+        ),
+    )
+    assert read is not None and read.units == -1.0
+
+    with pytest.raises(HTTPException) as exc:
+        await asset_transaction_service.add_transaction(
+            session, market_asset.id, test_workspace.id,
+            AssetTransactionCreate(
+                kind="sell", quantity=Decimal("1"), price=Decimal("30"), date=date(2026, 1, 2)
+            ),
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_contract_closed_in_january_is_the_new_years_gain(
+    session, test_workspace, test_user, contract
+):
+    """Opened in December, closed in January: the whole $299.89 falls in the
+    year the sell landed in, not the year the buy did."""
+    taxable = await _wallet(session, test_user, test_workspace, "Brokerage", "taxable")
+    contract.group_id = taxable.id
+    await session.commit()
+
+    await asset_transaction_service.add_transaction(
+        session, contract.id, test_workspace.id,
+        AssetTransactionCreate(
+            kind="buy", quantity=Decimal("1"), price=Decimal("9.00"),
+            fee=Decimal("0.03"), date=date(2024, 12, 23),
+        ),
+    )
+    await asset_transaction_service.add_transaction(
+        session, contract.id, test_workspace.id,
+        AssetTransactionCreate(
+            kind="sell", quantity=Decimal("1"), price=Decimal("12.00"),
+            fee=Decimal("0.08"), date=date(2025, 1, 6),
+        ),
+    )
+
+    from_2025 = await asset_transaction_service.reportable_gain(
+        session, test_workspace.id, start=date(2025, 1, 1)
+    )
+    before_2025 = await asset_transaction_service.reportable_gain(
+        session, test_workspace.id, end=date(2025, 1, 1)
+    )
+    assert from_2025["reportable_gain"] == 299.89
+    assert before_2025["reportable_gain"] == 0.0

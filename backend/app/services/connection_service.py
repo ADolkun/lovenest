@@ -936,7 +936,7 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     # (asset_transaction_service._raise_if_oversell, asset_import_service);
     # sync is the one that cannot, because it does not get to choose what the
     # exchange reports.
-    if asset_transaction_service._detect_oversell(txs) is not None:
+    if asset_transaction_service._detect_oversell(txs, asset_type=asset.type) is not None:
         logger.info(
             "Ledger for asset %s over-sells; keeping the reported quantity and "
             "leaving cost basis underived",
@@ -946,7 +946,7 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     reported = asset.units
     if reported is None:
         return True
-    replayed = asset_transaction_service._recompute(txs)["units"]
+    replayed = asset_transaction_service._recompute(txs, asset_type=asset.type)["units"]
     reported = Decimal(str(reported))
     tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE
     if abs(replayed - reported) <= tolerance:

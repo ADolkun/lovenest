@@ -56,6 +56,7 @@ from app.services.import_service import (
     infer_date_order,
     normalize_amount,
 )
+from app.services.option_contract import describe, expiry_of, is_option_symbol
 from app.services.rule_engine import _strip_accents
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,12 @@ def _is_importable_holding():
 #: How many tickers the bulk lookup may miss before we stop double-checking
 #: them one by one. Past this the provider is having a bad day, not the file.
 _QUOTE_FALLBACK_LIMIT = 25
+
+#: What an expiry leaves on the ledger. The trade is an ordinary close at a
+#: price of zero — there is no `expire` kind, because a new kind would have to
+#: be understood by every replay, every filter and every report, where a note
+#: is understood by the person reading the row.
+EXPIRED_WORTHLESS = 'Expired worthless'
 
 #: Securo fields a CSV column can be mapped to, and which of them a file cannot
 #: do without. Mirrors the transaction importer's `CSV_MAPPABLE_FIELDS`, and
@@ -227,6 +234,10 @@ _COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
 #: except a negative quantity, which is the convention most brokers export.
 _SELL_WORDS = {
     'sell', 'sale', 'sold', 's',
+    # A US broker names the four legs of an option order instead of the side.
+    # Opening a written contract and closing a bought one are both sells: which
+    # of the two a row is depends on the position, not on the word.
+    'sto', 'stc', 'sell to open', 'sell to close',
     'venda', 'vender', 'saida', 'v',                              # pt
     'venta',                                                      # es
     'vendre', 'vente',                                            # fr
@@ -237,6 +248,7 @@ _SELL_WORDS = {
 }
 _BUY_WORDS = {
     'buy', 'purchase', 'bought', 'b', 'reinvestment', 'reinvested',
+    'bto', 'btc', 'buy to open', 'buy to close',
     'compra', 'comprar', 'entrada', 'c',                          # pt/es
     'achat', 'acheter',                                           # fr
     'kauf', 'kaufen', 'kf',                                       # de
@@ -278,14 +290,54 @@ _TRANSFER_WORDS = {
 }
 _SIGNED_WORDS = {'trade', 'convert', 'converted', 'conversion', 'swap', 'exchange'}
 
+#: An option that ran out of time. Worth nothing is the whole point: a bought
+#: contract loses its premium in full, a written one keeps it in full. Neither
+#: the quantity nor the price on such a row can be trusted — Robinhood writes
+#: "6S" in the quantity column and nothing in the price — so both come from the
+#: position instead, which only the replay in `import_orders` knows.
+_EXPIRE_WORDS = {
+    'oexp', 'expire', 'expired', 'expiration', 'expiry', 'option expiration',
+    'vencimento', 'vencido',                                  # pt
+    'vencimiento', 'expiracion',                              # es
+    'expiration option', 'echeance',                          # fr
+    'verfall', 'verfallen', 'ablauf',                         # de
+    'scadenza', 'scaduto',                                    # it
+    'wygasniecie', 'wygasla',                                 # pl
+    'экспирация', 'истечение', 'експірація',                  # ru/uk
+}
+
+#: Assignment and exercise, which this importer refuses outright rather than
+#: skipping. Neither produces a gain of its own: the premium migrates into the
+#: *stock's* cost basis or its proceeds, and nothing in the ledger can move a
+#: number from one holding to another. A row that is missing is visible; a
+#: stock basis quietly wrong by the premium is not, and it would go on being
+#: wrong at every later sale of that stock. So the file is refused whole.
+_ASSIGNMENT_WORDS = {
+    'oasgn', 'oexcs', 'assignment', 'assigned', 'exercise', 'exercised',
+    'option assignment', 'option exercise',
+    'exercicio', 'atribuicao',                                # pt
+    'ejercicio', 'asignacion',                                # es
+    'exercice', 'assignation',                                # fr
+    'ausuebung', 'ausubung', 'zuteilung',                     # de
+    'esercizio', 'assegnazione',                              # it
+    'wykonanie', 'przydzial',                                 # pl
+    'исполнение', 'назначение', 'виконання',                  # ru/uk
+}
+
 
 def _classify_kind(word: str) -> Optional[str]:
-    """What a type column's value means: buy, sell, acquire, transfer, signed.
+    """What a type column's value means: buy, sell, acquire, transfer, signed,
+    expire, assignment.
 
     `None` is "a word we do not model" — reported as a skipped row rather than
     a malformed one, because the row is perfectly well-formed and the gap is
-    ours.
+    ours. `assignment` is the opposite: a word we model well enough to know
+    that guessing at it would be worse than refusing the file.
     """
+    if word in _ASSIGNMENT_WORDS:
+        return 'assignment'
+    if word in _EXPIRE_WORDS:
+        return 'expire'
     if word in _SELL_WORDS:
         return 'sell'
     if word in _BUY_WORDS:
@@ -302,6 +354,9 @@ def _classify_kind(word: str) -> Optional[str]:
     # another — there is no phrase that is a buy because it says "sell".
     tokens = set(word.split())
     for vocabulary, meaning in (
+        # Assignment first: a sentence naming it must never be read as the buy
+        # or the sell whose word it also contains.
+        (_ASSIGNMENT_WORDS, 'assignment'), (_EXPIRE_WORDS, 'expire'),
         (_SELL_WORDS, 'sell'), (_BUY_WORDS, 'buy'),
         (_ACQUIRE_WORDS, 'acquire'), (_TRANSFER_WORDS, 'transfer'),
         (_SIGNED_WORDS, 'signed'),
@@ -543,12 +598,23 @@ def parse_orders_csv(
             errors.append(AssetImportRowError(row=index, reason='invalid_date', ticker=ticker))
             continue
 
+        # Buy or sell comes from an explicit column when the file has one, and
+        # from the sign of the quantity otherwise — the convention brokers use.
+        # Read before the quantity because an expiry row's quantity is not the
+        # file's to state.
+        kind_word = _normalize_header(cell(row, 'kind'))
+        meaning = _classify_kind(kind_word) if kind_word else 'signed'
+
         raw_quantity = _parse_decimal(cell(row, 'quantity'))
         quantity = _to_ledger_scale(raw_quantity)
-        if quantity is None:
+        if meaning == 'expire':
+            # Placeholder. What expires is the whole open position, and the
+            # replay is the only thing that knows how big it is.
+            quantity = Decimal('0')
+        elif quantity is None:
             errors.append(AssetImportRowError(row=index, reason='invalid_quantity', ticker=ticker))
             continue
-        if quantity == 0:
+        elif quantity == 0:
             if raw_quantity != 0:
                 # Real units, too small for the column to hold. Rounding them
                 # away silently is the one thing a cost-basis import must not do.
@@ -562,10 +628,12 @@ def parse_orders_csv(
             skips.append(AssetImportSkip(row=index, ticker=ticker, reason='no_units'))
             continue
 
-        # Buy or sell comes from an explicit column when the file has one, and
-        # from the sign of the quantity otherwise — the convention brokers use.
-        kind_word = _normalize_header(cell(row, 'kind'))
-        meaning = _classify_kind(kind_word) if kind_word else 'signed'
+        if meaning == 'assignment':
+            errors.append(AssetImportRowError(
+                row=index, reason='option_assignment_unsupported', ticker=ticker,
+                detail=cell(row, 'kind'),
+            ))
+            continue
         if meaning == 'transfer':
             skips.append(AssetImportSkip(row=index, ticker=ticker, reason='transfer'))
             continue
@@ -580,12 +648,17 @@ def parse_orders_csv(
         # the disposal on the other half of the line.
         if sold_date or meaning in ('buy', 'acquire'):
             kind = 'buy'
-        elif meaning == 'sell':
-            kind = 'sell'
+        elif meaning in ('sell', 'expire'):
+            kind = meaning
         else:
             kind = 'sell' if quantity < 0 else 'buy'
 
-        price = _price_for(cell(row, 'price'), cell(row, 'cost_basis'), quantity)
+        if meaning == 'expire':
+            # Not "the file gave no price": expiring worthless *is* the price,
+            # so a figure in the column would be describing something else.
+            price = Decimal('0')
+        else:
+            price = _price_for(cell(row, 'price'), cell(row, 'cost_basis'), quantity)
         if price is None and meaning == 'acquire':
             # A reward or an airdrop the file put no value on cost nothing, so
             # the whole eventual disposal is gain. Zero, not unreadable.
@@ -611,7 +684,10 @@ def parse_orders_csv(
                 fee=fee if side == kind else Decimal('0'),
                 currency=(cell(row, 'currency') or None),
                 name=(cell(row, 'name') or None),
-                notes=(cell(row, 'notes') or None),
+                notes=(
+                    cell(row, 'notes')
+                    or (EXPIRED_WORTHLESS if side == 'expire' else None)
+                ),
                 # One row, two orders, so the file's own id cannot key both.
                 external_id=(
                     f'{external_id}:{side}' if external_id and sold_date else external_id
@@ -857,6 +933,24 @@ async def import_orders(
     units = dict(reported)
 
     for order in ordered:
+        if order.kind == 'expire':
+            held = units.get(order.ticker, Decimal('0'))
+            if held == 0:
+                errors.append(AssetImportRowError(
+                    row=order.row, reason='expiry_without_position', ticker=order.ticker,
+                ))
+                continue
+            # An expiry closes the whole position, in whichever direction it
+            # runs: a bought contract is sold at nothing, a written one is
+            # bought back at nothing. Resolved here rather than at parse time
+            # because the side is a fact about the replay, not about the row —
+            # and it has to be a real kind before the duplicate fingerprint
+            # below is built out of it.
+            order = order.model_copy(update={
+                'kind': 'sell' if held > 0 else 'buy',
+                'quantity': abs(held),
+            })
+
         if order.ticker not in holdings and not resolvable.get(order.ticker, False):
             if not allow_unpriced:
                 errors.append(AssetImportRowError(row=order.row, reason='unknown_ticker', ticker=order.ticker))
@@ -879,7 +973,14 @@ async def import_orders(
                 continue
 
         held = units.get(order.ticker, Decimal('0'))
-        if order.kind == 'sell' and order.quantity > held:
+        # Selling a contract the file has not bought is writing it, which is a
+        # position rather than a mistake. Judged on the symbol because the
+        # holding may not exist yet.
+        if (
+            order.kind == 'sell'
+            and order.quantity > held
+            and not is_option_symbol(order.ticker)
+        ):
             errors.append(AssetImportRowError(
                 row=order.row, reason='oversell', ticker=order.ticker,
                 detail=f'selling {order.quantity} with {held} held',
@@ -1034,8 +1135,10 @@ def _new_holding(
         return Asset(
             user_id=user_id,
             workspace_id=workspace_id,
-            name=order.name or order.ticker,
+            # An OCC symbol describes itself better than it names itself.
+            name=order.name or describe(order.ticker) or order.ticker,
             type=asset_transaction_service._type_from_quote(None, order.ticker),
+            maturity_date=expiry_of(order.ticker),
             currency=(order.currency or 'USD').upper()[:3],
             # Not `market_price`: nothing will ever answer a quote for it, and
             # a market-priced holding with no price reads as a broken feed
@@ -1048,8 +1151,9 @@ def _new_holding(
     return Asset(
         user_id=user_id,
         workspace_id=workspace_id,
-        name=order.name or quote.name or order.ticker,
+        name=order.name or describe(order.ticker) or quote.name or order.ticker,
         type=asset_transaction_service._type_from_quote(quote.quote_type, order.ticker),
+        maturity_date=expiry_of(order.ticker),
         # The quote's currency wins, exactly as when a holding is created by
         # hand: a file that reports an American stock in BRL would otherwise
         # label the holding BRL while its price feed keeps returning USD, and

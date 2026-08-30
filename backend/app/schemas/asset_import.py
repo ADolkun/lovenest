@@ -12,7 +12,11 @@ class AssetOrderImport(BaseModel):
     row: int  # 1-based line in the source file, so an error can point at it
     ticker: str
     date: date
-    kind: str  # buy | sell
+    #: `expire` is the one kind that never reaches the ledger: an option
+    #: expiry closes the position in whichever direction it runs, which the
+    #: file cannot know, so `import_orders` resolves it to a buy or a sell
+    #: while replaying.
+    kind: str  # buy | sell | expire
     quantity: Decimal
     price: Decimal
     fee: Decimal = Decimal("0")
@@ -28,6 +32,7 @@ class AssetImportRowError(BaseModel):
     row: int
     reason: str  # missing_ticker | invalid_date | invalid_quantity | below_ledger_scale
                  # | invalid_price | invalid_proceeds | unknown_ticker | oversell
+                 # | option_assignment_unsupported | expiry_without_position
     ticker: Optional[str] = None
     detail: Optional[str] = None
 

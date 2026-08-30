@@ -297,6 +297,7 @@ async def test_tax_lots_endpoint_lists_lots_for_a_taxable_wallet(
             "unit_price": 40.0,
             "cost": 320.0,
             "holding_days": 92,
+            "written": False,
             "long_term": False,
             "days_until_long_term": 273,
         }

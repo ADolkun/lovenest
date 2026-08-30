@@ -22,6 +22,7 @@ from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetR
 from app.services._query_filters import holding_inside_account_balance
 from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.fx_rate_service import convert, stamp_primary_amount
+from app.services.option_contract import multiplier_for
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,13 @@ def _compute_current_value(asset: Asset, latest_value: Optional[AssetValue]) -> 
     # see should reflect the most recent quote even between scheduled syncs.
     if asset.valuation_method == "market_price":
         if asset.last_price is not None and asset.units is not None:
-            return float(Decimal(str(asset.last_price)) * Decimal(str(asset.units)))
+            # A quote is per share even where a unit is a contract of a
+            # hundred of them; the multiplier is 1 for everything else.
+            return float(
+                Decimal(str(asset.last_price))
+                * Decimal(str(asset.units))
+                * multiplier_for(asset.type)
+            )
         if latest_value is not None:
             return float(latest_value.amount)
         return None
@@ -1084,11 +1091,14 @@ async def _apply_price_to_asset(
     asset.last_price = new_price
     asset.last_price_at = datetime.now(timezone.utc)
 
-    if not asset.units or asset.units <= 0:
+    # Zero units is nothing to value. A negative quantity is a written option
+    # contract — a liability, worth what it would cost to buy back — and
+    # leaving it out of the history would quietly overstate the portfolio.
+    if not asset.units:
         return
 
     today = value_date or date.today()
-    new_amount = new_price * Decimal(str(asset.units))
+    new_amount = new_price * Decimal(str(asset.units)) * multiplier_for(asset.type)
     existing = await session.execute(
         select(AssetValue)
         .where(
