@@ -293,6 +293,23 @@ async def test_a_sell_beyond_the_position_is_caught_before_anything_is_written(
 
 
 @pytest.mark.asyncio
+async def test_an_acquisition_feeds_the_position_the_sell_after_it_draws_on(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """A dropped acquisition does not report itself: it starves the position,
+    and the row that fails is the perfectly good sell underneath it."""
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price,kind",
+        "AAPL,2026-01-15,4,,acquire",
+        "AAPL,2026-02-15,3,120.00,sell",
+    ), provider)
+
+    assert summary["errors"] == []
+    assert summary["imported"] == 2
+    assert (await _only_asset(session, test_workspace)).units == Decimal("1")
+
+
+@pytest.mark.asyncio
 async def test_rows_are_replayed_in_date_order_not_file_order(
     session: AsyncSession, test_user: User, test_workspace: Workspace, provider
 ):
@@ -695,6 +712,8 @@ def test_a_quantity_below_the_ledger_scale_is_refused_not_silently_zeroed():
     ("Staking Reward", "buy", Decimal("1")),
     ("Referred Award", "buy", Decimal("1")),
     ("CLAIM_DISTRIBUTION_4", "buy", Decimal("1")),
+    ("Acquire", "buy", Decimal("1")),
+    ("Acquired", "buy", Decimal("1")),
     ("Buy", "buy", Decimal("1")),
     ("Sell", "sell", Decimal("1")),
 ])
