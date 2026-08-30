@@ -26,6 +26,7 @@ from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
 from app.services.asset_transaction_service import _d
+from app.services.option_contract import OPTION_TYPE, multiplier_for
 
 # 30 days either side of the sale, both ends inclusive — the 61-day window.
 WINDOW_DAYS = 30
@@ -37,7 +38,14 @@ WINDOW_DAYS = 30
 # `investment` is the generic bucket every synced brokerage holding lands in
 # (`connection_service._upsert_asset_from_holding`), so leaving it out would
 # make this check inert on exactly the portfolios it exists for.
-COVERED_ASSET_TYPES = frozenset({"stock", "etf", "fund", "investment"})
+#
+# An equity option is a security, so the rule reaches it — but only contract
+# for contract. Matching an option against its own underlying, or against a
+# different strike or expiry of the same underlying, is the "substantially
+# identical" judgement this module deliberately does not attempt, so a warning
+# here means the same OCC symbol was re-acquired inside the window and nothing
+# weaker than that.
+COVERED_ASSET_TYPES = frozenset({"stock", "etf", "fund", "investment", OPTION_TYPE})
 
 # Wallets where a disallowed loss is forfeited rather than deferred: the basis
 # adjustment that would normally recover it has nowhere to land.
@@ -205,10 +213,20 @@ async def wash_sale_exposure(
     sell_date = sell_date or date.today()
     price = price if price is not None else asset.last_price
     average = asset.average_price
+    # Average Price is per contract where a price is per share, so the two only
+    # compare once the quote is scaled. And a written contract is closed by
+    # buying it back, so it loses when the buy-back costs *more* than the
+    # premium it was opened for — the comparison runs the other way.
+    multiplier = multiplier_for(asset.type)
+    direction = Decimal("-1") if _d(asset.units) < 0 else Decimal("1")
     exposure = assess(
         asset_type=asset.type,
         reportable=treatment in REPORTABLE_TAX_TREATMENTS,
-        at_loss=price is not None and average is not None and _d(price) < _d(average),
+        at_loss=(
+            price is not None
+            and average is not None
+            and direction * (_d(price) * multiplier - _d(average)) < 0
+        ),
         sell_date=sell_date,
         acquisitions=[
             {

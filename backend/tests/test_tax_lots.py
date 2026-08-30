@@ -234,6 +234,79 @@ def test_the_split_still_sums_after_rounding_to_cents():
 
 
 # ---------------------------------------------------------------------------
+# Option contracts: per-contract lots and IRC §1234 (no DB)
+# ---------------------------------------------------------------------------
+
+def test_a_lot_of_contracts_is_priced_per_contract():
+    pos = build_lots(
+        [_tx("buy", "2", "4.00", date(2024, 12, 17), fee="0.06")],
+        as_of=date(2024, 12, 31), asset_type="option",
+    )
+    lot = pos["lots"][0]
+    assert lot["quantity"] == Decimal("2")
+    assert lot["unit_price"] == Decimal("400.030000")
+    assert lot["cost"] == Decimal("800.06")
+    assert lot["written"] is False
+
+
+def test_the_contract_split_still_sums_back_to_the_ledgers_realised_gain():
+    ledger = [
+        _tx("buy", "2", "1.25", date(2025, 1, 2), fee="0.06"),
+        _tx("buy", "1", "2.05", date(2026, 2, 2), fee="0.03"),
+        _tx("sell", "3", "3.10", date(2026, 3, 2), fee="0.11"),
+    ]
+    pos = build_lots(ledger, as_of=date(2026, 3, 2), asset_type="option")
+    sale = pos["sales"][0]
+    assert (sale["long_quantity"], sale["short_quantity"]) == (Decimal("2"), Decimal("1"))
+    assert pos["realised_long"] + pos["realised_short"] == _recompute(
+        ledger, asset_type="option"
+    )["realized_gain"]
+
+
+def test_a_written_contract_held_over_a_year_is_still_short_term():
+    """IRC §1234: gain or loss on a written option is short-term however long
+    the contract was open. Thirteen months would otherwise read as long."""
+    ledger = [
+        _tx("sell", "1", "4.00", date(2025, 1, 2)),
+        _tx("buy", "1", "1.00", date(2026, 2, 2)),
+    ]
+    pos = build_lots(ledger, as_of=date(2026, 2, 2), asset_type="option")
+    sale = pos["sales"][0]
+    assert sale["gain"] == Decimal("300")
+    assert (sale["long_quantity"], sale["short_quantity"]) == (Decimal("0"), Decimal("1"))
+    assert (pos["realised_long"], pos["realised_short"]) == (Decimal("0"), Decimal("300"))
+
+
+def test_a_written_contract_still_open_never_counts_down_to_long():
+    pos = build_lots(
+        [_tx("sell", "2", "1.10", date(2025, 1, 2), fee="0.04")],
+        as_of=date(2026, 6, 1), asset_type="option",
+    )
+    lot = pos["lots"][0]
+    assert lot["written"] is True
+    assert lot["long_term"] is False
+    assert lot["days_until_long_term"] == 0
+    # The premium the position was opened for, as a magnitude — the sign of a
+    # written position lives on the Holding, not on each lot.
+    assert lot["unit_price"] == Decimal("109.980000")
+    assert pos["short_quantity"] == Decimal("2")
+    assert pos["long_quantity"] == Decimal("0")
+
+
+def test_a_bought_contract_held_over_a_year_is_long_term():
+    """The §1234 rule is about the written side only, so a contract that was
+    bought ages exactly as a share does."""
+    pos = build_lots(
+        [
+            _tx("buy", "1", "1.00", date(2025, 1, 2)),
+            _tx("sell", "1", "4.00", date(2026, 2, 2)),
+        ],
+        as_of=date(2026, 2, 2), asset_type="option",
+    )
+    assert (pos["realised_long"], pos["realised_short"]) == (Decimal("300"), Decimal("0"))
+
+
+# ---------------------------------------------------------------------------
 # Service: tax character gate
 # ---------------------------------------------------------------------------
 

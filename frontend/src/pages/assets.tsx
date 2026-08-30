@@ -165,7 +165,7 @@ const GROWTH_FREQUENCIES = ['daily', 'weekly', 'monthly', 'yearly'] as const
 
 // Column template shared by the holdings table header + rows so they align:
 // Ativo · Quant. · Preço Médio · Preço Atual · Rentab. · Saldo · % · actions.
-const HOLDINGS_GRID = 'minmax(0,2.4fr) 0.7fr 1.1fr 1fr 0.9fr 1.3fr 0.6fr 4.5rem'
+const HOLDINGS_GRID = 'minmax(0,2.4fr) 0.7fr 1.1fr 1fr 0.9fr 1.3fr 1.1fr 0.6fr 4.5rem'
 
 export default function AssetsPage() {
   const { t } = useTranslation()
@@ -218,6 +218,10 @@ export default function AssetsPage() {
   // Form state
   const [formName, setFormName] = useState('')
   const [formType, setFormType] = useState<string>('other')
+  // A class the dropdown does not offer is one the app assigns and the user
+  // must not overwrite — an option contract, whose basis is per contract of a
+  // hundred shares. Shown, not hidden, so the dialog still says what it is.
+  const typeLocked = !(ASSET_TYPES as readonly string[]).includes(formType)
   const [formCurrency, setFormCurrency] = useState(userCurrency)
   const [formGroupId, setFormGroupId] = useState<string>('')
   const [formMethod, setFormMethod] = useState<string>('manual')
@@ -799,6 +803,15 @@ export default function AssetsPage() {
               </>
             ) : <span className="text-muted-foreground">—</span>}
           </div>
+          {/* Realizado — the gain the sells already booked. The only place it
+              surfaces: a closed holding shows nothing else about what it made. */}
+          <div className="text-right tabular-nums">
+            {asset.realized_gain ? (
+              <span className={asset.realized_gain >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+                {mask(formatCurrency(asset.realized_gain, asset.currency, locale))}
+              </span>
+            ) : <span className="text-muted-foreground">—</span>}
+          </div>
           {/* % carteira */}
           <div className="text-right tabular-nums text-muted-foreground">
             {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
@@ -858,6 +871,7 @@ export default function AssetsPage() {
         <div className="text-right">{t('assets.colCurrentPrice')}</div>
         <div className="text-right">{t('assets.colReturn')}</div>
         <div className="text-right">{t('assets.colBalance')}</div>
+        <div className="text-right">{t('assets.colRealized')}</div>
         <div className="text-right">{t('assets.colPortfolioPct')}</div>
         <div />
       </div>
@@ -869,7 +883,7 @@ export default function AssetsPage() {
   function renderHoldingsTable(rows: Asset[]) {
     return (
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
-        <div className="min-w-[720px]">
+        <div className="min-w-[820px]">
           {renderHoldingsHeader()}
           {rows.map(renderHoldingRow)}
         </div>
@@ -1213,8 +1227,10 @@ export default function AssetsPage() {
                   className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                   value={formType}
                   onChange={e => setFormType(e.target.value)}
+                  disabled={typeLocked}
+                  title={typeLocked ? t('assets.typeNotEditable') : undefined}
                 >
-                  {ASSET_TYPES.map(at => (
+                  {(typeLocked ? [formType] : ASSET_TYPES).map(at => (
                     <option key={at} value={at}>
                       {t(assetTypeI18nKey(at))}
                     </option>
