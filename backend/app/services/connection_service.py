@@ -1498,6 +1498,7 @@ async def handle_oauth_callback(
         )
 
     institution_cache: dict[str, Institution] = {}
+    created_accounts: list[Account] = []
     for acc_data in syncable_accounts:
         is_cc = acc_data.type == "credit_card"
         institution = await _resolve_institution(
@@ -1523,6 +1524,7 @@ async def handle_oauth_callback(
         )
         session.add(account)
         await session.flush()
+        created_accounts.append(account)
 
         bills_by_external_id = await _sync_credit_card_bills(
             session, user_id, account, provider, connection_data.credentials
@@ -1627,12 +1629,6 @@ async def handle_oauth_callback(
                 user_currency=user_currency,
             )
 
-        # After importing the initial batch, reconcile the opening balance so
-        # that SUM(all transactions) matches the provider-reported balance. Any
-        # history that falls outside the provider's lookback window gets
-        # absorbed into this synthetic transaction.
-        await sync_opening_balance_for_connected_account(session, account)
-
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
 
@@ -1647,6 +1643,15 @@ async def handle_oauth_callback(
         await _sync_trades(
             session, connection, connection_data.credentials, synced_account_ids
         )
+
+    # Reconcile the opening balance so that SUM(all transactions) matches the
+    # provider-reported balance: history outside the provider's lookback window
+    # gets absorbed into a synthetic transaction. After the holdings sync, not
+    # inside the account loop — an account whose balance carries Holdings gets
+    # no opening balance at all, and on a first connect the holdings that say so
+    # do not exist until `_sync_holdings` has run.
+    for account in created_accounts:
+        await sync_opening_balance_for_connected_account(session, account)
 
     connection.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
@@ -2469,7 +2474,7 @@ async def sync_connection(
         user = await session.get(User, user_id)
         user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
-        synced_account_row_ids: list[uuid.UUID] = []
+        synced_account_rows: list[Account] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
         _record_seen_accounts(connection, accounts_data)
@@ -2561,7 +2566,7 @@ async def sync_connection(
                 await session.flush()
 
             syncing_account_id = account.id
-            synced_account_row_ids.append(account.id)
+            synced_account_rows.append(account)
 
             # Fetch the bills feed before transactions so transaction → bill
             # FK resolution happens in-memory (no N+1). Empty dict for non-CC
@@ -2834,10 +2839,6 @@ async def sync_connection(
                     user_currency=user_currency,
                 )
 
-            # Reconcile the opening balance after any new transactions land so
-            # SUM(all txs) keeps matching account.balance from the provider.
-            await sync_opening_balance_for_connected_account(session, account)
-
         syncing_account_id = None
 
         # Detect transfer pairs among newly synced transactions
@@ -2847,7 +2848,9 @@ async def sync_connection(
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired
         # the real one, the orphan twin gets removed here.
-        await _cleanup_phantom_duplicates(session, synced_account_row_ids)
+        await _cleanup_phantom_duplicates(
+            session, [a.id for a in synced_account_rows]
+        )
 
         # Refresh investment holdings (brokerage, fixed income, funds,
         # etc.) when enabled for this connection. Errors here are logged but
@@ -2858,6 +2861,14 @@ async def sync_connection(
                 session, user_id, connection, credentials, synced_account_ids
             )
             await _sync_trades(session, connection, credentials, synced_account_ids)
+
+        # Reconcile the opening balance after any new transactions land so
+        # SUM(all txs) keeps matching account.balance from the provider. Runs
+        # after the holdings sync: an account whose balance carries Holdings is
+        # not reconcilable against its cash ledger at all, and it is this run's
+        # holdings that decide whether it does.
+        for account in synced_account_rows:
+            await sync_opening_balance_for_connected_account(session, account)
 
         # Reap institution rows referenced by nothing. Id-carrying servers
         # never orphan a row (renames update in place), but a name-only

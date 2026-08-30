@@ -575,7 +575,7 @@ async def viewer_shared_spending_by_category(
     return out
 
 
-def holding_inside_account_balance():
+def holding_inside_account_balance(account_id: Optional[uuid.UUID] = None):
     """SQL predicate: a Holding its own Account's balance already carries.
 
     An Account's balance is the account's *total* — the Liquid Cash and the
@@ -589,12 +589,20 @@ def holding_inside_account_balance():
     the account) matches nothing and stays counted, as does one whose account
     is closed — a closed account is left out of the balance sum entirely, so
     its Holdings are the only place its value is left.
+
+    `account_id` narrows the same join to one account, which is how a caller
+    asks the question from the Account's side ("does this account's balance
+    carry Holdings?"). The two readings have to stay one expression: an account
+    net worth treats as carrying its Holdings is exactly an account whose
+    transaction ledger cannot be reconciled against its balance
+    (``account_service.sync_opening_balance_for_connected_account``).
     """
-    return exists(
-        select(1).where(
-            Account.connection_id == Asset.connection_id,
-            Account.external_id == Asset.account_external_id,
-            Account.workspace_id == Asset.workspace_id,
-            Account.is_closed == False,  # noqa: E712 — SQL, not Python truth
-        )
-    )
+    conditions = [
+        Account.connection_id == Asset.connection_id,
+        Account.external_id == Asset.account_external_id,
+        Account.workspace_id == Asset.workspace_id,
+        Account.is_closed == False,  # noqa: E712 — SQL, not Python truth
+    ]
+    if account_id is not None:
+        conditions.append(Account.id == account_id)
+    return exists(select(1).where(*conditions))

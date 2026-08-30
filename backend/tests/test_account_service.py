@@ -9,14 +9,18 @@ Directly exercises the service functions to ensure full coverage of:
 - get_account_balance_history
 - _account_balance_at / _account_daily_balance_series
 """
+import importlib.util
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.asset import Asset
+from app.models.asset_value import AssetValue
 from app.models.goal import Goal
 from app.models.import_log import ImportLog
 from app.models.recurring_transaction import RecurringTransaction
@@ -36,6 +40,17 @@ from app.services.account_service import (
     sync_opening_balance_for_connected_account,
     update_account,
 )
+
+_spec = importlib.util.spec_from_file_location(
+    "migration_089",
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "089_drop_opening_balance_plug_on_holdings_accounts.py",
+)
+assert _spec is not None and _spec.loader is not None
+migration_089 = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(migration_089)
 
 
 # ---------------------------------------------------------------------------
@@ -976,6 +991,195 @@ async def test_sync_opening_balance_ignores_future_and_ignored_rows(
 
     assert opening.type == "credit"
     assert opening.amount == Decimal("100.00")
+
+
+# ---------------------------------------------------------------------------
+# sync_opening_balance_for_connected_account — accounts that carry Holdings
+# ---------------------------------------------------------------------------
+
+
+async def _make_holding(
+    session: AsyncSession, user_id: uuid.UUID, connection_id: uuid.UUID,
+    account_external_id: str | None, value: str,
+) -> Asset:
+    """A synced Holding the provider filed against `account_external_id`."""
+    asset = Asset(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        name="VOO",
+        type="etf",
+        currency="BRL",
+        source="test",
+        external_id=f"h-{uuid.uuid4()}",
+        connection_id=connection_id,
+        account_external_id=account_external_id,
+        valuation_method="manual",
+    )
+    session.add(asset)
+    await session.flush()
+    session.add(AssetValue(
+        id=uuid.uuid4(), asset_id=asset.id, amount=Decimal(value),
+        date=date.today(), source="sync",
+    ))
+    await session.commit()
+    await session.refresh(asset)
+    return asset
+
+
+async def _opening_balance(
+    session: AsyncSession, account_id: uuid.UUID
+) -> Transaction | None:
+    from sqlalchemy import select
+    result = await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account_id,
+            Transaction.source == "opening_balance",
+        )
+    )
+    return result.scalars().first()
+
+
+@pytest.mark.asyncio
+async def test_sync_opening_balance_skips_an_account_carrying_holdings(
+    session: AsyncSession, test_user, test_workspace, test_connection
+):
+    """The balance is the account's total, the ledger only its cash side.
+
+    Reconciling one against the other books the whole portfolio as a deposit
+    back-dated to a day that held none of it.
+    """
+    account = await _make_account(
+        session, test_user.id, "Individual - TOD", acc_type="investment",
+        balance="54922.54", connection_id=test_connection.id, external_id="5044",
+    )
+    await _add_txn(
+        session, test_user.id, account.id, 27630.74, "credit",
+        date.today() - timedelta(days=30),
+    )
+    await _make_holding(session, test_user.id, test_connection.id, "5044", "54922.54")
+
+    await sync_opening_balance_for_connected_account(session, account)
+
+    assert await _opening_balance(session, account.id) is None
+
+
+@pytest.mark.asyncio
+async def test_sync_opening_balance_drops_a_plug_once_holdings_arrive(
+    session: AsyncSession, test_user, test_workspace, test_connection
+):
+    """First connect writes the plug before the holdings sync has run.
+
+    Nothing else deletes it, so the reconcile has to when it next sees the
+    account — a brokerage with no cash ledger plugs its entire portfolio.
+    """
+    account = await _make_account(
+        session, test_user.id, "Coinbase", acc_type="investment",
+        balance="52651.51", connection_id=test_connection.id, external_id="cb-1",
+    )
+    await _add_txn(
+        session, test_user.id, account.id, 52651.51, "credit",
+        date.today() - timedelta(days=1), source="opening_balance",
+    )
+    await _make_holding(session, test_user.id, test_connection.id, "cb-1", "52651.51")
+
+    await sync_opening_balance_for_connected_account(session, account)
+
+    assert await _opening_balance(session, account.id) is None
+
+
+@pytest.mark.asyncio
+async def test_sync_opening_balance_still_plugs_a_connected_cash_account(
+    session: AsyncSession, test_user, test_workspace, test_connection
+):
+    """A sibling account's Holdings say nothing about this account's ledger.
+
+    The guard is per-account: a checking account under a connection that also
+    carries a brokerage still needs its missing history plugged.
+    """
+    brokerage = await _make_account(
+        session, test_user.id, "Brokerage", acc_type="investment",
+        balance="1000.00", connection_id=test_connection.id, external_id="acc-inv",
+    )
+    await _make_holding(
+        session, test_user.id, test_connection.id, brokerage.external_id, "1000.00"
+    )
+    account = await _make_account(
+        session, test_user.id, "Checking", balance="600.00",
+        connection_id=test_connection.id, external_id="acc-cash",
+    )
+    await _add_txn(
+        session, test_user.id, account.id, 500, "credit",
+        date.today() - timedelta(days=5),
+    )
+
+    await sync_opening_balance_for_connected_account(session, account)
+
+    opening = await _opening_balance(session, account.id)
+    assert opening is not None
+    assert opening.type == "credit"
+    assert opening.amount == Decimal("100.00")
+
+
+@pytest.mark.asyncio
+async def test_sync_opening_balance_leaves_the_reported_balance_alone(
+    session: AsyncSession, test_user, test_workspace, test_connection
+):
+    """The Robinhood shape: the cash ledger overshoots the account total.
+
+    533.77 total against a 2,172.97 ledger used to mint a -1,639.20 "opening
+    balance". Dropping the plug must not disturb the provider's own number,
+    which is what every on-screen reader anchors on.
+    """
+    account = await _make_account(
+        session, test_user.id, "Robinhood individual", acc_type="investment",
+        balance="533.77", connection_id=test_connection.id, external_id="9464",
+    )
+    await _add_txn(
+        session, test_user.id, account.id, 2172.97, "credit",
+        date.today() - timedelta(days=60),
+    )
+    await _make_holding(session, test_user.id, test_connection.id, "9464", "141.47")
+
+    await sync_opening_balance_for_connected_account(session, account)
+
+    assert await _opening_balance(session, account.id) is None
+    summary = await get_account_summary(session, account.id, test_workspace.id)
+    assert summary is not None
+    assert summary["current_balance"] == pytest.approx(533.77)
+
+
+@pytest.mark.asyncio
+async def test_migration_089_strips_only_the_plugs_holdings_carry(
+    session: AsyncSession, test_user, test_workspace, test_connection
+):
+    """Existing databases carry plugs migration 029 and past syncs wrote."""
+    brokerage = await _make_account(
+        session, test_user.id, "ROTH IRA", acc_type="investment",
+        balance="70387.61", connection_id=test_connection.id, external_id="6548",
+    )
+    checking = await _make_account(
+        session, test_user.id, "Checking", balance="600.00",
+        connection_id=test_connection.id, external_id="chk-1",
+    )
+    await _make_holding(session, test_user.id, test_connection.id, "6548", "70387.61")
+    yesterday = date.today() - timedelta(days=1)
+    await _add_txn(
+        session, test_user.id, brokerage.id, 40144.47, "credit", yesterday,
+        source="opening_balance",
+    )
+    await _add_txn(
+        session, test_user.id, checking.id, 100, "credit", yesterday,
+        source="opening_balance",
+    )
+
+    removed = await session.run_sync(
+        lambda sync_session: migration_089.strip_plugs(sync_session.connection())
+    )
+    await session.commit()
+
+    assert removed == 1
+    assert await _opening_balance(session, brokerage.id) is None
+    assert await _opening_balance(session, checking.id) is not None
 
 
 # ---------------------------------------------------------------------------
