@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
 from app.models.account import Account
+from app.models.asset import Asset
 from app.models.bank_connection import BankConnection
 from app.models.credit_card_bill import CreditCardBill
 from app.models.transaction import Transaction
@@ -15,6 +16,7 @@ from app.schemas.account import AccountCreate, AccountUpdate
 from app.services._query_filters import (
     counts_as_pnl,
     counts_in_current_balance,
+    holding_inside_account_balance,
     is_confirmed,
     is_inside_provider_snapshot,
     is_not_future,
@@ -464,10 +466,52 @@ async def sync_opening_balance_for_connected_account(
     `source='opening_balance'` transaction that closes the gap. After this runs,
     balance_history and running-balance walks line up with the card balance.
 
-    Call after adding new transactions in a sync (initial or incremental).
-    Does not commit; the caller is responsible for the transaction boundary.
+    Only sound where the balance and the ledger measure the same thing, i.e. an
+    account that is all cash — see the Holdings guard below.
+
+    Call after adding new transactions in a sync (initial or incremental), and
+    after the Holdings sync, so an account that is about to be recognized as
+    carrying Holdings is never plugged in the first place. Does not commit; the
+    caller is responsible for the transaction boundary.
     """
     if account.connection_id is None:
+        return
+
+    # An account carrying Holdings has no gap to close: its balance is the
+    # account's *total* (Liquid Cash + Holdings, CONTEXT.md) while the ledger
+    # only ever holds the cash side, Holdings living in assets/asset_values. The
+    # difference between them is market value, not missing history, so plugging
+    # it books the whole portfolio as a deposit back-dated to a day that held
+    # none of it — on a brokerage with no cash ledger at all the "opening
+    # balance" comes out as the entire portfolio, to the cent.
+    #
+    # Read from the account's side, this is the predicate net worth already
+    # de-duplicates with, so the two can never disagree about who owns a dollar.
+    #
+    # ponytail: this stops the fiction, it does not restore the history. The
+    # net-worth chart and the account-detail chart never read this row — they
+    # walk back from account.balance, so a connected investment account's past
+    # is still valued at today's prices. Fixing that needs market value at each
+    # cutoff; revisit once asset_values has real depth (today it is ~20 days).
+    carried = await session.execute(
+        select(Asset.id)
+        .where(
+            Asset.is_archived == False,  # noqa: E712 — SQL, not Python truth
+            Asset.sell_date.is_(None),
+            holding_inside_account_balance(account.id),
+        )
+        .limit(1)
+    )
+    if carried.first() is not None:
+        stale = await session.execute(
+            select(Transaction).where(
+                Transaction.account_id == account.id,
+                Transaction.source == "opening_balance",
+            )
+        )
+        for tx in stale.scalars():
+            await session.delete(tx)
+        await session.flush()
         return
 
     # The provider balance is a snapshot for today. Future-dated transactions

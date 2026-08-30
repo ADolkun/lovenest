@@ -277,6 +277,12 @@ _ACQUIRE_WORDS = {
     'fork', 'hard fork', 'distribution', 'insolvency distribution', 'claim',
     'dividend', 'dividend received',
     'bonus', 'gift received', 'rebate', 'cashback', 'award', 'referral',
+    # The plain word for the group, which a file is entitled to use instead of
+    # naming the particular flavour of acquisition. It belongs here and not
+    # next to `acquisto` in _BUY_WORDS: read as a buy, a row that states no
+    # value would be rejected for having no price, where the whole point of
+    # this group is that costing nothing is a legitimate answer.
+    'acquire', 'acquired', 'acquisition',
 }
 _TRANSFER_WORDS = {
     'transfer', 'transfer in', 'transfer out', 'deposit', 'withdrawal',
