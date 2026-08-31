@@ -1222,6 +1222,76 @@ async def test_a_transfer_moves_the_position_without_touching_the_ledger():
 
 
 @pytest.mark.asyncio
+async def test_an_explicitly_identified_legacy_reward_opens_an_income_lot():
+    """Old rewards called `send` are income only when their row says so."""
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "6")]
+    earn = _transaction("tx-earn", "send", "4", "6.00")
+    earn.update(
+        {
+            "description": "Earn Task",
+            "from": {"resource": "user"},
+            "network": {"status": "off_blockchain"},
+        }
+    )
+    referral = _transaction("tx-referral", "send", "2", "5.00")
+    referral.update(
+        {
+            "description": (
+                "Congrats! You just earned a $5 bonus for inviting your friend "
+                "Example to Coinbase."
+            ),
+            "from": {"resource": "user"},
+            "network": {"status": "off_blockchain"},
+        }
+    )
+
+    provider = CoinbaseProvider()
+    with _patched_client(
+        _history_handler(accounts, {"a1": [_tx_page([earn, referral])]})
+    ):
+        trades = await provider.get_trades(_credentials(private_pem))
+
+    assert [(trade.external_id, trade.kind, trade.price, trade.notes) for trade in trades] == [
+        ("tx-earn", "buy", Decimal("1.5"), "Coinbase Earn — income at receipt"),
+        (
+            "tx-referral",
+            "buy",
+            Decimal("2.5"),
+            "Coinbase referral bonus — income at receipt",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"description": "Earn Task"},
+        {
+            "description": "Earn Task",
+            "from": {"resource": "user"},
+            "network": {"status": "confirmed"},
+        },
+        {
+            "description": "Earn Task",
+            "from": {"resource": "account"},
+            "network": {"status": "off_blockchain"},
+        },
+    ],
+)
+async def test_a_send_without_complete_reward_provenance_remains_a_transfer(patch):
+    private_pem, _ = _generate_key()
+    accounts = [_account("a1", "XRP", "4")]
+    row = _transaction("tx-in", "send", "4", "6.00")
+    row.update(patch)
+
+    provider = CoinbaseProvider()
+    with _patched_client(_history_handler(accounts, {"a1": [_tx_page([row])]})):
+        assert await provider.get_trades(_credentials(private_pem)) == []
+
+
+@pytest.mark.asyncio
 async def test_a_reward_is_income_at_receipt_and_opens_a_lot():
     """Free units would understate basis and overstate the eventual gain."""
     private_pem, _ = _generate_key()
