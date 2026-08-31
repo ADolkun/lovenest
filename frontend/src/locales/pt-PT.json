@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "Eliminar ativo?",
     "addValue": "Adicionar Valor",
     "valueHistory": "Histórico de Valores",
+    "valueHistoryHint": "Valor total registado para este ativo em cada data — não o preço por unidade.",
     "valueTrend": "Tendência de Valor",
     "amount": "Valor",
     "date": "Data",

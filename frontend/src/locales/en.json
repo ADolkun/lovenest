@@ -1355,6 +1355,7 @@
     "confirmDeleteTitle": "Delete asset?",
     "addValue": "Add Value",
     "valueHistory": "Value History",
+    "valueHistoryHint": "Total value recorded for this holding on each date — not the price per share.",
     "valueTrend": "Value Trend",
     "amount": "Amount",
     "date": "Date",

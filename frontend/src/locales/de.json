@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "Vermögenswert löschen?",
     "addValue": "Wert hinzufügen",
     "valueHistory": "Wertverlauf",
+    "valueHistoryHint": "Gesamtwert dieser Position je Datum — nicht der Preis je Anteil.",
     "valueTrend": "Wertentwicklung",
     "amount": "Betrag",
     "date": "Datum",

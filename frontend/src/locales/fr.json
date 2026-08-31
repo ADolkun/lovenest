@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "Supprimer l'actif ?",
     "addValue": "Ajouter une valeur",
     "valueHistory": "Historique des valeurs",
+    "valueHistoryHint": "Valeur totale enregistrée pour cette position à chaque date — pas le prix par part.",
     "valueTrend": "Tendance de la valeur",
     "amount": "Montant",
     "date": "Date",

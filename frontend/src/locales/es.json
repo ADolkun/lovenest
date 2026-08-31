@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "¿Eliminar activo?",
     "addValue": "Agregar valor",
     "valueHistory": "Historial de valores",
+    "valueHistoryHint": "Valor total registrado de esta posición en cada fecha — no el precio por participación.",
     "valueTrend": "Tendencia de valor",
     "amount": "Importe",
     "date": "Fecha",

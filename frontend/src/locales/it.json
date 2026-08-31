@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "Eliminare il bene?",
     "addValue": "Aggiungi valore",
     "valueHistory": "Cronologia valore",
+    "valueHistoryHint": "Valore totale registrato per questa posizione a ogni data — non il prezzo per quota.",
     "valueTrend": "Andamento valore",
     "amount": "Importo",
     "date": "Data",

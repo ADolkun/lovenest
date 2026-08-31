@@ -1460,6 +1460,7 @@
     "confirmDeleteTitle": "Usunąć aktywo?",
     "addValue": "Dodaj wartość",
     "valueHistory": "Historia wartości",
+    "valueHistoryHint": "Łączna wartość tej pozycji w każdej dacie — nie cena za jednostkę.",
     "valueTrend": "Trend wartości",
     "amount": "Kwota",
     "date": "Data",

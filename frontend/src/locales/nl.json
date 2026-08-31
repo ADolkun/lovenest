@@ -1356,6 +1356,7 @@
     "confirmDeleteTitle": "Item verwijderen?",
     "addValue": "Voeg waarde toe",
     "valueHistory": "Waardegeschiedenis",
+    "valueHistoryHint": "Totale waarde van deze positie per datum — niet de prijs per aandeel.",
     "valueTrend": "Waardetrend",
     "amount": "Bedrag",
     "date": "Datum",
