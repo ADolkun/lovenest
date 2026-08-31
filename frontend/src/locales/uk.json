@@ -1243,6 +1243,7 @@
     "colBalance": "Усього",
     "colRealized": "Реалізовано",
     "colPortfolioPct": "% порт.",
+    "colPctInvestedValue": "{{pct}}% інвестовано",
     "addBuys": "додати купівлі",
     "ledgerTitle": "Транзакції",
     "noLedgerYet": "Поки немає транзакцій за цим активом.",
@@ -1297,6 +1298,9 @@
     "posColGain": "Нереалізований прибуток",
     "posColWeight": "Вага",
     "posColIncome": "Дохід (12 міс.)",
+    "posWalletIncome": "Отриманий дохід (12 міс.)",
+    "posWalletIncomeHint": "Зараховано на ці рахунки в будь-якій формі — біржа може виплатити дохід за одним активом в іншому.",
+    "posRunRate": "{{amount}}/рік за нещодавньою ставкою",
     "incomeIrregular": "нерегулярно",
     "incomeCadence": {
       "daily": "щоденно",

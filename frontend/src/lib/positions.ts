@@ -81,6 +81,11 @@ export interface WalletCash {
 export interface Portfolio {
   /** Ranked by value, every position — read `isDust` to drop them from a ranking. */
   positions: Position[]
+  /**
+   * The Wallets this view covers, for what belongs to a Wallet rather than to
+   * any Holding in it — its settled cash, and the income paid into it.
+   */
+  wallets: AssetGroup[]
   /** Everything: positions, dust, cash equivalents and liquid cash. */
   total: number
   /** The weight denominator: excludes dust, cash equivalents and liquid cash. */
@@ -358,6 +363,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
 
   return {
     positions: sortByValueDesc(positions),
+    wallets,
     ...totals,
     liquidCash,
     byAssetClass: allocate(byAssetClass, totals.investedTotal),
@@ -400,13 +406,22 @@ export function filterPortfolio(portfolio: Portfolio, filter: AllocationFilter):
           return legs.length === 0 ? [] : [{ ...position, ...aggregateLegs(legs), legs }]
         })
 
-  // Liquid Cash belongs to a Wallet, not to an asset class, so a class slice
-  // has none to report — carrying it over would add the whole portfolio's cash
-  // to a subtotal covering one class of the holdings.
-  const liquidCash =
+  // A class slice covers no Wallet. What belongs to a Wallet rather than to
+  // any Holding in it — its settled cash, the income paid into it — is not a
+  // property of an asset class, and carrying it over would add the whole
+  // portfolio's cash to a subtotal covering one class of the holdings.
+  const walletsInView =
     filter.dim === 'class'
       ? []
-      : portfolio.liquidCash.filter((cash) => matchesWallet(cash.walletId, cash.accountType))
+      : portfolio.wallets.filter((w) => matchesWallet(w.id, w.account_type ?? null))
+  const inView = new Set(walletsInView.map((w) => w.id))
+  const liquidCash = portfolio.liquidCash.filter((cash) => inView.has(cash.walletId))
 
-  return { ...portfolio, positions, ...summarise(positions, liquidCash), liquidCash }
+  return {
+    ...portfolio,
+    positions,
+    wallets: walletsInView,
+    ...summarise(positions, liquidCash),
+    liquidCash,
+  }
 }

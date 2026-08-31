@@ -294,9 +294,11 @@ export default function PositionsTab({
     queryFn: () => assetsApi.income(),
   })
 
-  /** A position's income is its legs': the same ticker pays in every account. */
+  /** A position's income is its legs': the same ticker pays in every account.
+   *  Only what a description attributed on evidence reaches here — a reward
+   *  paid into a holding that did not earn it is the wallet's, below. */
   const incomeOf = (assetIds: string[]) => {
-    const rows = assetIds.map((id) => income?.[id]).filter((r): r is AssetIncome => !!r)
+    const rows = assetIds.map((id) => income?.holdings[id]).filter((r): r is AssetIncome => !!r)
     if (rows.length === 0) return null
     const runRates = rows.map((r) => r.run_rate)
     return {
@@ -319,6 +321,22 @@ export default function PositionsTab({
     () => (filter ? filterPortfolio(portfolio, filter) : portfolio),
     [filter, portfolio],
   )
+
+  // Income the wallets in view received, however it was paid. Kept apart from
+  // the per-holding column because it is the answer to a different question:
+  // not what a position yields, but whether the account is still being paid.
+  const walletIncome = useMemo(() => {
+    const rows = view.wallets.map((w) => income?.wallets[w.id]).filter((r): r is AssetIncome => !!r)
+    if (rows.length === 0) return null
+    const runRates = rows.map((r) => r.run_rate)
+    return {
+      total: rows.reduce((sum, r) => sum + r.total, 0),
+      cadence: [...rows].sort((a, b) => b.total - a.total)[0].cadence,
+      runRate: runRates.every((r) => r !== null)
+        ? runRates.reduce((sum, r) => sum + (r ?? 0), 0)
+        : null,
+    }
+  }, [view, income])
 
   const accountTypeLabel = (type: string | null) =>
     type && ACCOUNT_TYPE_KEYS[type] ? t(ACCOUNT_TYPE_KEYS[type]) : t('assets.posAccountUnknown')
@@ -732,6 +750,26 @@ export default function PositionsTab({
         {view.dustTotal > 0 &&
           renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
         {renderTotalRow(t('assets.posGrandTotal'), view.total, undefined, undefined, true)}
+        {walletIncome && (
+          <div className="flex items-baseline justify-between gap-4 px-3 py-2 border-t border-border">
+            <div className="min-w-0">
+              <span className="text-xs text-muted-foreground">{t('assets.posWalletIncome')}</span>
+              <span className="block text-[10px] text-muted-foreground">
+                {t('assets.posWalletIncomeHint')}
+              </span>
+            </div>
+            <span className="tabular-nums shrink-0 text-xs text-muted-foreground">
+              {money(walletIncome.total)}
+              <span className="block text-[10px] text-right">
+                {walletIncome.cadence
+                  ? t(`assets.incomeCadence.${walletIncome.cadence}`)
+                  : t('assets.incomeIrregular')}
+                {walletIncome.runRate !== null &&
+                  ` · ${t('assets.posRunRate', { amount: money(walletIncome.runRate) })}`}
+              </span>
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )

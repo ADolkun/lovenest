@@ -1234,6 +1234,7 @@
     "colBalance": "Total",
     "colRealized": "Realized",
     "colPortfolioPct": "% port.",
+    "colPctInvestedValue": "{{pct}}% invested",
     "addBuys": "add buys",
     "ledgerTitle": "Transactions",
     "noLedgerYet": "No transactions for this holding yet.",
@@ -1288,6 +1289,9 @@
     "posColGain": "Unrealised gain",
     "posColWeight": "Weight",
     "posColIncome": "Income (12m)",
+    "posWalletIncome": "Income received (12m)",
+    "posWalletIncomeHint": "Paid into these accounts, however it was paid — an exchange can pay the reward on one asset in another.",
+    "posRunRate": "{{amount}}/yr at the recent rate",
     "incomeIrregular": "irregular",
     "incomeCadence": {
       "daily": "daily",

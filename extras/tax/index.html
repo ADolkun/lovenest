@@ -1354,8 +1354,26 @@ function taxApp() {
         if (d.non_reportable_gain) {
           hints.push(`${this.usd(d.non_reportable_gain)} of gains sit outside taxable wallets (tax-advantaged, "other", or no wallet) — not reportable, not counted.`);
         }
+        // Investment income from taxable wallets only. Both map straight onto
+        // a field: a money-market or equity dividend is box 1a, a staking or
+        // stablecoin reward has no information return and is ordinary income.
+        if (d.income_error) {
+          hints.push(`Investment income not loaded — ${d.income_error}.`);
+        }
+        if (typeof d.ordinary_dividends === "number" && d.ordinary_dividends > 0) {
+          this.est.ordinary_dividends = Math.round(d.ordinary_dividends);
+          // Qualified is a subset of ordinary and turns on a holding period no
+          // description states, so it stays whatever the user put there.
+          hints.push(`Ordinary dividends prefilled from taxable wallets — set Qualified dividends yourself from your 1099-DIV box 1b.`);
+        }
+        if (typeof d.other_ordinary_income === "number" && d.other_ordinary_income > 0) {
+          this.est.other_ordinary_income = Math.round(d.other_ordinary_income);
+        }
+        if (d.non_reportable_income) {
+          hints.push(`${this.usd(d.non_reportable_income)} of investment income sits outside taxable wallets — not reportable, not counted.`);
+        }
         this.prefillHint = hints.join(" ");
-        this.prefillMsg = `Loaded YTD ${d.year || ""}: interest ${this.usd(d.interest_income || 0)}. Review before calculating.`;
+        this.prefillMsg = `Loaded YTD ${d.year || ""}: interest ${this.usd(d.interest_income || 0)}, dividends ${this.usd(d.ordinary_dividends || 0)}. Review before calculating.`;
       } catch (e) {
         this.prefillMsg = e.message || "Couldn't reach the data endpoint.";
       } finally { this.prefillLoading = false; }

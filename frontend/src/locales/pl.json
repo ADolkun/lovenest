@@ -1333,6 +1333,7 @@
     "colBalance": "Saldo",
     "colRealized": "Zrealizowany",
     "colPortfolioPct": "% portfela",
+    "colPctInvestedValue": "{{pct}}% zainwestowane",
     "addBuys": "dodaj zakupy",
     "ledgerTitle": "Transakcje",
     "noLedgerYet": "Brak transakcji dla tej pozycji.",
@@ -1387,6 +1388,9 @@
     "posColGain": "Zysk niezrealizowany",
     "posColWeight": "Udział",
     "posColIncome": "Dochód (12 mies.)",
+    "posWalletIncome": "Otrzymany dochód (12 mies.)",
+    "posWalletIncomeHint": "Wpłacony na te konta, w dowolnej formie — giełda może wypłacić dochód z jednego aktywa w innym.",
+    "posRunRate": "{{amount}}/rok w ostatnim tempie",
     "incomeIrregular": "nieregularny",
     "incomeCadence": {
       "daily": "codziennie",

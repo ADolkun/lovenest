@@ -1235,6 +1235,7 @@
     "colBalance": "Total",
     "colRealized": "Réalisé",
     "colPortfolioPct": "% portef.",
+    "colPctInvestedValue": "{{pct}}% investi",
     "addBuys": "ajouter des achats",
     "ledgerTitle": "Transactions",
     "noLedgerYet": "Aucune transaction pour cette position pour l'instant.",
@@ -1289,6 +1290,9 @@
     "posColGain": "Plus-value latente",
     "posColWeight": "Poids",
     "posColIncome": "Revenus (12 m)",
+    "posWalletIncome": "Revenus reçus (12 m)",
+    "posWalletIncomeHint": "Versés sur ces comptes, quelle qu'en soit la forme — une plateforme peut payer le rendement d'un actif dans un autre.",
+    "posRunRate": "{{amount}}/an au rythme récent",
     "incomeIrregular": "irrégulier",
     "incomeCadence": {
       "daily": "quotidien",

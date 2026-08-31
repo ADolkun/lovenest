@@ -1235,6 +1235,7 @@
     "colBalance": "Saldo",
     "colRealized": "Realizado",
     "colPortfolioPct": "% carteira",
+    "colPctInvestedValue": "{{pct}}% investido",
     "addBuys": "add compras",
     "ledgerTitle": "Lançamentos",
     "noLedgerYet": "Nenhum lançamento para este ativo ainda.",
@@ -1289,6 +1290,9 @@
     "posColGain": "Ganho não realizado",
     "posColWeight": "Peso",
     "posColIncome": "Rendimento (12m)",
+    "posWalletIncome": "Rendimento recebido (12m)",
+    "posWalletIncomeHint": "Pago nestas contas, seja qual for a forma — uma corretora pode pagar o rendimento de um ativo noutro.",
+    "posRunRate": "{{amount}}/ano ao ritmo recente",
     "incomeIrregular": "irregular",
     "incomeCadence": {
       "daily": "diário",

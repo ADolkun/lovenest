@@ -47,7 +47,7 @@ import type {
   ContributionSummary,
   AssetImportPreview,
   AssetImportResult,
-  AssetIncome,
+  WorkspaceIncome,
   AssetOrderImport,
   AssetTransaction,
   AssetValue,
@@ -1170,7 +1170,7 @@ export const assets = {
   },
   // Income at Receipt per holding, whole workspace in one call — the Positions
   // tab needs a figure per row and a per-asset route would be one request each.
-  income: async (months = 12): Promise<Record<string, AssetIncome>> => {
+  income: async (months = 12): Promise<WorkspaceIncome> => {
     const { data } = await api.get('/assets/income', { params: { months } })
     return data
   },

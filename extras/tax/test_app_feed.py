@@ -44,6 +44,45 @@ class ReportableGainFeedTest(unittest.TestCase):
         self.assertIn("gain_error", result)
 
 
+class ReportableIncomeFeedTest(unittest.TestCase):
+    def test_asks_the_gated_backend_endpoint_for_the_ytd_window(self):
+        """Same reason as the gain: the Taxable-Wallet allowlist lives in the
+        backend, and a Roth dividend summed here is money the user is taxed on
+        and should not be."""
+        urlopen = _urlopen_returning({"ordinary_dividends": 1.0})
+        with mock.patch("urllib.request.urlopen", urlopen):
+            app._reportable_income(AUTH)
+        url = urlopen.call_args.args[0].full_url
+        self.assertIn("/api/assets/reportable-income", url)
+        self.assertIn(f"start={app.YTD_START}", url)
+
+    def test_forwards_dividends_and_other_ordinary_income(self):
+        payload = {
+            "interest_income": 3.0, "ordinary_dividends": 609.19,
+            "other_ordinary_income": 70.49, "non_reportable_income": 167.3,
+        }
+        with mock.patch("urllib.request.urlopen", _urlopen_returning(payload)):
+            result = app._reportable_income(AUTH)
+        self.assertEqual(result["ordinary_dividends"], 609.19)
+        self.assertEqual(result["other_ordinary_income"], 70.49)
+        self.assertEqual(result["non_reportable_income"], 167.3)
+
+    def test_leaves_interest_to_the_estimators_own_query(self):
+        """The backend figure covers income a description attributed to a
+        Holding; the estimator's query covers every account including the
+        banks. Taking both would double-count where they overlap."""
+        with mock.patch(
+            "urllib.request.urlopen", _urlopen_returning({"interest_income": 3.0})
+        ):
+            self.assertNotIn("interest_income", app._reportable_income(AUTH))
+
+    def test_backend_failure_reports_instead_of_guessing_income(self):
+        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
+            result = app._reportable_income(AUTH)
+        self.assertNotIn("ordinary_dividends", result)
+        self.assertIn("income_error", result)
+
+
 FEED = {
     "as_of": "2026-08-25", "tax_year": 2026,
     "trad_401k": 10.0, "roth_ira": 20.0, "hsa": 30.0, "taxable": 40.0,

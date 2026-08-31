@@ -1243,6 +1243,7 @@
     "colBalance": "Итого",
     "colRealized": "Реализовано",
     "colPortfolioPct": "% порт.",
+    "colPctInvestedValue": "{{pct}}% инвестировано",
     "addBuys": "добавить покупки",
     "ledgerTitle": "Транзакции",
     "noLedgerYet": "Пока нет транзакций по этому активу.",
@@ -1297,6 +1298,9 @@
     "posColGain": "Нереализованная прибыль",
     "posColWeight": "Вес",
     "posColIncome": "Доход (12 мес.)",
+    "posWalletIncome": "Полученный доход (12 мес.)",
+    "posWalletIncomeHint": "Зачислен на эти счета в любой форме — биржа может выплатить доход по одному активу в другом.",
+    "posRunRate": "{{amount}}/год по недавней ставке",
     "incomeIrregular": "нерегулярно",
     "incomeCadence": {
       "daily": "ежедневно",

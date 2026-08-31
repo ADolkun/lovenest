@@ -262,6 +262,25 @@ async def asset_income(
     )
 
 
+@router.get("/reportable-income")
+async def reportable_income(
+    start: date,
+    end: date = Query(..., description="Exclusive upper bound, so a tax year is 1 Jan to 1 Jan"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Investment income arising in Taxable Wallets only, split the way a
+    return is: interest, ordinary dividends, and everything else ordinary.
+
+    The counterpart of `/reportable-gain`, and gated by the same allowlist —
+    a payout inside a Roth is not income this year. Qualified dividends are
+    not derived: the description does not state the holding period they turn
+    on (CONTEXT.md)."""
+    return await investment_income.reportable_income(
+        session, ctx.workspace.id, start=start, end=end
+    )
+
+
 @router.get("/projection-feed")
 async def projection_feed(
     ctx: WorkspaceContext = Depends(current_workspace),

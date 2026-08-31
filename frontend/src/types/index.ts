@@ -891,7 +891,18 @@ export interface TaxLotSale {
   short_gain: number
 }
 
-/** What one Holding paid out over a trailing window (Income at Receipt). */
+/** Trailing income, keyed by asset id and by wallet id.
+ *
+ *  `holdings` carries only what a description attributed on evidence.
+ *  `wallets` carries everything the wallet received — an exchange can pay the
+ *  reward on one asset in a different one, so where it landed is not who
+ *  earned it. */
+export interface WorkspaceIncome {
+  holdings: Record<string, AssetIncome>
+  wallets: Record<string, AssetIncome>
+}
+
+/** What one Holding or Wallet was paid over a trailing window. */
 export interface AssetIncome {
   total: number
   payouts: number

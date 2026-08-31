@@ -1235,6 +1235,7 @@
     "colBalance": "Saldo",
     "colRealized": "Realizado",
     "colPortfolioPct": "% cartera",
+    "colPctInvestedValue": "{{pct}}% invertido",
     "addBuys": "add compras",
     "ledgerTitle": "Movimientos",
     "noLedgerYet": "Aún no hay movimientos para este activo.",
@@ -1289,6 +1290,9 @@
     "posColGain": "Ganancia no realizada",
     "posColWeight": "Peso",
     "posColIncome": "Ingresos (12m)",
+    "posWalletIncome": "Ingresos recibidos (12m)",
+    "posWalletIncomeHint": "Pagados en estas cuentas, sea cual sea la forma — un exchange puede pagar el rendimiento de un activo en otro.",
+    "posRunRate": "{{amount}}/año al ritmo reciente",
     "incomeIrregular": "irregular",
     "incomeCadence": {
       "daily": "diario",

@@ -314,6 +314,33 @@ def _reportable_gain(auth):
         return {"gain_error": f"capital gains unavailable: {exc}"}
 
 
+def _reportable_income(auth):
+    """YTD investment income arising in Taxable Wallets, from the backend for
+    the same reason the gain comes from there: the allowlist that decides what
+    is Reportable lives in one place, and a Roth dividend summed here is money
+    the user is taxed on and should not be.
+
+    ``interest_income`` is deliberately *not* taken from this call. The
+    backend figure covers income a description attributed to a Holding, while
+    the estimator's own interest query covers every account including the
+    banks — and where a broker writes "interest" next to a ticker the two
+    would overlap. Dividends and rewards cannot overlap it: a "DIVIDEND
+    RECEIVED" line does not say interest, and a staking payout is not in the
+    transaction feed at all.
+    """
+    url = f"{BACKEND_URL}/api/assets/reportable-income?start={YTD_START}&end={_ytd_end()}"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=auth), timeout=5) as response:
+            data = json.load(response)
+        return {
+            "ordinary_dividends": float(data.get("ordinary_dividends") or 0.0),
+            "other_ordinary_income": float(data.get("other_ordinary_income") or 0.0),
+            "non_reportable_income": float(data.get("non_reportable_income") or 0.0),
+        }
+    except (OSError, ValueError) as exc:
+        return {"income_error": f"investment income unavailable: {exc}"}
+
+
 def _projection_feed(auth):
     """Live balances, Roth basis and this year's contributions for the
     projection form, straight from the backend under the key names
@@ -352,12 +379,17 @@ def prefill(auth=Depends(require_auth)):
     interest_income: credits in a category named 'Income' or whose description
     mentions 'interest' — heuristic, surfaced as a suggestion only.
     reportable_gain: Realised Gain arising in Taxable Wallets only.
+    ordinary_dividends / other_ordinary_income: investment income arising in
+    Taxable Wallets only. Qualified dividends are not derived — the holding
+    period they turn on is not in any description — so the user's own figure
+    stands.
     """
     result = {
         "year": 2026,
         "total_income": 0.0,
         "interest_income": 0.0,
         **_reportable_gain(auth),
+        **_reportable_income(auth),
     }
 
     if not DATABASE_URL:

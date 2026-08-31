@@ -1235,6 +1235,7 @@
     "colBalance": "Wert",
     "colRealized": "Realisiert",
     "colPortfolioPct": "% Port.",
+    "colPctInvestedValue": "{{pct}}% investiert",
     "addBuys": "Käufe hinzufügen",
     "ledgerTitle": "Transaktionen",
     "noLedgerYet": "Noch keine Transaktionen für diesen Vermögenswert.",
@@ -1289,6 +1290,9 @@
     "posColGain": "Buchgewinn",
     "posColWeight": "Gewichtung",
     "posColIncome": "Erträge (12 M.)",
+    "posWalletIncome": "Erhaltene Erträge (12 M.)",
+    "posWalletIncomeHint": "Auf diesen Konten eingegangen, gleich in welcher Form — eine Börse kann den Ertrag auf einen Wert in einem anderen auszahlen.",
+    "posRunRate": "{{amount}}/Jahr zur jüngsten Rate",
     "incomeIrregular": "unregelmäßig",
     "incomeCadence": {
       "daily": "täglich",
