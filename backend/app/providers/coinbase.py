@@ -206,6 +206,43 @@ def _trade_notes(tx_type: str, tx_class: str) -> Optional[str]:
     return f"Coinbase {tx_type}"
 
 
+def _legacy_income_name(raw: dict) -> Optional[str]:
+    """Name an old reward that Coinbase filed as a generic ``send``.
+
+    Generic incoming sends remain transfers: their displayed USD value is not
+    their carried basis. Older Coinbase rewards are the narrow exception when
+    the row itself identifies an internal, off-chain Earn or referral credit.
+    """
+    if str(raw.get("type") or "").strip().lower() != "send":
+        return None
+    amount = raw.get("amount")
+    quantity = _to_decimal(amount.get("amount")) if isinstance(amount, dict) else None
+    origin = raw.get("from")
+    network = raw.get("network")
+    if (
+        quantity is None
+        or quantity <= 0
+        or not isinstance(origin, dict)
+        or origin.get("resource") != "user"
+        or not isinstance(network, dict)
+        or network.get("status") != "off_blockchain"
+    ):
+        return None
+    description = raw.get("description")
+    if not isinstance(description, str):
+        return None
+    description = description.strip().casefold()
+    if description == "earn task":
+        return "Earn"
+    if (
+        description.startswith("congrats! you just earned a $")
+        and " bonus for inviting your friend " in description
+        and " to coinbase." in description
+    ):
+        return "referral bonus"
+    return None
+
+
 def _parse_api_key(raw: str) -> tuple[str, str]:
     """Pull the key name and PEM private key out of a pasted CDP key file.
 
@@ -873,12 +910,15 @@ class CoinbaseProvider(BankProvider):
             )
             for row in rows:
                 tx_type = str(row.get("type") or "").strip().lower()
-                tx_class = _classify_transaction(tx_type)
+                income_name = _legacy_income_name(row)
+                tx_class = TX_INCOME if income_name else _classify_transaction(tx_type)
                 if tx_class == TX_UNKNOWN:
                     unknown_types[tx_type or "(none)"] += 1
                 if tx_class not in (TX_TRADE, TX_INCOME):
                     continue
-                trade = await self._trade(row, account_id, tx_type, tx_class, spot)
+                trade = await self._trade(
+                    row, account_id, income_name or tx_type, tx_class, spot
+                )
                 if trade is None:
                     left_off += 1
                     continue

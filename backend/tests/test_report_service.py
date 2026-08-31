@@ -1229,7 +1229,7 @@ async def test_cash_flow_recurring_credit_increases_balance(
     )
 
     today = date.today()
-    salary_day = date(today.year + (today.month // 12), (today.month % 12) + 1, today.day)
+    salary_day = _add_months(today, 1)
     await _make_recurring(
         session, test_user.id, account.id,
         amount=3000, txn_type="credit", frequency="monthly",
