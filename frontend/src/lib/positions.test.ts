@@ -587,6 +587,23 @@ describe('narrowing to one allocation slice', () => {
     ])
   })
 
+  it('carries only the wallets the slice covers', () => {
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', type: 'stock', value: 400, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'savings')],
+    )
+
+    const ids = (p: ReturnType<typeof buildPortfolio>) => p.wallets.map((w) => w.id)
+    expect(ids(portfolio)).toEqual(['w1', 'w2'])
+    expect(ids(filterPortfolio(portfolio, { dim: 'wallet', key: 'w2' }))).toEqual(['w2'])
+    expect(ids(filterPortfolio(portfolio, { dim: 'accountType', key: 'savings' }))).toEqual(['w2'])
+    // An asset class is not a property of a Wallet, so it covers none.
+    expect(ids(filterPortfolio(portfolio, { dim: 'class', key: 'etf' }))).toEqual([])
+  })
+
   it('leaves the donuts on the whole portfolio while the table is narrowed', () => {
     const portfolio = buildPortfolio(
       [

@@ -233,6 +233,13 @@ class HoldingData:
     account_name: Optional[str] = None
 
 
+#: The phrase a provider puts in ``TradeData.notes`` to mark a buy as Income at
+#: Receipt rather than a purchase. Prose is the only carrier the ledger has —
+#: ``kind`` is buy or sell and a replay needs it to stay that way — so readers
+#: match on this constant rather than on a string of their own.
+INCOME_AT_RECEIPT_NOTE = "income at receipt"
+
+
 @dataclass
 class TradeData:
     """One buy or sell behind a holding, provider-agnostic.

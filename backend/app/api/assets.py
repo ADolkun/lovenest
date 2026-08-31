@@ -42,6 +42,7 @@ from app.services import (
     asset_import_service,
     asset_service,
     asset_transaction_service,
+    investment_income,
     projection_feed as projection_feed_service,
     tax_lots,
     wash_sale,
@@ -241,6 +242,41 @@ async def reportable_gain(
     """Realised Gain arising in Taxable Wallets only — the sole gain figure a
     tax calculation may consume (CONTEXT.md)."""
     return await asset_transaction_service.reportable_gain(
+        session, ctx.workspace.id, start=start, end=end
+    )
+
+
+@router.get("/income")
+async def asset_income(
+    months: int = Query(12, ge=1, le=120, description="Trailing window, in months"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Income at Receipt per Holding over a trailing window, keyed by asset id.
+
+    One call for the whole workspace: the Positions tab needs a figure per row
+    and a per-asset route would be one request per position (CONTEXT.md).
+    Holdings that received nothing are absent, not zero."""
+    return await investment_income.workspace_income(
+        session, ctx.workspace.id, months=months
+    )
+
+
+@router.get("/reportable-income")
+async def reportable_income(
+    start: date,
+    end: date = Query(..., description="Exclusive upper bound, so a tax year is 1 Jan to 1 Jan"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Investment income arising in Taxable Wallets only, split the way a
+    return is: interest, ordinary dividends, and everything else ordinary.
+
+    The counterpart of `/reportable-gain`, and gated by the same allowlist —
+    a payout inside a Roth is not income this year. Qualified dividends are
+    not derived: the description does not state the holding period they turn
+    on (CONTEXT.md)."""
+    return await investment_income.reportable_income(
         session, ctx.workspace.id, start=start, end=end
     )
 

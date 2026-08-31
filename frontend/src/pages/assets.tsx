@@ -9,6 +9,7 @@ import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { summariesByWallet } from '@/lib/contributions'
+import { CASH_EQUIVALENT_TYPE } from '@/lib/positions'
 import {
   ASSET_TYPES,
   assetTypeFromQuoteType,
@@ -302,10 +303,20 @@ export default function AssetsPage() {
     (acc: number, a: { current_value?: number | null }) => acc + Number(a.current_value || 0),
     0,
   )
-  // Portfolio total in the user's primary currency — denominator for the
-  // "% da carteira" column in the holdings table.
+  // Two denominators for the "% da carteira" column, because the column was
+  // answering two questions with one number. Everything the user owns is the
+  // share of net worth; the invested total is the share of what carries market
+  // risk, which is the figure the Positions tab's weight column reports and
+  // the one a concentration question is actually about (CONTEXT.md).
   const portfolioTotalPrimary = (assetsList ?? []).reduce(
     (acc, a) => acc + Number(a.current_value_primary ?? a.current_value ?? 0),
+    0,
+  )
+  const investedTotalPrimary = (assetsList ?? []).reduce(
+    (acc, a) =>
+      a.type === CASH_EQUIVALENT_TYPE
+        ? acc
+        : acc + Number(a.current_value_primary ?? a.current_value ?? 0),
     0,
   )
   const byType: Record<string, number> = {}
@@ -721,6 +732,14 @@ export default function AssetsPage() {
       portfolioTotalPrimary > 0 && asset.current_value_primary != null
         ? (asset.current_value_primary / portfolioTotalPrimary) * 100
         : null
+    // A Cash Equivalent is not an invested position, so it has no share of the
+    // invested total — showing it 0% would be a claim, showing nothing is not.
+    const pctOfInvested =
+      asset.type !== CASH_EQUIVALENT_TYPE &&
+      investedTotalPrimary > 0 &&
+      asset.current_value_primary != null
+        ? (asset.current_value_primary / investedTotalPrimary) * 100
+        : null
     const needsBuys = isMarketPriced && !hasCost && !asset.sell_date
 
     return (
@@ -812,9 +831,14 @@ export default function AssetsPage() {
               </span>
             ) : <span className="text-muted-foreground">—</span>}
           </div>
-          {/* % carteira */}
+          {/* % carteira — of everything, then of what is invested */}
           <div className="text-right tabular-nums text-muted-foreground">
             {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
+            {pctOfInvested != null && (
+              <span className="block text-[10px] text-muted-foreground/70">
+                {t('assets.colPctInvestedValue', { pct: pctOfInvested.toFixed(1) })}
+              </span>
+            )}
           </div>
           {/* actions */}
           <div className="flex items-center justify-end gap-0.5">
