@@ -42,6 +42,7 @@ from app.services import (
     asset_import_service,
     asset_service,
     asset_transaction_service,
+    investment_income,
     projection_feed as projection_feed_service,
     tax_lots,
     wash_sale,
@@ -242,6 +243,22 @@ async def reportable_gain(
     tax calculation may consume (CONTEXT.md)."""
     return await asset_transaction_service.reportable_gain(
         session, ctx.workspace.id, start=start, end=end
+    )
+
+
+@router.get("/income")
+async def asset_income(
+    months: int = Query(12, ge=1, le=120, description="Trailing window, in months"),
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Income at Receipt per Holding over a trailing window, keyed by asset id.
+
+    One call for the whole workspace: the Positions tab needs a figure per row
+    and a per-asset route would be one request per position (CONTEXT.md).
+    Holdings that received nothing are absent, not zero."""
+    return await investment_income.workspace_income(
+        session, ctx.workspace.id, months=months
     )
 
 

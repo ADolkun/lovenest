@@ -1287,6 +1287,17 @@
     "posColValue": "Market value",
     "posColGain": "Unrealised gain",
     "posColWeight": "Weight",
+    "posColIncome": "Income (12m)",
+    "incomeIrregular": "irregular",
+    "incomeCadence": {
+      "daily": "daily",
+      "weekly": "weekly",
+      "biweekly": "biweekly",
+      "monthly": "monthly",
+      "quarterly": "quarterly",
+      "semiannual": "semiannual",
+      "annual": "annual"
+    },
     "posColAccount": "Account",
     "posAccountUnknown": "Unassigned",
     "posInvestedTotal": "Invested",

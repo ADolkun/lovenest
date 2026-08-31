@@ -891,6 +891,19 @@ export interface TaxLotSale {
   short_gain: number
 }
 
+/** What one Holding paid out over a trailing window (Income at Receipt). */
+export interface AssetIncome {
+  total: number
+  payouts: number
+  /** `weekly`, `monthly`, … or null when too few or too uneven to name. */
+  cadence: string | null
+  /** The recent payouts annualised. Null without a cadence to project over. */
+  run_rate: number | null
+  last_date: string | null
+  last_amount: number | null
+  currency: string
+}
+
 export interface TaxLots {
   asset_id: string
   ticker: string | null

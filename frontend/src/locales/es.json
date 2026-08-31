@@ -1288,6 +1288,17 @@
     "posColValue": "Valor de mercado",
     "posColGain": "Ganancia no realizada",
     "posColWeight": "Peso",
+    "posColIncome": "Ingresos (12m)",
+    "incomeIrregular": "irregular",
+    "incomeCadence": {
+      "daily": "diario",
+      "weekly": "semanal",
+      "biweekly": "quincenal",
+      "monthly": "mensual",
+      "quarterly": "trimestral",
+      "semiannual": "semestral",
+      "annual": "anual"
+    },
     "posColAccount": "Cuenta",
     "posAccountUnknown": "Sin asignar",
     "posInvestedTotal": "Invertido",

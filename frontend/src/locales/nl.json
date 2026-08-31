@@ -1288,6 +1288,17 @@
     "posColValue": "Market value",
     "posColGain": "Unrealised gain",
     "posColWeight": "Weight",
+    "posColIncome": "Inkomsten (12 mnd)",
+    "incomeIrregular": "onregelmatig",
+    "incomeCadence": {
+      "daily": "dagelijks",
+      "weekly": "wekelijks",
+      "biweekly": "tweewekelijks",
+      "monthly": "maandelijks",
+      "quarterly": "per kwartaal",
+      "semiannual": "halfjaarlijks",
+      "annual": "jaarlijks"
+    },
     "posColAccount": "Account",
     "posAccountUnknown": "Unassigned",
     "posInvestedTotal": "Invested",

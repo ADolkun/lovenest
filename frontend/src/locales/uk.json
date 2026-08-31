@@ -1296,6 +1296,17 @@
     "posColValue": "Ринкова вартість",
     "posColGain": "Нереалізований прибуток",
     "posColWeight": "Вага",
+    "posColIncome": "Дохід (12 міс.)",
+    "incomeIrregular": "нерегулярно",
+    "incomeCadence": {
+      "daily": "щоденно",
+      "weekly": "щотижня",
+      "biweekly": "раз на два тижні",
+      "monthly": "щомісяця",
+      "quarterly": "щокварталу",
+      "semiannual": "раз на пів року",
+      "annual": "щороку"
+    },
     "posColAccount": "Рахунок",
     "posAccountUnknown": "Без рахунку",
     "posInvestedTotal": "Вкладено",

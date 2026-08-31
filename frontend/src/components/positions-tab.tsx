@@ -17,7 +17,7 @@ import {
   type AllocationSlice,
   type Position,
 } from '@/lib/positions'
-import type { Asset, AssetGroup } from '@/types'
+import type { Asset, AssetGroup, AssetIncome } from '@/types'
 
 interface PositionsTabProps {
   holdings: Asset[]
@@ -54,8 +54,8 @@ const SLICE_COLORS = [
   '#06B6D4',
 ]
 
-const POSITIONS_GRID = 'minmax(0,2.2fr) 0.8fr 1fr 1.1fr 1.2fr 1.3fr 0.7fr 2rem'
-const LEGS_GRID = 'minmax(0,2.2fr) 1fr 0.8fr 1.1fr 1.2fr 1.3fr'
+const POSITIONS_GRID = 'minmax(0,2.2fr) 0.8fr 1fr 1.1fr 1.2fr 1.3fr 1.2fr 0.7fr 2rem'
+const LEGS_GRID = 'minmax(0,2.2fr) 1fr 0.8fr 1.1fr 1.2fr 1.3fr 1.2fr'
 
 const TOOLTIP_STYLE: React.CSSProperties = {
   background: 'var(--card)',
@@ -287,6 +287,31 @@ export default function PositionsTab({
   const walletsById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets])
   const portfolio = useMemo(() => buildPortfolio(holdings, wallets), [holdings, wallets])
 
+  // One call for the whole workspace: a per-asset route would be one request
+  // per row. A holding that received nothing is absent, not zero.
+  const { data: income } = useQuery({
+    queryKey: ['asset-income'],
+    queryFn: () => assetsApi.income(),
+  })
+
+  /** A position's income is its legs': the same ticker pays in every account. */
+  const incomeOf = (assetIds: string[]) => {
+    const rows = assetIds.map((id) => income?.[id]).filter((r): r is AssetIncome => !!r)
+    if (rows.length === 0) return null
+    const runRates = rows.map((r) => r.run_rate)
+    return {
+      total: rows.reduce((sum, r) => sum + r.total, 0),
+      // The legs of one ticker pay on the same schedule, so the heaviest one
+      // names it; a disagreement means one leg is too young to have a pattern.
+      cadence: [...rows].sort((a, b) => b.total - a.total)[0].cadence,
+      // Null unless every leg projects, or the sum would be a partial year
+      // read as a whole one.
+      runRate: runRates.every((r) => r !== null)
+        ? runRates.reduce((sum, r) => sum + (r ?? 0), 0)
+        : null,
+    }
+  }
+
   // Rebuilding the figures from the slice rather than hiding rows is what
   // keeps the subtotals under the table adding up to the wedge that was
   // clicked.
@@ -445,6 +470,24 @@ export default function PositionsTab({
     )
   }
 
+  /** Income over the trailing year, and what the recent payouts annualise to
+   *  against the value they were earned on — the figure that says whether a
+   *  cash position is still being paid, which the twelve-month total does not. */
+  function renderIncomeCell(assetIds: string[], value: number) {
+    const summary = incomeOf(assetIds)
+    if (!summary || summary.total === 0) return <span className="text-muted-foreground">{DASH}</span>
+    const yieldNow = summary.runRate !== null && value > 0 ? summary.runRate / value : null
+    return (
+      <>
+        <span className="text-foreground">{money(summary.total)}</span>
+        <span className="block text-[10px] text-muted-foreground">
+          {summary.cadence ? t(`assets.incomeCadence.${summary.cadence}`) : t('assets.incomeIrregular')}
+          {yieldNow !== null && ` · ${formatPercent(yieldNow)}`}
+        </span>
+      </>
+    )
+  }
+
   function renderLegs(position: Position) {
     return (
       <div className="bg-muted/20 border-t border-border px-3 py-2">
@@ -458,6 +501,7 @@ export default function PositionsTab({
           <div className="text-right">{t('assets.posColCostBasis')}</div>
           <div className="text-right">{t('assets.posColValue')}</div>
           <div className="text-right">{t('assets.posColGain')}</div>
+          <div className="text-right">{t('assets.posColIncome')}</div>
         </div>
         {position.legs.map((leg) => (
           <div key={leg.assetId}>
@@ -500,6 +544,9 @@ export default function PositionsTab({
                       : t('assets.posMarkCashEquivalent')}
                   </button>
                 )}
+              </div>
+              <div className="text-right tabular-nums">
+                {renderIncomeCell([leg.assetId], leg.value)}
               </div>
             </div>
             {/* Per wallet, not per ticker: tax character attaches to the wallet,
@@ -561,6 +608,9 @@ export default function PositionsTab({
               </span>
             )}
           </div>
+          <div className="text-right tabular-nums">
+            {renderIncomeCell(position.legs.map((l) => l.assetId), position.value)}
+          </div>
           <div className="text-right tabular-nums text-muted-foreground">
             {position.weight === null ? DASH : formatPercent(position.weight)}
           </div>
@@ -613,7 +663,7 @@ export default function PositionsTab({
       </div>
 
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
-        <div className="min-w-[860px]">
+        <div className="min-w-[1000px]">
           <div className="flex items-center gap-2 px-3 pt-3 pb-2">
             <p className="text-sm font-semibold text-foreground">{t('assets.posRanking')}</p>
             {activeFilterLabel && (
@@ -637,6 +687,7 @@ export default function PositionsTab({
             <div className="text-right">{t('assets.posColCostBasis')}</div>
             <div className="text-right">{t('assets.posColValue')}</div>
             <div className="text-right">{t('assets.posColGain')}</div>
+            <div className="text-right">{t('assets.posColIncome')}</div>
             <div className="text-right">{t('assets.posColWeight')}</div>
             <div />
           </div>

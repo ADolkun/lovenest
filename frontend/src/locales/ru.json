@@ -1296,6 +1296,17 @@
     "posColValue": "Рыночная стоимость",
     "posColGain": "Нереализованная прибыль",
     "posColWeight": "Вес",
+    "posColIncome": "Доход (12 мес.)",
+    "incomeIrregular": "нерегулярно",
+    "incomeCadence": {
+      "daily": "ежедневно",
+      "weekly": "еженедельно",
+      "biweekly": "раз в две недели",
+      "monthly": "ежемесячно",
+      "quarterly": "ежеквартально",
+      "semiannual": "раз в полгода",
+      "annual": "ежегодно"
+    },
     "posColAccount": "Счёт",
     "posAccountUnknown": "Без счёта",
     "posInvestedTotal": "Вложено",

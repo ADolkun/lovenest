@@ -47,6 +47,7 @@ from jose import jwt
 from app.agents.services.crypto import decrypt, encrypt
 from app.core.config import get_settings
 from app.providers.base import (
+    INCOME_AT_RECEIPT_NOTE,
     AccountData,
     BankProvider,
     ConnectionData,
@@ -200,7 +201,7 @@ def _trade_notes(tx_type: str, tx_class: str) -> Optional[str]:
     says everything the type does.
     """
     if tx_class == TX_INCOME:
-        return f"Coinbase {tx_type} — income at receipt"
+        return f"Coinbase {tx_type} — {INCOME_AT_RECEIPT_NOTE}"
     if tx_type in ("buy", "sell", "advanced_trade_fill"):
         return None
     return f"Coinbase {tx_type}"

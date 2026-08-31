@@ -1386,6 +1386,17 @@
     "posColValue": "Wartość rynkowa",
     "posColGain": "Zysk niezrealizowany",
     "posColWeight": "Udział",
+    "posColIncome": "Dochód (12 mies.)",
+    "incomeIrregular": "nieregularny",
+    "incomeCadence": {
+      "daily": "codziennie",
+      "weekly": "co tydzień",
+      "biweekly": "co dwa tygodnie",
+      "monthly": "co miesiąc",
+      "quarterly": "co kwartał",
+      "semiannual": "co pół roku",
+      "annual": "co rok"
+    },
     "posColAccount": "Konto",
     "posAccountUnknown": "Nieprzypisane",
     "posInvestedTotal": "Zainwestowane",

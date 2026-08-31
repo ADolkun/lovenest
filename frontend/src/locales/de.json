@@ -1288,6 +1288,17 @@
     "posColValue": "Marktwert",
     "posColGain": "Buchgewinn",
     "posColWeight": "Gewichtung",
+    "posColIncome": "Erträge (12 M.)",
+    "incomeIrregular": "unregelmäßig",
+    "incomeCadence": {
+      "daily": "täglich",
+      "weekly": "wöchentlich",
+      "biweekly": "zweiwöchentlich",
+      "monthly": "monatlich",
+      "quarterly": "vierteljährlich",
+      "semiannual": "halbjährlich",
+      "annual": "jährlich"
+    },
     "posColAccount": "Konto",
     "posAccountUnknown": "Nicht zugeordnet",
     "posInvestedTotal": "Investiert",

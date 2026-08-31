@@ -1288,6 +1288,17 @@
     "posColValue": "Valeur de marché",
     "posColGain": "Plus-value latente",
     "posColWeight": "Poids",
+    "posColIncome": "Revenus (12 m)",
+    "incomeIrregular": "irrégulier",
+    "incomeCadence": {
+      "daily": "quotidien",
+      "weekly": "hebdomadaire",
+      "biweekly": "bimensuel",
+      "monthly": "mensuel",
+      "quarterly": "trimestriel",
+      "semiannual": "semestriel",
+      "annual": "annuel"
+    },
     "posColAccount": "Compte",
     "posAccountUnknown": "Non attribué",
     "posInvestedTotal": "Investi",

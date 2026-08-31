@@ -47,6 +47,7 @@ import type {
   ContributionSummary,
   AssetImportPreview,
   AssetImportResult,
+  AssetIncome,
   AssetOrderImport,
   AssetTransaction,
   AssetValue,
@@ -1165,6 +1166,12 @@ export const assets = {
   // Transaction ledger (issue #235)
   transactions: async (id: string): Promise<AssetTransaction[]> => {
     const { data } = await api.get(`/assets/${id}/transactions`)
+    return data
+  },
+  // Income at Receipt per holding, whole workspace in one call — the Positions
+  // tab needs a figure per row and a per-asset route would be one request each.
+  income: async (months = 12): Promise<Record<string, AssetIncome>> => {
+    const { data } = await api.get('/assets/income', { params: { months } })
     return data
   },
   // Tax Lots and holding period, derived from the ledger (issue #65)
