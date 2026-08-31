@@ -19,7 +19,7 @@ CASH_EQUIVALENT_TYPE = "cash_equivalent"
 CASH_EQUIVALENT_TICKERS = frozenset(
     {
         # Fidelity
-        "SPAXX", "FDRXX", "FZFXX", "SPRXX", "FDLXX", "FZDXX",
+        "SPAXX", "FDRXX", "FZFXX", "SPRXX", "SPCXX", "FDLXX", "FZDXX",
         # Vanguard
         "VMFXX", "VMRXX", "VUSXX", "VMSXX",
         # Schwab
