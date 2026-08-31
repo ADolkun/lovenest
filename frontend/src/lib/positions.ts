@@ -12,6 +12,10 @@ export const DUST_THRESHOLD = 1
 
 export const UNKNOWN_ACCOUNT_TYPE = 'unknown'
 
+// Allocation keys off the wallet id, so a wallet-less holding needs a key of
+// its own. Wallet ids are UUIDs, so this cannot collide with a real one.
+export const NO_WALLET_KEY = 'none'
+
 /** One Holding — a ticker in a single Wallet, i.e. a single account. */
 export interface PositionLeg {
   assetId: string
@@ -55,6 +59,25 @@ export interface AllocationSlice {
   weight: number
 }
 
+/** Which allocation a slice came from, and so what narrowing to it means. */
+export type AllocationDim = 'class' | 'accountType' | 'wallet'
+
+export interface AllocationFilter {
+  dim: AllocationDim
+  key: string
+}
+
+/**
+ * Settled uninvested cash in one Wallet. Kept per wallet, not just summed, so
+ * a view narrowed to one slice can carry the cash of the wallets that slice
+ * covers and no others.
+ */
+export interface WalletCash {
+  walletId: string
+  accountType: string | null
+  amount: number
+}
+
 export interface Portfolio {
   /** Ranked by value, every position — read `isDust` to drop them from a ranking. */
   positions: Position[]
@@ -63,11 +86,14 @@ export interface Portfolio {
   /** The weight denominator: excludes dust, cash equivalents and liquid cash. */
   investedTotal: number
   cashEquivalentTotal: number
-  /** Settled uninvested cash across every wallet whose account reported a balance. */
+  /** Settled uninvested cash, per wallet whose account reported a balance. */
+  liquidCash: WalletCash[]
   liquidCashTotal: number
   dustTotal: number
   byAssetClass: AllocationSlice[]
   byAccountType: AllocationSlice[]
+  /** Keyed by wallet id, or `NO_WALLET_KEY` for holdings in no wallet. */
+  byWallet: AllocationSlice[]
 }
 
 /**
@@ -169,6 +195,66 @@ function allocate(totals: Map<string, number>, denominator: number): AllocationS
 }
 
 /**
+ * The figures a position derives from its legs. Shared so that consolidating a
+ * ticker and narrowing it to one account compute them the same way.
+ */
+function aggregateLegs(legs: PositionLeg[]) {
+  const value = legs.reduce((sum, leg) => sum + leg.value, 0)
+  const quantity = roundQuantity(legs.reduce((sum, leg) => sum + leg.quantity, 0))
+  // A position's basis is only meaningful when every account reported one —
+  // summing the known half would overstate the gain by the unknown half.
+  const costBasis = legs.every((leg) => leg.costBasis !== null)
+    ? legs.reduce((sum, leg) => sum + (leg.costBasis ?? 0), 0)
+    : null
+  const gain = costBasis === null ? null : value - costBasis
+  return {
+    quantity,
+    value,
+    costBasis,
+    averageCost: costBasis !== null && quantity > 0 ? costBasis / quantity : null,
+    gain,
+    gainPct: costBasis !== null && costBasis > 0 && gain !== null ? gain / costBasis : null,
+  }
+}
+
+type PortfolioTotals = Pick<
+  Portfolio,
+  'total' | 'investedTotal' | 'cashEquivalentTotal' | 'liquidCashTotal' | 'dustTotal'
+>
+
+/**
+ * The totals a set of positions and its cash add up to, writing each
+ * position's `weight` as a side effect — the weight denominator is one of the
+ * totals, so it cannot be computed before them.
+ */
+function summarise(positions: Position[], liquidCash: WalletCash[]): PortfolioTotals {
+  const investedTotal = positions
+    .filter((p) => !p.isDust && !p.isCashEquivalent)
+    .reduce((sum, p) => sum + p.value, 0)
+  for (const position of positions) {
+    position.weight =
+      position.isDust || position.isCashEquivalent
+        ? null
+        : investedTotal > 0
+          ? position.value / investedTotal
+          : 0
+  }
+  const liquidCashTotal = liquidCash.reduce((sum, cash) => sum + cash.amount, 0)
+  return {
+    // Liquid Cash is part of the account's total but part of no Holding
+    // (CONTEXT.md), so the grand total has to carry it or the rows above it
+    // will not add up to it.
+    total: positions.reduce((sum, p) => sum + p.value, 0) + liquidCashTotal,
+    investedTotal,
+    cashEquivalentTotal: positions
+      .filter((p) => p.isCashEquivalent && !p.isDust)
+      .reduce((sum, p) => sum + p.value, 0),
+    liquidCashTotal,
+    dustTotal: positions.filter((p) => p.isDust).reduce((sum, p) => sum + p.value, 0),
+  }
+}
+
+/**
  * Consolidate holdings into one position per ticker, with each position broken
  * down per account, plus the allocation and weight figures derived from them.
  *
@@ -182,9 +268,11 @@ function allocate(totals: Map<string, number>, denominator: number): AllocationS
 export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfolio {
   const walletsById = new Map(wallets.map((w) => [w.id, w]))
   const byTicker = new Map<string, Asset[]>()
+  const occupiedWallets = new Set<string>()
 
   for (const asset of assets) {
     if (asset.is_archived || asset.sell_date) continue
+    if (asset.group_id) occupiedWallets.add(asset.group_id)
     const ticker = asset.ticker?.trim().toUpperCase()
     if (!ticker) continue
     const group = byTicker.get(ticker)
@@ -212,13 +300,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
       }
     })
 
-    const value = legs.reduce((sum, leg) => sum + leg.value, 0)
-    const quantity = roundQuantity(legs.reduce((sum, leg) => sum + leg.quantity, 0))
-    // A position's basis is only meaningful when every account reported one —
-    // summing the known half would overstate the gain by the unknown half.
-    const basisKnown = legs.every((leg) => leg.costBasis !== null)
-    const costBasis = basisKnown ? legs.reduce((sum, leg) => sum + (leg.costBasis ?? 0), 0) : null
-    const gain = costBasis === null ? null : value - costBasis
+    const aggregate = aggregateLegs(legs)
     // The heaviest leg names the position: the same ticker classified two ways
     // in two accounts resolves to whichever holds more of it.
     const dominant = ranked[0]
@@ -228,57 +310,103 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
       name: dominant.name,
       logoUrl: dominant.logo_url,
       assetType: dominant.type,
-      quantity,
-      value,
-      costBasis,
-      averageCost: costBasis !== null && quantity > 0 ? costBasis / quantity : null,
-      gain,
-      gainPct: costBasis !== null && costBasis > 0 && gain !== null ? gain / costBasis : null,
+      ...aggregate,
       weight: null,
       // A holding nobody has priced yet is worth an unknown amount, not zero,
       // so it is never Dust — hiding it would be a guess dressed as a fact.
-      isDust: ranked.some(hasValue) && value < DUST_THRESHOLD,
+      isDust: ranked.some(hasValue) && aggregate.value < DUST_THRESHOLD,
       isCashEquivalent: dominant.type === CASH_EQUIVALENT_TYPE,
       legs,
     })
   }
 
-  const included = positions.filter((p) => !p.isDust && !p.isCashEquivalent)
-  const investedTotal = included.reduce((sum, p) => sum + p.value, 0)
-  for (const position of included) {
-    position.weight = investedTotal > 0 ? position.value / investedTotal : 0
+  const liquidCash: WalletCash[] = [...liquidCashPerWallet(assets, wallets)].map(
+    ([walletId, amount]) => ({
+      walletId,
+      accountType: walletsById.get(walletId)?.account_type ?? null,
+      amount,
+    }),
+  )
+  for (const cash of liquidCash) {
+    if (cash.amount > 0) occupiedWallets.add(cash.walletId)
   }
+
+  const totals = summarise(positions, liquidCash)
 
   const byAssetClass = new Map<string, number>()
   const byAccountType = new Map<string, number>()
-  for (const position of included) {
+  const byWallet = new Map<string, number>()
+  for (const position of positions) {
+    if (position.isDust || position.isCashEquivalent) continue
     byAssetClass.set(position.assetType, (byAssetClass.get(position.assetType) ?? 0) + position.value)
     for (const leg of position.legs) {
-      const key = leg.accountType ?? UNKNOWN_ACCOUNT_TYPE
-      byAccountType.set(key, (byAccountType.get(key) ?? 0) + leg.value)
+      const typeKey = leg.accountType ?? UNKNOWN_ACCOUNT_TYPE
+      byAccountType.set(typeKey, (byAccountType.get(typeKey) ?? 0) + leg.value)
+      const walletKey = leg.walletId ?? NO_WALLET_KEY
+      byWallet.set(walletKey, (byWallet.get(walletKey) ?? 0) + leg.value)
     }
   }
-
-  const cashEquivalentTotal = positions
-    .filter((p) => p.isCashEquivalent && !p.isDust)
-    .reduce((sum, p) => sum + p.value, 0)
-  const liquidCashTotal = [...liquidCashPerWallet(assets, wallets).values()].reduce(
-    (sum, amount) => sum + amount,
-    0,
-  )
-  const heldTotal = positions.reduce((sum, p) => sum + p.value, 0)
+  // A wallet holding nothing but cash has no invested value and so draws no
+  // wedge — and a wedge is what a slice is clicked on. Listing it at zero is
+  // what keeps every account reachable as a filter.
+  for (const wallet of wallets) {
+    if (!occupiedWallets.has(wallet.id)) continue
+    if (!byWallet.has(wallet.id)) byWallet.set(wallet.id, 0)
+    const typeKey = wallet.account_type ?? UNKNOWN_ACCOUNT_TYPE
+    if (!byAccountType.has(typeKey)) byAccountType.set(typeKey, 0)
+  }
 
   return {
     positions: sortByValueDesc(positions),
-    // Liquid Cash is part of the account's total but part of no Holding
-    // (CONTEXT.md), so the grand total has to carry it or the rows above it
-    // will not add up to it.
-    total: heldTotal + liquidCashTotal,
-    investedTotal,
-    cashEquivalentTotal,
-    liquidCashTotal,
-    dustTotal: positions.filter((p) => p.isDust).reduce((sum, p) => sum + p.value, 0),
-    byAssetClass: allocate(byAssetClass, investedTotal),
-    byAccountType: allocate(byAccountType, investedTotal),
+    ...totals,
+    liquidCash,
+    byAssetClass: allocate(byAssetClass, totals.investedTotal),
+    byAccountType: allocate(byAccountType, totals.investedTotal),
+    byWallet: allocate(byWallet, totals.investedTotal),
   }
+}
+
+/**
+ * The same Portfolio narrowed to one allocation slice, so the table can drill
+ * into a wedge while its subtotals still add up.
+ *
+ * Two things make the narrowed `investedTotal` equal the value of the wedge
+ * clicked, and both are why this reads the built Portfolio rather than
+ * rebuilding from a filtered asset list:
+ *
+ *   - An asset class is a property of the *consolidated* position — the same
+ *     key the wedge was bucketed under — so a class slice keeps whole
+ *     positions. A wallet and an account type are properties of a leg, so
+ *     those slices keep matching legs and re-derive the position from them.
+ *   - The Dust and Cash Equivalent verdicts are carried over, not taken again.
+ *     Both describe the whole Holding, and re-testing a position against one
+ *     account's share of it would drop rows the wedge had counted.
+ *
+ * The allocations are the unfiltered ones: the donuts keep showing the whole
+ * portfolio, or picking a second slice would mean clicking a wedge that is no
+ * longer drawn.
+ */
+export function filterPortfolio(portfolio: Portfolio, filter: AllocationFilter): Portfolio {
+  const matchesWallet = (walletId: string | null, accountType: string | null) =>
+    filter.dim === 'wallet'
+      ? (walletId ?? NO_WALLET_KEY) === filter.key
+      : (accountType ?? UNKNOWN_ACCOUNT_TYPE) === filter.key
+
+  const positions =
+    filter.dim === 'class'
+      ? portfolio.positions.filter((p) => p.assetType === filter.key).map((p) => ({ ...p }))
+      : portfolio.positions.flatMap((position) => {
+          const legs = position.legs.filter((leg) => matchesWallet(leg.walletId, leg.accountType))
+          return legs.length === 0 ? [] : [{ ...position, ...aggregateLegs(legs), legs }]
+        })
+
+  // Liquid Cash belongs to a Wallet, not to an asset class, so a class slice
+  // has none to report — carrying it over would add the whole portfolio's cash
+  // to a subtotal covering one class of the holdings.
+  const liquidCash =
+    filter.dim === 'class'
+      ? []
+      : portfolio.liquidCash.filter((cash) => matchesWallet(cash.walletId, cash.accountType))
+
+  return { ...portfolio, positions, ...summarise(positions, liquidCash), liquidCash }
 }

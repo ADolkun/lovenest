@@ -839,7 +839,7 @@ export default function AssetsPage() {
           isMarketPriced ? (
             <>
               {/* Value-evolution chart on top, then the buy/sell ledger. */}
-              <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} chartOnly />
+              <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant="chart" />
               <HoldingLedger
                 asset={asset}
                 locale={locale}
@@ -851,7 +851,7 @@ export default function AssetsPage() {
               />
             </>
           ) : (
-            <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} />
+            <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant={isProviderOwned ? 'chart-alone' : 'full'} />
           )
         )}
       </div>
@@ -2032,14 +2032,22 @@ function renderAssetTradeDot(props: {
   )
 }
 
-function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite, chartOnly = false }: {
+function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite, variant = 'full' }: {
   assetId: string; currency: string; locale: string; dateLocale: string
   purchasePrice: number | null; purchaseDate: string | null
   valuationMethod: string
   canWrite: boolean
-  // When true, render only the value-evolution chart (used above the ledger
-  // for market-priced holdings) — no manual value form / value-history list.
-  chartOnly?: boolean
+  /**
+   * How much of the panel this is:
+   *   `full`        — chart, manual value form and value history.
+   *   `chart`       — the chart alone, above the ledger that carries the rest
+   *                   of the row; silent until the series has two points.
+   *   `chart-alone` — the chart is the whole expanded row, because a provider
+   *                   restates the balance on every sync and the value list is
+   *                   then a run of rows nobody can add to or delete. An empty
+   *                   series has to say so rather than leave a blank strip.
+   */
+  variant?: 'full' | 'chart' | 'chart-alone'
 }) {
   const { t } = useTranslation()
   const { mask } = usePrivacyMode()
@@ -2053,7 +2061,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     queryFn: () => assets.values(assetId),
   })
 
-  const { data: trend } = useQuery({
+  const { data: trend, isLoading: trendLoading } = useQuery({
     queryKey: ['asset-trend', assetId],
     queryFn: () => assets.valueTrend(assetId),
   })
@@ -2150,12 +2158,17 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
   const chartColor = trendIsPositive ? '#10B981' : '#F43F5E'
 
   const hasChart = trendWithPurchase.length > 1
-  // In chart-only mode (market-priced holdings, paired with the ledger) there's
-  // nothing to show until the value series has at least two points.
-  if (chartOnly && !hasChart) return null
+  const chartIsAll = variant !== 'full'
+  if (variant === 'chart' && !hasChart) return null
 
   return (
     <div className="border-t border-border px-5 py-5 space-y-5 bg-muted/5">
+      {chartIsAll && !hasChart && (
+        trendLoading
+          ? <Skeleton className="h-44 w-full rounded-lg" />
+          : <p className="text-xs text-muted-foreground py-3 text-center">{t('dashboard.noData')}</p>
+      )}
+
       {/* Value Trend Chart */}
       {hasChart && (
         <div>
@@ -2227,7 +2240,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       )}
 
       {/* Add Value Form — only for manual assets */}
-      {!chartOnly && valuationMethod === 'manual' && canWrite && <div className="flex items-end gap-2">
+      {!chartIsAll && valuationMethod === 'manual' && canWrite && <div className="flex items-end gap-2">
         <div className="flex-1">
           <Label className="text-[11px] text-muted-foreground">{t('assets.amount')}</Label>
           <Input
@@ -2263,8 +2276,9 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       </div>}
 
       {/* Value History */}
-      {!chartOnly && <div>
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{t('assets.valueHistory')}</p>
+      {!chartIsAll && <div>
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">{t('assets.valueHistory')}</p>
+        <p className="text-[11px] text-muted-foreground mb-2">{t('assets.valueHistoryHint')}</p>
         {valuesLoading ? (
           <Skeleton className="h-20 w-full rounded-lg" />
         ) : valuesWithPurchase.length > 0 ? (

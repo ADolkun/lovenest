@@ -27,6 +27,14 @@ def test_ordinary_and_missing_tickers_are_not_cash_equivalents():
     assert not is_cash_equivalent_ticker("")
 
 
+def test_spcxx_is_a_money_market_fund_and_spcx_is_spacex():
+    # One letter apart and both held at Fidelity: SPCXX is a money-market share
+    # class, SPCX is pre-IPO SpaceX stock. Treating the second as cash would
+    # drop a real position out of allocation entirely.
+    assert is_cash_equivalent_ticker("SPCXX")
+    assert not is_cash_equivalent_ticker("SPCX")
+
+
 def test_type_from_quote_prefers_the_ticker_over_the_quote_type():
     # yfinance reports SPAXX as a mutual fund; it is still Liquid Cash.
     assert _type_from_quote("MUTUALFUND", "SPAXX") == CASH_EQUIVALENT_TYPE
