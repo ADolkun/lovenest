@@ -2,15 +2,18 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { assets as assetsApi } from '@/lib/api'
 import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
 import { formatCurrency } from '@/lib/format'
 import {
   buildPortfolio,
+  filterPortfolio,
   shareOfTotal,
   CASH_EQUIVALENT_TYPE,
+  type AllocationDim,
+  type AllocationFilter,
   type AllocationSlice,
   type Position,
 } from '@/lib/positions'
@@ -66,7 +69,14 @@ const TOOLTIP_STYLE: React.CSSProperties = {
 
 const DASH = '—'
 
+interface Donut {
+  dim: AllocationDim
+  title: string
+  data: DonutDatum[]
+}
+
 interface DonutDatum {
+  key: string
   label: string
   value: number
   weight: number
@@ -272,34 +282,74 @@ export default function PositionsTab({
 }: PositionsTabProps) {
   const { t } = useTranslation()
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
+  const [filter, setFilter] = useState<AllocationFilter | null>(null)
 
+  const walletsById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets])
   const portfolio = useMemo(() => buildPortfolio(holdings, wallets), [holdings, wallets])
 
-  const assetClassLabel = (type: string) => t(assetTypeI18nKey(type))
+  // Rebuilding the figures from the slice rather than hiding rows is what
+  // keeps the subtotals under the table adding up to the wedge that was
+  // clicked.
+  const view = useMemo(
+    () => (filter ? filterPortfolio(portfolio, filter) : portfolio),
+    [filter, portfolio],
+  )
+
   const accountTypeLabel = (type: string | null) =>
     type && ACCOUNT_TYPE_KEYS[type] ? t(ACCOUNT_TYPE_KEYS[type]) : t('assets.posAccountUnknown')
+
+  // One label function per dimension, so the donut, its legend and the active
+  // filter chip all read the same name for a slice.
+  const labelFor: Record<AllocationDim, (key: string) => string> = {
+    class: (key) => t(assetTypeI18nKey(key)),
+    accountType: accountTypeLabel,
+    wallet: (key) => walletsById.get(key)?.name ?? t('assets.noWallet'),
+  }
 
   const money = (value: number | null) =>
     value === null ? DASH : mask(formatCurrency(value, currency, locale))
 
   const toDonutData = (slices: AllocationSlice[], label: (key: string) => string): DonutDatum[] =>
     slices.map((slice, i) => ({
+      key: slice.key,
       label: label(slice.key),
       value: slice.value,
       weight: slice.weight,
       color: SLICE_COLORS[i % SLICE_COLORS.length],
     }))
 
-  const byClassData = toDonutData(portfolio.byAssetClass, assetClassLabel)
-  const byAccountData = toDonutData(portfolio.byAccountType, accountTypeLabel)
+  const donuts: Donut[] = [
+    {
+      dim: 'class',
+      title: t('assets.posAllocationByClass'),
+      data: toDonutData(portfolio.byAssetClass, labelFor.class),
+    },
+    {
+      dim: 'wallet',
+      title: t('assets.posAllocationByAccount'),
+      data: toDonutData(portfolio.byWallet, labelFor.wallet),
+    },
+    {
+      dim: 'accountType',
+      title: t('assets.posAllocationByAccountType'),
+      data: toDonutData(portfolio.byAccountType, labelFor.accountType),
+    },
+  ]
+
+  const activeFilterLabel = filter ? labelFor[filter.dim](filter.key) : null
+
+  const toggleFilter = (dim: AllocationDim, key: string) => {
+    setExpandedTicker(null)
+    setFilter((current) => (current?.dim === dim && current.key === key ? null : { dim, key }))
+  }
 
   // The ranking answers "where is my concentration risk", so what allocation
   // leaves out stays out here too — a 49k money-market row heading a table
   // ranked by a weight it has none of reads as the biggest position there is.
-  const rankedPositions = portfolio.positions.filter((p) => !p.isDust && !p.isCashEquivalent)
+  const rankedPositions = view.positions.filter((p) => !p.isDust && !p.isCashEquivalent)
   // Still listed, just under their own heading — this is the only place the
   // user can see what was classified as cash and put it back.
-  const cashEquivalents = portfolio.positions.filter((p) => p.isCashEquivalent && !p.isDust)
+  const cashEquivalents = view.positions.filter((p) => p.isCashEquivalent && !p.isDust)
 
   if (portfolio.positions.length === 0) {
     return (
@@ -309,7 +359,9 @@ export default function PositionsTab({
     )
   }
 
-  function renderDonut(title: string, data: DonutDatum[]) {
+  function renderDonut({ dim, title, data }: Donut) {
+    const selectedKey = filter?.dim === dim ? filter.key : null
+    const dimmed = (key: string) => selectedKey !== null && selectedKey !== key
     return (
       <div className="rounded-xl border border-border bg-card shadow-sm p-4">
         <p className="text-sm font-semibold text-foreground mb-2">{title}</p>
@@ -332,7 +384,13 @@ export default function PositionsTab({
                     strokeWidth={0}
                   >
                     {data.map((entry, idx) => (
-                      <Cell key={idx} fill={entry.color} />
+                      <Cell
+                        key={idx}
+                        fill={entry.color}
+                        fillOpacity={dimmed(entry.key) ? 0.25 : 1}
+                        className="cursor-pointer focus:outline-none"
+                        onClick={() => toggleFilter(dim, entry.key)}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
@@ -362,12 +420,23 @@ export default function PositionsTab({
             </div>
             <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-3">
               {data.map((d, i) => (
-                <div key={`${i}-${d.label}`} className="flex items-center gap-1.5">
+                <button
+                  key={`${i}-${d.key}`}
+                  onClick={() => toggleFilter(dim, d.key)}
+                  aria-pressed={selectedKey === d.key}
+                  className={`flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-muted/40 transition-colors ${
+                    dimmed(d.key) ? 'opacity-40' : ''
+                  }`}
+                >
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                  <span
+                    className={`text-[11px] whitespace-nowrap ${
+                      selectedKey === d.key ? 'font-semibold text-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
                     {d.label} · {formatPercent(d.weight)}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -537,14 +606,27 @@ export default function PositionsTab({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {renderDonut(t('assets.posAllocationByClass'), byClassData)}
-        {renderDonut(t('assets.posAllocationByAccountType'), byAccountData)}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {donuts.map((donut) => (
+          <div key={donut.dim}>{renderDonut(donut)}</div>
+        ))}
       </div>
 
       <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
         <div className="min-w-[860px]">
-          <p className="text-sm font-semibold text-foreground px-3 pt-3 pb-2">{t('assets.posRanking')}</p>
+          <div className="flex items-center gap-2 px-3 pt-3 pb-2">
+            <p className="text-sm font-semibold text-foreground">{t('assets.posRanking')}</p>
+            {activeFilterLabel && (
+              <button
+                onClick={() => setFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {activeFilterLabel}
+                <X size={11} />
+                <span className="sr-only">{t('assets.posFilterClear')}</span>
+              </button>
+            )}
+          </div>
           <div
             className="grid items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
             style={{ gridTemplateColumns: POSITIONS_GRID }}
@@ -558,6 +640,11 @@ export default function PositionsTab({
             <div className="text-right">{t('assets.posColWeight')}</div>
             <div />
           </div>
+          {rankedPositions.length === 0 && cashEquivalents.length === 0 && (
+            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+              {t(filter ? 'assets.posNoFilteredPositions' : 'assets.posNoPositions')}
+            </p>
+          )}
           {rankedPositions.map(renderPositionRow)}
           {cashEquivalents.length > 0 && (
             <>
@@ -576,24 +663,24 @@ export default function PositionsTab({
       </div>
 
       <div className="rounded-xl border border-border bg-card shadow-sm py-1">
-        {renderTotalRow(t('assets.posInvestedTotal'), portfolio.investedTotal)}
-        {portfolio.cashEquivalentTotal > 0 &&
+        {renderTotalRow(t('assets.posInvestedTotal'), view.investedTotal)}
+        {view.cashEquivalentTotal > 0 &&
           renderTotalRow(
             t('assets.posCashEquivalents'),
-            portfolio.cashEquivalentTotal,
+            view.cashEquivalentTotal,
             t('assets.posCashEquivalentHint'),
-            shareOfTotal(portfolio.cashEquivalentTotal, portfolio.total),
+            shareOfTotal(view.cashEquivalentTotal, view.total),
           )}
-        {portfolio.liquidCashTotal > 0 &&
+        {view.liquidCashTotal > 0 &&
           renderTotalRow(
             t('assets.posLiquidCash'),
-            portfolio.liquidCashTotal,
+            view.liquidCashTotal,
             t('assets.posLiquidCashHint'),
-            shareOfTotal(portfolio.liquidCashTotal, portfolio.total),
+            shareOfTotal(view.liquidCashTotal, view.total),
           )}
-        {portfolio.dustTotal > 0 &&
-          renderTotalRow(t('assets.posDust'), portfolio.dustTotal, t('assets.posDustHint'))}
-        {renderTotalRow(t('assets.posGrandTotal'), portfolio.total, undefined, undefined, true)}
+        {view.dustTotal > 0 &&
+          renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
+        {renderTotalRow(t('assets.posGrandTotal'), view.total, undefined, undefined, true)}
       </div>
     </div>
   )

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildPortfolio, shareOfTotal, CASH_EQUIVALENT_TYPE, UNKNOWN_ACCOUNT_TYPE } from './positions'
+import {
+  buildPortfolio,
+  filterPortfolio,
+  shareOfTotal,
+  CASH_EQUIVALENT_TYPE,
+  NO_WALLET_KEY,
+  UNKNOWN_ACCOUNT_TYPE,
+} from './positions'
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
 
 let seq = 0
@@ -281,6 +288,25 @@ describe('weight and allocation', () => {
     ])
   })
 
+  it('allocates by individual wallet, and keys wallet-less holdings apart', () => {
+    const { byWallet } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', type: 'stock', value: 300, groupId: 'w2' }),
+        holding({ ticker: 'BTC', type: 'crypto', value: 100, groupId: null }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'investment')],
+    )
+
+    // Two wallets of the same account type stay apart here — that is the whole
+    // point of the per-account view over the per-type one.
+    expect(byWallet).toEqual([
+      { key: 'w1', value: 600, weight: 0.6 },
+      { key: 'w2', value: 300, weight: 0.3 },
+      { key: NO_WALLET_KEY, value: 100, weight: 0.1 },
+    ])
+  })
+
   it('splits one ticker held in two account types across both buckets', () => {
     const { byAccountType, byAssetClass } = buildPortfolio(
       [
@@ -454,5 +480,124 @@ describe('shareOfTotal', () => {
 
   it('gives no share of an empty portfolio rather than NaN', () => {
     expect(shareOfTotal(0, 0)).toBe(0)
+  })
+})
+
+describe('narrowing to one allocation slice', () => {
+  it('makes the invested total equal the wedge that was clicked, per dimension', () => {
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', type: 'stock', value: 300, groupId: 'w2' }),
+        holding({ ticker: 'BTC', type: 'crypto', value: 100, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'savings')],
+    )
+
+    for (const [dim, slices] of [
+      ['class', portfolio.byAssetClass],
+      ['accountType', portfolio.byAccountType],
+      ['wallet', portfolio.byWallet],
+    ] as const) {
+      for (const slice of slices) {
+        expect(filterPortfolio(portfolio, { dim, key: slice.key }).investedTotal).toBe(slice.value)
+      }
+    }
+  })
+
+  it('keeps a class wedge whole when its legs are classified differently', () => {
+    // The same ticker marked etf in the bigger account and stock in the
+    // smaller: the wedge is bucketed under the heavier leg, so the whole
+    // position has to come back or the subtotal is short by the other leg.
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 700, groupId: 'w1' }),
+        holding({ ticker: 'VOO', type: 'stock', value: 300, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'investment')],
+    )
+
+    expect(portfolio.byAssetClass).toEqual([{ key: 'etf', value: 1000, weight: 1 }])
+    const view = filterPortfolio(portfolio, { dim: 'class', key: 'etf' })
+    expect(view.investedTotal).toBe(1000)
+    expect(view.positions[0].legs).toHaveLength(2)
+  })
+
+  it('keeps the wallet of every leg readable when narrowed to a class', () => {
+    const portfolio = buildPortfolio(
+      [holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' })],
+      [wallet('w1', 'investment', 'roth')],
+    )
+
+    const [leg] = filterPortfolio(portfolio, { dim: 'class', key: 'etf' }).positions[0].legs
+    expect(leg.walletName).toBe('Wallet w1')
+    expect(leg.accountType).toBe('investment')
+    expect(leg.taxTreatment).toBe('roth')
+  })
+
+  it('carries the Dust verdict over rather than taking it again per account', () => {
+    // Ten cents in one account, ninety-five in the other: neither leg clears a
+    // dollar on its own, but the position does and the wedge counted it.
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'PENNY', value: 0.95, groupId: 'w1' }),
+        holding({ ticker: 'PENNY', value: 0.1, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'investment')],
+    )
+
+    expect(portfolio.positions[0].isDust).toBe(false)
+    const view = filterPortfolio(portfolio, { dim: 'wallet', key: 'w2' })
+    expect(view.positions[0].isDust).toBe(false)
+    expect(view.investedTotal).toBe(0.1)
+  })
+
+  it('carries only the cash of the wallets the slice covers', () => {
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', type: 'stock', value: 300, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment', 'taxable', 900), wallet('w2', 'savings', 'taxable', 500)],
+    )
+
+    expect(portfolio.liquidCashTotal).toBe(500)
+    expect(filterPortfolio(portfolio, { dim: 'wallet', key: 'w1' }).liquidCashTotal).toBe(300)
+    expect(filterPortfolio(portfolio, { dim: 'accountType', key: 'savings' }).liquidCashTotal).toBe(200)
+    // An asset class has no cash of its own, so a class slice reports none.
+    expect(filterPortfolio(portfolio, { dim: 'class', key: 'etf' }).liquidCashTotal).toBe(0)
+  })
+
+  it('lists a wallet holding nothing but cash, so it can still be clicked', () => {
+    const { byWallet, byAccountType } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'SPAXX', type: CASH_EQUIVALENT_TYPE, value: 400, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'savings')],
+    )
+
+    expect(byWallet).toEqual([
+      { key: 'w1', value: 600, weight: 1 },
+      { key: 'w2', value: 0, weight: 0 },
+    ])
+    expect(byAccountType).toEqual([
+      { key: 'investment', value: 600, weight: 1 },
+      { key: 'savings', value: 0, weight: 0 },
+    ])
+  })
+
+  it('leaves the donuts on the whole portfolio while the table is narrowed', () => {
+    const portfolio = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', type: 'etf', value: 600, groupId: 'w1' }),
+        holding({ ticker: 'AAPL', type: 'stock', value: 400, groupId: 'w2' }),
+      ],
+      [wallet('w1', 'investment'), wallet('w2', 'investment')],
+    )
+
+    const view = filterPortfolio(portfolio, { dim: 'wallet', key: 'w1' })
+    expect(view.byWallet).toEqual(portfolio.byWallet)
+    expect(view.byAssetClass).toEqual(portfolio.byAssetClass)
   })
 })
