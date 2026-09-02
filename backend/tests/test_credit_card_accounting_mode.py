@@ -1996,3 +1996,30 @@ class TestBillTotalIgnoresReportingExclusions:
 
         assert summary is not None
         assert summary["monthly_expenses"] == 100.0
+
+    @pytest.mark.asyncio
+    async def test_exclude_from_pnl_purchase_stays_on_the_bill(
+        self, session, test_user, test_workspace, cc_account
+    ):
+        """`exclude_from_pnl` says "do not report this as spending", not
+        "the bank did not bill me". Its canonical use — a work expense on a
+        personal card, reimbursed later — is a card case, so the bill total
+        has to stay whole or the card's own numbers split apart."""
+        await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 4, 3), Decimal("100"), tx_type="debit",
+        )
+        reimbursed = await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 4, 8), Decimal("200"), tx_type="debit",
+        )
+        reimbursed.exclude_from_pnl = True
+        await session.commit()
+
+        summary = await account_service.get_account_summary(
+            session, cc_account.id, test_workspace.id,
+            date_from=date(2026, 4, 1), date_to=date(2026, 4, 30),
+        )
+
+        assert summary is not None
+        assert summary["monthly_expenses"] == 300.0

@@ -127,6 +127,8 @@ def counts_as_pnl():
         movements like investment applications where the counterpart is
         an Asset/Holding, not another Account),
       - transactions flagged `is_ignored=True` (user-marked as not to be reported),
+      - transactions flagged `exclude_from_pnl=True` (kept in balance,
+        omitted from income and expense calculations),
       - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported).
 
     Does NOT exclude `source='opening_balance'` — callers that already
@@ -136,6 +138,7 @@ def counts_as_pnl():
     return and_(
         Transaction.transfer_pair_id.is_(None),
         Transaction.is_ignored.is_(False),
+        Transaction.exclude_from_pnl.is_(False),
         # Settlement *debits* are repayments of debts that were already
         # booked as an expense via the share. Counting them would
         # double-count. Settlement *credits*, however, represent the
@@ -178,6 +181,12 @@ def counts_on_bill():
       - `treat_as_transfer` categories. Buying an investment with the
         card still lands on the statement; the category says how to
         report the purchase, not whether the bank billed for it.
+      - rows flagged `exclude_from_pnl`. Its canonical use is a work
+        expense paid on a personal card and reimbursed later — and the
+        bank bills the whole card either way.
+
+    The rule both share: a bill honors "make this disappear" and
+    ignores "report this differently".
 
     Deliberately spelled out rather than defined as "`counts_as_pnl`
     minus a clause": a filter for what a *report* excludes will keep
