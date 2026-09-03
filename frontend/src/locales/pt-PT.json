@@ -1277,6 +1277,13 @@
     "columnMappingHint": "Associa as colunas do teu CSV aos campos do Securo. Deixa em automático para manter a coluna detectada.",
     "columnAutoDetect": "Detectar automaticamente",
     "mappingNeeded": "Não reconhecemos as colunas do teu CSV automaticamente. Associa-as aos campos do Securo abaixo para continuar.",
+    "failedRowsWarning": "{{count}} linha(s) neste ficheiro não puderam ser analisadas e foram ignoradas.",
+    "viewDetails": "Ver detalhes",
+    "failedRowsTitle": "Linhas CSV não analisadas",
+    "failedRowsDesc": "As seguintes linhas no ficheiro CSV foram ignoradas porque o formato de data ou valor não pôde ser reconhecido.",
+    "lineNumber": "Linha",
+    "rawValue": "Valor",
+    "errorReason": "Motivo",
     "mapDate": "Coluna de data",
     "mapDescription": "Coluna de descrição",
     "mapAmount": "Coluna de valor",
@@ -1334,7 +1341,13 @@
     "balanceImpact": "Impacto no saldo",
     "importedWithExcluded": "{{imported}} importadas, {{skipped}} ignoradas, {{excluded}} excluídas",
     "suggested": "Sugerida",
-    "page": "Página {{current}} de {{total}}"
+    "page": "Página {{current}} de {{total}}",
+    "description": "Descrição",
+    "errors": {
+      "invalid_date": "Formato de data inválido",
+      "no_amount": "Nenhum valor de entrada ou saída",
+      "invalid_amount": "Formato de valor inválido"
+    }
   },
   "assetImport": {
     "title": "Importar ordens de investimento",

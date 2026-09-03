@@ -1360,6 +1360,13 @@
     "columnMappingHint": "Priraď stĺpce svojho CSV k poliam Securo. Nechaj automatické rozpoznanie, ak chceš zachovať rozpoznaný stĺpec.",
     "columnAutoDetect": "Rozpoznať automaticky",
     "mappingNeeded": "Stĺpce tvojho CSV sa nepodarilo rozpoznať automaticky. Pokračuj tak, že ich nižšie priradíš k poliam Securo.",
+    "failedRowsWarning": "{{count}} riadok(ov) v tomto súbore sa nepodarilo spracovať a boli preskočené.",
+    "viewDetails": "Zobraziť podrobnosti",
+    "failedRowsTitle": "Nespracované riadky CSV",
+    "failedRowsDesc": "Nasledujúce riadky v súbore CSV boli preskočené, pretože sa nepodarilo rozpoznať formát dátumu alebo sumy.",
+    "lineNumber": "Riadok",
+    "rawValue": "Hodnota",
+    "errorReason": "Dôvod",
     "mapDate": "Stĺpec dátumu",
     "mapDescription": "Stĺpec popisu",
     "mapAmount": "Stĺpec sumy",
@@ -1441,7 +1448,13 @@
     "page": "Strana {{current}} z {{total}}",
     "mapPayee": "Stĺpec príjemcu",
     "mapExternalId": "Stĺpec ID transakcie",
-    "mapNotes": "Stĺpec poznámky"
+    "mapNotes": "Stĺpec poznámky",
+    "description": "Popis",
+    "errors": {
+      "invalid_date": "Neplatný formát dátumu",
+      "no_amount": "Chýba suma príjmu alebo výdaja",
+      "invalid_amount": "Neplatný formát sumy"
+    }
   },
   "assetImport": {
     "title": "Import investičných pokynov",

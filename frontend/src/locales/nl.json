@@ -951,7 +951,8 @@
         "description": "Amerikaanse en internationale banken via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank heeft opnieuw verbinding gemaakt"
+    "reconnected": "Bank heeft opnieuw verbinding gemaakt",
+    "multiInstitutionLink": "{{provider}} · {{count}} institutions"
   },
   "connections": {
     "settings": "Verbindingsinstellingen",
@@ -1334,7 +1335,20 @@
     "page": "Pagina {{current}} van {{total}}",
     "mapPayee": "Kolom begunstigde",
     "mapExternalId": "Kolom Transactie-ID",
-    "mapNotes": "Kolom Opmerkingen"
+    "mapNotes": "Kolom Opmerkingen",
+    "failedRowsWarning": "{{count}} row(s) in this file could not be parsed and were skipped.",
+    "viewDetails": "View details",
+    "failedRowsTitle": "Unparsed CSV Rows",
+    "failedRowsDesc": "The following rows in the CSV file were skipped because their date or amount format could not be recognized.",
+    "lineNumber": "Line",
+    "rawValue": "Value",
+    "errorReason": "Reason",
+    "description": "Omschrijving",
+    "errors": {
+      "invalid_date": "Ongeldige datumformaat",
+      "no_amount": "Geen in- of uitstroombedrag",
+      "invalid_amount": "Ongeldig bedragformaat"
+    }
   },
   "assetImport": {
     "title": "Investeringsorders importeren",

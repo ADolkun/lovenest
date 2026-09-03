@@ -1277,6 +1277,13 @@
     "columnMappingHint": "Asigna las columnas de tu CSV a los campos de Securo. Deja la detección automática para conservar la columna detectada.",
     "columnAutoDetect": "Detección automática",
     "mappingNeeded": "No pudimos reconocer automáticamente las columnas de tu CSV. Asigna las columnas a los campos de Securo abajo para continuar.",
+    "failedRowsWarning": "{{count}} fila(s) en este archivo no se pudieron analizar y fueron omitidas.",
+    "viewDetails": "Ver detalles",
+    "failedRowsTitle": "Filas de CSV no analizadas",
+    "failedRowsDesc": "Las siguientes filas en el archivo CSV se omitieron porque no se pudo reconocer su formato de fecha o monto.",
+    "lineNumber": "Línea",
+    "rawValue": "Valor",
+    "errorReason": "Razón",
     "mapDate": "Columna de fecha",
     "mapDescription": "Columna de descripción",
     "mapAmount": "Columna de importe",
@@ -1334,7 +1341,13 @@
     "page": "Página {{current}} de {{total}}",
     "mapPayee": "Columna de beneficiario",
     "mapExternalId": "Columna de ID de transacción",
-    "mapNotes": "Columna de notas"
+    "mapNotes": "Columna de notas",
+    "description": "Descripción",
+    "errors": {
+      "invalid_date": "Formato de fecha no válido",
+      "no_amount": "Sin importe de entrada o salida",
+      "invalid_amount": "Formato de importe no válido"
+    }
   },
   "assetImport": {
     "title": "Importar órdenes de inversión",

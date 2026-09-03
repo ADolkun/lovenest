@@ -1276,6 +1276,13 @@
     "columnMappingHint": "Map your CSV columns to Securo fields. Leave on auto-detect to keep the detected column.",
     "columnAutoDetect": "Auto-detect",
     "mappingNeeded": "We couldn't recognize your CSV columns automatically. Map them to Securo fields below to continue.",
+    "failedRowsWarning": "{{count}} row(s) in this file could not be parsed and were skipped.",
+    "viewDetails": "View details",
+    "failedRowsTitle": "Unparsed CSV Rows",
+    "failedRowsDesc": "The following rows in the CSV file were skipped because their date or amount format could not be recognized.",
+    "lineNumber": "Line",
+    "rawValue": "Value",
+    "errorReason": "Reason",
     "mapDate": "Date column",
     "mapDescription": "Description column",
     "mapAmount": "Amount column",
@@ -1333,7 +1340,13 @@
     "page": "Page {{current}} of {{total}}",
     "mapPayee": "Payee column",
     "mapExternalId": "Transaction ID column",
-    "mapNotes": "Notes column"
+    "mapNotes": "Notes column",
+    "description": "Description",
+    "errors": {
+      "invalid_date": "Invalid Date Format",
+      "no_amount": "No Inflow or Outflow Amount",
+      "invalid_amount": "Invalid Amount Format"
+    }
   },
   "assetImport": {
     "title": "Import investment orders",
