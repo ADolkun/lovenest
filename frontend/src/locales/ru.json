@@ -1114,6 +1114,13 @@
     "confirmDeleteDescription": "Определение регулярной транзакции «{{description}}» будет удалено навсегда. Существующие транзакции останутся, но потеряют связь с регулярной транзакцией. Это действие нельзя отменить."
   },
   "rules": {
+    "searchPlaceholder": "Поиск правил...",
+    "filterAllCategories": "Все категории",
+    "filterAllStatuses": "Все статусы",
+    "filterActiveOnly": "Только активные",
+    "filterInactiveOnly": "Только неактивные",
+    "filterAllActions": "Все действия",
+    "noFilterResults": "Ни одно правило не соответствует этим фильтрам",
     "preview": "Предпросмотр",
     "previewMatched": "совпадений: {{matched}}",
     "previewSummary": "подходящих транзакций: {{matched}} · изменится: {{changed}}",

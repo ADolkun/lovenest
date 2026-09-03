@@ -1159,6 +1159,13 @@
     "confirmDeleteDescription": "Definicja transakcji cyklicznej „{{description}}” zostanie trwale usunięta. Istniejące transakcje pozostaną, ale utracą powiązanie z transakcją cykliczną. Tej operacji nie można cofnąć."
   },
   "rules": {
+    "searchPlaceholder": "Szukaj reguł...",
+    "filterAllCategories": "Wszystkie kategorie",
+    "filterAllStatuses": "Wszystkie statusy",
+    "filterActiveOnly": "Tylko aktywne",
+    "filterInactiveOnly": "Tylko nieaktywne",
+    "filterAllActions": "Wszystkie akcje",
+    "noFilterResults": "Żadna reguła nie pasuje do tych filtrów",
     "preview": "Podgląd",
     "previewMatched": "dopasowania: {{matched}}",
     "previewSummary": "pasujące transakcje: {{matched}} · zmieniłoby się: {{changed}}",

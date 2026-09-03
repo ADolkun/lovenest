@@ -1105,6 +1105,13 @@
     "confirmDeleteDescription": "The recurring definition \"{{description}}\" will be permanently deleted. Existing transactions will remain but lose their recurring link. This action cannot be undone."
   },
   "rules": {
+    "searchPlaceholder": "Search rules...",
+    "filterAllCategories": "All categories",
+    "filterAllStatuses": "All statuses",
+    "filterActiveOnly": "Active only",
+    "filterInactiveOnly": "Inactive only",
+    "filterAllActions": "All actions",
+    "noFilterResults": "No rule matches these filters",
     "preview": "Preview",
     "previewMatched": "{{matched}} matches",
     "previewSummary": "{{matched}} matching transactions · {{changed}} would change",

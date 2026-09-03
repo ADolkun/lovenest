@@ -1114,6 +1114,13 @@
     "confirmDeleteDescription": "Визначення регулярної транзакції «{{description}}» буде видалено назавжди. Наявні транзакції залишаться, але втратять зв’язок із регулярною транзакцією. Цю дію не можна скасувати."
   },
   "rules": {
+    "searchPlaceholder": "Пошук правил...",
+    "filterAllCategories": "Усі категорії",
+    "filterAllStatuses": "Усі статуси",
+    "filterActiveOnly": "Лише активні",
+    "filterInactiveOnly": "Лише неактивні",
+    "filterAllActions": "Усі дії",
+    "noFilterResults": "Жодне правило не відповідає цим фільтрам",
     "preview": "Попередній перегляд",
     "previewMatched": "збігів: {{matched}}",
     "previewSummary": "відповідних транзакцій: {{matched}} · зміниться: {{changed}}",

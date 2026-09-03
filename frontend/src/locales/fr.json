@@ -1106,6 +1106,13 @@
     "confirmDeleteDescription": "La définition récurrente « {{description}} » sera définitivement supprimée. Les transactions existantes resteront, mais perdront leur lien récurrent. Cette action est irréversible."
   },
   "rules": {
+    "searchPlaceholder": "Rechercher des règles...",
+    "filterAllCategories": "Toutes les catégories",
+    "filterAllStatuses": "Tous les statuts",
+    "filterActiveOnly": "Actives uniquement",
+    "filterInactiveOnly": "Inactives uniquement",
+    "filterAllActions": "Toutes les actions",
+    "noFilterResults": "Aucune règle ne correspond à ces filtres",
     "preview": "Aperçu",
     "previewMatched": "{{matched}} correspondances",
     "previewSummary": "{{matched}} transactions correspondent · {{changed}} seraient modifiées",

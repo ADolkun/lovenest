@@ -1106,6 +1106,13 @@
     "confirmDeleteDescription": "A definição recorrente \"{{description}}\" será excluída permanentemente. As transações existentes permanecerão, mas perderão o vínculo recorrente. Esta ação não pode ser desfeita."
   },
   "rules": {
+    "searchPlaceholder": "Buscar regras...",
+    "filterAllCategories": "Todas as categorias",
+    "filterAllStatuses": "Todos os status",
+    "filterActiveOnly": "Somente ativas",
+    "filterInactiveOnly": "Somente inativas",
+    "filterAllActions": "Todas as ações",
+    "noFilterResults": "Nenhuma regra corresponde a estes filtros",
     "preview": "Pré-visualizar",
     "previewMatched": "{{matched}} correspondências",
     "previewSummary": "{{matched}} transações correspondem · {{changed}} seriam alteradas",

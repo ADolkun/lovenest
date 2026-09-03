@@ -1177,6 +1177,13 @@
     "confirmDeleteDescription": "Opakovaná definícia „{{description}}“ bude natrvalo vymazaná. Existujúce transakcie zostanú, ale stratia prepojenie na opakovanie. Túto akciu nie je možné vrátiť späť."
   },
   "rules": {
+    "searchPlaceholder": "Hľadať pravidlá...",
+    "filterAllCategories": "Všetky kategórie",
+    "filterAllStatuses": "Všetky stavy",
+    "filterActiveOnly": "Iba aktívne",
+    "filterInactiveOnly": "Iba neaktívne",
+    "filterAllActions": "Všetky akcie",
+    "noFilterResults": "Žiadne pravidlo nezodpovedá týmto filtrom",
     "preview": "Náhľad",
     "previewMatched": "Zhody: {{matched}}",
     "previewSummary": "Zhodných transakcií: {{matched}} · zmenilo by sa: {{changed}}",

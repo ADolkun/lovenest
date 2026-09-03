@@ -1106,6 +1106,13 @@
     "confirmDeleteDescription": "Die wiederkehrende Transaktion \"{{description}}\" wird dauerhaft gelöscht. Vorhandene Transaktionen bleiben bestehen, verlieren jedoch ihre Verknüpfung zur wiederkehrenden Transaktion. Diese Aktion kann nicht rückgängig gemacht werden."
   },
   "rules": {
+    "searchPlaceholder": "Regeln suchen...",
+    "filterAllCategories": "Alle Kategorien",
+    "filterAllStatuses": "Alle Status",
+    "filterActiveOnly": "Nur aktive",
+    "filterInactiveOnly": "Nur inaktive",
+    "filterAllActions": "Alle Aktionen",
+    "noFilterResults": "Keine Regel entspricht diesen Filtern",
     "preview": "Vorschau",
     "previewMatched": "{{matched}} Treffer",
     "previewSummary": "{{matched}} passende Transaktionen · {{changed}} würden geändert",

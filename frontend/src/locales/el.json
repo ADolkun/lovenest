@@ -1105,6 +1105,13 @@
     "confirmDeleteDescription": "Ο ορισμός της επαναλαμβανόμενης συναλλαγής \"{{description}}\" θα διαγραφεί οριστικά. Οι υπάρχουσες συναλλαγές θα παραμείνουν αλλά θα χάσουν τη σύνδεσή τους. Αυτή η ενέργεια δεν μπορεί να αναιρεθεί."
   },
   "rules": {
+    "searchPlaceholder": "Αναζήτηση κανόνων...",
+    "filterAllCategories": "Όλες οι κατηγορίες",
+    "filterAllStatuses": "Όλες οι καταστάσεις",
+    "filterActiveOnly": "Μόνο ενεργοί",
+    "filterInactiveOnly": "Μόνο ανενεργοί",
+    "filterAllActions": "Όλες οι ενέργειες",
+    "noFilterResults": "Κανένας κανόνας δεν ταιριάζει με αυτά τα φίλτρα",
     "preview": "Προεπισκόπηση",
     "previewMatched": "{{matched}} αντιστοιχίσεις",
     "previewSummary": "{{matched}} αντίστοιχες συναλλαγές · {{changed}} θα άλλαζαν",
