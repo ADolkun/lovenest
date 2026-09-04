@@ -63,6 +63,8 @@ const CURRENCY_LOCALE: Record<string, string> = {
   NZD: 'en-NZ',
   VND: 'vi-VN',
   SGD: 'en-SG',
+  AZN: 'az-AZ',
+  TRY: 'tr-TR',
 }
 
 /**
@@ -153,7 +155,15 @@ function currencyFormatter(currency: string, locale: string): Intl.NumberFormat 
       currency: currency || 'USD',
     })
   } catch {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency })
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency || 'USD',
+      })
+    } catch {
+      if (/^[A-Z0-9]{3,10}$/.test(currency)) throw new RangeError('Non-ISO currency')
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+    }
   }
 }
 
@@ -180,5 +190,75 @@ export function formatCurrency(
     // Intl rejects anything that isn't a 3-letter ISO 4217 code, and providers
     // report crypto units that aren't (USDT, MATIC).
     return `${value.toFixed(2)} ${currency}`
+  }
+}
+
+/**
+ * Separators the display locale writes numbers with, derived from Intl so
+ * they always agree with what `formatCurrency` renders.
+ */
+function localeSeparators(locale: string): { group: string; decimal: string } {
+  try {
+    const parts = new Intl.NumberFormat(locale).formatToParts(12345.6)
+    return {
+      group: parts.find((p) => p.type === 'group')?.value ?? ',',
+      decimal: parts.find((p) => p.type === 'decimal')?.value ?? '.',
+    }
+  } catch {
+    return { group: ',', decimal: '.' }
+  }
+}
+
+/**
+ * Parse an amount typed by the user under the display locale's separator
+ * convention: "1.234,56" on dot_comma, "1,234.56" on comma_dot, "1 234,56"
+ * on space_comma. The same setting that decides how amounts are *shown*
+ * (see `resolveDisplayLocale`) decides how typed input is read, so what the
+ * user sees round-trips.
+ *
+ * Group separators are stripped, the locale's decimal separator becomes the
+ * decimal point, and anything left that isn't a plain number is rejected.
+ * Returns null for empty or unparseable input — never NaN, so callers can't
+ * accidentally persist one.
+ */
+export function parseAmountInput(value: string, locale = 'en-US'): number | null {
+  const { group, decimal } = localeSeparators(locale)
+  // Spaces only ever appear as grouping — drop them up front. JS \s covers
+  // the NBSP and narrow-NBSP that Intl emits for space_comma locales.
+  let text = value.trim().replace(/\s/g, '')
+  if (!text) return null
+  let sign = 1
+  if (text.startsWith('-')) {
+    sign = -1
+    text = text.slice(1)
+  }
+  const decimalIndex = text.lastIndexOf(decimal)
+  const integerPart = (decimalIndex >= 0 ? text.slice(0, decimalIndex) : text)
+    .split(group)
+    .join('')
+  const fractionPart = decimalIndex >= 0 ? text.slice(decimalIndex + 1) : ''
+  if (!/^\d*$/.test(integerPart) || !/^\d*$/.test(fractionPart)) return null
+  if (integerPart === '' && fractionPart === '') return null
+  const parsed = Number(`${integerPart || '0'}.${fractionPart || '0'}`)
+  return Number.isFinite(parsed) ? sign * parsed : null
+}
+
+/**
+ * Render a number into an amount input using the display locale's decimal
+ * separator. No grouping: a group separator inside an editable field would
+ * read back as noise, and `parseAmountInput` never needs it.
+ */
+export function formatAmountInput(
+  value: number,
+  locale = 'en-US',
+  maximumFractionDigits = 2,
+): string {
+  try {
+    return new Intl.NumberFormat(locale, {
+      useGrouping: false,
+      maximumFractionDigits,
+    }).format(value)
+  } catch {
+    return value.toFixed(2)
   }
 }

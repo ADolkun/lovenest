@@ -66,7 +66,7 @@ async def test_sync_classifies_a_known_cash_equivalent_on_create(
     session: AsyncSession, test_user, test_workspace
 ):
     asset = await _upsert_asset_from_holding(
-        session, None, _holding("SPAXX"), test_user.id, uuid.uuid4(), "simplefin"
+        session, None, _holding("SPAXX"), test_user.id, uuid.uuid4(), "simplefin", test_workspace.id
     )
 
     assert asset.type == CASH_EQUIVALENT_TYPE
@@ -77,7 +77,7 @@ async def test_sync_leaves_an_ordinary_holding_as_an_investment(
     session: AsyncSession, test_user, test_workspace
 ):
     asset = await _upsert_asset_from_holding(
-        session, None, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin"
+        session, None, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin", test_workspace.id
     )
 
     assert asset.type == "investment"
@@ -88,12 +88,12 @@ async def test_a_later_sync_never_overwrites_the_users_classification(
     session: AsyncSession, test_user, test_workspace
 ):
     asset = await _upsert_asset_from_holding(
-        session, None, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin"
+        session, None, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin", test_workspace.id
     )
     asset.type = CASH_EQUIVALENT_TYPE
 
     resynced = await _upsert_asset_from_holding(
-        session, asset, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin"
+        session, asset, _holding("VOO"), test_user.id, uuid.uuid4(), "simplefin", test_workspace.id
     )
 
     assert resynced.type == CASH_EQUIVALENT_TYPE
@@ -106,7 +106,7 @@ async def test_sync_types_a_crypto_exchange_holding_as_crypto(
     """A crypto exchange reports nothing but crypto, and asset class is what
     decides whether the Wash Sale rule reaches a holding at all (ADR 0004)."""
     asset = await _upsert_asset_from_holding(
-        session, None, _holding("BTC"), test_user.id, uuid.uuid4(), "coinbase"
+        session, None, _holding("BTC"), test_user.id, uuid.uuid4(), "coinbase", test_workspace.id
     )
 
     assert asset.type == "crypto"
@@ -117,7 +117,7 @@ async def test_a_stablecoin_on_a_crypto_exchange_is_still_cash(
     session: AsyncSession, test_user, test_workspace
 ):
     asset = await _upsert_asset_from_holding(
-        session, None, _holding("USDC"), test_user.id, uuid.uuid4(), "coinbase"
+        session, None, _holding("USDC"), test_user.id, uuid.uuid4(), "coinbase", test_workspace.id
     )
 
     assert asset.type == CASH_EQUIVALENT_TYPE
