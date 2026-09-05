@@ -130,6 +130,7 @@ def downgrade() -> None:
            SET number = external_number::integer
          WHERE origin = 'imported'
            AND external_number ~ '^[0-9]+$'
+           AND external_number::numeric <= 2147483647
         """
     )
     op.drop_column("invoices", "external_number")

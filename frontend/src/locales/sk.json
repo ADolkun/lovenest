@@ -889,7 +889,6 @@
     "typeSavings": "Sporiaci účet",
     "typeCreditCard": "Kreditná karta",
     "typeInvestment": "Investičný účet",
-    "typeWallet": "Peňaženka",
     "creditLimit": "Kreditný limit",
     "statementCloseDay": "Deň uzávierky výpisu",
     "paymentDueDay": "Deň splatnosti",
@@ -1474,7 +1473,6 @@
     "importTo": "Importovať do",
     "nothingToImport": "Z tohto súboru už nie je čo importovať",
     "wallet": "Peňaženka",
-    "noWallet": "Bez peňaženky",
     "reading": "Načítava sa súbor…",
     "mapPrompt": "Nepodarilo sa rozpoznať, ktorý stĺpec je ktorý. Priraď každému poľu stĺpec z tvojho súboru.",
     "ignoreColumn": "Ignorovať",
@@ -1486,7 +1484,6 @@
     "summaryOrders": "Pripravených pokynov: {{count}}",
     "summaryHoldings": "Vytvorené pozície: {{created}}, spárované: {{matched}}",
     "summarySkipped": "Už importovaných: {{count}}",
-    "rowsSkipped": "Riadkov na preskočenie: {{count}}",
     "rowError": "Riadok {{row}} ({{ticker}}): {{reason}}",
     "moreErrors": "a ešte {{count}}",
     "moreRows": "a ďalších {{count}} pokynov",
@@ -1514,7 +1511,6 @@
       "invalid_date": "nečitateľný dátum",
       "invalid_quantity": "nečitateľné množstvo",
       "invalid_price": "nečitateľná cena",
-      "invalid_kind": "nerozpoznaná hodnota nákup/predaj",
       "unknown_ticker": "poskytovateľ cien ticker nenašiel",
       "oversell": "predaj väčšieho množstva, než pozícia obsahuje"
     }

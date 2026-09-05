@@ -152,9 +152,7 @@ describe('i18n locale files', () => {
   describe('no extra keys not present in en.json', () => {
     const enKeys = new Set(flattenKeys(JSON.parse(readRaw('en'))))
 
-    for (const locale of LOCALES.filter(
-      (l: string) => l !== 'en' && !LOCALES_WITH_DOWNSTREAM_FALLBACK.has(l),
-    )) {
+    for (const locale of LOCALES.filter((l: string) => l !== 'en')) {
       it(locale, () => {
         const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
         // A key is valid if it exists in en directly, OR if it is a plural form

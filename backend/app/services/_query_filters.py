@@ -227,7 +227,7 @@ def counts_on_bill():
     as *spending* is a judgment the bank never made.
 
     Kept out, because they are genuinely not charges on this bill:
-      - paired transfers (the bill *payment* is not a purchase),
+      - valid paired transfers (the bill *payment* is not a purchase),
       - settlement debits (a repayment of a share already booked),
       - rows the user flagged `is_ignored`, on the transaction or its
         category — those leave the account balance too, so dropping them
@@ -251,7 +251,7 @@ def counts_on_bill():
     somebody chose for the bill.
     """
     return and_(
-        Transaction.transfer_pair_id.is_(None),
+        not_(has_valid_transfer_pair()),
         Transaction.is_ignored.is_(False),
         ~and_(Transaction.source == "settlement", Transaction.type == "debit"),
         or_(

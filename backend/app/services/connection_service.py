@@ -675,6 +675,23 @@ async def _sync_holdings(
         seen.add(holding.external_id)
         existing = existing_by_external.get(holding.external_id)
 
+        # A non-null connection owns the row until it is disconnected (the
+        # FK then SET NULLs it). Provider ids are not guaranteed unique across
+        # two live connections, so letting the latest sync adopt the row would
+        # make its owner and connection flap while its wallet stays put.
+        if (
+            existing is not None
+            and existing.connection_id is not None
+            and existing.connection_id != connection.id
+        ):
+            logger.warning(
+                "Skipping asset %s already owned by connection %s while syncing %s",
+                existing.id,
+                existing.connection_id,
+                connection.id,
+            )
+            continue
+
         # Provider-reported closure (Pluggy TOTAL_WITHDRAWAL). Two cases:
         #   - New + withdrawn: skip entirely. A dead zero-balance asset
         #     with no history is noise; the user never saw this position

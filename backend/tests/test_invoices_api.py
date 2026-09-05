@@ -10,7 +10,7 @@ Two things these tests exist to pin down, beyond the usual CRUD:
      UI does, computed from allocations and the due date.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -21,6 +21,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.payee import Payee
 from app.models.transaction import Transaction
+
+
+_TEST_TODAY = date(2026, 8, 15)
+
+
+class _FrozenDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        value = cls(2026, 8, 15, 12, tzinfo=timezone.utc)
+        return value.replace(tzinfo=None) if tz is None else value.astimezone(tz)
+
+
+@pytest.fixture(autouse=True)
+def _freeze_invoice_clock(monkeypatch):
+    from app.services import invoice_service
+
+    monkeypatch.setattr(invoice_service, "datetime", _FrozenDateTime)
 
 
 @pytest_asyncio.fixture
@@ -101,7 +118,7 @@ async def inflow(session: AsyncSession, business_ws, test_user) -> Transaction:
         description="PIX RECEBIDO ALPHA",
         amount=Decimal("3000.00"),
         currency="USD",
-        date=date.today(),
+        date=_TEST_TODAY,
         type="credit",
         source="manual",
     )
@@ -111,7 +128,7 @@ async def inflow(session: AsyncSession, business_ws, test_user) -> Transaction:
 
 
 async def _create(client, headers, **overrides):
-    payload = {"total": "3000.00", "due_date": str(date.today() + timedelta(days=15))}
+    payload = {"total": "3000.00", "due_date": str(_TEST_TODAY + timedelta(days=15))}
     payload.update(overrides)
     resp = await client.post("/api/invoices", headers=headers, json=payload)
     assert resp.status_code == 201, resp.text
@@ -343,8 +360,8 @@ async def test_overdue_needs_no_job(client: AsyncClient, biz_headers):
     invoice = await _create(
         client,
         biz_headers,
-        issue_date=str(date.today() - timedelta(days=40)),
-        due_date=str(date.today() - timedelta(days=10)),
+        issue_date=str(_TEST_TODAY - timedelta(days=40)),
+        due_date=str(_TEST_TODAY - timedelta(days=10)),
     )
     resp = await client.get(f"/api/invoices/{invoice['id']}", headers=biz_headers)
     assert resp.json()["state"] == "overdue"
@@ -360,14 +377,14 @@ async def test_moving_the_due_date_undoes_overdue_with_no_compensating_write(
     invoice = await _create(
         client,
         biz_headers,
-        issue_date=str(date.today() - timedelta(days=40)),
-        due_date=str(date.today() - timedelta(days=10)),
+        issue_date=str(_TEST_TODAY - timedelta(days=40)),
+        due_date=str(_TEST_TODAY - timedelta(days=10)),
         lines=[{"description": "Retainer", "quantity": "1", "unit_price": "500.00"}],
     )
     moved = await client.patch(
         f"/api/invoices/{invoice['id']}",
         headers=biz_headers,
-        json={"due_date": str(date.today() + timedelta(days=10))},
+        json={"due_date": str(_TEST_TODAY + timedelta(days=10))},
     )
     assert moved.status_code == 200, moved.text
     assert moved.json()["state"] == "draft"
@@ -450,7 +467,7 @@ async def test_transaction_from_another_workspace_is_not_found(
     foreign = Transaction(
         id=uuid.uuid4(), user_id=test_user.id, workspace_id=personal_ws.id,
         account_id=account.id, description="pessoal", amount=Decimal("50.00"),
-        currency="USD", date=date.today(), type="credit", source="manual",
+        currency="USD", date=_TEST_TODAY, type="credit", source="manual",
     )
     session.add(foreign)
     await session.commit()
@@ -491,10 +508,10 @@ async def test_summary_buckets_and_excludes_drafts(client: AsyncClient, biz_head
     )
     await client.patch("/api/invoices/settings", headers=biz_headers, json={"preset": "tracking"})
     await _create(client, biz_headers, total="200.00",
-                  due_date=str(date.today() + timedelta(days=5)))
+                  due_date=str(_TEST_TODAY + timedelta(days=5)))
     await _create(client, biz_headers, total="300.00",
-                  issue_date=str(date.today() - timedelta(days=60)),
-                  due_date=str(date.today() - timedelta(days=45)))
+                  issue_date=str(_TEST_TODAY - timedelta(days=60)),
+                  due_date=str(_TEST_TODAY - timedelta(days=45)))
 
     summary = (await client.get("/api/invoices/summary", headers=biz_headers)).json()
     assert summary["outstanding"] == "500.00", "the 999 draft must not appear"
@@ -558,7 +575,7 @@ async def test_competence_date_defaults_to_issue_but_can_diverge(
     plain = await _create(client, biz_headers)
     assert plain["competence_date"] == plain["issue_date"]
 
-    delivered = str(date.today() - timedelta(days=35))
+    delivered = str(_TEST_TODAY - timedelta(days=35))
     split = await _create(client, biz_headers, competence_date=delivered)
     assert split["competence_date"] == delivered
     assert split["issue_date"] != delivered
@@ -571,7 +588,7 @@ async def test_due_date_defaults_to_payment_terms(client: AsyncClient, biz_heade
     )
     resp = await client.post("/api/invoices", headers=biz_headers, json={"total": "10.00"})
     assert resp.status_code == 201, resp.text
-    assert resp.json()["due_date"] == str(date.today() + timedelta(days=7))
+    assert resp.json()["due_date"] == str(_TEST_TODAY + timedelta(days=7))
 
 
 @pytest.mark.asyncio
@@ -712,8 +729,8 @@ async def test_facets_count_every_state_the_bar_offers(
     )
     await _create(
         client, biz_headers, total="200.00",
-        issue_date=str(date.today() - timedelta(days=40)),
-        due_date=str(date.today() - timedelta(days=10)),
+        issue_date=str(_TEST_TODAY - timedelta(days=40)),
+        due_date=str(_TEST_TODAY - timedelta(days=10)),
     )  # overdue
 
     facets = (await client.get("/api/invoices/facets", headers=biz_headers)).json()
@@ -955,7 +972,7 @@ async def test_a_personal_workspace_never_pays_for_the_badge(
         Transaction(
             id=uuid.uuid4(), user_id=test_user.id, workspace_id=personal_ws.id,
             account_id=account.id, description="mercado", amount=Decimal("-50.00"),
-            currency="USD", date=date.today(), type="debit", source="manual",
+            currency="USD", date=_TEST_TODAY, type="debit", source="manual",
         )
     )
     await session.commit()
@@ -1336,7 +1353,7 @@ async def test_a_discount_bigger_than_the_bill_is_refused_not_a_500(
         headers=biz_headers,
         json={
             "as_draft": True,
-            "due_date": str(date.today() + timedelta(days=10)),
+            "due_date": str(_TEST_TODAY + timedelta(days=10)),
             "discount": "500.00",
             "lines": [{"description": "Item", "quantity": "1", "unit_price": "100.00"}],
         },

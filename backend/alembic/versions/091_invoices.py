@@ -27,11 +27,10 @@ that fills any of it comes from the jurisdiction packs, never from DDL.
 Downgrade drops all four tables. Safe by construction: nothing outside
 them references them.
 
-Numbering note: renumbered once already. This chains off `076`
-(`payee_workspace_uniqueness`), which landed on `main` while this branch
-was open. Any migration that lands before this one merges will need the
-same two-line change plus a rename — nothing references the revision id
-but the chain itself, which is why the CI check for it exists.
+Numbering note: this chains off `090` (`asset_external_id_workspace`).
+Any migration that lands before this one merges will need the same
+two-line change plus a rename — nothing references the revision id but
+the chain itself, which is why the CI check for it exists.
 """
 from typing import Sequence, Union
 

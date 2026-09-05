@@ -423,6 +423,9 @@ async def test_sync_holdings_does_not_adopt_another_connections_wallet(
     assert other_group.user_id == other_member.id
     assert other_group.connection_id == other.id
     assert existing.group_id == other_group.id
+    assert existing.user_id == other_member.id
+    assert existing.connection_id == other.id
+    assert existing.name == "Existing holding"
 
 
 @pytest.mark.asyncio
