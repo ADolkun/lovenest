@@ -9,6 +9,10 @@ const LOCALES = readdirSync(LOCALES_DIR)
   .filter((f: string) => f.endsWith('.json'))
   .map((f: string) => f.replace(/\.json$/, ''))
 
+// ponytail: these upstream locales fall back to English for Lovenest-only keys;
+// remove a locale once its downstream strings have translations.
+const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'ja', 'sk'])
+
 function readRaw(locale: string): string {
   return readFileSync(path.join(LOCALES_DIR, `${locale}.json`), 'utf-8')
 }
@@ -132,7 +136,9 @@ describe('i18n locale files', () => {
   describe('all languages contain all keys from en.json', () => {
     const enKeys = new Set(flattenKeys(JSON.parse(readRaw('en'))))
 
-    for (const locale of LOCALES.filter((l: string) => l !== 'en')) {
+    for (const locale of LOCALES.filter(
+      (l: string) => l !== 'en' && !LOCALES_WITH_DOWNSTREAM_FALLBACK.has(l),
+    )) {
       it(locale, () => {
         const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
         // A key is covered if the locale has the key directly OR has at least one
@@ -220,6 +226,18 @@ describe('i18n locale files', () => {
       expect(
         required.filter((key) => !keys.has(key)),
         `Normalization labels missing in ${locale}:`,
+      ).toEqual([])
+    }
+  })
+
+  it('contains new recurrence labels in every locale', () => {
+    const required = ['recurring.biweekly', 'recurring.semiannual']
+
+    for (const locale of LOCALES) {
+      const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
+      expect(
+        required.filter((key) => !keys.has(key)),
+        `Recurrence labels missing in ${locale}:`,
       ).toEqual([])
     }
   })

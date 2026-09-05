@@ -131,7 +131,7 @@ jobs:
           echo "Packaging chart version $VERSION"
           helm package charts/securo --version "$VERSION" --app-version "$VERSION"
 
-          helm push securo-$VERSION.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          helm push "securo-$VERSION.tgz" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
       - name: Set up ORAS
         uses: oras-project/setup-oras@v1

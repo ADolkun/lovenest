@@ -162,6 +162,10 @@ npm run build                  # type-check + production build (must succeed)
 npm test                       # Vitest (must pass)
 ```
 
+Vitest and Testing Library tests should render through `renderWithProviders`
+from `@/test/utils`, which wires up TanStack Query, the router, and i18n.
+Assert on user-visible behavior.
+
 ### Adding a frontend dependency
 
 `frontend/.npmrc` disables package install scripts and skips releases younger than seven days.

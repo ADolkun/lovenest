@@ -811,6 +811,24 @@ async def test_get_account_summary_excludes_transfers(session: AsyncSession, tes
 
 
 @pytest.mark.asyncio
+async def test_credit_card_summary_counts_orphaned_transfer_link(
+    session: AsyncSession, test_user, test_workspace,
+):
+    account = await _make_account(
+        session, test_user.id, "Card with orphaned pair", acc_type="credit_card"
+    )
+    await _add_txn(
+        session, test_user.id, account.id, 42, "debit", date.today(),
+        transfer_pair_id=uuid.uuid4(),
+    )
+
+    summary = await get_account_summary(session, account.id, test_workspace.id)
+
+    assert summary is not None
+    assert summary["monthly_expenses"] == pytest.approx(42.0)
+
+
+@pytest.mark.asyncio
 async def test_get_account_summary_not_found(session: AsyncSession, test_user, test_workspace):
     """Summary for nonexistent account returns None."""
     result = await get_account_summary(session, uuid.uuid4(), test_workspace.id)
@@ -877,7 +895,13 @@ async def test_get_account_summary_opening_balance_connected_excludes_period_pen
     month_start = today.replace(day=1)
     prev_month = (month_start - timedelta(days=1)).replace(day=1)
     await _add_txn(session, test_user.id, account.id, 500, "credit", prev_month + timedelta(days=5))
-    await _add_txn(session, test_user.id, account.id, 300, "credit", month_start + timedelta(days=2))
+    await _add_txn(
+        session, test_user.id, account.id, 300, "credit",
+        # Clamped like the pending row below: on the 1st of the month this
+        # would otherwise land in the future, fall outside the period the
+        # summary backs out, and leave the provider snapshot counting it.
+        min(month_start + timedelta(days=2), today),
+    )
     pending_day = min(month_start + timedelta(days=4), today)
     await _add_txn(session, test_user.id, account.id, 20, "debit", pending_day, status="pending")
 
@@ -910,7 +934,13 @@ async def test_get_account_summary_connected_keeps_recurring_pending_in_the_walk
     month_start = today.replace(day=1)
     prev_month = (month_start - timedelta(days=1)).replace(day=1)
     await _add_txn(session, test_user.id, account.id, 500, "credit", prev_month + timedelta(days=5))
-    await _add_txn(session, test_user.id, account.id, 300, "credit", month_start + timedelta(days=2))
+    await _add_txn(
+        session, test_user.id, account.id, 300, "credit",
+        # Clamped like the pending row below: on the 1st of the month this
+        # would otherwise land in the future, fall outside the period the
+        # summary backs out, and leave the provider snapshot counting it.
+        min(month_start + timedelta(days=2), today),
+    )
     await _add_txn(
         session, test_user.id, account.id, 20, "debit",
         min(month_start + timedelta(days=4), today),
@@ -944,7 +974,13 @@ async def test_get_account_summary_connected_excludes_future_rows_from_opening_b
     month_start = today.replace(day=1)
     prev_month = (month_start - timedelta(days=1)).replace(day=1)
     await _add_txn(session, test_user.id, account.id, 500, "credit", prev_month + timedelta(days=5))
-    await _add_txn(session, test_user.id, account.id, 300, "credit", month_start + timedelta(days=2))
+    await _add_txn(
+        session, test_user.id, account.id, 300, "credit",
+        # Clamped like the pending row below: on the 1st of the month this
+        # would otherwise land in the future, fall outside the period the
+        # summary backs out, and leave the provider snapshot counting it.
+        min(month_start + timedelta(days=2), today),
+    )
     await _add_txn(
         session, test_user.id, account.id, 20, "debit",
         min(month_start + timedelta(days=4), today), status="pending",

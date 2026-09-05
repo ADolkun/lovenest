@@ -18,19 +18,14 @@ if TYPE_CHECKING:
 class Asset(Base):
     __tablename__ = "assets"
     __table_args__ = (
-        # Mirrors migration 088. Declared here so the SQLite test database
-        # enforces it too — the user-scoped index it replaces lived only in the
-        # migration, so a cross-workspace duplicate passed every test and
-        # failed on Postgres.
         Index(
             "ux_assets_workspace_source_external",
             "workspace_id",
-            "user_id",
             "source",
             "external_id",
             unique=True,
-            sqlite_where=text("external_id IS NOT NULL"),
             postgresql_where=text("external_id IS NOT NULL"),
+            sqlite_where=text("external_id IS NOT NULL"),
         ),
     )
 
