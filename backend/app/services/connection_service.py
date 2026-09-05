@@ -1777,8 +1777,8 @@ def _sync_duplicate_description_match(a: str | None, b: str | None) -> bool:
         len(left_tokens) == len(right_tokens)
         and len(left_tokens) > 1
         and left_tokens[:-1] == right_tokens[:-1]
-        and left_tokens[-1].isdigit()
-        and right_tokens[-1].isdigit()
+        and left_tokens[-1].removeprefix("#").isdigit()
+        and right_tokens[-1].removeprefix("#").isdigit()
     ):
         return True
     shorter, longer = sorted((left, right), key=len)

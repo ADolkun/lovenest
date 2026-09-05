@@ -2926,10 +2926,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     ])
     pending = TransactionData(
         external_id="provider-pending",
-        description="SQ *CASSEL EARTH, INC",
-        amount=Decimal("13.00"), date=date(2026, 8, 20),
+        description="CARRABBAS #7307",
+        amount=Decimal("38.56"), date=date(2026, 8, 31),
         type="debit", currency="USD", status="pending",
-        raw_data={"posted": 0, "transacted_at": 1787228524},
+        raw_data={"posted": 0, "transacted_at": 1788211641},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending])
 
@@ -2944,10 +2944,10 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # scheduled row immediately).
     posted = TransactionData(
         external_id="provider-posted",
-        description="SQ *CASSEL EARTH, INC (CO",
-        amount=Decimal("14.95"), date=date(2026, 8, 21),
+        description="CARRABBAS 7307",
+        amount=Decimal("45.00"), date=date(2026, 9, 2),
         type="debit", currency="USD", status="posted",
-        raw_data={"posted": 1787309722, "transacted_at": 1787228524},
+        raw_data={"posted": 1788346753, "transacted_at": 1788211641},
     )
     mock_provider.get_transactions = AsyncMock(return_value=[pending, posted])
 
@@ -2968,9 +2968,9 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     # so subsequent syncs match by id.
     assert rows[0].status == "posted"
     assert rows[0].external_id == "provider-posted"
-    assert rows[0].amount == Decimal("14.95")
-    assert rows[0].date == date(2026, 8, 21)
-    assert rows[0].effective_date == date(2026, 8, 21)
+    assert rows[0].amount == Decimal("45.00")
+    assert rows[0].date == date(2026, 9, 2)
+    assert rows[0].effective_date == date(2026, 9, 2)
     assert rows[0].raw_data == posted.raw_data
 
     # A stale pending row may remain in later provider responses. Posted truth
@@ -2990,7 +2990,7 @@ async def test_sync_upgrades_pending_to_posted_when_twin_arrives(
     )).scalars().all()
     assert len(rows) == 1
     assert rows[0].external_id == "provider-posted"
-    assert rows[0].amount == Decimal("14.95")
+    assert rows[0].amount == Decimal("45.00")
 
 
 @pytest.mark.asyncio
