@@ -127,7 +127,8 @@
     "groupAdmin": "Administratie",
     "groupAgents": "AI",
     "agents": "Agents",
-    "aiAgents": "AI-agents"
+    "aiAgents": "AI-agents",
+    "trace": "Geldstroom volgen"
   },
   "invoices": {
     "title": "Invoices",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Maak opnieuw verbinding met een nieuw token",
       "reconnectDescription": "Plak een nieuw installatietoken om deze verbinding te vernieuwen. Bestaande rekeningen, transacties, categorieën en regels blijven behouden.",
-      "reconnect": "Maak opnieuw verbinding"
+      "reconnect": "Maak opnieuw verbinding",
+      "onchain": {
+        "title": "Een cryptowallet volgen",
+        "description": "Voeg een of meer openbare walletadressen toe. Securo leest hun saldi en geschiedenis; het kan nooit iets verplaatsen.",
+        "tokenLabel": "Walletadressen",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# een commentaarregel wordt genegeerd",
+        "tokenHelp": "Eén adres per regel. Zet de chain met een dubbele punt ervoor — bitcoin:, solana:, ethereum:, base:, polygon: — wanneer het adres alleen dubbelzinnig is, en begin een regel met # om een notitie achter te laten. Plak alleen openbare adressen: deze koppeling is alleen-lezen en Securo vraagt nooit om een privésleutel of seed phrase.",
+        "connect": "Adressen volgen"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "Amerikaanse en internationale banken via SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Alleen-lezen Bitcoin, Solana- en EVM-wallets, op openbaar adres"
       }
     },
     "reconnected": "Bank heeft opnieuw verbinding gemaakt",
@@ -1691,6 +1703,7 @@
     "emptyWallet": "Er zijn nog geen activa in deze portemonnee",
     "itemsCount": "artikelen",
     "moveToWallet": "Ga naar portemonnee",
+    "traceOnChain": "On-chain traceren",
     "moved": "Activa verplaatst",
     "noWallet": "Geen portemonnee",
     "noWalletsHint": "Maak eerst een portemonnee aan met de knop ‘Nieuwe portemonnee’",
@@ -2457,5 +2470,53 @@
         "subtitle": "Voeg een verbinding toe om Securo te richten op uw lokale Ollama, OpenAI, Anthropic of een ander OpenAI-compatibel endpoint."
       }
     }
+  },
+  "trace": {
+    "section": "Rekeningen",
+    "title": "Geldstroom volgen",
+    "intro": "Volg de beweging van de native munt vanaf een openbaar adres, stap voor stap. Het adres hoeft niet van u te zijn.",
+    "quickPick": "Beginnen bij een gevolgd adres",
+    "chain": "Chain",
+    "chainPlaceholder": "Kies een chain",
+    "chainNotTraceable": "volgen niet beschikbaar",
+    "chainNotTraceableHelp": "Een grijze chain heeft op deze server geen bron voor overdrachtsgeschiedenis. Stel een Etherscan-API-sleutel in om EVM-chains te volgen.",
+    "address": "Adres",
+    "addressPlaceholder": "Openbaar walletadres",
+    "direction": "Richting",
+    "directionOut": "Waar het geld heen ging",
+    "directionIn": "Waar het geld vandaan kwam",
+    "minAmount": "Minimumbedrag",
+    "minAmountPlaceholder": "Negeer overdrachten hieronder",
+    "maxHops": "Maximum aantal stappen",
+    "maxHopsHelp": "Hoe ver het spoor gevolgd wordt.",
+    "maxBranches": "Vertakkingen per stap",
+    "maxBranchesHelp": "Hoeveel overdrachten per adres gevolgd worden, grootste eerst.",
+    "submit": "Volgen",
+    "tracing": "Bezig met volgen…",
+    "failed": "Het volgen kon niet worden voltooid",
+    "idle": "Kies een chain en een adres om te beginnen.",
+    "empty": "Met deze filters is er niets van dit adres af gegaan.",
+    "rootLabel": "Vanaf",
+    "origin": "Startadres",
+    "hop": "Stap {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "saldo {{amount}} {{symbol}}",
+    "copyAddress": "Adres kopiëren",
+    "copyFailed": "Kopiëren naar klembord mislukt",
+    "truncated": "De zoektocht bereikte haar budget voordat het spoor ophield. U ziet het begin van het pad, niet het geheel — verlaag de vertakkingen per stap of het aantal stappen om één lijn verder te volgen.",
+    "terminal": {
+      "max_hops": "Einde van het spoor: hier is de stappenlimiet bereikt.",
+      "pooled": "Het geld is bij een exchange of dienst aangekomen.",
+      "unpageable": "Het spoor breekt hier af: dit adres heeft te veel nieuwere activiteit om terug te bladeren naar de betreffende overdrachten.",
+      "budget": "Einde van het spoor: het budget was op voordat dit adres bereikt werd.",
+      "no_movement": "Het geld staat hier stil — er is niets van dit adres af gegaan.",
+      "no_match": "Hier voldeed niets aan uw filters — van dit adres is wél geld af gegaan.",
+      "partial": "Het spoor kan doorlopen: dit adres had meer activiteit dan kon worden onderzocht.",
+      "unavailable": "Het spoor breekt hier af: dit adres kon niet gelezen worden."
+    },
+    "terminalDetail": {
+      "pooled": "Op dit adres wordt geld van veel partijen samengevoegd, dus de volgende stap zou de interne boekhouding van de beheerder zijn en geen betaling. Hier eindigt een zoektocht en begint een melding bij de beheerder."
+    },
+    "chainsUnavailable": "De lijst met chains kon niet worden geladen. Mogelijk staat on-chain-ondersteuning uit op de server."
   }
 }

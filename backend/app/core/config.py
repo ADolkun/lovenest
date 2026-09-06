@@ -51,6 +51,17 @@ class Settings(BaseSettings):
     coinbase_enabled: bool = False
     coinbase_api_url: str = "https://api.coinbase.com"
 
+    # Watch-only on-chain wallets (paste-an-address flow). Off by default.
+    onchain_enabled: bool = False
+    # Per-chain JSON-RPC overrides, e.g. {"solana": "https://your-node"}. The
+    # public defaults rate-limit hard, and a trace is dozens of requests, so a
+    # deployment that uses this seriously wants its own endpoints.
+    onchain_rpc_urls: dict[str, str] = {}
+    # Etherscan V2 key — one key covers Ethereum, Base and Polygon. Only
+    # tracing needs it: EVM JSON-RPC serves balances but has no call that
+    # lists an address's transactions.
+    etherscan_api_key: str = ""
+
     # Frontend
     frontend_url: str = "http://localhost:5173"
 

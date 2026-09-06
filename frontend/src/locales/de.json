@@ -127,7 +127,8 @@
     "groupAdmin": "Administration",
     "groupAgents": "KI",
     "agents": "Agenten",
-    "aiAgents": "KI-Agenten"
+    "aiAgents": "KI-Agenten",
+    "trace": "Mittel verfolgen"
   },
   "invoices": {
     "title": "Invoices",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Mit einem neuen Token erneut verbinden",
       "reconnectDescription": "Füge ein neues Setup-Token ein, um diese Verbindung direkt zu aktualisieren. Bestehende Konten, Transaktionen, Kategorien und Regeln bleiben erhalten.",
-      "reconnect": "Erneut verbinden"
+      "reconnect": "Erneut verbinden",
+      "onchain": {
+        "title": "Krypto-Wallet beobachten",
+        "description": "Fügen Sie eine oder mehrere öffentliche Wallet-Adressen hinzu. Securo liest deren Guthaben und Verlauf; bewegen kann es niemals etwas.",
+        "tokenLabel": "Wallet-Adressen",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# eine Kommentarzeile wird ignoriert",
+        "tokenHelp": "Eine Adresse pro Zeile. Stellen Sie einer Zeile die Chain mit Doppelpunkt voran — bitcoin:, solana:, ethereum:, base:, polygon: — wenn die Adresse allein mehrdeutig ist, und beginnen Sie eine Zeile mit #, um eine Notiz zu hinterlassen. Fügen Sie nur öffentliche Adressen ein: diese Verbindung ist rein beobachtend, und Securo fragt niemals nach einem privaten Schlüssel oder einer Seed-Phrase.",
+        "connect": "Adressen beobachten"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "US-amerikanische und internationale Banken via SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Reine Beobachtung von Bitcoin, Solana- und EVM-Wallets über die öffentliche Adresse"
       }
     },
     "reconnected": "Bank erfolgreich erneut verbunden"
@@ -1690,6 +1702,7 @@
     "emptyWallet": "Noch keine Vermögenswerte in diesem Portfolio",
     "itemsCount": "Elemente",
     "moveToWallet": "In Portfolio verschieben",
+    "traceOnChain": "On-Chain verfolgen",
     "moved": "Vermögenswert verschoben",
     "noWallet": "Kein Portfolio",
     "noWalletsHint": "Erstelle zuerst ein Portfolio über die Schaltfläche 'Neues Portfolio'",
@@ -2456,5 +2469,53 @@
         "subtitle": "Füge eine Verbindung hinzu, um Securo auf dein lokales Ollama, OpenAI, Anthropic oder einen OpenAI-kompatiblen Endpunkt zu verweisen."
       }
     }
+  },
+  "trace": {
+    "section": "Konten",
+    "title": "Mittel verfolgen",
+    "intro": "Verfolgen Sie die Bewegung der nativen Coins von einer öffentlichen Adresse aus, Schritt für Schritt. Die Adresse muss nicht Ihnen gehören.",
+    "quickPick": "Mit einer beobachteten Adresse beginnen",
+    "chain": "Chain",
+    "chainPlaceholder": "Chain wählen",
+    "chainNotTraceable": "Verfolgung nicht verfügbar",
+    "chainNotTraceableHelp": "Eine ausgegraute Chain hat auf diesem Server keine Quelle für den Transferverlauf. Hinterlegen Sie einen Etherscan-API-Schlüssel, um EVM-Chains zu verfolgen.",
+    "address": "Adresse",
+    "addressPlaceholder": "Öffentliche Wallet-Adresse",
+    "direction": "Richtung",
+    "directionOut": "Wohin die Mittel geflossen sind",
+    "directionIn": "Woher die Mittel kamen",
+    "minAmount": "Mindestbetrag",
+    "minAmountPlaceholder": "Transfers darunter ignorieren",
+    "maxHops": "Maximale Schritte",
+    "maxHopsHelp": "Wie weit der Spur gefolgt wird.",
+    "maxBranches": "Verzweigungen pro Schritt",
+    "maxBranchesHelp": "Wie vielen Transfers pro Adresse gefolgt wird, größte zuerst.",
+    "submit": "Verfolgen",
+    "tracing": "Wird verfolgt…",
+    "failed": "Die Verfolgung konnte nicht abgeschlossen werden",
+    "idle": "Wählen Sie eine Chain und eine Adresse, um eine Verfolgung zu starten.",
+    "empty": "Mit diesen Filtern hat sich von dieser Adresse nichts bewegt.",
+    "rootLabel": "Ausgehend von",
+    "origin": "Startadresse",
+    "hop": "Schritt {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "Guthaben {{amount}} {{symbol}}",
+    "copyAddress": "Adresse kopieren",
+    "copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen",
+    "truncated": "Der Durchlauf hat sein Budget erreicht, bevor die Spur endete. Sie sehen den Anfang des Wegs, nicht den ganzen — verringern Sie die Verzweigungen pro Schritt oder die Schrittzahl, um einer Linie weiter zu folgen.",
+    "terminal": {
+      "max_hops": "Ende der Spur: hier wurde das Schrittlimit erreicht.",
+      "pooled": "Die Mittel haben eine Börse oder einen Dienst erreicht.",
+      "unpageable": "Die Spur bricht hier ab: diese Adresse hat zu viel neuere Aktivität, um zu den fraglichen Transfers zurückzublättern.",
+      "budget": "Ende der Spur: dem Durchlauf ging das Budget aus, bevor diese Adresse erreicht wurde.",
+      "no_movement": "Die Mittel liegen hier — von dieser Adresse ist nichts abgeflossen.",
+      "no_match": "Hier passte nichts zu Ihren Filtern — von dieser Adresse sind Mittel abgeflossen.",
+      "partial": "Die Spur kann weitergehen: diese Adresse hatte mehr Aktivität, als geprüft werden konnte.",
+      "unavailable": "Die Spur bricht hier ab: diese Adresse konnte nicht gelesen werden."
+    },
+    "terminalDetail": {
+      "pooled": "An dieser Adresse werden Mittel vieler Parteien gebündelt, der nächste Schritt wäre also die interne Buchführung des Betreibers und keine Zahlung. Hier endet eine Verfolgung und beginnt die Meldung an den Betreiber."
+    },
+    "chainsUnavailable": "Die Liste der Chains konnte nicht geladen werden. Möglicherweise ist die On-Chain-Unterstützung auf dem Server deaktiviert."
   }
 }

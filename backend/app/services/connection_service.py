@@ -68,6 +68,10 @@ logger = logging.getLogger(__name__)
 
 LOCAL_IMPORT_SOURCES = {"import", "csv", "ofx", "qif", "camt"}
 
+# Providers whose holdings are crypto by construction: an exchange account and
+# a watched wallet address can hold nothing else.
+CRYPTO_SOURCES = {"coinbase", "onchain"}
+
 # How far a replayed ledger may sit from the balance a provider reports and
 # still count as the same number. Fees settled in kind and eighteen-decimal
 # rounding move the last few digits; anything past this is a missing row.
@@ -1058,16 +1062,16 @@ async def _upsert_asset_from_holding(
             account_external_id=holding.account_external_id,
             name=holding.name,
             # Seeded on create only — a later sync must not undo the user's
-            # own classification (app/services/cash_equivalent.py). A crypto
-            # exchange reports nothing but crypto, so its holdings are typed as
-            # such rather than landing in the generic bucket: asset class is
-            # what decides whether the Wash Sale rule reaches a holding at all
+            # own classification (app/services/cash_equivalent.py). A provider
+            # that reports nothing but crypto has its holdings typed as such
+            # rather than landing in the generic bucket: asset class is what
+            # decides whether the Wash Sale rule reaches a holding at all
             # (docs/adr/0004), and the rule does not reach crypto.
             type=(
                 CASH_EQUIVALENT_TYPE
                 if is_cash_equivalent_ticker(holding.ticker)
                 else "crypto"
-                if source == "coinbase"
+                if source in CRYPTO_SOURCES
                 else "investment"
             ),
             currency=holding.currency,

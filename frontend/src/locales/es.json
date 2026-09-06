@@ -127,7 +127,8 @@
     "groupAdmin": "Administración",
     "groupAgents": "IA",
     "agents": "Agentes",
-    "aiAgents": "Agentes IA"
+    "aiAgents": "Agentes IA",
+    "trace": "Rastrear fondos"
   },
   "invoices": {
     "title": "Invoices",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Reconectar con un token nuevo",
       "reconnectDescription": "Pega un token de configuración nuevo para actualizar esta conexión sin reemplazarla. Se conservan cuentas, transacciones, categorías y reglas existentes.",
-      "reconnect": "Reconectar"
+      "reconnect": "Reconectar",
+      "onchain": {
+        "title": "Vigilar una cartera cripto",
+        "description": "Añada una o varias direcciones públicas de cartera. Securo lee sus saldos e historial; nunca puede mover nada.",
+        "tokenLabel": "Direcciones de cartera",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# una línea de comentario se ignora",
+        "tokenHelp": "Una dirección por línea. Anteponga la cadena y dos puntos — bitcoin:, solana:, ethereum:, base:, polygon: — cuando la dirección por sí sola sea ambigua, y empiece una línea con # para dejar una nota. Pegue solo direcciones públicas: esta conexión es de solo lectura, y Securo nunca pide una clave privada ni una frase semilla.",
+        "connect": "Vigilar direcciones"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "Bancos de EE. UU. e internacionales vía SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Carteras Bitcoin, Solana y EVM de solo lectura, por dirección pública"
       }
     },
     "reconnected": "Banco reconectado correctamente"
@@ -1690,6 +1702,7 @@
     "emptyWallet": "Aún no hay activos en esta cartera",
     "itemsCount": "elementos",
     "moveToWallet": "Mover a cartera",
+    "traceOnChain": "Rastrear en la cadena",
     "moved": "Activo movido",
     "noWallet": "Sin cartera",
     "noWalletsHint": "Crea primero una cartera con el botón \"Nueva cartera\"",
@@ -2456,5 +2469,53 @@
         "openai": "OpenAI Responses API"
       }
     }
+  },
+  "trace": {
+    "section": "Cuentas",
+    "title": "Rastrear fondos",
+    "intro": "Siga el movimiento de la moneda nativa desde una dirección pública, salto a salto. La dirección no tiene por qué ser suya.",
+    "quickPick": "Empezar desde una dirección vigilada",
+    "chain": "Cadena",
+    "chainPlaceholder": "Elija una cadena",
+    "chainNotTraceable": "rastreo no disponible",
+    "chainNotTraceableHelp": "Una cadena atenuada no tiene fuente de historial de transferencias en este servidor. Configure una clave de API de Etherscan para rastrear cadenas EVM.",
+    "address": "Dirección",
+    "addressPlaceholder": "Dirección pública de cartera",
+    "direction": "Sentido",
+    "directionOut": "Adónde fueron los fondos",
+    "directionIn": "De dónde vinieron los fondos",
+    "minAmount": "Importe mínimo",
+    "minAmountPlaceholder": "Ignorar transferencias por debajo de esto",
+    "maxHops": "Saltos máximos",
+    "maxHopsHelp": "Hasta dónde seguir el rastro.",
+    "maxBranches": "Ramas por salto",
+    "maxBranchesHelp": "Cuántas transferencias seguir desde cada dirección, las mayores primero.",
+    "submit": "Rastrear",
+    "tracing": "Rastreando…",
+    "failed": "No se pudo completar el rastreo",
+    "idle": "Elija una cadena y una dirección para empezar un rastreo.",
+    "empty": "Con estos filtros no se movió nada desde esta dirección.",
+    "rootLabel": "Desde",
+    "origin": "Dirección de origen",
+    "hop": "Salto {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "saldo {{amount}} {{symbol}}",
+    "copyAddress": "Copiar dirección",
+    "copyFailed": "No se pudo copiar al portapapeles",
+    "truncated": "El recorrido agotó su presupuesto antes de agotar el rastro. Lo que ve es el principio del camino, no todo — reduzca las ramas por salto o el número de saltos para seguir una línea más lejos.",
+    "terminal": {
+      "max_hops": "Fin del rastro: aquí se alcanzó el límite de saltos.",
+      "pooled": "Los fondos llegaron a un exchange o servicio.",
+      "unpageable": "El rastro se corta aquí: esta dirección tiene demasiada actividad más reciente para retroceder hasta las transferencias en cuestión.",
+      "budget": "Fin del rastro: el recorrido agotó su presupuesto antes de llegar a esta dirección.",
+      "no_movement": "Los fondos se detuvieron aquí — nada ha salido de esta dirección.",
+      "no_match": "Aquí nada coincidió con sus filtros — esta dirección sí movió fondos.",
+      "partial": "El rastro puede continuar: esta dirección tuvo más actividad de la que se pudo examinar.",
+      "unavailable": "El rastro se corta aquí: no se pudo leer esta dirección."
+    },
+    "terminalDetail": {
+      "pooled": "En esta dirección se agrupan fondos de muchas partes, así que el siguiente salto sería la contabilidad interna del operador y no un pago. Aquí termina un rastreo y empieza la denuncia ante el operador."
+    },
+    "chainsUnavailable": "No se pudo cargar la lista de cadenas. Puede que el servidor tenga el soporte on-chain desactivado."
   }
 }

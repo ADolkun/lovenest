@@ -13,6 +13,7 @@ from app.api.groups import router as groups_router
 from app.api.categories import router as categories_router
 from app.api.category_groups import router as category_groups_router
 from app.api.connections import router as connections_router
+from app.api.onchain import router as onchain_router
 from app.api.custom_auth import router as custom_auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.import_logs import router as import_logs_router
@@ -197,6 +198,13 @@ app.include_router(settings_router)
 app.include_router(workspaces_router)
 app.include_router(admin_router)
 app.include_router(info_router)
+
+# Mounted behind the flag, not merely registered behind it: a trace fans out
+# to public chain nodes, so leaving the route live on a deployment that never
+# enabled crypto would hand every workspace an outbound request amplifier it
+# did not ask for.
+if get_settings().onchain_enabled:
+    app.include_router(onchain_router)
 
 
 # Optional agents/MCP/LLM module — fully gated by AGENTS_ENABLED so users

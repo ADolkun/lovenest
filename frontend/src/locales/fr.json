@@ -127,7 +127,8 @@
     "groupAdmin": "Administration",
     "groupAgents": "IA",
     "agents": "Agents",
-    "aiAgents": "Agents IA"
+    "aiAgents": "Agents IA",
+    "trace": "Tracer les fonds"
   },
   "invoices": {
     "title": "Invoices",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Reconnexion avec un nouveau jeton",
       "reconnectDescription": "Collez un nouveau jeton de configuration pour actualiser cette connexion sur place. Les comptes, transactions, catégories et règles existants sont conservés.",
-      "reconnect": "Reconnecter"
+      "reconnect": "Reconnecter",
+      "onchain": {
+        "title": "Surveiller un portefeuille crypto",
+        "description": "Ajoutez une ou plusieurs adresses publiques de portefeuille. Securo lit leurs soldes et leur historique ; il ne peut jamais rien déplacer.",
+        "tokenLabel": "Adresses de portefeuille",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# une ligne de commentaire est ignorée",
+        "tokenHelp": "Une adresse par ligne. Préfixez une ligne par la chaîne suivie de deux-points — bitcoin:, solana:, ethereum:, base:, polygon: — lorsque l'adresse seule est ambiguë, et commencez une ligne par # pour laisser une note. Ne collez que des adresses publiques : cette connexion est en lecture seule, et Securo ne demande jamais de clé privée ni de phrase de récupération.",
+        "connect": "Surveiller les adresses"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "Banques américaines et internationales via SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Portefeuilles Bitcoin, Solana et EVM en lecture seule, par adresse publique"
       }
     },
     "reconnected": "Banque reconnectée avec succès"
@@ -1690,6 +1702,7 @@
     "emptyWallet": "Aucun actif dans ce portefeuille pour l'instant",
     "itemsCount": "éléments",
     "moveToWallet": "Déplacer vers le portefeuille",
+    "traceOnChain": "Tracer sur la chaîne",
     "moved": "Actif déplacé",
     "noWallet": "Aucun portefeuille",
     "noWalletsHint": "Créez d'abord un portefeuille avec le bouton « Nouveau portefeuille »",
@@ -2456,5 +2469,53 @@
         "subtitle": "Ajoutez une connexion pour pointer Securo vers votre Ollama local, OpenAI, Anthropic, ou tout point de terminaison compatible OpenAI."
       }
     }
+  },
+  "trace": {
+    "section": "Comptes",
+    "title": "Tracer les fonds",
+    "intro": "Suivez le mouvement de la pièce native depuis une adresse publique, saut par saut. L'adresse n'a pas besoin d'être la vôtre.",
+    "quickPick": "Partir d'une adresse surveillée",
+    "chain": "Chaîne",
+    "chainPlaceholder": "Choisir une chaîne",
+    "chainNotTraceable": "traçage indisponible",
+    "chainNotTraceableHelp": "Une chaîne grisée n'a aucune source d'historique de transferts sur ce serveur. Renseignez une clé d'API Etherscan pour tracer les chaînes EVM.",
+    "address": "Adresse",
+    "addressPlaceholder": "Adresse publique de portefeuille",
+    "direction": "Sens",
+    "directionOut": "Où les fonds sont allés",
+    "directionIn": "D'où venaient les fonds",
+    "minAmount": "Montant minimum",
+    "minAmountPlaceholder": "Ignorer les transferts en dessous",
+    "maxHops": "Sauts maximum",
+    "maxHopsHelp": "Jusqu'où suivre la piste.",
+    "maxBranches": "Branches par saut",
+    "maxBranchesHelp": "Combien de transferts suivre depuis chaque adresse, les plus gros d'abord.",
+    "submit": "Tracer",
+    "tracing": "Traçage…",
+    "failed": "Le traçage n'a pas pu aboutir",
+    "idle": "Choisissez une chaîne et une adresse pour lancer un traçage.",
+    "empty": "Avec ces filtres, rien n'a bougé depuis cette adresse.",
+    "rootLabel": "À partir de",
+    "origin": "Adresse de départ",
+    "hop": "Saut {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "solde {{amount}} {{symbol}}",
+    "copyAddress": "Copier l'adresse",
+    "copyFailed": "Échec de la copie dans le presse-papiers",
+    "truncated": "Le parcours a atteint son budget avant la fin de la piste. Vous voyez le début du chemin, pas la totalité — réduisez les branches par saut ou le nombre de sauts pour suivre une ligne plus loin.",
+    "terminal": {
+      "max_hops": "Fin de la piste : la limite de sauts a été atteinte ici.",
+      "pooled": "Les fonds ont atteint une plateforme d'échange ou un service.",
+      "unpageable": "La piste s'interrompt ici : cette adresse a trop d'activité récente pour remonter jusqu'aux transferts concernés.",
+      "budget": "Fin de la piste : le parcours a épuisé son budget avant d'atteindre cette adresse.",
+      "no_movement": "Les fonds se sont arrêtés ici — rien n'est sorti de cette adresse.",
+      "no_match": "Rien ne correspond à vos filtres ici — cette adresse a bien déplacé des fonds.",
+      "partial": "La piste peut continuer : cette adresse a eu plus d'activité qu'il n'était possible d'examiner.",
+      "unavailable": "La piste s'interrompt ici : cette adresse n'a pas pu être lue."
+    },
+    "terminalDetail": {
+      "pooled": "Les fonds de nombreuses parties sont regroupés à cette adresse ; le saut suivant serait donc la comptabilité interne de l'opérateur, pas un paiement. C'est là qu'un traçage s'arrête et qu'un signalement à l'opérateur commence."
+    },
+    "chainsUnavailable": "Impossible de charger la liste des chaînes. La prise en charge on-chain est peut-être désactivée sur le serveur."
   }
 }

@@ -6,6 +6,7 @@ import ContributionsTab from '@/components/contributions-tab'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
+import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { summariesByWallet } from '@/lib/contributions'
@@ -46,6 +47,7 @@ import {
   FolderInput,
   AlertTriangle,
   Upload,
+  Radar,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -171,6 +173,7 @@ const HOLDINGS_GRID = 'minmax(0,2.4fr) 0.7fr 1.1fr 1fr 0.9fr 1.3fr 1.1fr 0.6fr 4
 export default function AssetsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { onchainEnabled } = useFeatureFlags()
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
@@ -741,6 +744,13 @@ export default function AssetsPage() {
         ? (asset.current_value_primary / investedTotalPrimary) * 100
         : null
     const needsBuys = isMarketPriced && !hasCost && !asset.sell_date
+    // A watched wallet's external_id is the `chain:address` pair the trace
+    // page takes, so the holding can hand the tracer its own subject. A token
+    // position appends `:contract` and is not traceable — the tracer follows
+    // native coins — so only the two-part form gets the action.
+    const parts =
+      onchainEnabled && asset.source === 'onchain' ? (asset.external_id?.split(':') ?? []) : []
+    const watched = parts.length === 2 ? parts : null
 
     return (
       <div key={asset.id} className="border-b border-border last:border-b-0">
@@ -842,6 +852,17 @@ export default function AssetsPage() {
           </div>
           {/* actions */}
           <div className="flex items-center justify-end gap-0.5">
+            {/* Not gated on canWrite: a trace reads public chain data and
+                writes nothing, so a read-only member may run one. */}
+            {watched && (
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/trace?chain=${encodeURIComponent(watched[0])}&address=${encodeURIComponent(watched[1])}`) }}
+                title={t('assets.traceOnChain')}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <Radar size={13} />
+              </button>
+            )}
             {canWrite && (
               <>
                 <button onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }} title={t('assets.moveToWallet')} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">

@@ -3,6 +3,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   simplefin: 'SimpleFIN',
   pluggy: 'Pluggy',
   enable_banking: 'Enable Banking',
+  coinbase: 'Coinbase',
+  onchain: 'Crypto wallet',
 }
 
 export function getConnectionName(

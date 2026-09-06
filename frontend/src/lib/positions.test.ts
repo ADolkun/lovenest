@@ -48,6 +48,7 @@ function holding(overrides: {
     gain_loss_primary: overrides.gain === undefined ? 0 : overrides.gain,
     value_count: 1,
     source: 'simplefin',
+    external_id: null,
     connection_id: null,
     isin: null,
     maturity_date: null,

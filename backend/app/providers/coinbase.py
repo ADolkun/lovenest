@@ -958,3 +958,13 @@ class CoinbaseProvider(BankProvider):
         double-count every position against its own holding.
         """
         return []
+
+
+async def usd_spot_prices() -> dict[str, Decimal]:
+    """USD spot per asset code from Coinbase's public rate table.
+
+    Exposed for providers that hold crypto but have no price source of their
+    own — the endpoint is unauthenticated, so calling it needs no Coinbase
+    connection and works on a deployment where Coinbase is switched off.
+    """
+    return await CoinbaseProvider()._usd_prices()

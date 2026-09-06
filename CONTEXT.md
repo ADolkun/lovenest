@@ -201,6 +201,50 @@ as a Pending Account for the user to choose from. Only available where the
 provider enumerates accounts at connect time; elsewhere the connection falls back
 to importing everything.
 
+**Watched Address** — a public blockchain address a Workspace tracks without
+holding its key. It is a Connection credential that is not a secret: there is
+nothing to revoke and nothing a leak of it would let anyone move. A Watched
+Address yields balances and transfer history, never the ability to spend.
+
+**Transfer Trace** — the chain of native-coin movements leading out of (or into)
+an address, followed hop by hop. A Trace is a claim about *where funds went*, not
+a drawing of an address's neighbourhood: each hop inherits the previous
+transfer's instant as its horizon, because money cannot leave an address before
+it arrives there.
+
+**Vouched Token** — a non-native token whose identity the index that priced it
+also stands behind (Jupiter's `verified`, Blockscout's `reputation: ok`). Only a
+Vouched Token's price may move a total. Minting a token, a pool and a price is
+cheap, so an unvouched quote is treated as a claim rather than a fact: the
+position is still listed with its quantity and the quote that was refused, and
+counts as zero. Listing it, ranking it and valuing it are three different
+decisions: an unvouched quote may not order a vouched holding either, or minting
+tokens would let an attacker choose which of a user's real positions survive the
+per-address cap. An unvouched symbol also never becomes a ticker, which is what
+positions consolidate on.
+
+**Change Address** — on Bitcoin, the output a spend pays back to its own
+sender because a transaction must consume whole outputs. Where it returns to an
+address the transaction already spent from, it is recognised and not counted as
+a payment; where a wallet sends it to a fresh address instead, nothing in the
+transaction tells it apart from one. A Transfer Trace therefore may follow a
+spender's own change, and is built to prefer that over losing the hop that
+carried the money.
+
+**Pooled Address** — an address that transacts at a rate no person does, so its
+balance is many parties' funds held together: an exchange, a bridge, a service.
+It is where a Transfer Trace ends. Past it the next movement is the operator's
+internal accounting rather than a payment, so naming a further hop would assert
+something the chain does not say. Reaching one is a result, not a failure — it
+identifies the party who can be asked who the account belongs to.
+
+**Complete Evidence** — the condition under which a Transfer Trace may say that
+nothing left an address. A page of history that was capped, trimmed to a
+request budget, or missing a transaction the node would not return is not
+complete, and on incomplete evidence the Trace reports that it could not see
+far enough rather than that the funds stopped. Silence about a wallet is not
+the same claim as absence of movement from it.
+
 ## Tenancy
 
 **Workspace** — the tenant boundary. Every financial record belongs to exactly one
