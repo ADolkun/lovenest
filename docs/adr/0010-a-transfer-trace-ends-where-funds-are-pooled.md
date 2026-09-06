@@ -55,13 +55,46 @@ the cap and was reported as an exchange, ending the Trace one hop before the
 exchange it actually forwarded to. Volume measures how much an address is
 used. Rate measures whether a human is using it.
 
-The two chain families do not measure the same thing here, and Solana is the
-looser of the two: `getSignaturesForAddress` returns every signature an address
-appears in, as fee payer or program account included, not only the ones that
-moved its balance. A bot-run or DEX-heavy Solana wallet can fill the page in a
-day and be called pooled when it is not. Erring that way is deliberate — the
-Trace stops and says it stopped, which a reader can act on, whereas expanding a
-genuine exchange invents a trail.
+The three chain families do not measure the same thing here, and Solana is the
+loosest: `getSignaturesForAddress` returns every signature an address appears
+in, as fee payer or program account included, not only the ones that moved its
+balance. A bot-run or DEX-heavy Solana wallet can fill the page in a day and be
+called pooled when it is not. Erring that way is deliberate — the Trace stops
+and says it stopped, which a reader can act on, whereas expanding a genuine
+exchange invents a trail.
+
+Bitcoin reads the same rule off a different unit. Esplora's page size is fixed
+at 25, so depth comes from asking again; `_bitcoin_history` pages until it
+reaches past the window or hits `BITCOIN_HISTORY_MAX_PAGES`, and returns which
+of the two happened. Only a history cut off by the cap can be called pooled. A
+history that simply ran out is the whole story about that address however fast
+it was written, and calling it saturated would stop a Trace on a wallet with
+nothing left to hide.
+
+## On Bitcoin, who received the money has to be inferred
+
+A Bitcoin transaction names no sender and no recipient. It spends a set of
+outputs and creates another set, and `_bitcoin_deltas` has to read intent out
+of that. The two directions are not equally knowable, and pretending they were
+is the mistake available here.
+
+Incoming is arithmetic: the address gained `received - spent`, and the largest
+input that is not its own is who funded it.
+
+Outgoing is a judgement. Every output the transaction did not pay back to one
+of its own inputs is treated as a recipient, because change normally returns to
+an input address and nothing in a transaction distinguishes change sent to a
+*fresh* address from a payment. The known consequence: a Trace can follow a
+spender's own change as though it were a transfer, so an outgoing hop may show
+more recipients than were really paid.
+
+That is the direction chosen deliberately. The alternative — demanding a
+confident match before following anything, as `_solana_deltas` does — drops the
+hop that carried the money whenever a wallet uses fresh change addresses, which
+most modern ones do. An extra branch is visible to a reader and costs them a
+look; a missing branch is invisible and ends the trail. Amount ranking pushes
+the change output down the list anyway, since a sweep is larger than what it
+leaves behind.
 
 ## "Nothing moved" is only sayable on complete evidence
 
@@ -101,6 +134,20 @@ Solana's JSON-RPC answers "what did this address do" directly, so Solana needs
 no key for either balances or Traces. EVM JSON-RPC has no such call — an
 address's history exists only in an indexer — so `native_balance` works on a
 public node while `_evm_transfers` requires an Etherscan key.
+
+Bitcoin has no account to read at all: an address is a set of unspent outputs,
+so even its *balance* is an index query. Both sides therefore go to Esplora,
+which Blockstream and mempool.space run keyless and which is self-hostable, so
+the asymmetry costs nothing here — `ONCHAIN_RPC_URLS["bitcoin"]` takes an
+Esplora base URL rather than a JSON-RPC endpoint, because a `bitcoind` RPC
+cannot answer the question either.
+
+A watched address is also validated on its checksum rather than its shape, and
+only Bitcoin's carries one. That is what settles the overlap between a legacy
+`1`/`3` address and a Solana public key, whose base58 forms are otherwise
+indistinguishable at those lengths — and it is why a mistyped Bitcoin address
+is refused at the paste box instead of being watched forever as an empty
+wallet.
 
 Where the key is absent the Trace raises rather than returning an empty walk,
 and `trace` deliberately lets `ProviderNotConfiguredError` and

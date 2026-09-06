@@ -5,12 +5,14 @@ public addresses, so the connection is watch-only by construction rather than
 by permission — there is no key to scope down and nothing a leak of the
 credential blob would let an attacker move.
 
-Two chain families, and they are not symmetric. Solana's JSON-RPC answers
+Three chain families, and they are not symmetric. Solana's JSON-RPC answers
 "what did this address do" directly (``getSignaturesForAddress``), so both
-balances and history come from a public node with no key. EVM JSON-RPC has no
-such call — an address's history only exists in an indexer — so EVM balances
-come from a public node and EVM history needs an Etherscan key. That asymmetry
-is the reason ``transfers`` can raise for one chain and not another.
+balances and history come from a public node with no key. Bitcoin has no
+account at all — an address is a set of unspent outputs — so both balance and
+history come from an Esplora indexer, also keyless. EVM JSON-RPC has neither:
+an address's history only exists in an indexer, so EVM balances come from a
+public node and EVM history needs an Etherscan key. That asymmetry is the
+reason ``transfers`` can raise for one chain and not another.
 
 Quantities come from the chain; the *value* of one does not. USD pricing is
 Coinbase's public rate table (see ``get_holdings``), which is unauthenticated
@@ -64,6 +66,11 @@ MAX_WATCHED_ADDRESSES = 25
 # from a busy wallet: see `_saturation`.
 SOLANA_SIGNATURE_PAGE = 1000
 EVM_HISTORY_PAGE = 1000
+# Esplora's page size is fixed at 25 and not negotiable, so depth comes from
+# asking again rather than asking for more. The cap bounds a walk's request
+# count; paging stops early once a page reaches past the window anyway.
+BITCOIN_HISTORY_PAGE = 25
+BITCOIN_HISTORY_MAX_PAGES = 8
 # A full page spanning less than this is a pooled address, not a person. An
 # exchange hot wallet fills a thousand transactions in seconds; the busiest
 # personal wallet or scam aggregator takes weeks.
@@ -82,6 +89,81 @@ ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
 
 _SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 _EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+# Shape only. Both Bitcoin forms carry a checksum, and the checksum is what
+# actually decides — see `_bitcoin_address_valid`.
+_BITCOIN_LEGACY = re.compile(r"^[13][1-9A-HJ-NP-Za-km-z]{25,34}$")
+_BITCOIN_BECH32 = re.compile(r"^(bc1|BC1)[023456789acdefghjklmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ]{11,71}$")
+
+_B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _base58check_payload(address: str) -> Optional[bytes]:
+    """Decode a base58check string, or None when its checksum does not hold."""
+    number = 0
+    for char in address:
+        index = _B58_ALPHABET.find(char)
+        if index < 0:
+            return None
+        number = number * 58 + index
+    raw = number.to_bytes((number.bit_length() + 7) // 8, "big")
+    raw = b"\x00" * (len(address) - len(address.lstrip("1"))) + raw
+    if len(raw) < 5:
+        return None
+    body, checksum = raw[:-4], raw[-4:]
+    if hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4] != checksum:
+        return None
+    return body
+
+
+def _bech32_polymod(values: list[int]) -> int:
+    generator = (0x3B6A57B2, 0x26508E6D, 0x1EA119FA, 0x3D4233DD, 0x2A1462B3)
+    checksum = 1
+    for value in values:
+        top = checksum >> 25
+        checksum = ((checksum & 0x1FFFFFF) << 5) ^ value
+        for bit in range(5):
+            checksum ^= generator[bit] if (top >> bit) & 1 else 0
+    return checksum
+
+
+def _bech32_valid(address: str) -> bool:
+    """Check a mainnet segwit address's checksum.
+
+    Both constants are needed: BIP-173 (witness v0, the ``bc1q`` addresses)
+    ends on 1, and BIP-350 (v1+, Taproot's ``bc1p``) on a different one after
+    an earlier length-extension flaw. Accepting either constant for either
+    version would wave through the exact substitution the split was made to
+    stop. The witness program's own length is left to the node — a wrong-length
+    program is a rejected request, whereas a bad checksum is a typo that would
+    otherwise be watched forever as an empty wallet.
+    """
+    if address != address.lower() and address != address.upper():
+        return False  # mixed case is unspecified, and a wallet never emits it
+    hrp, separator, data = address.lower().rpartition("1")
+    if separator != "1" or hrp != "bc" or len(data) < 6:
+        return False
+    try:
+        values = [_BECH32_CHARSET.index(char) for char in data]
+    except ValueError:
+        return False
+    expanded = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
+    constant = _bech32_polymod(expanded + values)
+    version = values[0]
+    if version > 16:
+        return False
+    return constant == (1 if version == 0 else 0x2BC830A3)
+
+
+def _bitcoin_address_valid(address: str) -> bool:
+    if _BITCOIN_BECH32.match(address):
+        return _bech32_valid(address)
+    if _BITCOIN_LEGACY.match(address):
+        payload = _base58check_payload(address)
+        # 0x00 pay-to-pubkey-hash, 0x05 pay-to-script-hash. Any other version
+        # byte is another network's address wearing a mainnet shape.
+        return payload is not None and len(payload) == 21 and payload[0] in (0x00, 0x05)
+    return False
 
 
 @dataclass(frozen=True)
@@ -90,11 +172,11 @@ class Chain:
 
     ``symbol`` is the native coin's ticker, which is what a holding is
     denominated in. ``explorer_chain_id`` is Etherscan's V2 chain id, and every
-    EVM chain here has one — Solana never reaches the explorer path.
+    EVM chain here has one — Solana and Bitcoin never reach the explorer path.
     """
 
     key: str
-    kind: str  # "solana" | "evm"
+    kind: str  # "solana" | "evm" | "bitcoin"
     display_name: str
     symbol: str
     decimals: int
@@ -110,6 +192,19 @@ CHAINS: dict[str, Chain] = {
         symbol="SOL",
         decimals=9,
         default_rpc_url="https://api.mainnet-beta.solana.com",
+    ),
+    "bitcoin": Chain(
+        key="bitcoin",
+        kind="bitcoin",
+        display_name="Bitcoin",
+        symbol="BTC",
+        decimals=8,
+        # Esplora's REST API, not a JSON-RPC node: a bitcoind RPC cannot answer
+        # "what did this address do" either, so a watch-only wallet needs an
+        # index whichever way it is reached. Blockstream runs the reference
+        # instance keyless; mempool.space speaks the same routes, so
+        # ONCHAIN_RPC_URLS can point at it or at a self-hosted Esplora.
+        default_rpc_url="https://blockstream.info/api",
     ),
     "ethereum": Chain(
         key="ethereum",
@@ -151,14 +246,25 @@ def rpc_url(chain: Chain) -> str:
 
 
 def address_is_valid(chain: Chain, address: str) -> bool:
+    if chain.kind == "bitcoin":
+        return _bitcoin_address_valid((address or "").strip())
     pattern = _EVM_ADDRESS if chain.kind == "evm" else _SOLANA_ADDRESS
     return bool(pattern.match(address or ""))
 
 
 def normalize_address(chain: Chain, address: str) -> str:
-    """EVM addresses are case-insensitive, so casing must not mint a second wallet."""
+    """Case-insensitive forms are folded, so casing cannot mint a second wallet.
+
+    EVM addresses are hex and case only carries an optional checksum. Bech32 is
+    case-insensitive too, but only bech32 — a legacy base58 address means a
+    different number in a different case, so folding one would corrupt it.
+    """
     cleaned = (address or "").strip()
-    return cleaned.lower() if chain.kind == "evm" else cleaned
+    if chain.kind == "evm":
+        return cleaned.lower()
+    if chain.kind == "bitcoin" and cleaned[:3].lower() == "bc1":
+        return cleaned.lower()
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -237,9 +343,17 @@ def detect_chain(address: str) -> Optional[Chain]:
     address on every EVM chain and only the user knows which they meant. An
     unrecognized shape returns None so the caller can reject it by name rather
     than silently pick a chain.
+
+    Bitcoin is tried before Solana because their base58 forms overlap: a legacy
+    ``1``/``3`` address is 26–35 characters and so also matches the Solana
+    pattern. Only Bitcoin's carries a checksum, so a base58check that verifies
+    settles it — a Solana key passing that test by chance is a 1-in-2^32 event,
+    and the ``solana:`` prefix overrides it anyway.
     """
     if _EVM_ADDRESS.match(address):
         return CHAINS["ethereum"]
+    if _bitcoin_address_valid(address):
+        return CHAINS["bitcoin"]
     if _SOLANA_ADDRESS.match(address):
         return CHAINS["solana"]
     return None
@@ -376,6 +490,8 @@ async def native_balance(
     chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None
 ) -> Optional[Decimal]:
     """Native-coin balance in whole coins, or None when the node won't say."""
+    if chain.kind == "bitcoin":
+        return await _bitcoin_balance(chain, address, client=client)
     if chain.kind == "solana":
         result = await _json_rpc(chain, "getBalance", [address], client=client)
         raw = result.get("value") if isinstance(result, dict) else None
@@ -448,6 +564,10 @@ async def transfers(
     """
     if chain.kind == "solana":
         return await _solana_transfers(
+            chain, address, limit=limit, since=since, until=until, client=client
+        )
+    if chain.kind == "bitcoin":
+        return await _bitcoin_transfers(
             chain, address, limit=limit, since=since, until=until, client=client
         )
     return await _evm_transfers(
@@ -700,6 +820,200 @@ async def _etherscan_page(
     if isinstance(payload, dict) and str(payload.get("status")) == "0":
         return []
     raise RuntimeError(f"Etherscan returned an unexpected payload for {chain.key}")
+
+
+async def _esplora(chain: Chain, path: str, client: Optional[httpx.AsyncClient]) -> Any:
+    """One Esplora GET, retried through a shared indexer's momentary throttle."""
+    url = f"{rpc_url(chain).rstrip('/')}{path}"
+    for attempt in range(RPC_RETRY_ATTEMPTS):
+        if client is not None:
+            resp = await client.get(url)
+        else:
+            async with _client() as own:
+                resp = await own.get(url)
+        if resp.status_code != 429:
+            break
+        if attempt == RPC_RETRY_ATTEMPTS - 1:
+            raise ProviderRateLimited("The Bitcoin indexer rate-limited the request")
+        await asyncio.sleep(RPC_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    _raise_for_status(resp, "Bitcoin indexer")
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise RuntimeError("Bitcoin indexer returned a non-JSON response") from exc
+
+
+def _sats(raw: Any) -> int:
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _bitcoin_balance(
+    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient]
+) -> Optional[Decimal]:
+    """Sum the address's unspent outputs, confirmed and pending alike.
+
+    Bitcoin has no balance field to read — an address is worth what its
+    unspent outputs are worth — so this is funded minus spent. The mempool
+    numbers are added because a wallet shows them too: a spend that has left
+    but not confirmed is money already gone, and reporting it as still held
+    would overstate net worth for as long as the block takes.
+    """
+    payload = await _esplora(chain, f"/address/{address}", client)
+    if not isinstance(payload, dict):
+        return None
+    total = 0
+    for key in ("chain_stats", "mempool_stats"):
+        stats = payload.get(key)
+        if isinstance(stats, dict):
+            total += _sats(stats.get("funded_txo_sum")) - _sats(stats.get("spent_txo_sum"))
+    return _scale(total, chain.decimals)
+
+
+async def _bitcoin_history(
+    chain: Chain, address: str, since: Optional[datetime], client: Optional[httpx.AsyncClient]
+) -> tuple[list[dict], bool]:
+    """Recent transactions touching the address, and whether that was all of them.
+
+    Esplora hands out 25 confirmed transactions at a time, keyed on the last
+    txid seen, so reaching further back is a request per page. Paging stops as
+    soon as a page reaches past the window asked about — everything older
+    cannot be in the answer — and otherwise at a fixed cap, which is the
+    second half of the return value: False means the history was cut off, and
+    a cut-off history may not say "nothing moved".
+    """
+    rows: list[dict] = []
+    cursor: Optional[str] = None
+    for _ in range(BITCOIN_HISTORY_MAX_PAGES):
+        path = f"/address/{address}/txs"
+        if cursor:
+            path = f"{path}/chain/{cursor}"
+        page = await _esplora(chain, path, client)
+        page = [tx for tx in page if isinstance(tx, dict)] if isinstance(page, list) else []
+        if not page:
+            return rows, True
+        rows.extend(page)
+        # The first page also carries unconfirmed transactions, so it can be
+        # longer than a page; only the confirmed tail can be paged past.
+        if len(page) < BITCOIN_HISTORY_PAGE:
+            return rows, True
+        cursor = str(page[-1].get("txid") or "")
+        if not cursor:
+            return rows, True
+        oldest = _bitcoin_time(page[-1])
+        if since is not None and oldest is not None and oldest.timestamp() < since.timestamp():
+            return rows, True
+    return rows, False
+
+
+def _bitcoin_time(tx: dict) -> Optional[datetime]:
+    """When a transaction happened; now, while it is still only broadcast."""
+    status = tx.get("status")
+    block_time = status.get("block_time") if isinstance(status, dict) else None
+    if block_time is None:
+        return datetime.now(timezone.utc) if isinstance(status, dict) else None
+    try:
+        return datetime.fromtimestamp(int(block_time), tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _bitcoin_deltas(chain: Chain, tx: dict, address: str) -> list[Transfer]:
+    """Read one transaction as movement in or out of ``address``.
+
+    A Bitcoin transaction has no sender and no recipient — it spends a set of
+    outputs and creates another set — so both have to be inferred, and the two
+    directions are not inferred the same way.
+
+    Money arriving is unambiguous: the address gained ``received - spent``, and
+    the largest input that is not its own names who sent it.
+
+    Money leaving is not. Every output the transaction did not pay back to one
+    of its own inputs is treated as a recipient, because that is the only
+    signal available: change normally returns to an input address, and where a
+    wallet sends change to a fresh address instead, nothing in the transaction
+    distinguishes that from a payment. The trace therefore may follow a
+    victim's — or a thief's — own change as if it were a transfer. That errs
+    toward showing a hop that is real movement of the same coins, rather than
+    toward dropping the hop that actually carried them.
+    """
+    occurred = _bitcoin_time(tx)
+    reference = str(tx.get("txid") or "")
+    if occurred is None or not reference:
+        return []
+    inputs: list[tuple[str, int]] = []
+    for entry in tx.get("vin") or []:
+        prevout = entry.get("prevout") if isinstance(entry, dict) else None
+        if isinstance(prevout, dict):
+            inputs.append((str(prevout.get("scriptpubkey_address") or ""), _sats(prevout.get("value"))))
+    outputs: list[tuple[str, int]] = [
+        (str(entry.get("scriptpubkey_address") or ""), _sats(entry.get("value")))
+        for entry in tx.get("vout") or []
+        if isinstance(entry, dict)
+    ]
+    spent = sum(value for owner, value in inputs if owner == address)
+    received = sum(value for owner, value in outputs if owner == address)
+
+    def _transfer(sender: str, recipient: str, sats: int) -> Optional[Transfer]:
+        amount = _scale(sats, chain.decimals)
+        if amount is None or amount <= 0:
+            return None
+        return Transfer(
+            chain_key=chain.key,
+            reference=reference,
+            occurred_at=occurred,
+            sender=sender,
+            recipient=recipient,
+            amount=amount,
+        )
+
+    if spent > received:
+        senders = {owner for owner, _ in inputs if owner}
+        moved = (_transfer(address, owner, value) for owner, value in outputs if owner and owner not in senders)
+        return [transfer for transfer in moved if transfer is not None]
+    if received > spent:
+        external = [(owner, value) for owner, value in inputs if owner and owner != address]
+        if not external:
+            return []  # a coinbase reward or a self-consolidation: nobody paid it
+        sender = max(external, key=lambda pair: pair[1])[0]
+        transfer = _transfer(sender, address, received - spent)
+        return [transfer] if transfer is not None else []
+    return []
+
+
+async def _bitcoin_transfers(
+    chain: Chain,
+    address: str,
+    *,
+    limit: int,
+    since: Optional[datetime],
+    until: Optional[datetime],
+    client: Optional[httpx.AsyncClient],
+) -> Transfers:
+    """Address history from Esplora, read as transfers rather than as UTXOs.
+
+    Unlike Solana, the amounts are already in the list — a transaction carries
+    its own inputs and outputs — so this costs a request per *page*, not per
+    transaction.
+    """
+    rows, exhausted = await _bitcoin_history(chain, address, since, client)
+    timestamps = [int(moment.timestamp()) for moment in map(_bitcoin_time, rows) if moment]
+    # Only a history that was cut short can be saturated: one that ran out is
+    # the whole story, however fast it was written.
+    saturated = None if exhausted else _saturation(timestamps, len(timestamps), since)
+    if saturated:
+        return Transfers(items=[], saturated=saturated)
+
+    found: list[Transfer] = []
+    for row in rows:
+        for transfer in _bitcoin_deltas(chain, row, address):
+            if _within(transfer.occurred_at.timestamp(), since, until):
+                found.append(transfer)
+    found.sort(key=lambda transfer: transfer.occurred_at, reverse=True)
+    trimmed = _closest_to_horizon(found, limit, since)
+    return Transfers(items=trimmed, trimmed=len(trimmed) < len(found))
 
 
 class OnChainProvider(BankProvider):

@@ -1010,8 +1010,8 @@
         "title": "Obserwuj portfel kryptowalutowy",
         "description": "Dodaj jeden lub więcej publicznych adresów portfela. Securo odczytuje ich salda i historię; nigdy nie może niczego przenieść.",
         "tokenLabel": "Adresy portfela",
-        "tokenPlaceholder": "solana:7xKX…\nethereum:0x1f9…\n# wiersz komentarza jest pomijany",
-        "tokenHelp": "Jeden adres w wierszu. Poprzedź wiersz nazwą sieci i dwukropkiem — solana:, ethereum:, base:, polygon: — gdy sam adres jest niejednoznaczny, a wiersz zaczynający się od # służy na notatkę. Wklejaj wyłącznie adresy publiczne: to połączenie służy tylko do podglądu, a Securo nigdy nie prosi o klucz prywatny ani frazę seed.",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# wiersz komentarza jest pomijany",
+        "tokenHelp": "Jeden adres w wierszu. Poprzedź wiersz nazwą sieci i dwukropkiem — bitcoin:, solana:, ethereum:, base:, polygon: — gdy sam adres jest niejednoznaczny, a wiersz zaczynający się od # służy na notatkę. Wklejaj wyłącznie adresy publiczne: to połączenie służy tylko do podglądu, a Securo nigdy nie prosi o klucz prywatny ani frazę seed.",
         "connect": "Obserwuj adresy"
       }
     },
@@ -1026,7 +1026,7 @@
         "description": "Banki w USA i międzynarodowe przez SimpleFIN Bridge"
       },
       "onchain": {
-        "description": "Portfele Solana i EVM tylko do podglądu, po adresie publicznym"
+        "description": "Portfele Bitcoin, Solana i EVM tylko do podglądu, po adresie publicznym"
       }
     },
     "reconnected": "Bank połączony ponownie"
@@ -1806,6 +1806,7 @@
     "emptyWallet": "Brak aktywów w tym portfelu",
     "itemsCount": "pozycji",
     "moveToWallet": "Przenieś do portfela",
+    "traceOnChain": "Śledź w łańcuchu",
     "moved": "Przeniesiono aktywo",
     "noWallet": "Brak portfela",
     "noWalletsHint": "Najpierw utwórz portfel przyciskiem „Nowy portfel”",

@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -163,8 +164,11 @@ export default function TracePage() {
   const { t, i18n } = useTranslation()
   const dateFnsLocale = resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language)
 
-  const [chain, setChain] = useState('')
-  const [address, setAddress] = useState('')
+  // Seeded, not controlled, by the query string: the Assets page links here
+  // with the holding it was on, and after that the form is the user's.
+  const [params] = useSearchParams()
+  const [chain, setChain] = useState(() => params.get('chain') ?? '')
+  const [address, setAddress] = useState(() => params.get('address') ?? '')
   const [direction, setDirection] = useState<TraceDirection>('out')
   const [maxHops, setMaxHops] = useState('3')
   const [maxBranches, setMaxBranches] = useState('3')

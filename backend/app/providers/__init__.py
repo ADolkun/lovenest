@@ -52,7 +52,7 @@ KNOWN_PROVIDERS = [
     {
         "name": "onchain",
         "display_name": "Crypto wallet address",
-        "description": "Watch-only Solana and EVM wallets, by public address",
+        "description": "Watch-only Bitcoin, Solana and EVM wallets, by public address",
         "flow_type": "token",
         "requires_institution_select": False,
         "supports_asset_sync": True,

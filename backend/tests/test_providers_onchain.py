@@ -466,6 +466,248 @@ async def test_an_evm_drain_is_found_even_though_it_is_an_internal_transaction()
     assert transfer.recipient == drainer
 
 
+# ----- Bitcoin --------------------------------------------------------------
+
+# Minted for these tests: valid base58check over sha256("btc-a") and friends,
+# so the checksums hold and no private key exists for any of them.
+BTC_A = "1QJXx5X8qZS75DUP4csav8ALaWxELKSzHr"
+BTC_B = "1GmLnpNR4V2vuU98ne23bfsPKfgdRMqYVN"
+BTC_C = "1QH7FDZrm3kRUkP6oDYU65iKHDFPQhGdnz"
+BTC_CHANGE = "1M6m1SHMKdrUa5in4J1pSWJStaXX5g8zp6"
+BTC = CHAINS["bitcoin"]
+COIN = 100_000_000
+
+
+def _btc_tx(txid: str, block_time: int, vin, vout, confirmed: bool = True) -> dict:
+    return {
+        "txid": txid,
+        "status": ({"confirmed": True, "block_time": block_time} if confirmed
+                   else {"confirmed": False}),
+        "vin": [{"prevout": {"scriptpubkey_address": a, "value": v}} for a, v in vin],
+        "vout": [{"scriptpubkey_address": a, "value": v} for a, v in vout],
+    }
+
+
+def _esplora_handler(*, stats=None, history=None):
+    """Serve Esplora's /address/{a} and /address/{a}/txs[/chain/{txid}] routes."""
+    stats = stats or {}
+    history = history or {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        parts = request.url.path.strip("/").split("/")
+        index = parts.index("address")
+        address, rest = parts[index + 1], parts[index + 2:]
+        if not rest:
+            funded, spent = stats.get(address, (0, 0))
+            return httpx.Response(200, json={
+                "chain_stats": {"funded_txo_sum": funded, "spent_txo_sum": spent},
+                "mempool_stats": {"funded_txo_sum": 0, "spent_txo_sum": 0},
+            })
+        rows = list(history.get(address, []))
+        if len(rest) >= 3 and rest[1] == "chain":
+            ids = [row["txid"] for row in rows]
+            rows = rows[ids.index(rest[2]) + 1:] if rest[2] in ids else []
+        return httpx.Response(200, json=rows[: onchain.BITCOIN_HISTORY_PAGE])
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    "address,valid",
+    [
+        (BTC_A, True),
+        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", True),        # BIP-173 v0
+        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297", True),  # BIP-350 v1
+        ("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4", True),        # upper case is legal
+        (BTC_A[:-1] + "s", False),                                    # base58 typo
+        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", False),        # bech32 typo
+        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3298", False),
+        ("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", False),        # testnet
+    ],
+)
+def test_a_bitcoin_address_is_accepted_on_its_checksum_not_its_shape(address, valid):
+    """A typo has to be caught here or it is watched forever as an empty wallet.
+
+    Both Bitcoin forms carry a checksum, unlike a Solana or EVM address, so
+    there is a real answer available and nothing is gained by only pattern
+    matching.
+    """
+    assert onchain.address_is_valid(BTC, address) is valid
+
+
+def test_a_legacy_bitcoin_address_is_not_mistaken_for_a_solana_one():
+    """Their base58 forms overlap; only Bitcoin's carries a checksum."""
+    assert onchain.detect_chain(BTC_A) is BTC
+    assert onchain.detect_chain(A) is SOL
+    # Same shape, broken checksum: not a Bitcoin address, so it falls through
+    # to the pattern that does match it rather than being rejected outright.
+    assert onchain.detect_chain(BTC_A[:-1] + "s") is SOL
+
+
+def test_bech32_casing_is_folded_but_base58_casing_is_not():
+    """Case means nothing in bech32 and everything in base58."""
+    upper = "BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4"
+    assert onchain.normalize_address(BTC, upper) == upper.lower()
+    assert onchain.normalize_address(BTC, BTC_A) == BTC_A
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_balance_is_unspent_outputs_including_the_still_pending_ones():
+    """A spend that has broadcast but not confirmed is money already gone."""
+    def handler(request):
+        return httpx.Response(200, json={
+            "chain_stats": {"funded_txo_sum": 3 * COIN, "spent_txo_sum": COIN},
+            "mempool_stats": {"funded_txo_sum": 0, "spent_txo_sum": COIN // 2},
+        })
+
+    with _settings(), _patched_client(handler):
+        assert await onchain.native_balance(BTC, BTC_A) == Decimal("1.5")
+
+
+@pytest.mark.asyncio
+async def test_bitcoin_change_returning_to_an_input_address_is_not_a_payment():
+    """Every output is a candidate recipient; the ones the sender already owns are not.
+
+    Without this the trace would follow the spender's own change and report it
+    as a second destination of the same coins.
+    """
+    history = {BTC_A: [_btc_tx(
+        "spend", JAN23,
+        vin=[(BTC_A, 10 * COIN)],
+        vout=[(BTC_B, 4 * COIN), (BTC_A, 6 * COIN)],
+    )]}
+    with _settings(), _patched_client(_esplora_handler(history=history)):
+        page = await onchain.transfers(BTC, BTC_A, limit=25)
+    [transfer] = page.items
+    assert (transfer.sender, transfer.recipient) == (BTC_A, BTC_B)
+    assert transfer.amount == Decimal("4")
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_spend_paying_several_outputs_is_several_transfers():
+    """One transaction, two payees: dropping either would lose half the trail."""
+    history = {BTC_A: [_btc_tx(
+        "split", JAN23,
+        vin=[(BTC_A, 10 * COIN)],
+        vout=[(BTC_B, 6 * COIN), (BTC_C, 3 * COIN), (BTC_A, COIN)],
+    )]}
+    with _settings(), _patched_client(_esplora_handler(history=history)):
+        page = await onchain.transfers(BTC, BTC_A, limit=25)
+    assert {(t.recipient, t.amount) for t in page.items} == {
+        (BTC_B, Decimal("6")),
+        (BTC_C, Decimal("3")),
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_incoming_bitcoin_transfer_is_credited_to_its_largest_external_input():
+    """A transaction has no sender field, so the biggest funder is the answer."""
+    history = {BTC_A: [_btc_tx(
+        "receive", JAN23,
+        vin=[(BTC_B, 9 * COIN), (BTC_C, COIN)],
+        vout=[(BTC_A, 7 * COIN), (BTC_B, 3 * COIN)],
+    )]}
+    with _settings(), _patched_client(_esplora_handler(history=history)):
+        page = await onchain.transfers(BTC, BTC_A, limit=25)
+    [transfer] = page.items
+    assert (transfer.sender, transfer.recipient) == (BTC_B, BTC_A)
+    assert transfer.amount == Decimal("7")
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_self_consolidation_moved_nobody_else_s_money():
+    history = {BTC_A: [_btc_tx(
+        "sweep", JAN23,
+        vin=[(BTC_A, 3 * COIN), (BTC_A, 2 * COIN)],
+        vout=[(BTC_A, 5 * COIN)],
+    )]}
+    with _settings(), _patched_client(_esplora_handler(history=history)):
+        assert (await onchain.transfers(BTC, BTC_A, limit=25)).items == []
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_history_that_ran_out_is_the_whole_story_however_fast_it_was_written():
+    """A short page is complete by definition, even at an exchange's rate."""
+    rows = [
+        _btc_tx(f"t{i}", JAN23 - i, vin=[(BTC_A, COIN)], vout=[(BTC_B, COIN)])
+        for i in range(3)
+    ]
+    with _settings(), _patched_client(_esplora_handler(history={BTC_A: rows})):
+        page = await onchain.transfers(BTC, BTC_A, limit=25)
+    assert page.saturated is None
+    assert page.complete
+
+
+@pytest.mark.asyncio
+async def test_a_pooled_bitcoin_address_is_recognized_by_its_rate_and_stops_the_trace():
+    """Every page came back full and the whole cap spans an hour: an exchange."""
+    total = onchain.BITCOIN_HISTORY_PAGE * onchain.BITCOIN_HISTORY_MAX_PAGES
+    rows = [
+        _btc_tx(f"t{i}", JAN23 - i * 3, vin=[(BTC_A, COIN)], vout=[(BTC_B, COIN)])
+        for i in range(total)
+    ]
+    with _settings(), _patched_client(_esplora_handler(history={BTC_A: rows})):
+        page = await onchain.transfers(BTC, BTC_A, limit=25)
+    assert page.saturated == onchain.SATURATED_POOLED
+    assert page.items == []
+
+
+@pytest.mark.asyncio
+async def test_bitcoin_paging_stops_once_it_has_reached_past_the_window():
+    """Esplora pages 25 at a time; nothing older than the floor can be an answer."""
+    requested: list[str] = []
+    rows = [
+        _btc_tx(f"t{i}", JAN23 - i * 3600, vin=[(BTC_A, COIN)], vout=[(BTC_B, COIN)])
+        for i in range(onchain.BITCOIN_HISTORY_PAGE * 3)
+    ]
+    inner = _esplora_handler(history={BTC_A: rows})
+
+    def handler(request):
+        requested.append(request.url.path)
+        return inner(request)
+
+    since = datetime.fromtimestamp(JAN23 - 30 * 3600, tz=timezone.utc)
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BTC, BTC_A, limit=50, since=since)
+    # Two pages reach back 50 hours, past a 30-hour floor. A third would be
+    # spent reading transactions the window already excludes.
+    assert len(requested) == 2
+    assert page.saturated is None
+    assert all(t.occurred_at >= since for t in page.items)
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_trace_follows_the_money_and_ignores_the_sender_s_own_change():
+    """BTC_A → BTC_B → BTC_C, with change to BTC_CHANGE on the way."""
+    history = {
+        BTC_A: [_btc_tx("a_out", JAN23, vin=[(BTC_A, 10 * COIN)],
+                        vout=[(BTC_B, 9 * COIN), (BTC_A, COIN)])],
+        BTC_B: [_btc_tx("b_out", JAN23 + 600, vin=[(BTC_B, 9 * COIN)],
+                        vout=[(BTC_C, 8 * COIN), (BTC_B, COIN)])],
+        BTC_C: [],
+        BTC_CHANGE: [],
+    }
+    with _settings(), _patched_client(_esplora_handler(history=history)):
+        result = await onchain_trace.trace("bitcoin", BTC_A, max_hops=3)
+    assert [(e.source, e.target, e.amount) for e in result.edges] == [
+        (f"bitcoin:{BTC_A}", f"bitcoin:{BTC_B}", Decimal("9")),
+        (f"bitcoin:{BTC_B}", f"bitcoin:{BTC_C}", Decimal("8")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_bitcoin_holding_is_priced_in_usd_like_every_other_chain():
+    provider = OnChainProvider()
+    handler = _esplora_handler(stats={BTC_A: (2 * COIN, 0)})
+    with _settings(), _patched_client(handler), patch.object(
+        onchain, "usd_spot_prices", return_value={"BTC": Decimal("60000")}
+    ):
+        [holding] = await provider.get_holdings({"addresses": [f"bitcoin:{BTC_A}"]})
+    assert holding.ticker == "BTC"
+    assert holding.quantity == Decimal("2")
+    assert holding.current_value == Decimal("120000")
+    assert holding.currency == "USD"
+
 # ----- holdings -------------------------------------------------------------
 
 

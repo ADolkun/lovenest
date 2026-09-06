@@ -801,6 +801,9 @@ export interface Asset {
   gain_loss_primary: number | null
   value_count: number
   source: string
+  // Provider-assigned, and provider-shaped: for a watched wallet it is the
+  // `chain:address` pair the trace page takes.
+  external_id: string | null
   connection_id: string | null
   isin: string | null
   maturity_date: string | null

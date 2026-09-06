@@ -966,8 +966,8 @@
         "title": "Vigiar uma carteira cripto",
         "description": "Adicione um ou mais endereços públicos de carteira. O Securo lê os seus saldos e histórico; nunca consegue mover nada.",
         "tokenLabel": "Endereços da carteira",
-        "tokenPlaceholder": "solana:7xKX…\nethereum:0x1f9…\n# uma linha de comentário é ignorada",
-        "tokenHelp": "Um endereço por linha. Anteponha à linha a rede e dois pontos — solana:, ethereum:, base:, polygon: — quando o endereço por si só for ambíguo, e comece uma linha com # para deixar uma nota. Cole apenas endereços públicos: esta ligação é só de leitura, e o Securo nunca pede uma chave privada nem uma frase de recuperação.",
+        "tokenPlaceholder": "solana:7xKX…\nbitcoin:bc1q…\nethereum:0x1f9…\n# uma linha de comentário é ignorada",
+        "tokenHelp": "Um endereço por linha. Anteponha à linha a rede e dois pontos — bitcoin:, solana:, ethereum:, base:, polygon: — quando o endereço por si só for ambíguo, e comece uma linha com # para deixar uma nota. Cole apenas endereços públicos: esta ligação é só de leitura, e o Securo nunca pede uma chave privada nem uma frase de recuperação.",
         "connect": "Vigiar endereços"
       }
     },
@@ -982,7 +982,7 @@
         "description": "Bancos dos EUA e internacionais via SimpleFIN Bridge"
       },
       "onchain": {
-        "description": "Carteiras Solana e EVM só de leitura, por endereço público"
+        "description": "Carteiras Bitcoin, Solana e EVM só de leitura, por endereço público"
       }
     },
     "reconnected": "Banco reconectado com sucesso"
@@ -1702,6 +1702,7 @@
     "emptyWallet": "Nenhum ativo nesta carteira ainda",
     "itemsCount": "itens",
     "moveToWallet": "Mover para carteira",
+    "traceOnChain": "Rastrear na cadeia",
     "moved": "Ativo movido",
     "noWallet": "Sem carteira",
     "noWalletsHint": "Cria uma carteira primeiro com o botão \"Nova Carteira\"",

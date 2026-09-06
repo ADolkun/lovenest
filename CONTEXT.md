@@ -212,6 +212,14 @@ a drawing of an address's neighbourhood: each hop inherits the previous
 transfer's instant as its horizon, because money cannot leave an address before
 it arrives there.
 
+**Change Address** — on Bitcoin, the output a spend pays back to its own
+sender because a transaction must consume whole outputs. Where it returns to an
+address the transaction already spent from, it is recognised and not counted as
+a payment; where a wallet sends it to a fresh address instead, nothing in the
+transaction tells it apart from one. A Transfer Trace therefore may follow a
+spender's own change, and is built to prefer that over losing the hop that
+carried the money.
+
 **Pooled Address** — an address that transacts at a rate no person does, so its
 balance is many parties' funds held together: an exchange, a bridge, a service.
 It is where a Transfer Trace ends. Past it the next movement is the operator's
