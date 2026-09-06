@@ -240,8 +240,42 @@ describe('owned wallet activity', () => {
     expect(onchain.trace).not.toHaveBeenCalled()
   })
 
-  it('does not submit a malformed minimum amount restored from a URL', async () => {
-    renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one&min_amount=0x10' })
+  it.each([
+    ['1.', '1'],
+    [' 1 ', '1'],
+    [' 12345678901234567890.123456789012345678 ', '12345678901234567890.123456789012345678'],
+    ['1.e-3', '1e-3'],
+    ['.123456789012345678E+2', '.123456789012345678E+2'],
+  ])('keeps URL minimum %s visible and submits its exact normalized value', async (value, expected) => {
+    const params = new URLSearchParams({ chain: 'solana', address: 'wallet-one', min_amount: value })
+    const { user } = renderWithProviders(panel(), { route: `/assets?${params}` })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    const amount = screen.getByRole('spinbutton', { name: 'Minimum amount (SOL)' }) as HTMLInputElement
+    expect(amount.value).toBe(expected)
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledWith(expect.objectContaining({ min_amount: expected }), 'investment'))
+  })
+
+  it.each([
+    '0000-01-01',
+    '0001-01-01T00:00:00+01:00',
+    '9999-12-31T23:59:59-01:00',
+    '+010000-01-01T00:00:00Z',
+  ])('does not retain the invisible date bound %s', async (value) => {
+    const params = new URLSearchParams({ chain: 'solana', address: 'wallet-one', since: value, until: value })
+    const { user } = renderWithProviders(panel(), { route: `/assets?${params}` })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('')
+    expect(screen.getByLabelText('Through (UTC)')).toHaveValue('')
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledOnce())
+    expect(onchain.trace.mock.calls[0][0]).not.toHaveProperty('since')
+    expect(onchain.trace.mock.calls[0][0]).not.toHaveProperty('until')
+  })
+
+  it.each(['0x10', '1..', '1..e3', '1e1.'])('does not submit malformed URL minimum %s', async (value) => {
+    const params = new URLSearchParams({ chain: 'solana', address: 'wallet-one', min_amount: value })
+    renderWithProviders(panel(), { route: `/assets?${params}` })
     await screen.findByRole('combobox', { name: 'Your wallet' })
     expect(screen.getByRole('button', { name: 'Explore transfers' })).toBeDisabled()
     expect(screen.getByText('Enter a nonnegative minimum amount.')).toBeInTheDocument()

@@ -185,7 +185,10 @@ function traceDateInput(value: string | null, endOfDay = false): string {
     ? `${value}T${endOfDay ? '23:59:59.999' : '00:00:00'}Z`
     : /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`
   const parsed = parseISO(timestamp)
-  return isValid(parsed) ? parsed.toISOString().slice(0, -1) : ''
+  // A timezone offset can move an otherwise four-digit date outside the
+  // range shared by the datetime input and trace API. Never retain an invisible bound.
+  return isValid(parsed) && parsed.getUTCFullYear() >= 1 && parsed.getUTCFullYear() <= 9999
+    ? parsed.toISOString().slice(0, -1) : ''
 }
 
 export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
@@ -199,7 +202,10 @@ export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
     direction: params.get('direction') === 'in' ? 'in' as const : 'out' as const,
     maxHops: HOP_OPTIONS.includes(Number(params.get('max_hops'))) ? String(Number(params.get('max_hops'))) : '3',
     maxBranches: BRANCH_OPTIONS.includes(Number(params.get('max_branches'))) ? String(Number(params.get('max_branches'))) : '3',
-    minAmount: params.get('min_amount') ?? '',
+    // HTML number inputs reject whitespace and a trailing decimal point.
+    // Normalize the spelling as text so the displayed and submitted amounts
+    // agree without rounding a precise quantity through a JS number.
+    minAmount: (params.get('min_amount') ?? '').trim().replace(/^(\d+)\.(e[+-]?\d+)?$/i, '$1$2'),
     since: traceDateInput(params.get('since')),
     until: traceDateInput(params.get('until'), true),
   }
