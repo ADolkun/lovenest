@@ -423,7 +423,9 @@ async def summaries(
     out = []
     for group_id, group_rows in by_group.items():
         wallet = wallets.get(group_id)
-        comparable = wallet is not None and wallet.currency is not None
+        comparable = (
+            wallet is not None and wallet.currency is not None and wallet.unvalued_count == 0
+        )
         summary = summarise(
             group_rows,
             as_of=as_of,

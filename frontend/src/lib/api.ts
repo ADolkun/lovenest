@@ -107,7 +107,7 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`
   }
   const workspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
-  if (workspaceId) {
+  if (workspaceId && !config.headers.has('X-Workspace-Id')) {
     config.headers['X-Workspace-Id'] = workspaceId
   }
   return config
@@ -1429,16 +1429,24 @@ export const reports = {
 
 // On-chain address tracing
 export const onchain = {
-  chains: async (): Promise<OnChainChain[]> => {
-    const { data } = await api.get('/onchain/chains')
+  chains: async (workspaceId?: string, signal?: AbortSignal): Promise<OnChainChain[]> => {
+    const { data } = await api.get('/onchain/chains', {
+      headers: workspaceId ? { 'X-Workspace-Id': workspaceId } : undefined,
+      signal,
+    })
     return data
   },
-  addresses: async (): Promise<OnChainWatchedAddress[]> => {
-    const { data } = await api.get('/onchain/addresses')
+  addresses: async (workspaceId?: string, signal?: AbortSignal): Promise<OnChainWatchedAddress[]> => {
+    const { data } = await api.get('/onchain/addresses', {
+      headers: workspaceId ? { 'X-Workspace-Id': workspaceId } : undefined,
+      signal,
+    })
     return data
   },
-  trace: async (payload: TraceRequest): Promise<TraceResult> => {
-    const { data } = await api.post('/onchain/trace', payload)
+  trace: async (payload: TraceRequest, workspaceId?: string): Promise<TraceResult> => {
+    const { data } = await api.post('/onchain/trace', payload, {
+      headers: workspaceId ? { 'X-Workspace-Id': workspaceId } : undefined,
+    })
     return data
   },
 }

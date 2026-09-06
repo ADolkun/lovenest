@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,10 +16,9 @@ if TYPE_CHECKING:
 class AssetGroup(Base):
     """A user-facing "wallet" that bundles related assets under one total.
 
-    Groups can be manually created (the user picks a name like "US Stocks"
-    or "Long-term fixed income") or auto-created when a provider syncs:
-    each Pluggy item becomes one group so brokerage positions collapse
-    into a single expandable row instead of 20 sibling cards.
+    Groups can be manually created and linked to an investment account, or
+    created by a provider for an attributable brokerage account. Positions
+    collapse into a single expandable row instead of sibling cards.
 
     Assets link via nullable `group_id` — deleting a group leaves its
     assets behind ungrouped rather than cascading away real user data.
@@ -27,6 +26,7 @@ class AssetGroup(Base):
 
     __tablename__ = "asset_groups"
     __table_args__ = (
+        UniqueConstraint("account_id", name="uq_asset_groups_account_id"),
         CheckConstraint(
             "tax_treatment IN ('taxable', 'roth', 'traditional', 'hsa', 'other')",
             name="ck_asset_groups_tax_treatment",
@@ -71,6 +71,11 @@ class AssetGroup(Base):
         UUID(as_uuid=True), ForeignKey("bank_connections.id", ondelete="SET NULL"), nullable=True
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Explicit identity for a manual portfolio. Provider wallets resolve the
+    # account through their holdings instead; names are never join keys.
+    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
+    )
     # The institution backing a synced wallet (issue #345); null for manual
     # wallets. Renders the "Synced from …" subtitle without falling back to
     # the connection's first institution.

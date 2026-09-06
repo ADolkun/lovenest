@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -10,6 +10,7 @@ import { extractApiError } from '@/lib/api-errors'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
 import { cn } from '@/lib/utils'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
+import { useWorkspace } from '@/contexts/workspace-context'
 import { PageHeader } from '@/components/page-header'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -81,22 +82,29 @@ function buildHops(result: TraceResult): Hop[] {
   return [...hops.values()].sort((a, b) => a.depth - b.depth)
 }
 
-function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
+function CopyButton({ value, label }: { value: string; label: string }) {
   const { t } = useTranslation()
-  const { mask } = usePrivacyMode()
   const [copied, setCopied] = useState(false)
-  const address = node?.address ?? id.split(':').slice(1).join(':')
-
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(address)
+      await navigator.clipboard.writeText(value)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {
       toast.error(t('trace.copyFailed'))
     }
   }
+  return (
+    <Button type="button" variant="ghost" size="icon" className="size-6 text-muted-foreground" onClick={copy} aria-label={label}>
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </Button>
+  )
+}
 
+function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
+  const { t } = useTranslation()
+  const { mask } = usePrivacyMode()
+  const address = node?.address ?? id.split(':').slice(1).join(':')
   return (
     <span className="inline-flex items-center gap-1">
       <Tooltip>
@@ -105,16 +113,7 @@ function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
         </TooltipTrigger>
         <TooltipContent className="font-mono text-xs">{address}</TooltipContent>
       </Tooltip>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-6 text-muted-foreground"
-        onClick={copy}
-        aria-label={t('trace.copyAddress')}
-      >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
-      </Button>
+      <CopyButton value={address} label={t('trace.copyAddress')} />
       {node?.balance != null && (
         <span className="text-xs text-muted-foreground">
           {mask(t('trace.balance', { amount: node.balance, symbol: node.symbol }))}
@@ -127,9 +126,8 @@ function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
 function TerminalMarker({ node }: { node: TraceNode }) {
   const { t } = useTranslation()
   const reason = node.terminal_reason as TraceTerminalReason
-  // Reaching a pooled address is the actionable outcome of a trace, not an
-  // error: it names the party who can be asked whose account received the
-  // funds. It is the one ending worth pulling the eye to.
+  // A busy address ends the bounded walk; activity alone does not identify
+  // its operator or prove where this user's funds ended up.
   const prominent = reason === 'pooled'
 
   return (
@@ -161,42 +159,77 @@ const HOP_OPTIONS = [1, 2, 3, 4, 5, 6]
 const BRANCH_OPTIONS = [1, 2, 3, 4, 5]
 
 export default function TracePage() {
+  const { t } = useTranslation()
+  const { hasModule, isLoading } = useWorkspace()
+  const [params] = useSearchParams()
+  if (isLoading) return <Skeleton className="h-32 w-full" />
+  if (hasModule('assets')) {
+    const destination = new URLSearchParams(params)
+    destination.set('tab', 'activity')
+    destination.set('activity', 'wallets')
+    return <Navigate to={`/assets?${destination}`} replace />
+  }
+  return <div><PageHeader section={t('accounts.title')} title={t('trace.title')} /><OwnedWalletActivity /></div>
+}
+
+interface OwnedWalletActivityProps {
+  connectionIds?: string[]
+  addressKeys?: string[]
+}
+
+export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
+  const { current } = useWorkspace()
+  const [params] = useSearchParams()
+  if (!current) return null
+  const initialAddress = params.has('chain') && params.has('address')
+    ? `${params.get('chain')}:${params.get('address')}`
+    : ''
+  // React Query resets queries on a workspace switch, but mutation results
+  // and local selection need to be discarded as well, including late replies.
+  const key = JSON.stringify([current.id, initialAddress, props.connectionIds, props.addressKeys])
+  return <WalletActivityForm key={key} {...props} workspaceId={current.id} initialAddress={initialAddress} />
+}
+
+function WalletActivityForm({
+  workspaceId, initialAddress, connectionIds, addressKeys,
+}: OwnedWalletActivityProps & { workspaceId: string; initialAddress: string }) {
   const { t, i18n } = useTranslation()
   const dateFnsLocale = resolveDateFnsLocale(i18n.resolvedLanguage ?? i18n.language)
-
-  // Seeded, not controlled, by the query string: the Assets page links here
-  // with the holding it was on, and after that the form is the user's.
-  const [params] = useSearchParams()
-  const [chain, setChain] = useState(() => params.get('chain') ?? '')
-  const [address, setAddress] = useState(() => params.get('address') ?? '')
+  const [selectedKey, setSelectedKey] = useState(initialAddress)
   const [direction, setDirection] = useState<TraceDirection>('out')
   const [maxHops, setMaxHops] = useState('3')
   const [maxBranches, setMaxBranches] = useState('3')
   const [minAmount, setMinAmount] = useState('')
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
   const { mask } = usePrivacyMode()
 
   const chainsQuery = useQuery({
-    queryKey: ['onchain', 'chains'],
-    queryFn: onchain.chains,
+    queryKey: ['onchain', 'chains', workspaceId],
+    queryFn: ({ signal }) => onchain.chains(workspaceId, signal),
     staleTime: Infinity,
   })
   const watchedQuery = useQuery({
-    queryKey: ['onchain', 'addresses'],
-    queryFn: onchain.addresses,
+    queryKey: ['onchain', 'addresses', workspaceId],
+    queryFn: ({ signal }) => onchain.addresses(workspaceId, signal),
+    staleTime: 0,
   })
 
   const traceMutation = useMutation({
-    mutationFn: onchain.trace,
-    onError: (error) => toast.error(extractApiError(error, t('trace.failed'))),
+    mutationFn: (payload: Parameters<typeof onchain.trace>[0]) => onchain.trace(payload, workspaceId),
   })
 
   const chains = chainsQuery.data ?? []
-  const chainsUnavailable = chainsQuery.isError
-  const watched = watchedQuery.data ?? []
-  const selectedChain = chains.find((c) => c.key === chain)
-  const canSubmit = Boolean(chain && address.trim()) && selectedChain?.traceable !== false
+  const watched = (watchedQuery.data ?? []).filter((entry) =>
+    (connectionIds === undefined || connectionIds.includes(entry.connection_id)) &&
+    (addressKeys === undefined || addressKeys.includes(`${entry.chain}:${entry.address}`)),
+  )
+  const selected = watched.find((entry) => `${entry.chain}:${entry.address}` === selectedKey)
+  const selectedChain = chains.find((entry) => entry.key === selected?.chain)
+  const invalidWindow = Boolean(since && until && since > until)
+  const canSubmit = Boolean(selected && selectedChain?.traceable && !invalidWindow && !watchedQuery.isError && !chainsQuery.isError)
 
-  const result = traceMutation.data
+  const result = selected && !watchedQuery.isError ? traceMutation.data : undefined
   const hops = useMemo(() => (result ? buildHops(result) : []), [result])
   const nodeById = useMemo(
     () => new Map((result?.nodes ?? []).map((node) => [node.id, node])),
@@ -205,163 +238,109 @@ export default function TracePage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!canSubmit) return
+    if (!canSubmit || !selected) return
     traceMutation.mutate({
-      chain,
-      address: address.trim(),
+      chain: selected.chain,
+      address: selected.address,
       direction,
       max_hops: Number(maxHops),
       max_branches: Number(maxBranches),
       ...(minAmount.trim() ? { min_amount: minAmount.trim() } : {}),
+      ...(since ? { since: `${since}T00:00:00Z` } : {}),
+      ...(until ? { until: `${until}T23:59:59.999Z` } : {}),
     })
   }
 
   return (
     <div>
-      <PageHeader section={t('trace.section')} title={t('trace.title')} />
-
       <Card className="mb-6">
         <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('trace.intro')}</p>
+          <form onSubmit={submit} onChange={() => traceMutation.reset()} className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="max-w-2xl text-sm text-muted-foreground">{t('trace.intro')}</p>
+              <Button asChild variant="outline" size="sm"><Link to="/accounts">{t('trace.manageWallets')}</Link></Button>
+            </div>
+            <Alert>{t('trace.nativeOnly')}</Alert>
 
-            {chainsUnavailable && (
-              <Alert variant="warning">{t('trace.chainsUnavailable')}</Alert>
+            {chainsQuery.isError && <Alert variant="warning">{t('trace.chainsUnavailable')}</Alert>}
+            {watchedQuery.isError && (
+              <Alert variant="warning">
+                {t('trace.addressesUnavailable')}
+                <Button type="button" variant="outline" size="sm" onClick={() => void watchedQuery.refetch()}>{t('common.retry')}</Button>
+              </Alert>
             )}
+            {(watchedQuery.isPending || chainsQuery.isPending) && <Skeleton className="h-10 w-full" />}
+            {watchedQuery.isSuccess && watched.length === 0 && <p className="text-sm text-muted-foreground">{t('trace.noWallets')}</p>}
 
             {watched.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>{t('trace.quickPick')}</Label>
-                <div className="flex flex-wrap gap-2">
-                  {watched.map((entry) => (
-                    <Button
-                      key={`${entry.chain}:${entry.address}`}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setChain(entry.chain)
-                        setAddress(entry.address)
-                      }}
-                    >
-                      {entry.label}
-                    </Button>
-                  ))}
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="trace-wallet">{t('trace.wallet')}</Label>
+                    <Select value={selected ? selectedKey : ''} onValueChange={(value) => { setSelectedKey(value); traceMutation.reset() }}>
+                      <SelectTrigger id="trace-wallet" className="w-full"><SelectValue placeholder={t('trace.walletPlaceholder')} /></SelectTrigger>
+                      <SelectContent>
+                        {watched.map((entry) => (
+                          <SelectItem key={`${entry.connection_id}:${entry.chain}:${entry.address}`} value={`${entry.chain}:${entry.address}`}>
+                            {entry.connection_name} · {entry.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedKey && !selected && <p className="text-xs text-muted-foreground">{t('trace.unknownWallet')}</p>}
+                    {selectedChain && !selectedChain.traceable && <p className="text-xs text-muted-foreground">{t('trace.chainNotTraceable')}</p>}
+                    {selected && <p className="break-all font-mono text-xs text-muted-foreground">{selected.address}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="trace-direction">{t('trace.direction')}</Label>
+                    <Select value={direction} onValueChange={(value) => { setDirection(value as TraceDirection); traceMutation.reset() }}>
+                      <SelectTrigger id="trace-direction" className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="out">{t('trace.directionOut')}</SelectItem>
+                        <SelectItem value="in">{t('trace.directionIn')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="trace-since">{t('trace.since')}</Label>
+                    <Input id="trace-since" type="date" value={since} max={until || undefined} onChange={(event) => setSince(event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="trace-until">{t('trace.until')}</Label>
+                    <Input id="trace-until" type="date" value={until} min={since || undefined} onChange={(event) => setUntil(event.target.value)} />
+                  </div>
                 </div>
-              </div>
+                {invalidWindow && <Alert variant="warning">{t('trace.invalidWindow')}</Alert>}
+                <details className="rounded-lg border border-border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">{t('trace.advanced')}</summary>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="trace-min-amount">{t('trace.minAmount')}</Label>
+                      <Input id="trace-min-amount" type="number" min="0" step="any" inputMode="decimal" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder={t('trace.minAmountPlaceholder')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="trace-max-hops">{t('trace.maxHops')}</Label>
+                      <Select value={maxHops} onValueChange={(value) => { setMaxHops(value); traceMutation.reset() }}>
+                        <SelectTrigger id="trace-max-hops" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{HOP_OPTIONS.map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">{t('trace.maxHopsHelp')}</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="trace-max-branches">{t('trace.maxBranches')}</Label>
+                      <Select value={maxBranches} onValueChange={(value) => { setMaxBranches(value); traceMutation.reset() }}>
+                        <SelectTrigger id="trace-max-branches" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{BRANCH_OPTIONS.map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">{t('trace.maxBranchesHelp')}</p>
+                    </div>
+                  </div>
+                </details>
+                <Button type="submit" disabled={!canSubmit || traceMutation.isPending}>
+                  {traceMutation.isPending ? t('trace.tracing') : t('trace.submit')}
+                </Button>
+              </>
             )}
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-chain">{t('trace.chain')}</Label>
-                <Select value={chain} onValueChange={setChain}>
-                  <SelectTrigger id="trace-chain" className="w-full">
-                    <SelectValue placeholder={t('trace.chainPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {chains.map((option) => (
-                      <SelectItem
-                        key={option.key}
-                        value={option.key}
-                        disabled={!option.traceable}
-                      >
-                        <span className="flex items-center gap-2">
-                          {option.display_name}
-                          {!option.traceable && (
-                            <span className="text-xs text-muted-foreground">
-                              {t('trace.chainNotTraceable')}
-                            </span>
-                          )}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {chains.some((option) => !option.traceable) && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('trace.chainNotTraceableHelp')}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-address">{t('trace.address')}</Label>
-                <Input
-                  id="trace-address"
-                  className="font-mono"
-                  value={address}
-                  onChange={(event) => setAddress(event.target.value)}
-                  placeholder={t('trace.addressPlaceholder')}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-direction">{t('trace.direction')}</Label>
-                <Select
-                  value={direction}
-                  onValueChange={(value) => setDirection(value as TraceDirection)}
-                >
-                  <SelectTrigger id="trace-direction" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="out">{t('trace.directionOut')}</SelectItem>
-                    <SelectItem value="in">{t('trace.directionIn')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-min-amount">{t('trace.minAmount')}</Label>
-                <Input
-                  id="trace-min-amount"
-                  inputMode="decimal"
-                  value={minAmount}
-                  onChange={(event) => setMinAmount(event.target.value)}
-                  placeholder={t('trace.minAmountPlaceholder')}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-max-hops">{t('trace.maxHops')}</Label>
-                <Select value={maxHops} onValueChange={setMaxHops}>
-                  <SelectTrigger id="trace-max-hops" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {HOP_OPTIONS.map((value) => (
-                      <SelectItem key={value} value={String(value)}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{t('trace.maxHopsHelp')}</p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="trace-max-branches">{t('trace.maxBranches')}</Label>
-                <Select value={maxBranches} onValueChange={setMaxBranches}>
-                  <SelectTrigger id="trace-max-branches" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BRANCH_OPTIONS.map((value) => (
-                      <SelectItem key={value} value={String(value)}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{t('trace.maxBranchesHelp')}</p>
-              </div>
-            </div>
-
-            <Button type="submit" disabled={!canSubmit || traceMutation.isPending}>
-              {traceMutation.isPending ? t('trace.tracing') : t('trace.submit')}
-            </Button>
           </form>
         </CardContent>
       </Card>
@@ -414,6 +393,11 @@ export default function TracePage() {
                     {format(new Date(edge.occurred_at), 'MMM d, yyyy HH:mm', {
                       locale: dateFnsLocale,
                     })}
+                  </span>
+                  <span className="flex w-full items-center gap-1 text-xs text-muted-foreground">
+                    {t('trace.transactionReference')}
+                    <span className="min-w-0 truncate font-mono" title={edge.reference}>{shorten(edge.reference)}</span>
+                    <CopyButton value={edge.reference} label={t('trace.copyReference')} />
                   </span>
                 </div>
               ))}

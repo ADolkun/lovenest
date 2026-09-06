@@ -1029,6 +1029,10 @@ export interface AssetGroup {
   tax_treatment: TaxTreatment
   source: string
   connection_id: string | null
+  /** Explicit manual link or an unambiguous provider account; absent on older servers. */
+  account_id?: string | null
+  /** Active holdings missing a usable valuation. A subtotal is not a complete balance. */
+  unvalued_count?: number
   institution_name: string | null
   // `type` of the provider account this wallet mirrors — what allocation by
   // account type groups on. Null for manual wallets.
@@ -1582,6 +1586,7 @@ export interface OnChainWatchedAddress {
   address: string
   label: string
   connection_id: string
+  connection_name: string
 }
 
 export type TraceDirection = 'out' | 'in'

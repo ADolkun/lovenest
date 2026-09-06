@@ -23,7 +23,7 @@ class AssetGroupBase(BaseModel):
 
 
 class AssetGroupCreate(AssetGroupBase):
-    pass
+    account_id: Optional[uuid.UUID] = None
 
 
 class AssetGroupUpdate(BaseModel):
@@ -32,6 +32,7 @@ class AssetGroupUpdate(BaseModel):
     color: Optional[str] = None
     position: Optional[int] = None
     tax_treatment: Optional[TaxTreatment] = None
+    account_id: Optional[uuid.UUID] = None
 
 
 class AssetGroupRead(AssetGroupBase):
@@ -39,18 +40,21 @@ class AssetGroupRead(AssetGroupBase):
     user_id: uuid.UUID
     source: str = "manual"
     connection_id: Optional[uuid.UUID] = None
+    # Explicit manual link or unambiguous provider attribution, never a name match.
+    account_id: Optional[uuid.UUID] = None
     # The originating institution — preserved as context even if the user
     # renames the wallet to something like "Renda Fixa Longo Prazo".
     # Null for manual wallets, a bank/broker name for synced ones.
     institution_name: Optional[str] = None
-    # The `type` of the provider account this wallet mirrors (#76: one wallet
-    # per provider account) — what allocation by account type groups on. Null
-    # for a manual wallet, or a synced one no account could be matched to.
+    # Type of the explicitly linked manual account or attributed provider
+    # account. Null when the portfolio has no unambiguous account identity.
     account_type: Optional[str] = None
     # Convenience rollup — filled by the service. Expressed in the group's
     # asset currencies without conversion; the frontend already handles
     # multi-currency totals.
     asset_count: int = 0
+    # Holdings absent from the total because their current value is unknown.
+    unvalued_count: int = 0
     current_value: float = 0.0
     current_value_primary: float = 0.0
     # The provider-reported balance of the account this wallet mirrors, in the

@@ -21,6 +21,7 @@ from app.schemas.asset_group import (
     TaxTreatment,
 )
 from app.services.fx_rate_service import convert
+from app.services.asset_valuation import current_value_amount
 
 
 async def ensure_group_in_workspace(
@@ -63,6 +64,8 @@ def _group_to_read(
     institution_name: Optional[str] = None,
     account_type: Optional[str] = None,
     account_balance: Optional[Decimal] = None,
+    account_id: Optional[uuid.UUID] = None,
+    unvalued_count: int = 0,
 ) -> AssetGroupRead:
     return AssetGroupRead(
         id=group.id,
@@ -76,9 +79,11 @@ def _group_to_read(
         tax_treatment=cast(TaxTreatment, group.tax_treatment),
         source=group.source,
         connection_id=group.connection_id,
+        account_id=account_id,
         institution_name=institution_name,
         account_type=account_type,
         asset_count=asset_count,
+        unvalued_count=unvalued_count,
         # Decimal → round to 2dp → float at the API boundary. Precision is
         # preserved inside the sum; the float conversion is only for the
         # JSON response shape and is bounded to 2 decimals.
@@ -93,8 +98,8 @@ def _group_to_read(
 
 async def _rollup(
     session: AsyncSession, group: AssetGroup, primary_currency: str
-) -> tuple[int, Decimal, Decimal, Optional[str]]:
-    """Compute (asset_count, current_value, current_value_primary, currency).
+) -> tuple[int, Decimal, Decimal, Optional[str], int]:
+    """Compute (count, value, primary_value, currency, unvalued_count).
 
     `currency` is the one its holdings are denominated in, or None where they
     disagree or there are none — a wallet that has no single currency has no
@@ -123,7 +128,7 @@ async def _rollup(
         )
     )
     asset_list = list(assets.scalars().all())
-    current_value, current_value_primary = await _sum_asset_values(
+    current_value, current_value_primary, unvalued_count = await _sum_asset_values(
         session, asset_list, primary_currency
     )
     currencies = {asset.currency for asset in asset_list}
@@ -132,21 +137,20 @@ async def _rollup(
         current_value,
         current_value_primary,
         currencies.pop() if len(currencies) == 1 else None,
+        unvalued_count,
     )
 
 
 async def _sum_asset_values(
     session: AsyncSession, asset_list: list[Asset], primary_currency: str
-) -> tuple[Decimal, Decimal]:
+) -> tuple[Decimal, Decimal, int]:
     current_value = Decimal("0")
     current_value_primary = Decimal("0")
+    unvalued_count = 0
     for asset in asset_list:
-        latest = await _latest_value_amount(session, asset.id)
+        latest = current_value_amount(asset, await _latest_value_amount(session, asset.id))
         if latest is None:
-            # Fall back to purchase_price if no value history yet — same
-            # logic _compute_current_value uses on the asset read path.
-            latest = asset.purchase_price
-        if latest is None:
+            unvalued_count += 1
             continue
 
         current_value += latest
@@ -157,7 +161,7 @@ async def _sum_asset_values(
                 session, latest, asset.currency, primary_currency
             )
             current_value_primary += converted
-    return current_value, current_value_primary
+    return current_value, current_value_primary, unvalued_count
 
 
 async def ungrouped_value(
@@ -178,7 +182,7 @@ async def ungrouped_value(
             Asset.sell_date.is_(None),
         )
     )
-    _, primary_total = await _sum_asset_values(session, list(result.scalars().all()), primary)
+    _, primary_total, _ = await _sum_asset_values(session, list(result.scalars().all()), primary)
     return primary_total
 
 
@@ -202,40 +206,25 @@ async def _institution_name_for(
     return row.scalar_one_or_none()
 
 
-async def _account_type_and_balance_for(
-    session: AsyncSession, group: AssetGroup, primary_currency: str
-) -> tuple[Optional[str], Optional[Decimal]]:
-    """The (type, balance) of the provider account a synced wallet mirrors.
+async def _account_for_group(session: AsyncSession, group: AssetGroup) -> Optional[Account]:
+    """Resolve identity from an explicit manual link or provider attribution.
 
-    One wallet per provider account (#76), reached through the holdings it
-    owns: the wallet's own `external_id` is "{connection}::{account}" and is
-    digest-truncated when that overflows the column, so it does not parse back
-    into an account id. `Asset.account_external_id` carries the attribution
-    unchanged. This is the join that lets allocation be grouped by account
-    type, and that carries the balance Liquid Cash is derived against.
-
-    Both are None for a manual wallet — a synced holding the user dragged into
-    one still belongs to the account it came from, but the wallet does not, and
-    reporting the balance twice would invent the cash a second time. Both are
-    None too for a connection-level wallet holding positions the provider
-    attributed to no account, and whenever the live holdings name more than one
-    account — an unsplit legacy wallet has no single balance to subtract from,
-    and guessing one would invent cash just the same.
-
-    Counts the same holdings `_rollup` does, and no others: an archived or sold
-    row left behind by a sibling account would otherwise read as a second
-    account forever, silently switching allocation off for a wallet the UI
-    still shows as live.
-
-    The balance comes back in the primary currency, because the only thing that
-    subtracts from it is `current_value_primary`. `Account.balance_primary` is
-    not stored — the accounts API converts on read — so this converts the same
-    way rather than trusting a column nothing fills.
+    Provider wallet keys may be digest-truncated, so join through the original
+    account_external_id on their active holdings. A manual wallet never inherits
+    an account merely because a synced holding was moved into it.
     """
     if group.source == "manual":
-        return None, None
+        if group.account_id is None:
+            return None
+        return (await session.execute(select(Account).where(
+            Account.id == group.account_id,
+            Account.workspace_id == group.workspace_id,
+            Account.connection_id.is_(None),
+            Account.type == "investment",
+            Account.is_closed == False,
+        ))).scalar_one_or_none()
     query = (
-        select(Account.id, Account.type, Account.balance, Account.currency)
+        select(Account)
         .join(Asset, Asset.account_external_id == Account.external_id)
         .where(
             Asset.group_id == group.id,
@@ -243,6 +232,7 @@ async def _account_type_and_balance_for(
             Asset.is_archived == False,  # noqa: E712 — SQL, not Python truthiness
             Asset.sell_date.is_(None),
             Account.workspace_id == group.workspace_id,
+            Account.is_closed == False,
         )
     )
     if group.connection_id is not None:
@@ -250,19 +240,69 @@ async def _account_type_and_balance_for(
         # two live connections carrying the same provider id would otherwise let
         # a wallet read the sibling's balance.
         query = query.where(Account.connection_id == group.connection_id)
-    # The PK is what makes DISTINCT mean *distinct accounts*: two accounts that
-    # happen to share a type, balance and currency would collapse into one row
-    # and read as unambiguous.
-    rows = (await session.execute(query.distinct().limit(2))).all()
-    if len(rows) != 1:
-        return None, None
-    _, account_type, balance, currency = rows[0]
+    rows = (await session.execute(query.distinct().limit(2))).scalars().all()
+    return rows[0] if len(rows) == 1 else None
+
+
+async def _account_type_and_balance_for(
+    session: AsyncSession, group: AssetGroup, primary_currency: str
+) -> tuple[Optional[str], Optional[Decimal], Optional[uuid.UUID]]:
+    """Return type, provider-inclusive balance in primary currency, and identity.
+
+    A manual account link identifies where holdings belong, but its cash ledger
+    is not a provider-inclusive total. Leave account_balance unknown so callers
+    cannot derive Liquid Cash by subtracting holdings from that ledger.
+    """
+    account = await _account_for_group(session, group)
+    if account is None:
+        return None, None, None
+    if group.source == "manual":
+        return account.type, None, account.id
+    balance, currency = account.balance, account.currency
     if balance is None:
-        return account_type, None
+        return account.type, None, account.id
     if currency == primary_currency:
-        return account_type, balance
+        return account.type, balance, account.id
     converted, _ = await convert(session, balance, currency, primary_currency)
-    return account_type, converted
+    return account.type, converted, account.id
+
+
+async def _validate_account_link(
+    session: AsyncSession, group: AssetGroup, account_id: Optional[uuid.UUID]
+) -> None:
+    if group.source != "manual":
+        raise HTTPException(status_code=400, detail="Synced portfolios use their provider account")
+    if account_id is None:
+        return
+    # Lock the account until commit so two concurrent link requests cannot both
+    # pass the resolved-wallet check. The unique constraint also protects writes
+    # outside this service.
+    account = (await session.execute(select(Account).where(
+        Account.id == account_id, Account.workspace_id == group.workspace_id,
+    ).with_for_update())).scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if account.connection_id is not None or account.type != "investment" or account.is_closed:
+        raise HTTPException(status_code=400, detail="Choose an open manual investment account")
+    others = (await session.execute(select(AssetGroup).where(
+        AssetGroup.workspace_id == group.workspace_id, AssetGroup.id != group.id,
+    ))).scalars().all()
+    for other in others:
+        resolved = await _account_for_group(session, other)
+        if other.account_id == account_id or (resolved is not None and resolved.id == account_id):
+            raise HTTPException(status_code=409, detail="Account is already linked to a portfolio")
+
+
+async def _commit_group(session: AsyncSession) -> None:
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if "uq_asset_groups_account_id" in str(exc.orig) or "asset_groups.account_id" in str(exc.orig):
+            raise HTTPException(
+                status_code=409, detail="Account is already linked to a portfolio"
+            ) from exc
+        raise
 
 
 async def _primary_currency_for(session: AsyncSession, user_id: uuid.UUID) -> str:
@@ -286,7 +326,7 @@ async def get_groups(
     primary = await _primary_currency_for(session, user_id)
     reads = []
     for g in groups:
-        count, cv, cvp, ccy = await _rollup(session, g, primary)
+        count, cv, cvp, ccy, unvalued = await _rollup(session, g, primary)
         # Synced wallets are auto-generated by providers. Keep manual wallets
         # visible even when empty, but hide empty synced wallets (connected or
         # orphaned) to avoid duplicate provider placeholders like
@@ -294,8 +334,10 @@ async def get_groups(
         if g.source != "manual" and count == 0:
             continue
         institution = await _institution_name_for(session, g)
-        account_type, balance = await _account_type_and_balance_for(session, g, primary)
-        reads.append(_group_to_read(g, count, cv, cvp, ccy, institution, account_type, balance))
+        account_type, balance, account_id = await _account_type_and_balance_for(session, g, primary)
+        reads.append(_group_to_read(
+            g, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+        ))
     return reads
 
 
@@ -312,10 +354,12 @@ async def get_group(
     if not group:
         return None
     primary = await _primary_currency_for(session, user_id)
-    count, cv, cvp, ccy = await _rollup(session, group, primary)
+    count, cv, cvp, ccy, unvalued = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group)
-    account_type, balance = await _account_type_and_balance_for(session, group, primary)
-    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
+    account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
+    return _group_to_read(
+        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+    )
 
 
 async def _next_position(session: AsyncSession, workspace_id: uuid.UUID) -> int:
@@ -348,10 +392,15 @@ async def create_group(
         tax_treatment=data.tax_treatment,
         source="manual",
     )
+    await _validate_account_link(session, group, data.account_id)
+    group.account_id = data.account_id
     session.add(group)
-    await session.commit()
+    await _commit_group(session)
     await session.refresh(group)
-    return _group_to_read(group, 0, Decimal("0"), Decimal("0"), None, None)
+    return _group_to_read(
+        group, 0, Decimal("0"), Decimal("0"),
+        account_id=data.account_id, account_type="investment" if data.account_id else None,
+    )
 
 
 async def update_group(
@@ -367,15 +416,19 @@ async def update_group(
     group = result.scalar_one_or_none()
     if not group:
         return None
+    if "account_id" in data.model_fields_set:
+        await _validate_account_link(session, group, data.account_id)
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(group, key, value)
-    await session.commit()
+    await _commit_group(session)
     await session.refresh(group)
     primary = await _primary_currency_for(session, user_id)
-    count, cv, cvp, ccy = await _rollup(session, group, primary)
+    count, cv, cvp, ccy, unvalued = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group)
-    account_type, balance = await _account_type_and_balance_for(session, group, primary)
-    return _group_to_read(group, count, cv, cvp, ccy, institution, account_type, balance)
+    account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
+    return _group_to_read(
+        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+    )
 
 
 async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
