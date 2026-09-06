@@ -40,6 +40,7 @@ from app.providers.base import (
     BankProvider,
     ConnectionData,
     HoldingData,
+    PartialHoldings,
     ProviderNotConfiguredError,
     ProviderRateLimited,
     ProviderUserActionRequired,
@@ -1356,7 +1357,11 @@ class OnChainProvider(BankProvider):
         return []
 
     async def get_accounts(self, credentials: dict) -> list[AccountData]:
-        holdings = await self.get_holdings(credentials)
+        # An address that cannot be read leaves this total short instead of
+        # failing: the balance is derived and rewritten every sync, so it
+        # self-corrects, while `get_holdings` still keeps the sweep off the
+        # positions behind that address.
+        holdings, _ = await self._read(credentials)
         total = sum((h.current_value for h in holdings), Decimal("0"))
         return [
             AccountData(
@@ -1378,18 +1383,43 @@ class OnChainProvider(BankProvider):
         Both raise rather than return short. Every holding this omits, the sync
         layer archives, so a partial answer here is indistinguishable from a
         liquidated wallet — and unlike a stale value, an archived asset does not
-        come back on its own.
+        come back on its own. An address that fails is named in
+        ``PartialHoldings`` so the rest of the connection can still sync while
+        that one's positions are left alone.
+        """
+        holdings, unreadable = await self._read(credentials)
+        if unreadable:
+            raise PartialHoldings(holdings, unreadable)
+        return holdings
+
+    async def _read(self, credentials: dict) -> tuple[list[HoldingData], list[str]]:
+        """Every readable address's positions, plus the ids of those that failed.
+
+        Failure is per address, not per read: a wallet whose native balance
+        answers but whose token index does not is unread as a whole, because
+        keeping the half that answered would archive the other half.
         """
         watched = self._watched(credentials)
         prices = await usd_spot_prices()
         holdings: list[HoldingData] = []
+        unreadable: list[str] = []
         async with session() as client:
             for entry in watched:
-                native = await self._native_holding(entry, prices, client)
+                try:
+                    native = await self._native_holding(entry, prices, client)
+                    tokens = await self._token_holdings(entry, client)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Could not read %s; leaving its holdings untouched",
+                        entry.external_id,
+                        exc_info=True,
+                    )
+                    unreadable.append(entry.external_id)
+                    continue
                 if native is not None:
                     holdings.append(native)
-                holdings.extend(await self._token_holdings(entry, client))
-        return holdings
+                holdings.extend(tokens)
+        return holdings, unreadable
 
     @staticmethod
     async def _native_holding(

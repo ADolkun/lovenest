@@ -37,6 +37,7 @@ from app.providers import get_provider
 from app.providers.base import (
     AccountData,
     HoldingData,
+    PartialHoldings,
     ProviderNotConfiguredError,
     ProviderRateLimited,
     ProviderUserActionRequired,
@@ -343,9 +344,21 @@ async def _sync_holdings(
     # specific connector, a bank that doesn't expose /investments).
     # Storage errors below are intentionally not caught — they indicate
     # a schema/invariant bug we want to surface, not a hiccup to swallow.
+    # Scopes the provider read nothing for this run. Their assets are held
+    # back from the archive sweep below — silence about a position is not a
+    # report that it closed.
+    unreadable: list[str] = []
     try:
         provider = get_provider(connection.provider)
         holdings = await provider.get_holdings(credentials)
+    except PartialHoldings as partial:
+        logger.warning(
+            "Partial holdings for connection %s: %d scope(s) unreadable (%s)",
+            connection.id,
+            len(partial.unreadable),
+            ", ".join(partial.unreadable),
+        )
+        holdings, unreadable = partial.holdings, partial.unreadable
     except Exception:  # noqa: BLE001
         logger.exception(
             "Failed to fetch holdings for connection %s", connection.id
@@ -673,7 +686,11 @@ async def _sync_holdings(
         if asset.external_id
         and (asset.connection_id == connection.id or asset.connection_id is None)
     }
-    seen: set[str] = set(excluded_external_ids)
+    seen: set[str] = set(excluded_external_ids) | {
+        ext_id
+        for ext_id in archive_candidates
+        if any(ext_id == scope or ext_id.startswith(f"{scope}:") for scope in unreadable)
+    }
 
     for holding in holdings:
         seen.add(holding.external_id)

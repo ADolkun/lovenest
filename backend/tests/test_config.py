@@ -160,3 +160,23 @@ def test_local_auth_disabled_requires_complete_oidc_configuration(
             local_auth_enabled=False,
             _secrets_dir=str(secrets),
         )
+
+
+def test_blank_onchain_rpc_urls_loads(tmp_path: Path, secrets: Path):
+    """Compose passes ONCHAIN_RPC_URLS through unset as an empty string, which
+    is not JSON — startup must survive it rather than abort on every upgrade."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("SECRET_KEY=x\nONCHAIN_RPC_URLS=\n")
+
+    settings = Settings(_env_file=str(env_file), _secrets_dir=str(secrets))
+
+    assert settings.onchain_rpc_urls == {}
+
+
+def test_onchain_rpc_urls_json_still_parses(tmp_path: Path, secrets: Path):
+    env_file = tmp_path / ".env"
+    env_file.write_text('SECRET_KEY=x\nONCHAIN_RPC_URLS={"solana":"https://node.example"}\n')
+
+    settings = Settings(_env_file=str(env_file), _secrets_dir=str(secrets))
+
+    assert settings.onchain_rpc_urls == {"solana": "https://node.example"}

@@ -301,6 +301,22 @@ class SessionExpiredError(Exception):
     """Raised when a provider session/consent has expired and reauth is required."""
 
 
+class PartialHoldings(Exception):
+    """Raised when a provider read part of a connection and not the rest.
+
+    ``unreadable`` names the scopes it could not answer for — an
+    ``external_id``, or the prefix before a ``:`` of every id nested under it.
+    The sync layer keeps the assets under those scopes exactly as they are: an
+    unread position is not a closed one, and the archive sweep cannot tell the
+    difference from a short list alone.
+    """
+
+    def __init__(self, holdings: list["HoldingData"], unreadable: list[str]) -> None:
+        super().__init__(f"{len(unreadable)} scope(s) could not be read")
+        self.holdings = holdings
+        self.unreadable = unreadable
+
+
 class ProviderUserActionRequired(Exception):
     """Raised when a provider needs the user to take an action outside the app.
 

@@ -20,11 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import Asset
 from app.models.bank_connection import BankConnection
 from app.providers import register_provider
-from app.providers.onchain import SOLANA_TOKEN_PROGRAMS, OnChainProvider
+from app.providers import onchain
+from app.providers.base import PartialHoldings
+from app.providers.onchain import CHAINS, SOLANA_TOKEN_PROGRAMS, OnChainProvider
 from app.services.connection_service import _sync_holdings
 
 from tests.test_providers_onchain import (
     A,
+    EVM,
     MINT_A,
     MINT_B,
     _jupiter_row,
@@ -177,3 +180,90 @@ async def test_an_unvouched_token_is_stored_without_a_ticker_or_a_value(
     # symbol nobody vouched for must not be able to reach it.
     assert token.type == "crypto"
     assert (token.external_metadata or {})["token_trusted"] is False
+
+
+def _two_chain_handler(*, mints: dict[str, tuple[str, str, bool]], evm_up: bool):
+    """Solana healthy; the EVM chain either answers or refuses everything."""
+    solana = _wallet_handler(mints=mints)
+    solana_host = httpx.URL(CHAINS["solana"].default_rpc_url).host
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if host in (solana_host, "lite-api.jup.ag"):
+            return solana(request)
+        if not evm_up:
+            return httpx.Response(503)
+        if "blockscout" in host:
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"result": "0xde0b6b3a7640000", "id": 1})
+
+    return handler
+
+
+@pytest.fixture
+def _no_backoff():
+    with patch.object(onchain, "RPC_RETRY_BACKOFF_SECONDS", 0):
+        yield
+
+
+async def test_an_unreachable_chain_costs_only_its_own_addresses(
+    session: AsyncSession, test_user, test_workspace, _no_backoff
+):
+    """The point of #131: one dead RPC used to stop the whole connection.
+
+    The addresses that answered must keep syncing — including archiving a
+    token they now report as spent — while the address nobody could read keeps
+    everything it had.
+    """
+    conn = await _connection(session, test_user, test_workspace)
+    conn.credentials = {"addresses": [f"solana:{A}", f"base:{EVM}"]}
+    await session.commit()
+
+    both = _two_chain_handler(
+        mints={MINT_A: ("5000000", "USDC", True), MINT_B: ("2000000", "JUP", True)},
+        evm_up=True,
+    )
+    with _settings(), _patched_client(both), patch(
+        "app.providers.onchain.usd_spot_prices",
+        return_value={"SOL": Decimal("100"), "ETH": Decimal("2000")},
+    ):
+        await _sync_holdings(session, test_user.id, conn, conn.credentials or {})
+    await session.commit()
+    assert f"base:{EVM}" in await _assets(session, conn)
+
+    spent_and_evm_down = _two_chain_handler(
+        mints={MINT_A: ("5000000", "USDC", True)}, evm_up=False
+    )
+    with _settings(), _patched_client(spent_and_evm_down), patch(
+        "app.providers.onchain.usd_spot_prices",
+        return_value={"SOL": Decimal("100"), "ETH": Decimal("2000")},
+    ):
+        await _sync_holdings(session, test_user.id, conn, conn.credentials or {})
+    await session.commit()
+
+    assets = await _assets(session, conn)
+    assert assets[f"base:{EVM}"].is_archived is False
+    assert assets[f"solana:{A}:{MINT_B}"].is_archived is True
+    assert assets[f"solana:{A}:{MINT_A}"].is_archived is False
+
+
+async def test_the_provider_names_the_address_it_could_not_read(_no_backoff):
+    """`get_accounts` must not raise on it either — it runs before holdings do,
+    outside the handler that keeps a failed sync from wiping values."""
+    credentials = {"addresses": [f"solana:{A}", f"base:{EVM}"]}
+    handler = _two_chain_handler(mints={MINT_A: ("5000000", "USDC", True)}, evm_up=False)
+    provider = OnChainProvider()
+
+    with _settings(), _patched_client(handler), patch(
+        "app.providers.onchain.usd_spot_prices", return_value={"SOL": Decimal("100")}
+    ):
+        with pytest.raises(PartialHoldings) as raised:
+            await provider.get_holdings(credentials)
+        [account] = await provider.get_accounts(credentials)
+
+    assert raised.value.unreadable == [f"base:{EVM}"]
+    assert {h.external_id for h in raised.value.holdings} == {
+        f"solana:{A}",
+        f"solana:{A}:{MINT_A}",
+    }
+    assert account.balance > 0
