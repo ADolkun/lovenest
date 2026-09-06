@@ -129,6 +129,7 @@ async def test_provider_account_identity_uses_attribution_and_blocks_manual_dupl
                       account_external_id=account.external_id))
     await session.commit()
     read = await asset_group_service.get_group(session, group.id, test_workspace.id, test_user.id)
+    assert read is not None
     assert read.account_id == account.id
     duplicate = await client.post("/api/asset-groups", headers=auth_headers,
                                   json={"name": "Duplicate", "account_id": str(account.id)})
@@ -162,6 +163,7 @@ async def test_unknown_and_zero_portfolio_values_are_distinct(
                           valuation_method="market_price", units=Decimal("2"), last_price=price))
         await session.flush()
         read = await asset_group_service.get_group(session, group.id, test_workspace.id, test_user.id)
+        assert read is not None
         assert read.current_value_primary == 0
         assert read.asset_count == 1
         assert read.unvalued_count == missing
