@@ -1801,7 +1801,10 @@
     "contribErrDate": "Choisissez une date.",
     "contribErrTaxYear": "Saisissez une année fiscale à quatre chiffres.",
     "contribErrEmployerDistribution": "Seul un versement peut venir d'un employeur.",
-    "contribErrVestingOwnMoney": "Seul l'argent de l'employeur s'acquiert."
+    "contribErrVestingOwnMoney": "Seul l'argent de l'employeur s'acquiert.",
+    "allocationScopeHint": "Allocation covers invested ticker holdings. Cash and other assets are listed separately.",
+    "walletDetailsHint": "Open a wallet for individual holdings, small balances, and editing.",
+    "viewWalletDetails": "View wallet details"
   },
   "reports": {
     "section": "Analyses",
@@ -2552,11 +2555,27 @@
     "addressesUnavailable": "Could not load your saved wallet addresses.",
     "unknownWallet": "This address is not among the saved wallets in this view. Choose one from the list.",
     "advanced": "Advanced trail settings",
-    "since": "From date (UTC)",
-    "until": "Through date (UTC)",
+    "since": "From (UTC)",
+    "until": "Through (UTC)",
     "invalidWindow": "The end date must be on or after the start date.",
     "transactionReference": "Transaction",
-    "copyReference": "Copy transaction reference"
+    "copyReference": "Copy transaction reference",
+    "exploreTitle": "Trace your coins",
+    "utcHint": "Times and results use UTC. Narrow the range to a transfer or distribution date.",
+    "invalidAmount": "Enter a nonnegative minimum amount.",
+    "researchTitle": "Research Celsius, BlockFi or other distributions",
+    "researchIntro": "Use wallet activity to follow an on-chain receipt or send. Keep the distribution notice and receiving account history alongside the trail.",
+    "researchReceipt": "Choose your receiving wallet and follow where the funds came from. Set the UTC range around the receipt; switch direction to follow a later send.",
+    "researchMatch": "Match the chain, exact coin quantity and transaction reference against the notice or exchange withdrawal. Copy the trace link to revisit the settings and download the result to retain this snapshot.",
+    "researchRecords": "Claims, custodial receipts and sales (including Venmo, PayPal and exchanges), fees, token transfers and cost basis need their own records. A matching amount alone does not prove the source, ownership or basis.",
+    "resultsTitle": "Transfer trail",
+    "resultCounts": "Transfers: {{transfers}} · Addresses: {{addresses}}",
+    "retrievedAt": "Retrieved {{time}}",
+    "copyLink": "Copy trace link",
+    "download": "Download result",
+    "hopTransfers_one": "{{count}} transfer",
+    "hopTransfers_other": "{{count}} transfers",
+    "downloadFailed": "Could not download the trace. Please try again."
   },
   "accountHoldings": {
     "holdings": "Holdings",
@@ -2578,6 +2597,7 @@
     "providerHint": "The provider balance may already include these holdings. The two values are not added together.",
     "unlink": "Unlink",
     "linkHint": "Choose an investment account to show its holdings beside cash.",
-    "noEligibleAccounts": "No unlinked manual investment accounts are available. Use Add Account to create one, or unlink an existing association first."
+    "noEligibleAccounts": "No unlinked manual investment accounts are available. Use Add Account to create one, or unlink an existing association first.",
+    "noneLinked": "No holdings are linked to this account."
   }
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
@@ -30,6 +30,9 @@ interface PositionsTabProps {
   /** Reclassify one Holding — the user's verdict on what counts as cash. */
   onClassify: (assetId: string, type: string) => void
   onOpenHolding: (assetId: string) => void
+  children?: ReactNode
+  walletContent?: ReactNode
+  onShowPositions?: () => void
 }
 
 const ACCOUNT_TYPE_KEYS: Record<string, string> = {
@@ -281,6 +284,9 @@ export default function PositionsTab({
   canWrite,
   onClassify,
   onOpenHolding,
+  children,
+  walletContent,
+  onShowPositions,
 }: PositionsTabProps) {
   const { t } = useTranslation()
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
@@ -320,10 +326,15 @@ export default function PositionsTab({
   // keeps the subtotals under the table adding up to the wedge that was
   // clicked.
   const view = useMemo(
-    () => (filter ? filterPortfolio(portfolio, filter) : portfolio),
-    [filter, portfolio],
+    () => (filter && !walletContent ? filterPortfolio(portfolio, filter) : portfolio),
+    [filter, portfolio, walletContent],
   )
-  const unpricedIds = new Set(holdings.filter((holding) => holding.current_value_primary == null && holding.current_value == null).map((holding) => holding.id))
+  // Match buildPortfolio's scope: a separately listed manual asset cannot
+  // make a fully priced ticker allocation incomplete.
+  const unpricedIds = new Set(holdings.filter((holding) =>
+    holding.ticker?.trim() && !holding.sell_date && !holding.is_archived &&
+    holding.current_value_primary == null && holding.current_value == null,
+  ).map((holding) => holding.id))
   const incompletePositions = view.positions.filter((position) => position.legs.some((leg) => unpricedIds.has(leg.assetId)))
   const hasUnpricedPositions = incompletePositions.length > 0
   const hasKnownValue = view.positions.some((position) => position.legs.some((leg) => !unpricedIds.has(leg.assetId))) || view.liquidCash.length > 0
@@ -386,11 +397,12 @@ export default function PositionsTab({
     },
   ]
 
-  const activeFilterLabel = filter ? labelFor[filter.dim](filter.key) : null
+  const activeFilterLabel = filter && !walletContent ? labelFor[filter.dim](filter.key) : null
 
   const toggleFilter = (dim: AllocationDim, key: string) => {
     setExpandedTicker(null)
-    setFilter((current) => (current?.dim === dim && current.key === key ? null : { dim, key }))
+    onShowPositions?.()
+    setFilter((current) => (!walletContent && current?.dim === dim && current.key === key ? null : { dim, key }))
   }
 
   // The ranking answers "where is my concentration risk", so what allocation
@@ -410,24 +422,24 @@ export default function PositionsTab({
   }
 
   function renderDonut({ dim, title, data }: Donut) {
-    const selectedKey = filter?.dim === dim ? filter.key : null
+    const selectedKey = !walletContent && filter?.dim === dim ? filter.key : null
     const dimmed = (key: string) => selectedKey !== null && selectedKey !== key
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm p-4">
-        <p className="text-sm font-semibold text-foreground mb-2">{title}</p>
+      <section className="h-full min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5" aria-label={title}>
+        <h3 className="text-sm font-semibold text-foreground mb-3 lg:min-h-10 xl:min-h-5">{title}</h3>
         {data.length === 0 ? (
           <p className="text-xs text-muted-foreground italic py-8 text-center">{t('assets.posNoPositions')}</p>
         ) : (
-          <div className="flex flex-col items-center">
-            <div className="relative w-full" style={{ height: 200 }}>
-              <ResponsiveContainer width="100%" height={200}>
+          <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-3 lg:grid-cols-1 lg:gap-2">
+            <div className="relative h-32 w-full lg:h-44">
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={data}
                     cx="50%"
                     cy="50%"
-                    innerRadius={55}
-                    outerRadius={85}
+                    innerRadius="62%"
+                    outerRadius="90%"
                     paddingAngle={3}
                     dataKey="value"
                     stroke="var(--card)"
@@ -461,37 +473,39 @@ export default function PositionsTab({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 hidden lg:flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-[10px] text-muted-foreground">{t('assets.posInvestedTotal')}</span>
-                <span className="text-base font-bold text-foreground tabular-nums">
+                <span className="text-sm font-semibold text-foreground tabular-nums">
                   {money(portfolio.investedTotal)}
                 </span>
               </div>
             </div>
-            <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-3">
+            <div className="max-h-32 min-w-0 overflow-y-auto overscroll-contain lg:max-h-28">
               {data.map((d, i) => (
                 <button
                   key={`${i}-${d.key}`}
+                  type="button"
                   onClick={() => toggleFilter(dim, d.key)}
                   aria-pressed={selectedKey === d.key}
-                  className={`flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-muted/40 transition-colors ${
+                  className={`flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring transition-colors ${
                     dimmed(d.key) ? 'opacity-40' : ''
                   }`}
                 >
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
                   <span
-                    className={`text-[11px] whitespace-nowrap ${
+                    className={`min-w-0 flex-1 break-words text-xs ${
                       selectedKey === d.key ? 'font-semibold text-foreground' : 'text-muted-foreground'
                     }`}
                   >
-                    {d.label} · {formatPercent(d.weight)}
+                    {d.label}
                   </span>
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatPercent(d.weight)}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
-      </div>
+      </section>
     )
   }
 
@@ -687,7 +701,7 @@ export default function PositionsTab({
     emphasis = false,
   ) {
     return (
-      <div className="flex items-baseline justify-between gap-4 px-3 py-2 border-t border-border">
+      <div className="flex items-baseline justify-between gap-4 px-4 py-3 border-t border-border first:border-t-0 sm:px-5">
         <div className="min-w-0">
           <span className={`text-xs ${emphasis ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
             {label}
@@ -707,113 +721,113 @@ export default function PositionsTab({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">{t('assets.posRanking')}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t('assets.positionsAndCash')} <span className="ml-2 text-lg font-semibold tabular-nums text-foreground">{money(summaryValue)}</span>
-        </p>
-      </div>
-      {hasUnpricedPositions && <p role="status" className="text-xs text-muted-foreground">{t('assets.unpricedPositionsHint')}</p>}
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
-        <div className="lg:min-w-[1000px]">
-          {activeFilterLabel && (
-            <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-              <button
-                onClick={() => setFilter(null)}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {activeFilterLabel}
-                <X size={11} />
-                <span className="sr-only">{t('assets.posFilterClear')}</span>
-              </button>
-            </div>
-          )}
-          <div
-            className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--position-columns)] items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
-            style={{ '--position-columns': POSITIONS_GRID } as React.CSSProperties}
-          >
-            <div>{t('assets.posColTicker')}</div>
-            <div className="hidden lg:block text-right">{t('assets.posColQuantity')}</div>
-            <div className="hidden lg:block text-right">{t('assets.posColAvgCost')}</div>
-            <div className="hidden lg:block text-right">{t('assets.posColCostBasis')}</div>
-            <div className="text-right">{t('assets.posColValue')}<span className="block lg:hidden">{t('assets.posColGain')}</span></div>
-            <div className="hidden lg:block text-right">{t('assets.posColGain')}</div>
-            <div className="hidden lg:block text-right">{t('assets.posColIncome')}</div>
-            <div className="hidden lg:block text-right">{t('assets.posColWeight')}</div>
-            <div />
+    <div className="space-y-6">
+      <section aria-label={t('assets.allocationBreakdown')} className="space-y-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+          <h2 className="text-base font-semibold">{t('assets.allocationBreakdown')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('assets.positionsAndCash')}{activeFilterLabel && ` · ${activeFilterLabel}`} <span className="ml-2 text-xl font-semibold tabular-nums text-foreground">{money(summaryValue)}</span>
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">{t('assets.allocationScopeHint', 'Allocation covers invested ticker holdings. Cash and other assets are listed separately.')}</p>
+        {unpricedIds.size > 0 && <p role="status" className="text-sm text-muted-foreground">{t('assets.unpricedPositionsHint')}</p>}
+        {unpricedIds.size === 0 && (
+          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+            {donuts.map((donut) => <div key={donut.dim} className="min-w-0">{renderDonut(donut)}</div>)}
           </div>
-          {rankedPositions.length === 0 && cashEquivalents.length === 0 && (
-            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              {t(filter ? 'assets.posNoFilteredPositions' : 'assets.posNoPositions')}
-            </p>
-          )}
-          {rankedPositions.map(renderPositionRow)}
-          {cashEquivalents.length > 0 && (
-            <>
-              <div className="px-3 py-2 bg-muted/30 border-y border-border">
-                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  {t('assets.posCashEquivalents')}
-                </span>
-                <span className="block text-[10px] text-muted-foreground normal-case">
-                  {t('assets.posCashEquivalentHint')}
+        )}
+      </section>
+      {children}
+      {walletContent ?? (
+        <section className="space-y-3" aria-label={t('assets.posRanking')}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">{t('assets.posRanking')}</h2>
+            {activeFilterLabel && (
+              <button type="button" onClick={() => setFilter(null)} className="inline-flex min-h-8 items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1 text-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+                {activeFilterLabel}<X size={13} /><span className="sr-only">{t('assets.posFilterClear')}</span>
+              </button>
+            )}
+          </div>
+          <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
+            <div className="lg:min-w-[1000px]">
+              <div
+                className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--position-columns)] items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
+                style={{ '--position-columns': POSITIONS_GRID } as React.CSSProperties}
+              >
+                <div>{t('assets.posColTicker')}</div>
+                <div className="hidden lg:block text-right">{t('assets.posColQuantity')}</div>
+                <div className="hidden lg:block text-right">{t('assets.posColAvgCost')}</div>
+                <div className="hidden lg:block text-right">{t('assets.posColCostBasis')}</div>
+                <div className="text-right">{t('assets.posColValue')}<span className="block lg:hidden">{t('assets.posColGain')}</span></div>
+                <div className="hidden lg:block text-right">{t('assets.posColGain')}</div>
+                <div className="hidden lg:block text-right">{t('assets.posColIncome')}</div>
+                <div className="hidden lg:block text-right">{t('assets.posColWeight')}</div>
+                <div />
+              </div>
+              {rankedPositions.length === 0 && cashEquivalents.length === 0 && (
+                <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  {t(filter ? 'assets.posNoFilteredPositions' : 'assets.posNoPositions')}
+                </p>
+              )}
+              {rankedPositions.map(renderPositionRow)}
+              {cashEquivalents.length > 0 && (
+                <>
+                  <div className="px-3 py-2 bg-muted/30 border-y border-border">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      {t('assets.posCashEquivalents')}
+                    </span>
+                    <span className="block text-[10px] text-muted-foreground normal-case">
+                      {t('assets.posCashEquivalentHint')}
+                    </span>
+                  </div>
+                  {cashEquivalents.map(renderPositionRow)}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card">
+            {renderTotalRow(t('assets.posInvestedTotal'), hasKnownValue ? view.investedTotal : null, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined)}
+            {view.cashEquivalentTotal > 0 &&
+              renderTotalRow(
+                t('assets.posCashEquivalents'),
+                view.cashEquivalentTotal,
+                t('assets.posCashEquivalentHint'),
+                hasUnpricedPositions ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total),
+              )}
+            {view.liquidCashTotal > 0 &&
+              renderTotalRow(
+                t('assets.posLiquidCash'),
+                view.liquidCashTotal,
+                t('assets.posLiquidCashHint'),
+                hasUnpricedPositions ? undefined : shareOfTotal(view.liquidCashTotal, view.total),
+              )}
+            {view.dustTotal > 0 && !hasUnpricedPositions &&
+              renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
+            {renderTotalRow(t('assets.positionsAndCash'), summaryValue, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined, undefined, true)}
+            {walletIncome && (
+              <div className="flex items-baseline justify-between gap-4 px-4 py-3 border-t border-border first:border-t-0 sm:px-5">
+                <div className="min-w-0">
+                  <span className="text-xs text-muted-foreground">{t('assets.posWalletIncome')}</span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {t('assets.posWalletIncomeHint')}
+                  </span>
+                </div>
+                <span className="tabular-nums shrink-0 text-xs text-muted-foreground">
+                  {money(walletIncome.total)}
+                  <span className="block text-[10px] text-right">
+                    {walletIncome.cadence
+                      ? t(`assets.incomeCadence.${walletIncome.cadence}`)
+                      : t('assets.incomeIrregular')}
+                    {walletIncome.runRate !== null &&
+                      ` · ${t('assets.posRunRate', { amount: money(walletIncome.runRate) })}`}
+                  </span>
                 </span>
               </div>
-              {cashEquivalents.map(renderPositionRow)}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card shadow-sm py-1">
-        {renderTotalRow(t('assets.posInvestedTotal'), hasKnownValue ? view.investedTotal : null, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined)}
-        {view.cashEquivalentTotal > 0 &&
-          renderTotalRow(
-            t('assets.posCashEquivalents'),
-            view.cashEquivalentTotal,
-            t('assets.posCashEquivalentHint'),
-            hasUnpricedPositions ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total),
-          )}
-        {view.liquidCashTotal > 0 &&
-          renderTotalRow(
-            t('assets.posLiquidCash'),
-            view.liquidCashTotal,
-            t('assets.posLiquidCashHint'),
-            hasUnpricedPositions ? undefined : shareOfTotal(view.liquidCashTotal, view.total),
-          )}
-        {view.dustTotal > 0 && !hasUnpricedPositions &&
-          renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
-        {renderTotalRow(t('assets.positionsAndCash'), summaryValue, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined, undefined, true)}
-        {walletIncome && (
-          <div className="flex items-baseline justify-between gap-4 px-3 py-2 border-t border-border">
-            <div className="min-w-0">
-              <span className="text-xs text-muted-foreground">{t('assets.posWalletIncome')}</span>
-              <span className="block text-[10px] text-muted-foreground">
-                {t('assets.posWalletIncomeHint')}
-              </span>
-            </div>
-            <span className="tabular-nums shrink-0 text-xs text-muted-foreground">
-              {money(walletIncome.total)}
-              <span className="block text-[10px] text-right">
-                {walletIncome.cadence
-                  ? t(`assets.incomeCadence.${walletIncome.cadence}`)
-                  : t('assets.incomeIrregular')}
-                {walletIncome.runRate !== null &&
-                  ` · ${t('assets.posRunRate', { amount: money(walletIncome.runRate) })}`}
-              </span>
-            </span>
+            )}
           </div>
-        )}
-      </div>
-
-      <details className="rounded-xl border border-border p-3">
-        <summary className="cursor-pointer text-sm font-medium">{t('assets.allocationBreakdown')}</summary>
-        {unpricedIds.size > 0 ? <p className="mt-3 text-xs text-muted-foreground">{t('assets.unpricedPositionsHint')}</p> : (
-          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {donuts.map((donut) => <div key={donut.dim}>{renderDonut(donut)}</div>)}
-          </div>
-        )}
-      </details>
+        </section>
+      )}
     </div>
   )
 }

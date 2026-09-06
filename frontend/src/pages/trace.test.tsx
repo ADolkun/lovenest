@@ -119,12 +119,12 @@ describe('owned wallet activity', () => {
   it('sends inclusive UTC dates and retains coverage warnings and transaction evidence', async () => {
     const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
     await screen.findByRole('combobox', { name: 'Your wallet' })
-    fireEvent.change(screen.getByLabelText('From date (UTC)'), { target: { value: '2025-01-23' } })
-    fireEvent.change(screen.getByLabelText('Through date (UTC)'), { target: { value: '2025-01-24' } })
+    fireEvent.change(screen.getByLabelText('From (UTC)'), { target: { value: '2025-01-23T00:00' } })
+    fireEvent.change(screen.getByLabelText('Through (UTC)'), { target: { value: '2025-01-24T23:59:59.999' } })
     expect(screen.getByText('Advanced trail settings').closest('details')).not.toHaveAttribute('open')
     await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
     await waitFor(() => expect(onchain.trace).toHaveBeenCalledWith(expect.objectContaining({
-      since: '2025-01-23T00:00:00Z', until: '2025-01-24T23:59:59.999Z',
+      since: '2025-01-23T00:00:00.000Z', until: '2025-01-24T23:59:59.999Z',
     }), 'investment'))
     expect(await screen.findByText('The trail stops at a high-activity address.')).toBeInTheDocument()
     expect(screen.getByText(/Only part of the trail is shown/)).toBeInTheDocument()
@@ -184,9 +184,108 @@ describe('owned wallet activity', () => {
   it('rejects a reversed date window before contacting the chain', async () => {
     renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
     await screen.findByRole('combobox', { name: 'Your wallet' })
-    fireEvent.change(screen.getByLabelText('From date (UTC)'), { target: { value: '2025-02-01' } })
-    fireEvent.change(screen.getByLabelText('Through date (UTC)'), { target: { value: '2025-01-01' } })
+    fireEvent.change(screen.getByLabelText('From (UTC)'), { target: { value: '2025-02-01T00:00' } })
+    fireEvent.change(screen.getByLabelText('Through (UTC)'), { target: { value: '2025-01-01T00:00' } })
     expect(screen.getByRole('button', { name: 'Explore transfers' })).toBeDisabled()
     expect(onchain.trace).not.toHaveBeenCalled()
   })
+  it('restores an exact incoming trace without fetching and copies a resumable link', async () => {
+    const params = new URLSearchParams({
+      tab: 'activity', activity: 'wallets', wallet: 'group-one', chain: 'solana', address: 'wallet-one',
+      direction: 'in', max_hops: '5', max_branches: '2', min_amount: '0.123456789',
+      since: '2025-01-23T13:00:00-08:00', until: '2025-01-24T02:18:00.125Z',
+    })
+    const { user } = renderWithProviders(panel(), { route: `/assets?${params}` })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    expect(onchain.trace).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('2025-01-23T21:00')
+    expect(screen.getByLabelText('Through (UTC)')).toHaveValue('2025-01-24T02:18:00.125')
+    expect(screen.getByText('Advanced trail settings').closest('details')).toHaveAttribute('open')
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    const expected = {
+      chain: 'solana', address: 'wallet-one', direction: 'in', max_hops: 5, max_branches: 2,
+      min_amount: '0.123456789', since: '2025-01-23T21:00:00.000Z', until: '2025-01-24T02:18:00.125Z',
+    }
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledWith(expected, 'investment'))
+    await user.click(await screen.findByRole('button', { name: 'Copy trace link' }))
+    const copied = new URL(await navigator.clipboard.readText())
+    expect(copied.pathname).toBe('/assets')
+    expect(Object.fromEntries(copied.searchParams)).toEqual({
+      tab: 'activity', activity: 'wallets', wallet: 'group-one', ...expected, max_hops: '5', max_branches: '2',
+    })
+    expect(screen.getByText(/Jan 23, 2025.*UTC/)).toBeInTheDocument()
+    const hop = screen.getByText('Hop 1').closest('details')!
+    await user.click(hop.querySelector('summary')!)
+    expect(hop).not.toHaveAttribute('open')
+    fireEvent.change(screen.getByLabelText('Through (UTC)'), { target: { value: '2025-01-23T21:00' } })
+    expect(screen.getByRole('button', { name: 'Explore transfers' })).toBeEnabled()
+  })
+
+  it('keeps old day-only trace links inclusive and rejects malformed limits', async () => {
+    const { user } = renderWithProviders(panel(), {
+      route: '/assets?chain=solana&address=wallet-one&since=2025-01-23&until=2025-01-24&max_hops=99&max_branches=-1',
+    })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledWith(expect.objectContaining({
+      since: '2025-01-23T00:00:00.000Z', until: '2025-01-24T23:59:59.999Z', max_hops: 3, max_branches: 3,
+    }), 'investment'))
+  })
+
+  it('ignores invalid URL dates without running or crashing', async () => {
+    renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one&since=2025-02-30&until=2025' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('')
+    expect(screen.getByLabelText('Through (UTC)')).toHaveValue('')
+    expect(onchain.trace).not.toHaveBeenCalled()
+  })
+
+  it('does not submit a malformed minimum amount restored from a URL', async () => {
+    renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one&min_amount=0x10' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    expect(screen.getByRole('button', { name: 'Explore transfers' })).toBeDisabled()
+    expect(screen.getByText('Enter a nonnegative minimum amount.')).toBeInTheDocument()
+    expect(onchain.trace).not.toHaveBeenCalled()
+  })
+
+  it('downloads the submitted request and unmodified evidence with its completion time and limits', async () => {
+    const blobs: Blob[] = []
+    const createObjectURL = vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:trace-download' })
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = createObjectURL
+      static revokeObjectURL = revokeObjectURL
+    })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-06T12:00:00Z'))
+    try {
+      const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+      await screen.findByRole('combobox', { name: 'Your wallet' })
+      await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+      const download = await screen.findByRole('button', { name: 'Download result' })
+      vi.setSystemTime(new Date('2026-09-07T00:00:00Z'))
+      await user.click(download)
+      expect(click).toHaveBeenCalledOnce()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:trace-download')
+      const contents = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.readAsText(blobs[0])
+      })
+      const saved = JSON.parse(contents)
+      expect(saved.request).toEqual(onchain.trace.mock.calls[0][0])
+      expect(saved.result).toEqual(traceResult)
+      expect(saved.retrieved_at).toBe('2026-09-06T12:00:00.000Z')
+      expect(saved.coverage).toContain('Bounded native-coin transfers only')
+      expect(saved.coverage).toContain('cost basis are not reconstructed')
+      expect(saved.result.nodes[1].terminal_reason).toBe('pooled')
+      expect(saved.result.truncated).toBe(true)
+    } finally {
+      click.mockRestore()
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
 })

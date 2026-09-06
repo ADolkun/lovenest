@@ -277,12 +277,13 @@ export default function AccountsPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-4 text-sm">
-        {hasModule('assets') && <Link className="font-medium text-primary hover:underline" to="/assets">{t('accountHoldings.openPortfolio')}</Link>}
-        {onchainEnabled && <Link className="font-medium text-primary hover:underline" to={hasModule('assets') ? '/assets?tab=activity&activity=wallets' : '/trace'}>{t('accountHoldings.myWallets')}</Link>}
-      </div>
+      {(hasModule('assets') || onchainEnabled) && (
+        <nav aria-label={t('accounts.title')} className="flex flex-wrap items-center gap-2">
+          {hasModule('assets') && <Button asChild variant="outline" size="sm"><Link to="/assets">{t('accountHoldings.openPortfolio')}</Link></Button>}
+          {onchainEnabled && <Button asChild variant="ghost" size="sm"><Link to={hasModule('assets') ? '/assets?tab=activity&activity=wallets' : '/trace'}>{t('accountHoldings.myWallets')}</Link></Button>}
+        </nav>
+      )}
       {hasModule('assets') && walletsQuery.isError && <p role="alert" className="text-sm text-destructive">{t('accountHoldings.loadError')} <button type="button" className="underline" onClick={() => void walletsQuery.refetch()}>{t('common.retry')}</button></p>}
-      {!accountsLoading && <UnlinkedWallets wallets={wallets} accounts={accountsList ?? []} />}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -292,8 +293,8 @@ export default function AccountsPage() {
         <div className="space-y-6">
           {/* Manual Accounts */}
           <div className="bg-card rounded-xl border border-border shadow-sm">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <h2 className="text-sm font-medium text-muted-foreground">{t('accounts.manualAccounts')}</h2>
+            <div className="flex items-center justify-between border-b border-border px-4 py-4 sm:px-5">
+              <h2 className="text-sm font-semibold">{t('accounts.manualAccounts')}</h2>
             </div>
             {manualAccounts.length > 0 ? (
               <div className="divide-y divide-muted">
@@ -309,9 +310,10 @@ export default function AccountsPage() {
                       : t('accounts.dueIn', { count: dueIn })
                   const dueClass = dueIn != null && dueIn <= 3 ? 'text-amber-600' : 'text-muted-foreground'
                   const accountMask = formatAccountMask(acc)
+                  const hasManualHoldings = wallets.some((wallet) => wallet.account_id === acc.id && wallet.source === 'manual')
                   return (
-                    <div key={acc.id} className="group flex items-center px-5 py-3 hover:bg-muted/50 transition-colors">
-                      <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                    <div key={acc.id} className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-4 transition-colors hover:bg-muted/50 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-5">
+                      <Link to={`/accounts/${acc.id}`} className="col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
                         <AccountIcon account={acc} />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-foreground truncate" title={getAccountName(acc)}>{getAccountName(acc)}</p>
@@ -322,30 +324,34 @@ export default function AccountsPage() {
                           </p>
                         </div>
                       </Link>
-                      <div className="shrink-0 text-right">
+                      <div className="col-span-2 row-start-2 flex flex-wrap items-start gap-x-6 gap-y-3 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:justify-end sm:text-right">
                         <AccountHoldingsSummary account={acc} wallets={wallets} />
-                        {acc.type === 'investment' && <p className="text-xs text-muted-foreground">{t('accountHoldings.cashLedger')}</p>}
-                        <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                          {mask(formatCurrency(bal, acc.currency, locale))}
-                        </p>
-                        {isCC && acc.available_credit != null ? (
-                          <p className="text-[10px] text-muted-foreground tabular-nums">
-                            {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
+                        <div>
+                          {(acc.type === 'investment' || hasManualHoldings) && <p className="mb-1 text-xs font-medium text-muted-foreground">{t('accountHoldings.cashLedger')}</p>}
+                          <p className={`font-semibold tabular-nums ${hasManualHoldings ? 'text-sm text-muted-foreground' : 'text-base text-foreground'} ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : ''}`}>
+                            {mask(formatCurrency(bal, acc.currency, locale))}
                           </p>
-                        ) : acc.balance_primary != null && acc.currency !== userCurrency && (
-                          <p className="text-[10px] text-muted-foreground tabular-nums">
-                            {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
-                          </p>
-                        )}
+                          {isCC && acc.available_credit != null ? (
+                            <p className="text-[10px] text-muted-foreground tabular-nums">
+                              {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
+                            </p>
+                          ) : acc.balance_primary != null && acc.currency !== userCurrency && (
+                            <p className="text-[10px] text-muted-foreground tabular-nums">
+                              {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
+                            </p>
+                          )}
+                        </div>
                       </div>
                       {canWrite && (
-                        <AccountRowActions
-                          accountName={getAccountName(acc)}
-                          onEdit={() => { setEditingAccount(acc); setDialogOpen(true) }}
-                          onClose={() => setClosingAccountId(acc.id)}
-                          onDelete={() => setDeletingId(acc.id)}
-                          deletePending={deleteMutation.isPending}
-                        />
+                        <div className="col-start-2 row-start-1 sm:col-start-3">
+                          <AccountRowActions
+                            accountName={getAccountName(acc)}
+                            onEdit={() => { setEditingAccount(acc); setDialogOpen(true) }}
+                            onClose={() => setClosingAccountId(acc.id)}
+                            onDelete={() => setDeletingId(acc.id)}
+                            deletePending={deleteMutation.isPending}
+                          />
+                        </div>
                       )}
                     </div>
                   )
@@ -371,16 +377,16 @@ export default function AccountsPage() {
                 return (
                   <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
                     {/* Connection header */}
-                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+                      <div className="flex min-w-0 items-center gap-3">
                         {/* One bank's favicon would misrepresent a multi-
                             institution link — fall back to the generic icon. */}
                         <ConnectionLogo
                           logoUrl={(conn.institutions?.length ?? 0) > 1 ? null : conn.logo_url}
                         />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">{getConnectionName(conn, t)}</p>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="break-words text-sm font-semibold text-foreground">{getConnectionName(conn, t)}</p>
                             <Badge
                               variant={conn.status === 'active' ? 'default' : 'warning'}
                               className="text-[10px] px-1.5 py-0 h-4"
@@ -401,13 +407,14 @@ export default function AccountsPage() {
                         </div>
                       </div>
                       {canWrite && (
-                        <div className="flex items-center gap-1.5">
+                        <div className="ml-auto flex shrink-0 items-center gap-1.5">
                           <Button
                             variant="ghost"
                             size="sm"
                             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                             onClick={() => setSettingsConnection(conn)}
                             title={t('connections.settings')}
+                            aria-label={t('connections.settings')}
                           >
                             <Settings size={14} />
                           </Button>
@@ -442,6 +449,7 @@ export default function AccountsPage() {
                             onClick={() => setDisconnectingConnection(conn)}
                             disabled={disconnectMutation.isPending}
                             title={t('accounts.disconnect')}
+                            aria-label={t('accounts.disconnect')}
                           >
                             <Unlink size={14} />
                           </Button>
@@ -478,8 +486,8 @@ export default function AccountsPage() {
                           const dueClass = dueIn != null && dueIn <= 3 ? 'text-amber-600' : 'text-muted-foreground'
                           const accountMask = formatAccountMask(acc)
                           return (
-                            <div key={acc.id} className="group flex items-center px-5 py-3 hover:bg-muted/50 transition-colors">
-                              <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                            <div key={acc.id} className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-4 transition-colors hover:bg-muted/50 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-5">
+                              <Link to={`/accounts/${acc.id}`} className="col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
                                 <AccountIcon account={acc} />
                                 <div className="min-w-0 flex-1">
                                   <p className="text-sm font-medium text-foreground truncate" title={getAccountName(acc)}>{getAccountName(acc)}</p>
@@ -490,29 +498,33 @@ export default function AccountsPage() {
                                   </p>
                                 </div>
                               </Link>
-                              <div className="shrink-0 text-right">
-                                {acc.type === 'investment' && <p className="text-xs text-muted-foreground">{t('accountHoldings.providerBalance')}</p>}
-                                <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                                  {mask(formatCurrency(bal, acc.currency, locale))}
-                                </p>
-                                {isCC && acc.available_credit != null ? (
-                                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                                    {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
+                              <div className="col-span-2 row-start-2 flex flex-wrap items-start gap-x-6 gap-y-3 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:justify-end sm:text-right">
+                                <div>
+                                  {acc.type === 'investment' && <p className="mb-1 text-xs font-medium text-muted-foreground">{t('accountHoldings.providerBalance')}</p>}
+                                  <p className={`text-base font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
+                                    {mask(formatCurrency(bal, acc.currency, locale))}
                                   </p>
-                                ) : acc.balance_primary != null && acc.currency !== userCurrency && (
-                                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                                    {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
-                                  </p>
-                                )}
+                                  {isCC && acc.available_credit != null ? (
+                                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                                      {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
+                                    </p>
+                                  ) : acc.balance_primary != null && acc.currency !== userCurrency && (
+                                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                                      {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
+                                    </p>
+                                  )}
+                                </div>
                                 <AccountHoldingsSummary account={acc} wallets={wallets} />
                               </div>
                               {canWrite && (
-                                <AccountRowActions
-                                  accountName={getAccountName(acc)}
-                                  onEdit={() => { setEditingAccount(acc); setDialogOpen(true) }}
-                                  onClose={() => setClosingAccountId(acc.id)}
-                                  deletePending={deleteMutation.isPending}
-                                />
+                                <div className="col-start-2 row-start-1 sm:col-start-3">
+                                  <AccountRowActions
+                                    accountName={getAccountName(acc)}
+                                    onEdit={() => { setEditingAccount(acc); setDialogOpen(true) }}
+                                    onClose={() => setClosingAccountId(acc.id)}
+                                    deletePending={deleteMutation.isPending}
+                                  />
+                                </div>
                               )}
                             </div>
                           )
@@ -533,34 +545,42 @@ export default function AccountsPage() {
             </div>
           )}
 
+          <UnlinkedWallets wallets={wallets} accounts={accountsList ?? []} />
+
           {/* Closed Accounts */}
           {closedAccounts.length > 0 && (
-            <div className="bg-card rounded-xl border border-border shadow-sm opacity-60">
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-                <h2 className="text-sm font-medium text-muted-foreground">{t('accounts.closedAccounts')}</h2>
+            <div className="rounded-xl border border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border px-4 py-4 sm:px-5">
+                <h2 className="text-sm font-semibold text-muted-foreground">{t('accounts.closedAccounts')}</h2>
               </div>
               <div className="divide-y divide-muted">
                 {closedAccounts.map((acc) => {
                   return (
-                    <div key={acc.id} className="flex items-center px-5 py-3">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div key={acc.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:px-5">
+                      <Link to={`/accounts/${acc.id}`} className="col-start-1 row-start-1 flex min-w-0 items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
                         <AccountIcon account={acc} />
                         <p className="truncate text-sm font-medium text-muted-foreground" title={getAccountLabel(acc)}>{getAccountLabel(acc)}</p>
+                      </Link>
+                      <div className="col-span-2 row-start-2 flex flex-wrap items-start gap-x-6 gap-y-3 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:justify-end sm:text-right">
+                        <AccountHoldingsSummary account={acc} wallets={wallets} />
+                        <div>
+                          {acc.type === 'investment' && <p className="mb-1 text-xs font-medium text-muted-foreground">{t(acc.connection_id ? 'accountHoldings.providerBalance' : 'accountHoldings.cashLedger')}</p>}
+                          <p className="text-sm font-semibold tabular-nums text-muted-foreground">
+                            {mask(formatCurrency(Number(acc.current_balance), acc.currency, locale))}
+                          </p>
+                        </div>
                       </div>
                       {canWrite && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-xs text-muted-foreground hover:text-foreground h-7 px-2 mr-3"
+                          className="col-start-2 row-start-1 text-xs text-muted-foreground hover:text-foreground sm:col-start-3"
                           onClick={() => reopenMutation.mutate(acc.id)}
                           disabled={reopenMutation.isPending}
                         >
                           {t('accounts.reopen')}
                         </Button>
                       )}
-                      <p className="text-sm font-semibold tabular-nums text-muted-foreground w-32 text-right">
-                        {mask(formatCurrency(Number(acc.current_balance), acc.currency, locale))}
-                      </p>
                     </div>
                   )
                 })}
