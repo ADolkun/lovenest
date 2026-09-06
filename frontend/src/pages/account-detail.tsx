@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addMonths, parseISO } from 'date-fns'
-import { accounts, dashboard, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
+import { accounts, assetGroups, dashboard, transactions, categories as categoriesApi, categoryGroups as categoryGroupsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
+import { AccountHoldingsSummary } from '@/components/account-holdings'
 import { localDateString } from '@/lib/date-utils'
 import { applyTransactionToBalance, excludeMaterializedProjections, transactionAmountForBalance } from '@/lib/account-detail-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
@@ -292,7 +293,12 @@ export default function AccountDetailPage() {
   const { t, i18n } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
-  const { canWrite } = useWorkspace()
+  const { canWrite, hasModule } = useWorkspace()
+  const walletsQuery = useQuery({
+    queryKey: ['asset-groups'],
+    queryFn: assetGroups.list,
+    enabled: hasModule('assets'),
+  })
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
@@ -999,6 +1005,14 @@ export default function AccountDetailPage() {
             </Button>
           )}
         </div>
+        {account.type === 'investment' && hasModule('assets') && (
+          <div className="rounded-lg border border-border px-4 py-3 text-sm">
+            <p className="font-medium">{t('accountHoldings.holdings')}</p>
+            <p className="mt-1 text-muted-foreground">{t(account.connection_id ? 'accountHoldings.providerHint' : 'accountHoldings.cashHint')}</p>
+            {walletsQuery.isError ? <p role="alert" className="text-destructive">{t('accountHoldings.loadError')}</p> : <AccountHoldingsSummary account={account} wallets={walletsQuery.data ?? []} />}
+            <Link className="mt-2 inline-block text-primary hover:underline" to="/accounts#unlinked-wallets">{t('accountHoldings.manageLinks')}</Link>
+          </div>
+        )}
         <div className="flex items-center gap-2 sm:gap-3">
           {isCreditCard ? (
             <div className="flex items-center gap-1">

@@ -67,6 +67,7 @@ async def list_watched_addresses(
                     address=parsed.address,
                     label=f"{parsed.chain.display_name} {parsed.short}",
                     connection_id=connection.id,
+                    connection_name=connection.display_name or connection.institution_name,
                 )
             )
     return watched

@@ -54,6 +54,7 @@ async def projection_feed(
     balances: dict[str, Decimal] = {bucket: Decimal("0") for bucket in _BUCKETS.values()}
     other = Decimal("0")
     tracked: set[str] = set()
+    incomplete: set[str] = set()
 
     for group in await asset_group_service.get_groups(session, workspace_id, user_id):
         value = Decimal(str(group.current_value_primary))
@@ -63,6 +64,8 @@ async def projection_feed(
         else:
             balances[bucket] += value
             tracked.add(group.tax_treatment)
+            if group.unvalued_count:
+                incomplete.add(group.tax_treatment)
 
     # The engine adds the four buckets together, so everything it reads has to
     # be in one currency — the same one the balances are already converted to.
@@ -102,9 +105,11 @@ async def projection_feed(
     # still sent, but an untracked one is a zero this application invented, and
     # claiming it would overwrite the real figure the user typed with 0 — and
     # then colour it green. A tracked bucket holding nothing is a different
-    # thing: that zero is an answer, and it is claimed.
+    # thing: that zero is an answer, and it is claimed. Missing valuations in
+    # any wallet make its whole balance bucket incomplete; contribution and
+    # basis evidence remain independent of whether holdings have quotes.
     feed["live"] = sorted(
-        [_BUCKETS[treatment] for treatment in tracked]
+        [_BUCKETS[treatment] for treatment in tracked - incomplete]
         + [_ANNUAL_KEYS[treatment] for treatment in tracked]
         + (["roth_basis"] if "roth" in tracked else [])
     )

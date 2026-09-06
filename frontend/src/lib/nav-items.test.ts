@@ -39,8 +39,7 @@ describe('nav catalog', () => {
     }
   })
 
-  // Set equality, not list equality: a module may carry more than one link
-  // (tracing rides along with accounts), but none may be left unreachable.
+  // Every module remains reachable as contextual tools move into their parent pages.
   it('has a link for every module in the catalog', () => {
     const covered = navItems.filter((i) => i.type === 'link' && !i.external).map((i) => i.module)
     expect([...new Set(covered)].sort()).toEqual([...MODULE_IDS].sort())
@@ -53,7 +52,6 @@ describe('visibleNavItems', () => {
     expect(linkKeys(personal)).toEqual([
       'transactions',
       'accounts',
-      'trace',
       'import',
       'reports',
       'assets',

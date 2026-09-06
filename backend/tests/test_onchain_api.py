@@ -88,6 +88,7 @@ async def test_watched_addresses_come_back_labelled_for_one_click_tracing(
             provider="onchain",
             external_id="onchain:x",
             institution_name="On-chain wallets",
+            display_name="My wallet",
             credentials={"addresses": [f"solana:{A}", "garbage"]},
         )
     )
@@ -100,6 +101,7 @@ async def test_watched_addresses_come_back_labelled_for_one_click_tracing(
     assert len(data) == 1
     assert data[0]["chain"] == "solana"
     assert data[0]["label"] == f"Solana {A[:4]}…{A[-4:]}"
+    assert data[0]["connection_name"] == "My wallet"
 
 
 @pytest.mark.asyncio

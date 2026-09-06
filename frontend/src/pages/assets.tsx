@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import PositionsTab from '@/components/positions-tab'
 import ContributionsTab from '@/components/contributions-tab'
+import { OwnedWalletActivity } from '@/pages/trace'
+import { readAssetView, transactionsForHoldings } from '@/lib/asset-view'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
@@ -31,6 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import type { Asset, AssetGroup, AssetTransaction, AssetValue, MarketSymbolMatch, MarketSymbolQuote, TaxTreatment } from '@/types'
 import {
@@ -48,6 +51,7 @@ import {
   AlertTriangle,
   Upload,
   Radar,
+  X,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -59,7 +63,6 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
-import { PageHeader } from '@/components/page-header'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -124,9 +127,6 @@ function formatRelativeTime(dateInput: string | null | undefined, locale: string
   return rtf.format(Math.round(diffSec / 86400), 'day')
 }
 
-const ASSET_TABS = ['holdings', 'positions', 'contributions', 'transactions'] as const
-type AssetTab = (typeof ASSET_TABS)[number]
-
 type PortfolioTrend = Awaited<ReturnType<typeof assets.portfolioTrend>>
 
 // Trend rows are keyed by asset id, so narrowing the chart to a subset means
@@ -178,7 +178,7 @@ export default function AssetsPage() {
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
-  const { canWrite } = useWorkspace()
+  const { canWrite, current, hasModule } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
 
@@ -190,11 +190,20 @@ export default function AssetsPage() {
 
   // The URL is the tab state (ADR 0001) — a shared link opens where the sender was.
   const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = ASSET_TABS.find((tab) => tab === searchParams.get('tab')) ?? 'holdings'
-  const setActiveTab = (tab: AssetTab) => {
+  const { tab: activeTab, view: portfolioView, activity } = readAssetView(searchParams)
+  const selectedWalletId = searchParams.get('wallet')
+  const walletActivityEnabled = onchainEnabled && hasModule('accounts')
+  const activityView = activity === 'wallets' && !walletActivityEnabled ? 'trades' : activity
+  const setView = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams)
-    if (tab === 'holdings') next.delete('tab')
-    else next.set('tab', tab)
+    // Normalize legacy tab names before applying a view/filter change.
+    next.set('tab', activeTab)
+    next.set('view', portfolioView)
+    next.set('activity', activityView)
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null) next.delete(key)
+      else next.set(key, value)
+    }
     setSearchParams(next, { replace: true })
   }
   // Holding id for the lightweight "add transaction to this holding" dialog,
@@ -214,8 +223,8 @@ export default function AssetsPage() {
   const [walletFormColor, setWalletFormColor] = useState('#0EA5E9')
   const [walletFormTaxTreatment, setWalletFormTaxTreatment] = useState<TaxTreatment>('taxable')
   const [deletingWalletId, setDeletingWalletId] = useState<string | null>(null)
-  // Collapsed wallet IDs — default is expanded (empty set), user can collapse manually
-  const [collapsedWallets, setCollapsedWallets] = useState<Set<string>>(new Set())
+  // Start with a compact wallet list; an account deep link opens its own wallet.
+  const [collapsedWallets, setCollapsedWallets] = useState<Set<string> | null>(null)
   // Asset being moved to a wallet (null = no picker open)
   const [movingAsset, setMovingAsset] = useState<Asset | null>(null)
 
@@ -254,7 +263,7 @@ export default function AssetsPage() {
   const [formUnitPrice, setFormUnitPrice] = useState('')
   const [quoteLoading, setQuoteLoading] = useState(false)
 
-  const { data: rawAssetsList, isLoading } = useQuery({
+  const { data: rawAssetsList, isLoading, isError: assetsError } = useQuery({
     queryKey: ['assets'],
     queryFn: () => assets.list(false),
   })
@@ -264,10 +273,12 @@ export default function AssetsPage() {
   // with no wallets → no assets shown. "All accounts" (null) → show everything.
   const { activeWalletIds } = useCollectionFilter()
   const assetsList = useMemo(() => {
-    if (!activeWalletIds) return rawAssetsList
-    const allowed = new Set(activeWalletIds)
-    return (rawAssetsList ?? []).filter((a) => a.group_id && allowed.has(a.group_id))
-  }, [rawAssetsList, activeWalletIds])
+    const allowed = activeWalletIds ? new Set(activeWalletIds) : null
+    return rawAssetsList?.filter((a) =>
+      (!allowed || (!!a.group_id && allowed.has(a.group_id))) &&
+      (!selectedWalletId || a.group_id === selectedWalletId),
+    )
+  }, [rawAssetsList, activeWalletIds, selectedWalletId])
 
   const { data: rawPortfolioData } = useQuery({
     queryKey: ['portfolio-trend'],
@@ -286,18 +297,13 @@ export default function AssetsPage() {
   )
   // Scope the portfolio chart + total to the active collection's wallets too.
   const portfolioData = useMemo(() => {
-    if (!activeWalletIds || !rawPortfolioData) return rawPortfolioData
-    const allowed = new Set(activeWalletIds)
-    return narrowPortfolioTrend(rawPortfolioData, (a) => !!a.group_id && allowed.has(a.group_id))
-  }, [rawPortfolioData, activeWalletIds])
-
-  // The positions view answers what the user *holds*, so its chart drops the
-  // house and the car that the page-wide portfolio chart deliberately carries.
-  const positionsTrendData = useMemo(() => {
-    if (!portfolioData) return portfolioData
-    const tickerIds = new Set((assetsList ?? []).filter((a) => a.ticker).map((a) => a.id))
-    return narrowPortfolioTrend(portfolioData, (a) => tickerIds.has(a.id))
-  }, [portfolioData, assetsList])
+    if (!rawPortfolioData) return rawPortfolioData
+    const allowed = activeWalletIds ? new Set(activeWalletIds) : null
+    return narrowPortfolioTrend(rawPortfolioData, (a) =>
+      (!allowed || (!!a.group_id && allowed.has(a.group_id))) &&
+      (!selectedWalletId || a.group_id === selectedWalletId),
+    )
+  }, [rawPortfolioData, activeWalletIds, selectedWalletId])
 
   // Publish a snapshot of what's on the Assets page so the global chat
   // (⌘J) can answer "what does this chart mean / what are these
@@ -351,6 +357,7 @@ export default function AssetsPage() {
   // asset list showing pre-edit data until the user manually reloaded.
   function refetchAssetViews() {
     queryClient.refetchQueries({ queryKey: ['assets'] })
+    queryClient.refetchQueries({ queryKey: ['asset-groups'] })
     queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
     queryClient.refetchQueries({ queryKey: ['dashboard'] })
   }
@@ -413,11 +420,14 @@ export default function AssetsPage() {
     queryKey: ['asset-groups'],
     queryFn: () => assetGroups.list(),
   })
-  const walletsList = useMemo(() => {
+  const collectionWallets = useMemo(() => {
     if (!activeWalletIds) return rawWalletsList
     const allowed = new Set(activeWalletIds)
     return (rawWalletsList ?? []).filter((w) => allowed.has(w.id))
   }, [rawWalletsList, activeWalletIds])
+  const walletsList = useMemo(() =>
+    selectedWalletId ? collectionWallets?.filter((w) => w.id === selectedWalletId) : collectionWallets,
+  [collectionWallets, selectedWalletId])
 
   const createWalletMutation = useMutation({
     mutationFn: (data: { name: string; color: string; tax_treatment: TaxTreatment }) =>
@@ -585,7 +595,7 @@ export default function AssetsPage() {
     setFormName('')
     setFormType('other')
     setFormCurrency(userCurrency)
-    setFormGroupId('')
+    setFormGroupId(walletsList?.some((wallet) => wallet.id === selectedWalletId) ? selectedWalletId! : '')
     setFormMethod('manual')
     setFormPurchaseDate('')
     setFormPurchasePrice('')
@@ -751,12 +761,40 @@ export default function AssetsPage() {
     const parts =
       onchainEnabled && asset.source === 'onchain' ? (asset.external_id?.split(':') ?? []) : []
     const watched = parts.length === 2 ? parts : null
+    const averagePrice = asset.average_price != null ? mask(formatCurrency(asset.average_price, asset.currency, locale)) : (
+      needsBuys && canWrite ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); openAddTransaction(asset.id) }}
+          className="min-h-11 text-xs font-medium text-primary hover:underline lg:min-h-0 lg:text-[11px]"
+        >
+          + {t('assets.addBuys')}
+        </button>
+      ) : <span className="text-muted-foreground">—</span>
+    )
+    const returnValue = returnPct != null ? (
+      <span className={returnPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+        {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%
+      </span>
+    ) : <span className="text-muted-foreground">—</span>
+    const realizedGain = asset.realized_gain ? (
+      <span className={asset.realized_gain >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+        {mask(formatCurrency(asset.realized_gain, asset.currency, locale))}
+      </span>
+    ) : <span className="text-muted-foreground">—</span>
+    const portfolioShare = <>
+      {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
+      {pctOfInvested != null && (
+        <span className="block text-[10px] text-muted-foreground/70">
+          {t('assets.colPctInvestedValue', { pct: pctOfInvested.toFixed(1) })}
+        </span>
+      )}
+    </>
 
     return (
       <div key={asset.id} className="border-b border-border last:border-b-0">
         <div
-          className="grid items-center gap-2 px-3 py-3 cursor-pointer hover:bg-muted/20 transition-colors text-sm"
-          style={{ gridTemplateColumns: HOLDINGS_GRID }}
+          className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--holding-columns)] items-center gap-2 px-3 py-3 cursor-pointer hover:bg-muted/20 transition-colors text-sm"
+          style={{ '--holding-columns': HOLDINGS_GRID } as React.CSSProperties}
           onClick={() => setExpandedId(isExpanded ? null : asset.id)}
         >
           {/* Ativo */}
@@ -764,7 +802,9 @@ export default function AssetsPage() {
             <AssetIcon logoUrl={asset.logo_url} Icon={Icon} colorClass={config.color} bgClass={config.bg} size={16} tile="w-8 h-8" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-foreground truncate">{asset.ticker && !asset.ticker.startsWith('TD:') ? asset.ticker : asset.name}</span>
+                <button type="button" aria-expanded={isExpanded} onClick={(event) => { event.stopPropagation(); setExpandedId(isExpanded ? null : asset.id) }} className="font-semibold text-foreground text-left truncate hover:underline">
+                  {asset.ticker && !asset.ticker.startsWith('TD:') ? asset.ticker : asset.name}
+                </button>
                 {needsBuys && (
                   <Badge
                     variant="warning"
@@ -786,33 +826,20 @@ export default function AssetsPage() {
             </div>
           </div>
           {/* Quant. */}
-          <div className="text-right tabular-nums text-muted-foreground">
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
             {asset.units != null ? mask(`${asset.units}`) : '—'}
           </div>
           {/* Preço Médio */}
-          <div className="text-right tabular-nums">
-            {asset.average_price != null ? mask(formatCurrency(asset.average_price, asset.currency, locale)) : (
-              needsBuys && canWrite ? (
-                <button
-                  onClick={(e) => { e.stopPropagation(); openAddTransaction(asset.id) }}
-                  className="text-[11px] font-medium text-primary hover:underline"
-                >
-                  + {t('assets.addBuys')}
-                </button>
-              ) : <span className="text-muted-foreground">—</span>
-            )}
+          <div className="hidden lg:block text-right tabular-nums">
+            {averagePrice}
           </div>
           {/* Preço Atual */}
-          <div className="text-right tabular-nums text-muted-foreground">
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
             {asset.last_price != null ? mask(formatCurrency(asset.last_price, asset.currency, locale)) : '—'}
           </div>
           {/* Rentabilidade */}
-          <div className="text-right tabular-nums">
-            {returnPct != null ? (
-              <span className={returnPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-                {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%
-              </span>
-            ) : <span className="text-muted-foreground">—</span>}
+          <div className="hidden lg:block text-right tabular-nums">
+            {returnValue}
           </div>
           {/* Saldo */}
           <div className="text-right tabular-nums">
@@ -834,52 +861,60 @@ export default function AssetsPage() {
           </div>
           {/* Realizado — the gain the sells already booked. The only place it
               surfaces: a closed holding shows nothing else about what it made. */}
-          <div className="text-right tabular-nums">
-            {asset.realized_gain ? (
-              <span className={asset.realized_gain >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-                {mask(formatCurrency(asset.realized_gain, asset.currency, locale))}
-              </span>
-            ) : <span className="text-muted-foreground">—</span>}
+          <div className="hidden lg:block text-right tabular-nums">
+            {realizedGain}
           </div>
           {/* % carteira — of everything, then of what is invested */}
-          <div className="text-right tabular-nums text-muted-foreground">
-            {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
-            {pctOfInvested != null && (
-              <span className="block text-[10px] text-muted-foreground/70">
-                {t('assets.colPctInvestedValue', { pct: pctOfInvested.toFixed(1) })}
-              </span>
-            )}
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
+            {portfolioShare}
+          </div>
+          <div className="text-muted-foreground lg:hidden">
+            {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </div>
           {/* actions */}
-          <div className="flex items-center justify-end gap-0.5">
+          <div className={`${isExpanded && (watched || canWrite) ? 'flex' : 'hidden'} col-span-3 flex-wrap items-center gap-1 border-t border-border pt-2 lg:col-span-1 lg:flex lg:flex-nowrap lg:justify-end lg:gap-0.5 lg:border-0 lg:pt-0`}>
             {/* Not gated on canWrite: a trace reads public chain data and
                 writes nothing, so a read-only member may run one. */}
             {watched && (
               <button
                 onClick={(e) => { e.stopPropagation(); navigate(`/trace?chain=${encodeURIComponent(watched[0])}&address=${encodeURIComponent(watched[1])}`) }}
                 title={t('assets.traceOnChain')}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors lg:min-h-0 lg:p-1"
               >
                 <Radar size={13} />
+                <span className="text-xs lg:hidden">{t('assets.traceOnChain')}</span>
               </button>
             )}
             {canWrite && (
               <>
-                <button onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }} title={t('assets.moveToWallet')} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }} title={t('assets.moveToWallet')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors lg:min-h-0 lg:p-1">
                   <FolderInput size={13} />
+                  <span className="text-xs lg:hidden">{t('assets.moveToWallet')}</span>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.edit')} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.edit')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed lg:min-h-0 lg:p-1">
                   <Pencil size={13} />
+                  <span className="text-xs lg:hidden">{t('common.edit')}</span>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.delete')} className="p-1 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.delete')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed lg:min-h-0 lg:p-1">
                   <Trash2 size={13} />
+                  <span className="text-xs lg:hidden">{t('common.delete')}</span>
                 </button>
               </>
             )}
-            {isExpanded ? <ChevronUp size={15} className="text-muted-foreground" /> : <ChevronDown size={15} className="text-muted-foreground" />}
+            {isExpanded ? <ChevronUp size={15} className="hidden text-muted-foreground lg:block" /> : <ChevronDown size={15} className="hidden text-muted-foreground lg:block" />}
           </div>
         </div>
 
+        {isExpanded && (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border px-3 py-3 text-xs lg:hidden">
+            <div><dt className="text-muted-foreground">{t('assets.colQuantity')}</dt><dd className="mt-1 tabular-nums">{asset.units != null ? mask(`${asset.units}`) : '—'}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colAvgPrice')}</dt><dd className="mt-1 tabular-nums">{averagePrice}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colCurrentPrice')}</dt><dd className="mt-1 tabular-nums">{asset.last_price != null ? mask(formatCurrency(asset.last_price, asset.currency, locale)) : '—'}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colReturn')}</dt><dd className="mt-1 tabular-nums">{returnValue}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colRealized')}</dt><dd className="mt-1 tabular-nums">{realizedGain}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colPortfolioPct')}</dt><dd className="mt-1 tabular-nums">{portfolioShare}</dd></div>
+          </dl>
+        )}
         {isExpanded && (
           isMarketPriced ? (
             <>
@@ -907,28 +942,27 @@ export default function AssetsPage() {
   function renderHoldingsHeader() {
     return (
       <div
-        className="grid items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
-        style={{ gridTemplateColumns: HOLDINGS_GRID }}
+        className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--holding-columns)] items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
+        style={{ '--holding-columns': HOLDINGS_GRID } as React.CSSProperties}
       >
         <div>{t('assets.colAsset')}</div>
-        <div className="text-right">{t('assets.colQuantity')}</div>
-        <div className="text-right">{t('assets.colAvgPrice')}</div>
-        <div className="text-right">{t('assets.colCurrentPrice')}</div>
-        <div className="text-right">{t('assets.colReturn')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colQuantity')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colAvgPrice')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colCurrentPrice')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colReturn')}</div>
         <div className="text-right">{t('assets.colBalance')}</div>
-        <div className="text-right">{t('assets.colRealized')}</div>
-        <div className="text-right">{t('assets.colPortfolioPct')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colRealized')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colPortfolioPct')}</div>
         <div />
       </div>
     )
   }
 
-  // Wrap a set of holding rows in a horizontally-scrollable table shell so the
-  // columns stay aligned (and usable on narrow screens).
+  // Mobile keeps the holding and balance visible; secondary fields expand below.
   function renderHoldingsTable(rows: Asset[]) {
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
-        <div className="min-w-[820px]">
+      <div className="rounded-xl border border-border bg-card shadow-sm lg:overflow-x-auto">
+        <div className="lg:min-w-[820px]">
           {renderHoldingsHeader()}
           {rows.map(renderHoldingRow)}
         </div>
@@ -957,7 +991,7 @@ export default function AssetsPage() {
 
   function toggleWalletCollapse(id: string) {
     setCollapsedWallets(prev => {
-      const next = new Set(prev)
+      const next = new Set(prev ?? sortedWallets.filter((wallet) => wallet.id !== selectedWalletId).map((wallet) => wallet.id))
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
@@ -992,11 +1026,13 @@ export default function AssetsPage() {
   }
 
   function renderWalletSection(wallet: AssetGroup, walletAssets: Asset[]) {
-    const isCollapsed = collapsedWallets.has(wallet.id)
+    const isCollapsed = collapsedWallets?.has(wallet.id) ?? wallet.id !== selectedWalletId
     const isSynced = wallet.source !== 'manual'
-    // Sum in wallet's reported current_value (already computed by backend).
-    // Fall back to per-asset sum if the rollup is stale after a move.
-    const total = walletAssets.reduce((s, a) => s + (a.current_value_primary ?? a.current_value ?? 0), 0) || wallet.current_value_primary || wallet.current_value
+    // Use the visible, currently valued holdings. A stale snapshot is not a
+    // fallback for a real zero; missing valuations remain an explicit subtotal.
+    const priced = walletAssets.filter((asset) => asset.current_value_primary != null)
+    const total = priced.reduce((sum, asset) => sum + Number(asset.current_value_primary), 0)
+    const partial = priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0
 
     // Only show the institution as a subtitle when it's actually
     // additional information — if the user hasn't renamed the wallet,
@@ -1008,10 +1044,11 @@ export default function AssetsPage() {
     const walletContribution = contributionByWallet.get(wallet.id)
 
     return (
-      <div key={wallet.id} className="space-y-2">
-        <div className="flex items-center gap-3 px-1">
+      <div key={wallet.id} className="rounded-xl border border-border bg-card">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3">
           <button
             onClick={() => toggleWalletCollapse(wallet.id)}
+            aria-expanded={!isCollapsed}
             className="flex items-center gap-2 flex-1 min-w-0 group"
           >
             {isCollapsed ? (
@@ -1028,12 +1065,12 @@ export default function AssetsPage() {
             <div className="flex flex-col items-start min-w-0 flex-1">
               <div className="flex items-center gap-2 min-w-0 w-full">
                 <span className="text-sm font-semibold text-foreground truncate">{wallet.name}</span>
-                <span className="text-xs text-muted-foreground shrink-0">
+                <span className="hidden sm:inline text-xs text-muted-foreground shrink-0">
                   · {walletAssets.length} {t('assets.itemsCount')}
                 </span>
                 {/* Taxable is the default; labelling every wallet would be noise. */}
                 {wallet.tax_treatment !== 'taxable' && (
-                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                  <Badge variant="secondary" className="hidden sm:inline-flex shrink-0 text-[10px]">
                     {t(`assets.taxTreatment.${wallet.tax_treatment}`)}
                   </Badge>
                 )}
@@ -1049,13 +1086,18 @@ export default function AssetsPage() {
           {/* A wallet with no contribution history has no Net Contribution at
               all, which is a different statement from zero — so it says nothing. */}
           {walletContribution && (
-            <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums whitespace-nowrap">
+            <span className="hidden md:inline text-[11px] text-muted-foreground shrink-0 tabular-nums whitespace-nowrap">
               {t('assets.contribNetShort')} {mask(formatCurrency(walletContribution.net, userCurrency, locale))}
             </span>
           )}
-          <span className="text-sm font-bold tabular-nums text-foreground shrink-0">
-            {mask(formatCurrency(total, userCurrency, locale))}
-          </span>
+          <div className="text-right shrink-0">
+            <span className="text-sm font-semibold tabular-nums text-foreground">
+              {priced.length > 0 || walletAssets.length === 0 ? mask(formatCurrency(total, userCurrency, locale)) : '—'}
+            </span>
+            <span className="block text-[10px] text-muted-foreground">
+              {t(partial ? 'assets.knownHoldingsValue' : 'assets.holdingsValue')}
+            </span>
+          </div>
           {canWrite && (
             <>
               <button
@@ -1078,12 +1120,12 @@ export default function AssetsPage() {
           )}
         </div>
         {!isCollapsed && walletAssets.length > 0 && (
-          <div className="pl-4">
+          <div className="border-t border-border p-2">
             {renderHoldingsTable(walletAssets)}
           </div>
         )}
         {!isCollapsed && walletAssets.length === 0 && (
-          <div className="pl-4 py-3 text-xs text-muted-foreground italic">
+          <div className="px-4 py-3 text-xs text-muted-foreground italic">
             {t('assets.emptyWallet')}
           </div>
         )}
@@ -1103,123 +1145,164 @@ export default function AssetsPage() {
       />
     ) : null
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        section={t('assets.title')}
-        title={t('assets.title')}
-        action={
-          canWrite ? (
-            <div className="flex items-center gap-2">
-              <Button onClick={() => navigate('/import?tab=investments')} variant="outline" className="gap-1.5">
-                <Upload size={16} />
-                {t('assetImport.action')}
-              </Button>
-              <Button onClick={openCreateWallet} variant="outline" className="gap-1.5">
-                <Wallet size={16} />
-                {t('assets.newWallet')}
-              </Button>
-              <Button onClick={openCreate} className="gap-1.5">
-                <Plus size={16} />
-                {t('assets.addAsset')}
-              </Button>
-            </div>
-          ) : undefined
-        }
-      />
+  const scopedWalletActivity = !!activeWalletIds || !!selectedWalletId
+  const selectedWallet = collectionWallets?.find((wallet) => wallet.id === selectedWalletId)
+  const walletHoldings = (
+    <div className="space-y-4">
+      {sortedWallets.map((wallet) => renderWalletSection(wallet, assetsByGroup.get(wallet.id) ?? []))}
+      {ungroupedAssets.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">{t('assets.ungrouped')}</h2>
+          {renderHoldingsTable(ungroupedAssets)}
+        </section>
+      )}
+      {soldAssets.length > 0 && (
+        <details className="rounded-xl border border-border bg-card p-3">
+          <summary className="cursor-pointer text-sm font-medium">{t('assets.soldAssets')} ({soldAssets.length})</summary>
+          <div className="mt-3">{renderHoldingsTable(soldAssets)}</div>
+        </details>
+      )}
+    </div>
+  )
 
-      {/* Per wallet · consolidated per ticker (#64) · the buy/sell ledger (#235) */}
-      <div className="inline-flex items-center rounded-lg border border-border p-0.5 bg-muted/40">
-        {ASSET_TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${activeTab === tab ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-          >
-            {t(`assets.tab${tab.charAt(0).toUpperCase()}${tab.slice(1)}`)}
-          </button>
-        ))}
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('assets.title')}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t('assets.workspaceOverview', { workspace: current?.name ?? '' })}</p>
+        </div>
+        {canWrite && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => navigate('/import?tab=investments')} variant="outline" size="sm" className="gap-1.5">
+              <Upload size={15} />{t('assetImport.action')}
+            </Button>
+            <Button onClick={openCreateWallet} variant="outline" size="sm" className="gap-1.5">
+              <Wallet size={15} />{t('assets.newWallet')}
+            </Button>
+            <Button onClick={openCreate} size="sm" className="gap-1.5">
+              <Plus size={15} />{t('assets.addAsset')}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {activeTab === 'transactions' ? (
-        <AssetTransactionsTab
-          holdings={assetsList ?? []}
-          wallets={sortedWallets}
-          locale={locale}
-          dateLocale={dateLocale}
-          mask={mask}
-          canWrite={canWrite}
-          onChanged={refetchAssetViews}
-        />
-      ) : activeTab === 'contributions' ? (
-        <ContributionsTab
-          wallets={sortedWallets}
-          currency={userCurrency}
-          locale={locale}
-          dateLocale={dateLocale}
-          mask={mask}
-          canWrite={canWrite}
-        />
-      ) : activeTab === 'positions' ? (
-        <>
-          {renderPortfolioChart(positionsTrendData)}
-          <PositionsTab
-            holdings={assetsList ?? []}
-            wallets={sortedWallets}
-            currency={userCurrency}
-            locale={locale}
-            dateLocale={dateLocale}
-            mask={mask}
-            canWrite={canWrite}
-            onClassify={(id, type) => updateMutation.mutate({ id, type })}
-          />
-        </>
-      ) : (
-      <>
-      {renderPortfolioChart(portfolioData)}
-
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+      <Tabs value={activeTab} onValueChange={(tab) => setView({ tab })} className="gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+          <TabsList variant="line" aria-label={t('assets.title')}>
+            <TabsTrigger value="portfolio">{t('assets.tabPortfolio')}</TabsTrigger>
+            <TabsTrigger value="activity">{t('assets.tabActivity')}</TabsTrigger>
+          </TabsList>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <label htmlFor="assets-wallet-filter" className="text-xs text-muted-foreground">{t('assets.wallet')}</label>
+            <select
+              id="assets-wallet-filter"
+              value={selectedWalletId ?? ''}
+              onChange={(event) => {
+                setCollapsedWallets(null)
+                setView({ wallet: event.target.value || null })
+              }}
+              className="max-w-[240px] rounded-md border border-input bg-card px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              <option value="">{t('assets.allWallets')}</option>
+              {selectedWalletId && !selectedWallet && <option value={selectedWalletId}>{t('assets.walletUnavailable')}</option>}
+              {(collectionWallets ?? []).map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}
+            </select>
+            {selectedWalletId && (
+              <Button variant="ghost" size="sm" onClick={() => setView({ wallet: null })} aria-label={t('assets.clearWalletFilter')} className="size-8 p-0">
+                <X size={15} />
+              </Button>
+            )}
+          </div>
         </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Wallets (active assets grouped) */}
-          {(sortedWallets.length > 0 || ungroupedAssets.length > 0) && (
-            <div className="space-y-4">
-              {sortedWallets.map(w => renderWalletSection(w, assetsByGroup.get(w.id) ?? []))}
+        {selectedWalletId && !selectedWallet && !isLoading && (
+          <Alert>{t('assets.walletUnavailableHint')}</Alert>
+        )}
+        {assetsError && <Alert variant="warning">{t('assets.loadError')}</Alert>}
 
-              {ungroupedAssets.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                    {sortedWallets.length > 0 ? t('assets.ungrouped') : t('assets.activeAssets')}
-                  </h3>
-                  {renderHoldingsTable(ungroupedAssets)}
-                </div>
+        <TabsContent value="portfolio" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">{t(portfolioView === 'assets' ? 'assets.byAssetHint' : 'assets.byWalletHint')}</p>
+            <div role="group" aria-label={t('assets.groupHoldings')} className="inline-flex items-center rounded-lg border border-border p-0.5">
+              {(['assets', 'wallets'] as const).map((view) => (
+                <button key={view} type="button" aria-pressed={portfolioView === view} onClick={() => setView({ view })}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${portfolioView === view ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                  {t(view === 'assets' ? 'assets.groupByAsset' : 'assets.groupByWallet')}
+                </button>
+              ))}
+            </div>
+          </div>
+          {isLoading ? (
+            <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
+          ) : portfolioView === 'wallets' ? walletHoldings : (
+            <>
+              {activeAssets.some((asset) => asset.ticker) && (
+                <PositionsTab
+                  key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
+                  holdings={assetsList ?? []}
+                  wallets={sortedWallets}
+                  currency={userCurrency}
+                  locale={locale}
+                  dateLocale={dateLocale}
+                  mask={mask}
+                  canWrite={canWrite}
+                  onClassify={(id, type) => updateMutation.mutate({ id, type })}
+                  onOpenHolding={(id) => {
+                    const holding = assetsList?.find((asset) => asset.id === id)
+                    setExpandedId(id)
+                    setCollapsedWallets(new Set(sortedWallets.filter((wallet) => wallet.id !== holding?.group_id).map((wallet) => wallet.id)))
+                    setView({ view: 'wallets', wallet: holding?.group_id ?? null })
+                  }}
+                />
               )}
+              {activeAssets.some((asset) => !asset.ticker) && (
+                <section className="space-y-2">
+                  <h2 className="text-sm font-semibold">{t('assets.otherAssets')}</h2>
+                  {renderHoldingsTable(activeAssets.filter((asset) => !asset.ticker))}
+                </section>
+              )}
+              <details className="rounded-xl border border-border p-3">
+                <summary className="cursor-pointer text-sm font-medium">{t('assets.allHoldings')}</summary>
+                <div className="mt-3">{walletHoldings}</div>
+              </details>
+            </>
+          )}
+          {!isLoading && !assetsError && activeAssets.length === 0 && soldAssets.length === 0 && (
+            <div className="py-10 text-center">
+              <Package className="mx-auto mb-3 size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{t('assets.noAssets')}</p>
             </div>
           )}
+          {portfolioData && portfolioData.trend.length > 0 && (
+            <details className="rounded-xl border border-border p-3">
+              <summary className="cursor-pointer text-sm font-medium">{t('assets.valueHistory')}</summary>
+              <div className="mt-3">{renderPortfolioChart(portfolioData)}</div>
+            </details>
+          )}
+        </TabsContent>
 
-          {/* Sold Assets */}
-          {soldAssets.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                {t('assets.soldAssets')}
-              </h3>
-              {renderHoldingsTable(soldAssets)}
-            </div>
+        <TabsContent value="activity" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="assets-activity-kind" className="text-sm font-medium">{t('assets.activityType')}</label>
+            <select id="assets-activity-kind" value={activityView} onChange={(event) => setView({ activity: event.target.value })}
+              className="max-w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
+              <option value="trades">{t('assets.activityTrades')}</option>
+              <option value="contributions">{t('assets.activityContributions')}</option>
+              {walletActivityEnabled && <option value="wallets">{t('assets.activityWallets')}</option>}
+            </select>
+          </div>
+          {activityView === 'wallets' && walletActivityEnabled ? (
+            <OwnedWalletActivity
+              key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
+              addressKeys={scopedWalletActivity ? (assetsList ?? []).filter((asset) => asset.source === 'onchain' && asset.external_id).map((asset) => asset.external_id!.split(':').slice(0, 2).join(':')) : undefined}
+            />
+          ) : activityView === 'contributions' ? (
+            <ContributionsTab key={`${current?.id}:${selectedWalletId ?? ''}`} wallets={sortedWallets} currency={userCurrency} locale={locale} dateLocale={dateLocale} mask={mask} canWrite={canWrite} />
+          ) : (
+            <AssetTransactionsTab key={`${current?.id}:${selectedWalletId ?? ''}`} holdings={assetsList ?? []} wallets={sortedWallets} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} locale={locale} dateLocale={dateLocale} mask={mask} canWrite={canWrite} onChanged={refetchAssetViews} />
           )}
-
-          {activeAssets.length === 0 && soldAssets.length === 0 && (
-            <div className="text-center py-16">
-              <Package className="mx-auto h-12 w-12 text-muted-foreground/40 mb-3" />
-              <p className="text-muted-foreground">{t('assets.noAssets')}</p>
-            </div>
-          )}
-        </div>
-      )}
-      </>
-      )}
+        </TabsContent>
+      </Tabs>
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1258,7 +1341,7 @@ export default function AssetsPage() {
                 onChange={e => setFormGroupId(e.target.value)}
               >
                 <option value="">{t('assets.noWallet')}</option>
-                {sortedWallets.map(w => (
+                {(collectionWallets ?? []).map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
@@ -1764,7 +1847,7 @@ export default function AssetsPage() {
               </div>
               <span className="text-sm text-foreground">{t('assets.noWallet')}</span>
             </button>
-            {sortedWallets.map(w => (
+            {(collectionWallets ?? []).map(w => (
               <button
                 key={w.id}
                 onClick={() => movingAsset && moveAssetMutation.mutate({ id: movingAsset.id, groupId: w.id })}
@@ -1781,7 +1864,7 @@ export default function AssetsPage() {
                 <span className="text-xs text-muted-foreground">{w.asset_count}</span>
               </button>
             ))}
-            {sortedWallets.length === 0 && (
+            {(collectionWallets ?? []).length === 0 && (
               <p className="text-xs text-muted-foreground italic px-3 py-2">
                 {t('assets.noWalletsHint')}
               </p>
@@ -2173,6 +2256,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       assets.addValue(id, data),
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
       queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
@@ -2187,6 +2271,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     mutationFn: (valueId: string) => assets.deleteValue(valueId),
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
       queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
@@ -2392,6 +2477,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
 function AssetTransactionsTab({
   holdings,
   wallets,
+  scopeWalletIds,
   locale,
   dateLocale,
   mask,
@@ -2400,6 +2486,7 @@ function AssetTransactionsTab({
 }: {
   holdings: Asset[]
   wallets: AssetGroup[]
+  scopeWalletIds: string[] | null
   locale: string
   dateLocale: string
   mask: (v: string) => string
@@ -2409,10 +2496,22 @@ function AssetTransactionsTab({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
-  const { data: txs, isLoading } = useQuery({
+  const { data: txs, isLoading, isError } = useQuery({
     queryKey: ['asset-transactions'],
     queryFn: () => assets.allTransactions(),
   })
+  // Closed and archived holdings still have history. Load their IDs only when
+  // a wallet/collection filter needs them to scope the workspace-wide ledger.
+  const { data: historicalHoldings, isLoading: historyLoading, isError: historyError } = useQuery({
+    queryKey: ['assets', 'including-archived'],
+    queryFn: () => assets.list(true),
+    enabled: scopeWalletIds !== null,
+  })
+  const visibleTransactions = useMemo(() => {
+    if (scopeWalletIds === null) return txs ?? []
+    const allowed = new Set(scopeWalletIds)
+    return transactionsForHoldings(txs ?? [], (historicalHoldings ?? []).filter((holding) => !!holding.group_id && allowed.has(holding.group_id)))
+  }, [txs, historicalHoldings, scopeWalletIds])
 
   const marketHoldings = useMemo(
     () => holdings.filter((h) => h.valuation_method === 'market_price' && !h.sell_date),
@@ -2494,7 +2593,7 @@ function AssetTransactionsTab({
     setFormKind('buy')
     setFormHolding(marketHoldings.length > 0 ? marketHoldings[0].id : '__new__')
     setFormTicker('')
-    setFormGroupId('')
+    setFormGroupId(wallets.length === 1 ? wallets[0].id : '')
     setFormQuantity('')
     setFormPrice('')
     setFormFee('')
@@ -2542,7 +2641,7 @@ function AssetTransactionsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{t('assets.txTabHint')}</p>
         {canWrite && (
           <Button onClick={openAdd} className="gap-1.5">
@@ -2578,11 +2677,13 @@ function AssetTransactionsTab({
         </div>
       )}
 
-      {isLoading ? (
+      {isError || (scopeWalletIds !== null && historyError) ? (
+        <Alert variant="warning">{t('assets.loadActivityError')}</Alert>
+      ) : isLoading || (scopeWalletIds !== null && historyLoading) ? (
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 rounded-lg" />)}
         </div>
-      ) : (txs ?? []).length === 0 ? (
+      ) : visibleTransactions.length === 0 ? (
         holdingsWithoutCost.length === 0 ? (
           <div className="text-center py-16">
             <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground/40 mb-3" />
@@ -2591,7 +2692,7 @@ function AssetTransactionsTab({
         ) : null
       ) : (
         <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
-          {(txs ?? []).map((tx) => {
+          {visibleTransactions.map((tx) => {
             const total = tx.quantity * tx.price
             const cur = tx.currency ?? 'USD'
             // A provider wrote this row and will write it again next sync, so

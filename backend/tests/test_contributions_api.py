@@ -6,8 +6,12 @@ projection reads.
 """
 
 from datetime import date
+from decimal import Decimal
+import uuid
 
 import pytest
+
+from app.models.asset import Asset
 
 TODAY = date.today()
 
@@ -274,6 +278,35 @@ async def test_the_summary_reports_the_wallets_own_currency(client, auth_headers
     assert summary["net"] == 7000.0
 
 
+@pytest.mark.parametrize("prices,expected_value", [
+    ([None], None),
+    ([None, Decimal("25")], None),
+    ([Decimal("0")], 0.0),
+    ([Decimal("25")], 25.0),
+])
+async def test_summary_requires_a_complete_valuation_to_report_return(
+    session, client, auth_headers, test_user, test_workspace, prices, expected_value,
+):
+    wallet = await _wallet(client, auth_headers, "Brokerage")
+    await _contribute(client, auth_headers, wallet, amount=1000)
+    for index, price in enumerate(prices):
+        session.add(Asset(
+            user_id=test_user.id, workspace_id=test_workspace.id, group_id=uuid.UUID(wallet),
+            name=f"Holding {index}", type="crypto", currency="BRL",
+            valuation_method="market_price", units=Decimal("1"), last_price=price,
+            purchase_price=Decimal("1000"),
+        ))
+    await session.commit()
+
+    summary = (await client.get("/api/contributions/summary", headers=auth_headers)).json()[0]
+    assert summary["current_value"] == expected_value
+    assert summary["return_net_of_contributions"] == (
+        None if expected_value is None else expected_value - 1000
+    )
+    assert summary["net"] == 1000
+    assert summary["currency"] == "BRL"
+
+
 # ---------------------------------------------------------------------------
 # The projection feed
 # ---------------------------------------------------------------------------
@@ -326,6 +359,40 @@ async def test_a_tracked_bucket_holding_nothing_is_still_claimed(client, auth_he
     feed = (await client.get("/api/assets/projection-feed", headers=auth_headers)).json()
     assert feed["annual_hsa"] == 0.0
     assert "hsa" in feed["live"] and "annual_hsa" in feed["live"]
+
+
+@pytest.mark.parametrize("treatment,balance_key,annual_key", [
+    ("roth", "roth_ira", "annual_roth"),
+    ("traditional", "trad_401k", "annual_trad_401k"),
+    ("taxable", "taxable", "annual_taxable"),
+    ("hsa", "hsa", "annual_hsa"),
+])
+async def test_an_incomplete_wallet_keeps_its_whole_bucket_out_of_live_balances(
+    session, client, auth_headers, test_user, test_workspace, treatment, balance_key, annual_key,
+):
+    # One complete wallet cannot make an incomplete sibling's combined balance
+    # authoritative. Both still have valid contribution and basis evidence.
+    partial = await _wallet(client, auth_headers, "Missing quote", tax_treatment=treatment)
+    complete = await _wallet(client, auth_headers, "Known value", tax_treatment=treatment)
+    await _contribute(client, auth_headers, partial, amount=300)
+    for wallet, price in ((partial, None), (complete, Decimal("50"))):
+        session.add(Asset(
+            user_id=test_user.id, workspace_id=test_workspace.id, group_id=uuid.UUID(wallet),
+            name="Holding", type="crypto", currency="BRL", valuation_method="market_price",
+            units=Decimal("1"), last_price=price,
+        ))
+    unaffected_treatment = "taxable" if treatment != "taxable" else "hsa"
+    await _wallet(client, auth_headers, "Unaffected", tax_treatment=unaffected_treatment)
+    await session.commit()
+
+    feed = (await client.get("/api/assets/projection-feed", headers=auth_headers)).json()
+    assert balance_key not in feed["live"]
+    assert annual_key in feed["live"]
+    assert feed[annual_key] == 300
+    assert unaffected_treatment in feed["live"]
+    if treatment == "roth":
+        assert "roth_basis" in feed["live"]
+        assert feed["roth_basis"] == 300
 
 
 @pytest.mark.asyncio

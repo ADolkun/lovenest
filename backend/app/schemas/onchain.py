@@ -65,3 +65,4 @@ class WatchedAddressRead(BaseModel):
     address: str
     label: str
     connection_id: uuid.UUID
+    connection_name: str

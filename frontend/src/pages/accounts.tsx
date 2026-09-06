@@ -5,7 +5,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { accounts, connections, currencies } from '@/lib/api'
+import { accounts, assetGroups, connections, currencies } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
@@ -27,6 +27,8 @@ import { RefreshCw, TriangleAlert, Unlink, Settings } from 'lucide-react'
 import { AccountIcon, ConnectionLogo, getAccountTypeConfig } from '@/components/account-icon'
 import { AccountPageActions } from '@/components/account-page-actions'
 import { AccountRowActions } from '@/components/account-row-actions'
+import { AccountHoldingsSummary, UnlinkedWallets } from '@/components/account-holdings'
+import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { PageHeader } from '@/components/page-header'
 import { BankConnectDialog } from '@/components/bank-connect-dialog'
 import { ConnectorSelectDialog, type Provider } from '@/components/connector-select-dialog'
@@ -86,7 +88,8 @@ export default function AccountsPage() {
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
-  const { canWrite } = useWorkspace()
+  const { canWrite, hasModule } = useWorkspace()
+  const { onchainEnabled } = useFeatureFlags()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -105,6 +108,13 @@ export default function AccountsPage() {
     queryKey: ['accounts'],
     queryFn: () => accounts.list(),
   })
+
+  const walletsQuery = useQuery({
+    queryKey: ['asset-groups'],
+    queryFn: assetGroups.list,
+    enabled: hasModule('assets'),
+  })
+  const wallets = hasModule('assets') ? walletsQuery.data ?? [] : []
 
   const { data: connectionsList, isLoading: connectionsLoading } = useQuery({
     queryKey: ['connections'],
@@ -267,6 +277,13 @@ export default function AccountsPage() {
         }
       />
 
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        {hasModule('assets') && <Link className="font-medium text-primary hover:underline" to="/assets">{t('accountHoldings.openPortfolio')}</Link>}
+        {onchainEnabled && <Link className="font-medium text-primary hover:underline" to={hasModule('assets') ? '/assets?tab=activity&activity=wallets' : '/trace'}>{t('accountHoldings.myWallets')}</Link>}
+      </div>
+      {hasModule('assets') && walletsQuery.isError && <p role="alert" className="text-sm text-destructive">{t('accountHoldings.loadError')} <button type="button" className="underline" onClick={() => void walletsQuery.refetch()}>{t('common.retry')}</button></p>}
+      {!accountsLoading && <UnlinkedWallets wallets={wallets} accounts={accountsList ?? []} />}
+
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
@@ -306,6 +323,8 @@ export default function AccountsPage() {
                         </div>
                       </Link>
                       <div className="shrink-0 text-right">
+                        <AccountHoldingsSummary account={acc} wallets={wallets} />
+                        {acc.type === 'investment' && <p className="text-xs text-muted-foreground">{t('accountHoldings.cashLedger')}</p>}
                         <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
                           {mask(formatCurrency(bal, acc.currency, locale))}
                         </p>
@@ -472,6 +491,7 @@ export default function AccountsPage() {
                                 </div>
                               </Link>
                               <div className="shrink-0 text-right">
+                                {acc.type === 'investment' && <p className="text-xs text-muted-foreground">{t('accountHoldings.providerBalance')}</p>}
                                 <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
                                   {mask(formatCurrency(bal, acc.currency, locale))}
                                 </p>
@@ -484,6 +504,7 @@ export default function AccountsPage() {
                                     {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
                                   </p>
                                 )}
+                                <AccountHoldingsSummary account={acc} wallets={wallets} />
                               </div>
                               {canWrite && (
                                 <AccountRowActions

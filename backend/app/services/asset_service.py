@@ -22,6 +22,7 @@ from app.providers.market_price import (
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetValueCreate, AssetRead, AssetValueRead
 from app.services._query_filters import holding_inside_account_balance
 from app.services.asset_group_service import ensure_group_in_workspace
+from app.services.asset_valuation import current_value_amount
 from app.services.fx_rate_service import convert, stamp_primary_amount
 from app.services.option_contract import multiplier_for
 
@@ -51,28 +52,8 @@ def _next_due_date(last_date: date, frequency: str) -> date:
 
 
 def _compute_current_value(asset: Asset, latest_value: Optional[AssetValue]) -> Optional[float]:
-    """Compute the current value of an asset from its latest AssetValue.
-    Falls back to purchase_price if no value entries exist yet."""
-    # Market-priced assets are authoritative on (units × last_price). The
-    # AssetValue history exists for the chart, but the "live" number users
-    # see should reflect the most recent quote even between scheduled syncs.
-    if asset.valuation_method == "market_price":
-        if asset.last_price is not None and asset.units is not None:
-            # A quote is per share even where a unit is a contract of a
-            # hundred of them; the multiplier is 1 for everything else.
-            return float(
-                Decimal(str(asset.last_price))
-                * Decimal(str(asset.units))
-                * multiplier_for(asset.type)
-            )
-        if latest_value is not None:
-            return float(latest_value.amount)
-        return None
-    if latest_value is None:
-        if asset.purchase_price is not None:
-            return float(asset.purchase_price)
-        return None
-    return float(latest_value.amount)
+    amount = current_value_amount(asset, latest_value.amount if latest_value is not None else None)
+    return None if amount is None else float(amount)
 
 
 def _generate_growth_values(

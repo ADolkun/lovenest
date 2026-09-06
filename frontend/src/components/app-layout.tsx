@@ -104,7 +104,7 @@ export function AppLayout() {
   const [chatOpen, setChatOpen] = useState(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
-  const { agentsEnabled, onchainEnabled } = useFeatureFlags()
+  const { agentsEnabled } = useFeatureFlags()
   const { hasModule, isLoading: workspaceLoading, canWrite } = useWorkspace()
   // The chat is offered only to members who can write. Sending a message
   // reaches a tool set that persists — `propose_create_transaction` and its
@@ -144,11 +144,8 @@ export function AppLayout() {
   // not a daily destination. Moved to the user menu (Change password,
   // 2FA, Backups, AI agents).
   const finalNavItems: NavItem[] = useMemo(
-    () =>
-      visibleNavItems(navItems, hasModule).filter(
-        (item) => item.type !== 'link' || item.key !== 'trace' || onchainEnabled,
-      ),
-    [hasModule, onchainEnabled],
+    () => visibleNavItems(navItems, hasModule),
+    [hasModule],
   )
   const isMac =
     typeof navigator !== 'undefined' &&

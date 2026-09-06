@@ -4,7 +4,6 @@ import {
   Building2,
   Landmark,
   PiggyBank,
-  Radar,
   Receipt,
   ReceiptText,
   Repeat,
@@ -41,10 +40,6 @@ export const navItems: NavItem[] = [
   { type: 'link', key: 'transactions', path: '/transactions', icon: ArrowLeftRight, module: 'transactions' },
   { type: 'link', key: 'invoices', path: '/invoices', icon: Receipt, module: 'invoices' },
   { type: 'link', key: 'accounts', path: '/accounts', icon: Building2, module: 'accounts' },
-  // Shares the accounts module rather than getting one of its own: tracing
-  // is a lens on wallet addresses, and the catalog mirrors the backend's
-  // module list, which has no entry to add here.
-  { type: 'link', key: 'trace', path: '/trace', icon: Radar, module: 'accounts' },
   { type: 'link', key: 'import', path: '/import', icon: Upload, module: 'import' },
   { type: 'separator', labelKey: 'nav.groupAnalysis' },
   { type: 'link', key: 'reports', path: '/reports', icon: BarChart3, module: 'reports' },
