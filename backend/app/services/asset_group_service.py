@@ -216,12 +216,11 @@ async def _account_for_group(session: AsyncSession, group: AssetGroup) -> Option
     if group.source == "manual":
         if group.account_id is None:
             return None
+        # Eligibility applies when linking; closing or reclassifying an account
+        # does not remove a relationship the user already saved.
         return (await session.execute(select(Account).where(
             Account.id == group.account_id,
             Account.workspace_id == group.workspace_id,
-            Account.connection_id.is_(None),
-            Account.type == "investment",
-            Account.is_closed == False,
         ))).scalar_one_or_none()
     query = (
         select(Account)
@@ -232,7 +231,6 @@ async def _account_for_group(session: AsyncSession, group: AssetGroup) -> Option
             Asset.is_archived == False,  # noqa: E712 — SQL, not Python truthiness
             Asset.sell_date.is_(None),
             Account.workspace_id == group.workspace_id,
-            Account.is_closed == False,
         )
     )
     if group.connection_id is not None:

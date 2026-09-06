@@ -357,6 +357,7 @@ export default function AssetsPage() {
   // asset list showing pre-edit data until the user manually reloaded.
   function refetchAssetViews() {
     queryClient.refetchQueries({ queryKey: ['assets'] })
+    queryClient.refetchQueries({ queryKey: ['asset-groups'] })
     queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
     queryClient.refetchQueries({ queryKey: ['dashboard'] })
   }
@@ -760,12 +761,40 @@ export default function AssetsPage() {
     const parts =
       onchainEnabled && asset.source === 'onchain' ? (asset.external_id?.split(':') ?? []) : []
     const watched = parts.length === 2 ? parts : null
+    const averagePrice = asset.average_price != null ? mask(formatCurrency(asset.average_price, asset.currency, locale)) : (
+      needsBuys && canWrite ? (
+        <button
+          onClick={(e) => { e.stopPropagation(); openAddTransaction(asset.id) }}
+          className="min-h-11 text-xs font-medium text-primary hover:underline lg:min-h-0 lg:text-[11px]"
+        >
+          + {t('assets.addBuys')}
+        </button>
+      ) : <span className="text-muted-foreground">—</span>
+    )
+    const returnValue = returnPct != null ? (
+      <span className={returnPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+        {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%
+      </span>
+    ) : <span className="text-muted-foreground">—</span>
+    const realizedGain = asset.realized_gain ? (
+      <span className={asset.realized_gain >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+        {mask(formatCurrency(asset.realized_gain, asset.currency, locale))}
+      </span>
+    ) : <span className="text-muted-foreground">—</span>
+    const portfolioShare = <>
+      {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
+      {pctOfInvested != null && (
+        <span className="block text-[10px] text-muted-foreground/70">
+          {t('assets.colPctInvestedValue', { pct: pctOfInvested.toFixed(1) })}
+        </span>
+      )}
+    </>
 
     return (
       <div key={asset.id} className="border-b border-border last:border-b-0">
         <div
-          className="grid items-center gap-2 px-3 py-3 cursor-pointer hover:bg-muted/20 transition-colors text-sm"
-          style={{ gridTemplateColumns: HOLDINGS_GRID }}
+          className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--holding-columns)] items-center gap-2 px-3 py-3 cursor-pointer hover:bg-muted/20 transition-colors text-sm"
+          style={{ '--holding-columns': HOLDINGS_GRID } as React.CSSProperties}
           onClick={() => setExpandedId(isExpanded ? null : asset.id)}
         >
           {/* Ativo */}
@@ -797,33 +826,20 @@ export default function AssetsPage() {
             </div>
           </div>
           {/* Quant. */}
-          <div className="text-right tabular-nums text-muted-foreground">
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
             {asset.units != null ? mask(`${asset.units}`) : '—'}
           </div>
           {/* Preço Médio */}
-          <div className="text-right tabular-nums">
-            {asset.average_price != null ? mask(formatCurrency(asset.average_price, asset.currency, locale)) : (
-              needsBuys && canWrite ? (
-                <button
-                  onClick={(e) => { e.stopPropagation(); openAddTransaction(asset.id) }}
-                  className="text-[11px] font-medium text-primary hover:underline"
-                >
-                  + {t('assets.addBuys')}
-                </button>
-              ) : <span className="text-muted-foreground">—</span>
-            )}
+          <div className="hidden lg:block text-right tabular-nums">
+            {averagePrice}
           </div>
           {/* Preço Atual */}
-          <div className="text-right tabular-nums text-muted-foreground">
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
             {asset.last_price != null ? mask(formatCurrency(asset.last_price, asset.currency, locale)) : '—'}
           </div>
           {/* Rentabilidade */}
-          <div className="text-right tabular-nums">
-            {returnPct != null ? (
-              <span className={returnPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-                {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%
-              </span>
-            ) : <span className="text-muted-foreground">—</span>}
+          <div className="hidden lg:block text-right tabular-nums">
+            {returnValue}
           </div>
           {/* Saldo */}
           <div className="text-right tabular-nums">
@@ -845,52 +861,60 @@ export default function AssetsPage() {
           </div>
           {/* Realizado — the gain the sells already booked. The only place it
               surfaces: a closed holding shows nothing else about what it made. */}
-          <div className="text-right tabular-nums">
-            {asset.realized_gain ? (
-              <span className={asset.realized_gain >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-                {mask(formatCurrency(asset.realized_gain, asset.currency, locale))}
-              </span>
-            ) : <span className="text-muted-foreground">—</span>}
+          <div className="hidden lg:block text-right tabular-nums">
+            {realizedGain}
           </div>
           {/* % carteira — of everything, then of what is invested */}
-          <div className="text-right tabular-nums text-muted-foreground">
-            {pctOfPortfolio != null ? `${pctOfPortfolio.toFixed(1)}%` : '—'}
-            {pctOfInvested != null && (
-              <span className="block text-[10px] text-muted-foreground/70">
-                {t('assets.colPctInvestedValue', { pct: pctOfInvested.toFixed(1) })}
-              </span>
-            )}
+          <div className="hidden lg:block text-right tabular-nums text-muted-foreground">
+            {portfolioShare}
+          </div>
+          <div className="text-muted-foreground lg:hidden">
+            {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </div>
           {/* actions */}
-          <div className="flex items-center justify-end gap-0.5">
+          <div className={`${isExpanded && (watched || canWrite) ? 'flex' : 'hidden'} col-span-3 flex-wrap items-center gap-1 border-t border-border pt-2 lg:col-span-1 lg:flex lg:flex-nowrap lg:justify-end lg:gap-0.5 lg:border-0 lg:pt-0`}>
             {/* Not gated on canWrite: a trace reads public chain data and
                 writes nothing, so a read-only member may run one. */}
             {watched && (
               <button
                 onClick={(e) => { e.stopPropagation(); navigate(`/trace?chain=${encodeURIComponent(watched[0])}&address=${encodeURIComponent(watched[1])}`) }}
                 title={t('assets.traceOnChain')}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors lg:min-h-0 lg:p-1"
               >
                 <Radar size={13} />
+                <span className="text-xs lg:hidden">{t('assets.traceOnChain')}</span>
               </button>
             )}
             {canWrite && (
               <>
-                <button onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }} title={t('assets.moveToWallet')} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <button onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }} title={t('assets.moveToWallet')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors lg:min-h-0 lg:p-1">
                   <FolderInput size={13} />
+                  <span className="text-xs lg:hidden">{t('assets.moveToWallet')}</span>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.edit')} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.edit')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed lg:min-h-0 lg:p-1">
                   <Pencil size={13} />
+                  <span className="text-xs lg:hidden">{t('common.edit')}</span>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.delete')} className="p-1 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                <button onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }} disabled={isProviderOwned} title={isProviderOwned ? t('assets.syncedReadOnly') : t('common.delete')} className="flex min-h-11 items-center gap-1.5 px-3 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed lg:min-h-0 lg:p-1">
                   <Trash2 size={13} />
+                  <span className="text-xs lg:hidden">{t('common.delete')}</span>
                 </button>
               </>
             )}
-            {isExpanded ? <ChevronUp size={15} className="text-muted-foreground" /> : <ChevronDown size={15} className="text-muted-foreground" />}
+            {isExpanded ? <ChevronUp size={15} className="hidden text-muted-foreground lg:block" /> : <ChevronDown size={15} className="hidden text-muted-foreground lg:block" />}
           </div>
         </div>
 
+        {isExpanded && (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border px-3 py-3 text-xs lg:hidden">
+            <div><dt className="text-muted-foreground">{t('assets.colQuantity')}</dt><dd className="mt-1 tabular-nums">{asset.units != null ? mask(`${asset.units}`) : '—'}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colAvgPrice')}</dt><dd className="mt-1 tabular-nums">{averagePrice}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colCurrentPrice')}</dt><dd className="mt-1 tabular-nums">{asset.last_price != null ? mask(formatCurrency(asset.last_price, asset.currency, locale)) : '—'}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colReturn')}</dt><dd className="mt-1 tabular-nums">{returnValue}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colRealized')}</dt><dd className="mt-1 tabular-nums">{realizedGain}</dd></div>
+            <div><dt className="text-muted-foreground">{t('assets.colPortfolioPct')}</dt><dd className="mt-1 tabular-nums">{portfolioShare}</dd></div>
+          </dl>
+        )}
         {isExpanded && (
           isMarketPriced ? (
             <>
@@ -918,28 +942,27 @@ export default function AssetsPage() {
   function renderHoldingsHeader() {
     return (
       <div
-        className="grid items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
-        style={{ gridTemplateColumns: HOLDINGS_GRID }}
+        className="grid grid-cols-[minmax(0,1fr)_auto_1rem] lg:grid-cols-[var(--holding-columns)] items-center gap-2 px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border"
+        style={{ '--holding-columns': HOLDINGS_GRID } as React.CSSProperties}
       >
         <div>{t('assets.colAsset')}</div>
-        <div className="text-right">{t('assets.colQuantity')}</div>
-        <div className="text-right">{t('assets.colAvgPrice')}</div>
-        <div className="text-right">{t('assets.colCurrentPrice')}</div>
-        <div className="text-right">{t('assets.colReturn')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colQuantity')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colAvgPrice')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colCurrentPrice')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colReturn')}</div>
         <div className="text-right">{t('assets.colBalance')}</div>
-        <div className="text-right">{t('assets.colRealized')}</div>
-        <div className="text-right">{t('assets.colPortfolioPct')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colRealized')}</div>
+        <div className="hidden lg:block text-right">{t('assets.colPortfolioPct')}</div>
         <div />
       </div>
     )
   }
 
-  // Wrap a set of holding rows in a horizontally-scrollable table shell so the
-  // columns stay aligned (and usable on narrow screens).
+  // Mobile keeps the holding and balance visible; secondary fields expand below.
   function renderHoldingsTable(rows: Asset[]) {
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
-        <div className="min-w-[820px]">
+      <div className="rounded-xl border border-border bg-card shadow-sm lg:overflow-x-auto">
+        <div className="lg:min-w-[820px]">
           {renderHoldingsHeader()}
           {rows.map(renderHoldingRow)}
         </div>
@@ -2233,6 +2256,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
       assets.addValue(id, data),
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
       queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
@@ -2247,6 +2271,7 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     mutationFn: (valueId: string) => assets.deleteValue(valueId),
     onSuccess: () => {
       queryClient.refetchQueries({ queryKey: ['assets'] })
+      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
       queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })

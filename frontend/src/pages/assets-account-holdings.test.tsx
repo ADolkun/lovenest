@@ -1,0 +1,39 @@
+import { expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import { QueryClient, useQuery } from '@tanstack/react-query'
+import AssetsPage from '@/pages/assets'
+import { AccountHoldingsSummary } from '@/components/account-holdings'
+import { renderWithProviders } from '@/test/utils'
+import { assets, assetGroups, contributions, currencies } from '@/lib/api'
+import type { Asset, AssetGroup, Account } from '@/types'
+vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }) }))
+vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: () => ({ current: { id: 'workspace', name: 'Investments' }, canWrite: true, hasModule: () => true }) }))
+vi.mock('@/contexts/collection-filter-context', () => ({ useCollectionFilter: () => ({activeWalletIds:null}) }))
+vi.mock('@/hooks/use-feature-flags', () => ({ useFeatureFlags: () => ({ onchainEnabled: false }) }))
+vi.mock('@/lib/page-chat-context', () => ({ useRegisterPageChatContext: () => undefined }))
+it('refreshes Accounts holdings after editing a manual asset value', async () => {
+  let amount = 125
+  const holding = () => ({id:'held', name:'Private fund', type:'other', source:'manual', currency:'USD', group_id:'wallet-a', current_value:amount, current_value_primary:amount, ticker:null, sell_date:null, is_archived:false, valuation_method:'manual'}) as Asset
+  const group = () => ({ id:'wallet-a', name:'Wallet A', source:'manual', account_id:'account-a', current_value:amount, current_value_primary:amount, asset_count:1, unvalued_count:0, tax_treatment:'taxable', color:'#6366f1' }) as AssetGroup
+  const groupList=vi.spyOn(assetGroups,'list').mockImplementation(async()=>[group()])
+  vi.spyOn(assets,'list').mockImplementation(async()=>[holding()])
+  vi.spyOn(assets,'portfolioTrend').mockResolvedValue({ assets: [], trend: [], total:0 })
+  vi.spyOn(contributions,'summary').mockResolvedValue([])
+  vi.spyOn(currencies,'list').mockResolvedValue([])
+  vi.spyOn(assets,'values').mockResolvedValue([])
+  vi.spyOn(assets,'valueTrend').mockResolvedValue([])
+  vi.spyOn(assets,'transactions').mockResolvedValue([])
+  const addValue=vi.spyOn(assets,'addValue').mockImplementation(async(_id, data)=>{amount=data.amount;return {} as never})
+  const queryClient=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:300000},mutations:{retry:false}}})
+  const {user,unmount}=renderWithProviders(<AssetsPage/>,{route:'/assets?wallet=wallet-a',queryClient})
+  await user.click(await screen.findByRole('button',{name:'Private fund'}))
+  await user.type(screen.getByRole('spinbutton'),'500')
+  await user.click(screen.getByRole('button',{name:'Add Value'}))
+  await waitFor(()=>expect(addValue).toHaveBeenCalled())
+  await waitFor(()=>expect(queryClient.getQueryData<Asset[]>(['assets'])?.[0].current_value).toBe(500))
+  unmount()
+  function AccountProbe() { const {data=[]}=useQuery({queryKey:['asset-groups'],queryFn:assetGroups.list});return <AccountHoldingsSummary account={{id:'account-a'} as Account} wallets={data}/> }
+  renderWithProviders(<AccountProbe/>,{queryClient})
+  expect(await screen.findByRole('link',{name:'Holdings: $500.00'})).toBeInTheDocument()
+  expect(groupList).toHaveBeenCalledTimes(2)
+})

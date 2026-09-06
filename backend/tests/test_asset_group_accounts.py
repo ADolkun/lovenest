@@ -150,6 +150,29 @@ async def test_database_prevents_two_portfolios_linking_the_same_account(
     await session.rollback()
 
 
+@pytest.mark.parametrize("change", [{"is_closed": True}, {"type": "checking"}])
+async def test_saved_link_survives_account_lifecycle_changes(
+    session, client, auth_headers, test_user, test_workspace, change,
+):
+    account = _account(test_user, test_workspace)
+    session.add(account)
+    await session.commit()
+    created = await client.post("/api/asset-groups", headers=auth_headers,
+                                json={"name": "Portfolio", "account_id": str(account.id)})
+    assert created.status_code == 201
+    for key, value in change.items():
+        setattr(account, key, value)
+    await session.commit()
+
+    groups = (await client.get("/api/asset-groups", headers=auth_headers)).json()
+    assert groups[0]["account_id"] == str(account.id)
+    assert groups[0]["account_balance"] is None
+    unlinked = await client.patch(f"/api/asset-groups/{created.json()['id']}",
+                                  headers=auth_headers, json={"account_id": None})
+    assert unlinked.status_code == 200
+    assert unlinked.json()["account_id"] is None
+
+
 async def test_unknown_and_zero_portfolio_values_are_distinct(
     session, test_user, test_workspace,
 ):
