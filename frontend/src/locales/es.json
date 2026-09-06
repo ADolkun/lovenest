@@ -2511,7 +2511,8 @@
       "no_movement": "Los fondos se detuvieron aquí — nada ha salido de esta dirección.",
       "no_match": "Aquí nada coincidió con sus filtros — esta dirección sí movió fondos.",
       "partial": "El rastro puede continuar: esta dirección tuvo más actividad de la que se pudo examinar.",
-      "unavailable": "El rastro se corta aquí: no se pudo leer esta dirección."
+      "unavailable": "El rastro se corta aquí: no se pudo leer esta dirección.",
+      "rate_limited": "El rastro se corta aquí: el nodo de la cadena limitó el rastreo antes de poder leer esta dirección. Inténtalo de nuevo en un momento o define una URL de RPC dedicada en ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "En esta dirección se agrupan fondos de muchas partes, así que el siguiente salto sería la contabilidad interna del operador y no un pago. Aquí termina un rastreo y empieza la denuncia ante el operador."

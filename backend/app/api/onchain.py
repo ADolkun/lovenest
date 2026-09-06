@@ -29,8 +29,12 @@ async def list_chains(_: WorkspaceContext = Depends(current_workspace)):
             display_name=chain.display_name,
             symbol=chain.symbol,
             kind=chain.kind,
-            # Only the EVM chains need a key; Solana and Bitcoin have keyless indexes.
-            traceable=chain.kind != "evm" or has_explorer_key,
+            # Every family has a keyless history source; an Etherscan key only
+            # buys the EVM ones a deeper page. A chain is untraceable here only
+            # if it has neither.
+            traceable=chain.kind != "evm"
+            or has_explorer_key
+            or bool(chain.token_index_url),
         )
         for chain in CHAINS.values()
     ]

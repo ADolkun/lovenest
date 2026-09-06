@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
+from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,7 +15,7 @@ from app.models.bank_connection import BankConnection
 from app.models.user import User
 from app.providers import register_provider
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
-from app.providers.onchain import OnChainProvider
+from app.providers.onchain import CHAINS, OnChainProvider
 from app.services import onchain_trace
 
 A = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -52,23 +53,27 @@ async def test_the_onchain_provider_is_offered_as_a_paste_a_token_connection(
 async def test_chains_report_whether_this_deployment_can_trace_them(
     client: AsyncClient, auth_headers
 ):
-    """EVM tracing needs an explorer key; Solana never does."""
+    """Every shipped chain has a keyless history source, so all of them trace.
+
+    The flag is not decoration: it disables a chain in the picker, so a chain
+    added later with neither an explorer key nor a Blockscout instance has to
+    come back False rather than fail on submit.
+    """
     with patch(
         "app.api.onchain.get_settings",
         lambda: SimpleNamespace(etherscan_api_key=""),
     ):
         response = await client.get("/api/onchain/chains", headers=auth_headers)
     assert response.status_code == 200
-    by_key = {c["key"]: c for c in response.json()}
-    assert by_key["solana"]["traceable"] is True
-    assert by_key["base"]["traceable"] is False
+    assert all(chain["traceable"] for chain in response.json())
 
-    with patch(
-        "app.api.onchain.get_settings",
-        lambda: SimpleNamespace(etherscan_api_key="k"),
+    unindexed = replace(CHAINS["base"], token_index_url=None)
+    with (
+        patch("app.api.onchain.get_settings", lambda: SimpleNamespace(etherscan_api_key="")),
+        patch.dict("app.providers.onchain.CHAINS", {"base": unindexed}),
     ):
         response = await client.get("/api/onchain/chains", headers=auth_headers)
-    assert {c["key"]: c["traceable"] for c in response.json()}["base"] is True
+    assert {c["key"]: c["traceable"] for c in response.json()}["base"] is False
 
 
 @pytest.mark.asyncio

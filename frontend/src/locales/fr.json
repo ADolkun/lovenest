@@ -2511,7 +2511,8 @@
       "no_movement": "Les fonds se sont arrêtés ici — rien n'est sorti de cette adresse.",
       "no_match": "Rien ne correspond à vos filtres ici — cette adresse a bien déplacé des fonds.",
       "partial": "La piste peut continuer : cette adresse a eu plus d'activité qu'il n'était possible d'examiner.",
-      "unavailable": "La piste s'interrompt ici : cette adresse n'a pas pu être lue."
+      "unavailable": "La piste s'interrompt ici : cette adresse n'a pas pu être lue.",
+      "rate_limited": "La piste s'interrompt ici : le nœud de la chaîne a limité le suivi avant que cette adresse puisse être lue. Réessayez dans un instant ou définissez une URL RPC dédiée dans ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "Les fonds de nombreuses parties sont regroupés à cette adresse ; le saut suivant serait donc la comptabilité interne de l'opérateur, pas un paiement. C'est là qu'un traçage s'arrête et qu'un signalement à l'opérateur commence."

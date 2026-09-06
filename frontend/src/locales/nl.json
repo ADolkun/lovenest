@@ -2512,7 +2512,8 @@
       "no_movement": "Het geld staat hier stil — er is niets van dit adres af gegaan.",
       "no_match": "Hier voldeed niets aan uw filters — van dit adres is wél geld af gegaan.",
       "partial": "Het spoor kan doorlopen: dit adres had meer activiteit dan kon worden onderzocht.",
-      "unavailable": "Het spoor breekt hier af: dit adres kon niet gelezen worden."
+      "unavailable": "Het spoor breekt hier af: dit adres kon niet gelezen worden.",
+      "rate_limited": "Het spoor breekt hier af: de chain-node beperkte de tracering voordat dit adres gelezen kon worden. Probeer het zo opnieuw of stel een eigen RPC-URL in via ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "Op dit adres wordt geld van veel partijen samengevoegd, dus de volgende stap zou de interne boekhouding van de beheerder zijn en geen betaling. Hier eindigt een zoektocht en begint een melding bij de beheerder."

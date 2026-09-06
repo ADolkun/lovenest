@@ -59,6 +59,7 @@ TERMINAL_NO_MOVEMENT = "no_movement"
 TERMINAL_NO_MATCH = "no_match"
 TERMINAL_PARTIAL = "partial"
 TERMINAL_UNAVAILABLE = "unavailable"
+TERMINAL_RATE_LIMITED = "rate_limited"
 
 
 @dataclass
@@ -137,10 +138,13 @@ async def trace(
     reached them, so a caller only has to say when the money left, not when
     each subsequent hop happened.
 
-    A misconfigured deployment or a throttled node raises rather than being
-    recorded as one address that could not be read: both are true of every
-    address the walk would visit, so reporting them per node would dress a
-    total failure up as a trail that happens to end early.
+    A misconfigured deployment raises rather than being recorded as one
+    address that could not be read: it is true of every address the walk would
+    visit, so reporting it per node would dress a total failure up as a trail
+    that happens to end early. A throttle mid-walk is the same fact but arrives
+    with findings already in hand, so it ends the walk and marks every address
+    left unreached — discarding a trail that is real as far as it goes would
+    answer a smaller question than the one the caller asked.
     """
     chain = resolve_chain(chain_key)
     if direction not in ("out", "in"):
@@ -189,11 +193,23 @@ async def trace(
                     until=pending.until,
                     client=client,
                 )
-            except (ProviderNotConfiguredError, ProviderRateLimited):
+            except ProviderNotConfiguredError:
                 # True of every address the walk would visit, not of this one.
                 # Recording it per node would dress a total failure up as a
                 # trail that happens to end early.
                 raise
+            except ProviderRateLimited:
+                # Also true of every address left — so it ends the walk rather
+                # than this branch, and every address it never reached says so.
+                # With nothing found yet there is no trail to qualify and the
+                # caller gets the error instead of an empty graph.
+                if not result.edges:
+                    raise
+                _mark(node, TERMINAL_RATE_LIMITED)
+                for waiting in queue:
+                    _mark(nodes[_node_id(chain, waiting.address)], TERMINAL_RATE_LIMITED)
+                result.truncated = True
+                break
             except Exception:
                 logger.warning(
                     "Trace could not read %s on %s", pending.address, chain.key, exc_info=True

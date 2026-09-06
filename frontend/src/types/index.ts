@@ -1595,6 +1595,7 @@ export type TraceTerminalReason =
   | 'no_match'
   | 'partial'
   | 'unavailable'
+  | 'rate_limited'
 
 export interface TraceNode {
   id: string

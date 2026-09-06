@@ -7,6 +7,7 @@ touches the network and no address in this file is anybody's wallet.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
@@ -361,12 +362,215 @@ async def test_a_short_page_is_the_whole_history_and_is_never_saturated():
 # ----- EVM transfers --------------------------------------------------------
 
 
+def _blockscout_item(*, sender: str, recipient: str, value: str, at: int, **extra) -> dict:
+    """One Blockscout row: parties are objects and the instant is ISO-8601."""
+    return {
+        "hash": "0xdead",
+        "timestamp": datetime.fromtimestamp(at, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "from": {"hash": sender},
+        "to": {"hash": recipient},
+        "value": value,
+        **extra,
+    }
+
+
 @pytest.mark.asyncio
-async def test_tracing_an_evm_chain_without_an_explorer_key_says_so_rather_than_returning_nothing():
+async def test_an_evm_chain_traces_without_a_key_because_blockscout_is_keyless():
+    """Both lists, and the drain is in the second one.
+
+    Blockscout answers the same two questions Etherscan does, so a deployment
+    that never signed up for a key still traces. `internal-transactions` is
+    where the dominant EVM drain lives: the victim's own call carries no value
+    and the sweep happens inside the contract.
+    """
+    drainer = "0x" + "cd" * 20
+    asked: list[str] = []
+
+    def handler(request):
+        path = request.url.path.rsplit("/", 1)[-1]
+        asked.append(path)
+        assert "etherscan" not in request.url.host
+        item = (
+            _blockscout_item(sender=EVM.upper(), recipient=drainer, value="0", at=JAN23)
+            if path == "transactions"
+            else _blockscout_item(
+                sender=EVM.upper(),
+                recipient=drainer,
+                value="4000000000000000000",
+                at=JAN23 + 1,
+                success=True,
+            )
+        )
+        return httpx.Response(200, json={"items": [item], "next_page_params": None})
+
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BASE, EVM, limit=25)
+    assert asked == ["transactions", "internal-transactions"]
+    [transfer] = page.items
+    assert transfer.amount == Decimal("4")
+    assert transfer.sender == EVM.lower() and transfer.recipient == drainer
+
+
+@pytest.mark.asyncio
+async def test_a_failed_or_pending_blockscout_row_is_not_a_transfer():
+    """Neither moved anything: one reverted, and one has not been mined."""
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    _blockscout_item(
+                        sender=EVM,
+                        recipient="0x" + "cd" * 20,
+                        value="1000000000000000000",
+                        at=JAN23,
+                        status="error",
+                    ),
+                    {
+                        "hash": "0xpending",
+                        "timestamp": None,
+                        "from": {"hash": EVM},
+                        "to": {"hash": "0x" + "cd" * 20},
+                        "value": "9000000000000000000",
+                    },
+                ]
+            },
+        )
+
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BASE, EVM, limit=25)
+    assert page.items == []
+
+
+@pytest.mark.asyncio
+async def test_blockscout_history_follows_its_pages_because_one_is_fifty_rows():
+    pages: list[dict] = []
+
+    def handler(request):
+        pages.append(dict(request.url.params))
+        first = "block_number" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    _blockscout_item(
+                        sender=EVM,
+                        recipient="0x" + ("cd" if first else "ef") * 20,
+                        value="1000000000000000000",
+                        at=JAN23 - (0 if first else 60),
+                    )
+                ],
+                "next_page_params": {"block_number": 21, "index": None} if first else None,
+            },
+        )
+
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BASE, EVM, limit=25)
+    # Four requests: two pages of `transactions`, two of `internal-transactions`.
+    assert len(pages) == 4
+    # A null in `next_page_params` is Blockscout saying "no cursor here", not a
+    # parameter to send back — httpx would serialise it as the string "None".
+    assert pages[1] == {"block_number": "21"}
+    assert len(page.items) == 4
+
+
+@pytest.mark.asyncio
+async def test_a_pooled_first_page_stops_the_paging_instead_of_walking_into_a_timeout():
+    """The rate test has to fire before the next request, not after the last.
+
+    Blockscout answers an exchange hot wallet's first page in a second and then
+    times out paging deeper into it. Judging only once the paging finished
+    would therefore fail on the very addresses the test exists to recognise.
+    """
+    asked: list[str] = []
+
+    def handler(request):
+        asked.append(request.url.path.rsplit("/", 1)[-1])
+        return httpx.Response(
+            200,
+            json={
+                # A full page of transactions inside a minute: an operator, not
+                # a person.
+                "items": [
+                    _blockscout_item(
+                        sender=EVM,
+                        recipient="0x" + "cd" * 20,
+                        value="1000000000000000000",
+                        at=JAN23 - index,
+                    )
+                    for index in range(onchain.BLOCKSCOUT_PAGE)
+                ],
+                "next_page_params": {"block_number": 21},
+            },
+        )
+
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BASE, EVM, limit=25)
+    assert page.saturated == onchain.SATURATED_POOLED
+    assert asked == ["transactions"]
+
+
+@pytest.mark.asyncio
+async def test_a_page_that_will_not_load_shortens_the_history_rather_than_losing_it():
+    """Half a list is evidence; it just is not evidence of absence."""
+    calls: list[int] = []
+
+    def handler(request):
+        calls.append(1)
+        if "block_number" in request.url.params:
+            raise httpx.ReadTimeout("too deep")
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    _blockscout_item(
+                        sender=EVM,
+                        recipient="0x" + "cd" * 20,
+                        value="1000000000000000000",
+                        at=JAN23 - index * 86_400,
+                    )
+                    for index in range(onchain.BLOCKSCOUT_PAGE)
+                ],
+                "next_page_params": {"block_number": 21},
+            },
+        )
+
+    with _settings(), _patched_client(handler):
+        page = await onchain.transfers(BASE, EVM, limit=25)
+    assert page.items and not page.complete
+    assert page.saturated is None
+
+
+@pytest.mark.asyncio
+async def test_a_first_page_that_will_not_load_is_a_failure_not_an_empty_history():
+    def handler(request):
+        raise httpx.ReadTimeout("unreachable")
+
+    with _settings(), _patched_client(handler):
+        with pytest.raises(httpx.ReadTimeout):
+            await onchain.transfers(BASE, EVM, limit=25)
+
+
+@pytest.mark.asyncio
+async def test_a_chain_with_neither_a_key_nor_an_index_says_so_rather_than_returning_nothing():
+    bare = replace(BASE, token_index_url=None)
     with _settings(), _patched_client(lambda request: httpx.Response(200, json={})):
         with pytest.raises(ProviderNotConfiguredError) as exc:
-            await onchain.transfers(BASE, EVM, limit=25)
+            await onchain.transfers(bare, EVM, limit=25)
     assert "ETHERSCAN_API_KEY" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_an_explorer_key_is_preferred_over_blockscout_for_its_deeper_page():
+    def handler(request):
+        assert "blockscout" not in request.url.host
+        return httpx.Response(200, json={"status": "0", "result": []})
+
+    with _settings(etherscan_api_key="k"), _patched_client(handler):
+        assert (await onchain.transfers(BASE, EVM, limit=25)).items == []
 
 
 @pytest.mark.asyncio
@@ -1373,11 +1577,43 @@ async def test_a_filter_that_matched_nothing_is_not_a_claim_that_nothing_moved()
 
 
 @pytest.mark.asyncio
-async def test_a_deployment_without_an_explorer_key_fails_the_whole_evm_trace():
-    """Not one unreadable node — the key is missing for every address alike."""
-    with _settings(), _patched_client(lambda request: httpx.Response(200, json={})):
+async def test_a_deployment_with_no_history_source_fails_the_whole_evm_trace():
+    """Not one unreadable node — no source exists for any address alike."""
+    with (
+        _settings(),
+        patch.dict(onchain.CHAINS, {"base": replace(BASE, token_index_url=None)}),
+        _patched_client(lambda request: httpx.Response(200, json={})),
+    ):
         with pytest.raises(ProviderNotConfiguredError):
             await onchain_trace.trace("base", EVM, max_hops=2)
+
+
+@pytest.mark.asyncio
+async def test_a_throttle_partway_through_keeps_the_trail_it_already_walked(_no_backoff):
+    """A trail that is real as far as it goes beats an error that discards it.
+
+    The throttle still ends the walk — it will refuse every address left, not
+    just this one — but the addresses it never reached say `rate_limited`
+    rather than going unmentioned.
+    """
+    reached = _solana_handler(
+        signatures={A: [_sig("out", JAN23)]},
+        txs={"out": _tx(JAN23, {A: -2_000_000_000, C: 2_000_000_000})},
+    )
+
+    def handler(request):
+        body = json.loads(request.content)
+        if body["method"] == "getSignaturesForAddress" and body["params"][0] != A:
+            return httpx.Response(429)
+        return reached(request)
+
+    with _settings(), _patched_client(handler):
+        result = await onchain_trace.trace("solana", A, max_hops=3)
+
+    assert [edge.target for edge in result.edges] == [f"solana:{C}"]
+    assert result.truncated
+    unreached = next(node for node in result.nodes if node.address == C)
+    assert unreached.terminal_reason == onchain_trace.TERMINAL_RATE_LIMITED
 
 
 @pytest.mark.asyncio

@@ -11,8 +11,9 @@ balances and history come from a public node with no key. Bitcoin has no
 account at all — an address is a set of unspent outputs — so both balance and
 history come from an Esplora indexer, also keyless. EVM JSON-RPC has neither:
 an address's history only exists in an indexer, so EVM balances come from a
-public node and EVM history needs an Etherscan key. That asymmetry is the
-reason ``transfers`` can raise for one chain and not another.
+public node and EVM history from Blockscout, or from Etherscan when a key is
+set. That asymmetry is why the EVM path has a source to choose and the others
+do not.
 
 Quantities come from the chain; the *value* of one does not. USD pricing is
 Coinbase's public rate table (see ``get_holdings``), which is unauthenticated
@@ -67,6 +68,12 @@ MAX_WATCHED_ADDRESSES = 25
 # from a busy wallet: see `_saturation`.
 SOLANA_SIGNATURE_PAGE = 1000
 EVM_HISTORY_PAGE = 1000
+# Blockscout is the keyless EVM index. Its page size is fixed, so depth costs
+# requests rather than a bigger ask — and a deep page into a busy address is
+# where it stops answering at all, which is why the page bound is low and the
+# rate test below runs per page rather than after the paging.
+BLOCKSCOUT_PAGE = 50
+BLOCKSCOUT_HISTORY_MAX_PAGES = 2
 # Esplora's page size is fixed at 25 and not negotiable, so depth comes from
 # asking again rather than asking for more. The cap bounds a walk's request
 # count; paging stops early once a page reaches past the window anyway.
@@ -815,34 +822,15 @@ async def _evm_transfers(
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
 ) -> Transfers:
-    """Address history from Etherscan, because EVM JSON-RPC does not have it.
+    """Address history from an index, because EVM JSON-RPC does not have it.
 
-    Two lists, not one. ``txlist`` covers transactions the address itself sent
-    or received; ``txlistinternal`` covers native coin moved *by a contract*.
-    Skipping the second would miss the dominant EVM drain: the victim signs a
-    call whose own value is zero, and the sweep happens inside the contract.
-    Reading only ``txlist`` reports that drained wallet as untouched.
-
-    Raising when the key is missing is deliberate. Returning an empty list
-    would be indistinguishable from an address that has never transacted, and
-    a trace that silently ends on a missing key is worse than one that stops
-    and says why.
+    Two lists, not one. One covers transactions the address itself sent or
+    received; the other covers native coin moved *by a contract*. Skipping the
+    second would miss the dominant EVM drain: the victim signs a call whose own
+    value is zero, and the sweep happens inside the contract. Reading only the
+    first reports that drained wallet as untouched.
     """
-    settings = get_settings()
-    if not settings.etherscan_api_key:
-        raise ProviderNotConfiguredError(
-            f"Tracing {chain.display_name} needs an Etherscan API key. Set "
-            "ETHERSCAN_API_KEY (one key covers every EVM chain here). Balances "
-            "work without it."
-        )
-    rows: list[dict] = []
-    saturated: Optional[str] = None
-    for action in ("txlist", "txlistinternal"):
-        page = await _etherscan_page(chain, address, action, settings.etherscan_api_key, client)
-        rows.extend(page)
-        saturated = saturated or _saturation(
-            [int(r["timeStamp"]) for r in page if r.get("timeStamp")], EVM_HISTORY_PAGE, since
-        )
+    rows, saturated, trimmed = await _evm_history(chain, address, since, client)
     if saturated:
         return Transfers(items=[], saturated=saturated)
 
@@ -872,8 +860,140 @@ async def _evm_transfers(
             )
         )
     found.sort(key=lambda transfer: transfer.occurred_at, reverse=True)
-    trimmed = _closest_to_horizon(found, limit, since)
-    return Transfers(items=trimmed, trimmed=len(trimmed) < len(found))
+    kept = _closest_to_horizon(found, limit, since)
+    return Transfers(items=kept, trimmed=trimmed or len(kept) < len(found))
+
+
+async def _evm_history(
+    chain: Chain,
+    address: str,
+    since: Optional[datetime],
+    client: Optional[httpx.AsyncClient],
+) -> tuple[list[dict], Optional[str], bool]:
+    """Both native-history lists in Etherscan's row shape, and how they fall short.
+
+    Etherscan is preferred when a key is set: one request reaches a thousand
+    rows deep where Blockscout pages fifty at a time. Blockscout is the default
+    because it is keyless — a tracer that needed a signup would be off on every
+    deployment that never did one, which is what the missing-key error used to
+    mean in practice.
+
+    Returns the rows, the saturation verdict if either list has one, and
+    whether paging stopped before the list did.
+    """
+    api_key = get_settings().etherscan_api_key
+    rows: list[dict] = []
+    saturated: Optional[str] = None
+    if api_key:
+        for action in ("txlist", "txlistinternal"):
+            page = await _etherscan_page(chain, address, action, api_key, client)
+            rows.extend(page)
+            saturated = saturated or _saturation(
+                [int(r["timeStamp"]) for r in page if r.get("timeStamp")], EVM_HISTORY_PAGE, since
+            )
+        return rows, saturated, False
+    if not chain.token_index_url:
+        raise ProviderNotConfiguredError(
+            f"Tracing {chain.display_name} needs a transfer-history index, and this "
+            "deployment has neither an ETHERSCAN_API_KEY nor a Blockscout instance "
+            "for the chain."
+        )
+    trimmed = False
+    for path in ("transactions", "internal-transactions"):
+        page, verdict, short = await _blockscout_history(chain, address, path, since, client)
+        rows.extend(page)
+        saturated = saturated or verdict
+        trimmed = trimmed or short
+        # Pooled is a verdict about the address, not about one of its lists, so
+        # the second list is not worth asking for — and on a pooled address it
+        # is the request that hangs.
+        if saturated == SATURATED_POOLED:
+            break
+    return rows, saturated, trimmed
+
+
+async def _blockscout_history(
+    chain: Chain,
+    address: str,
+    path: str,
+    since: Optional[datetime],
+    client: Optional[httpx.AsyncClient],
+) -> tuple[list[dict], Optional[str], bool]:
+    """One Blockscout list, paged, in Etherscan's row shape.
+
+    Speaking Etherscan's shape rather than its own keeps one decoder for both
+    sources; a second would be a second place for "which field held the amount"
+    to be answered differently.
+
+    The rate test runs per page and stops the paging the moment it fires. That
+    is not an optimisation: Blockscout returns an exchange hot wallet's first
+    page in a second and then times out paging deeper into it, so judging only
+    after the paging fails on exactly the addresses the test exists to catch.
+    For the same reason a later page that will not load ends this list rather
+    than failing the read — what did load is real, and returning it as a short
+    list is what stops "nothing moved" being concluded from it.
+    """
+    url = f"{chain.token_index_url.rstrip('/')}/api/v2/addresses/{address}/{path}"
+    rows: list[dict] = []
+    params: Optional[dict] = None
+    verdict: Optional[str] = None
+    for page_number in range(BLOCKSCOUT_HISTORY_MAX_PAGES):
+        try:
+            payload = await _get_json(url, "Blockscout", client, params=params)
+        except ProviderRateLimited:
+            raise
+        except Exception:
+            if page_number == 0:
+                raise
+            logger.warning("Blockscout stopped paging %s on %s", path, chain.key, exc_info=True)
+            return rows, verdict, True
+        items = payload.get("items") if isinstance(payload, dict) else None
+        page = [row for row in map(_blockscout_row, items or []) if row is not None]
+        rows.extend(page)
+        # Only pooled ends the paging. Unpageable says the window is further
+        # back than this page reached, and paging is the remedy for that.
+        verdict = _saturation([row["timeStamp"] for row in page], BLOCKSCOUT_PAGE, since)
+        if verdict == SATURATED_POOLED:
+            return rows, verdict, False
+        following = payload.get("next_page_params") if isinstance(payload, dict) else None
+        if not isinstance(following, dict):
+            return rows, verdict, False
+        # A null in the cursor is Blockscout saying there is no value for that
+        # key, not a value to send back — httpx would serialise it as "None".
+        params = {key: value for key, value in following.items() if value is not None}
+    return rows, verdict, True
+
+
+def _blockscout_row(item: Any) -> Optional[dict]:
+    """One Blockscout entry as an Etherscan row, or None when it cannot be one.
+
+    A transaction still in the mempool has no timestamp, and a trace can say
+    nothing about money that has not moved yet.
+    """
+    if not isinstance(item, dict):
+        return None
+    stamp = item.get("timestamp")
+    if not isinstance(stamp, str):
+        return None
+    try:
+        occurred = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    parties: dict[str, Any] = {}
+    for side in ("from", "to"):
+        raw = item.get(side)
+        parties[side] = raw.get("hash") if isinstance(raw, dict) else raw
+    failed = (
+        item.get("status") == "error" or item.get("success") is False or bool(item.get("error"))
+    )
+    return {
+        "value": item.get("value"),
+        "timeStamp": int(occurred.timestamp()),
+        "from": parties["from"],
+        "to": parties["to"],
+        "hash": item.get("hash") or item.get("transaction_hash"),
+        "isError": "1" if failed else "0",
+    }
 
 
 async def _etherscan_page(
