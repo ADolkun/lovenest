@@ -81,6 +81,11 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # A read that has to be a POST: the backup password belongs in a body,
     # not in a query string. Same read permission as GET /api/export/backup.
     ("POST", "/api/export/backup"): "exports the workspace it can already read; writes nothing",
+    # A trace reads public chain data and stores none of it. It is a POST
+    # because the request is a shape — chain, address, direction, window,
+    # hop and branch caps — not a key, and that does not belong in a query
+    # string. Read-gated by `current_workspace` like any other view.
+    ("POST", "/api/onchain/trace"): "walks public chain data; writes nothing",
     # The agents surface, mounted only when AGENTS_ENABLED is on (the test
     # suite turns it on so these are always covered). An LLM connection is
     # the requester's own credential — scoped by `user.id`, never by

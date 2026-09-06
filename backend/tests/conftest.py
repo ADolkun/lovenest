@@ -10,6 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # are mounted and the agent models are reachable. Provide deterministic
 # JWT/MCP secrets so test fixtures can mint tokens.
 os.environ.setdefault("AGENTS_ENABLED", "true")
+# The on-chain router is mounted behind this flag, so the suite turns it on to
+# cover the routes. No test reaches a real node — every client is faked.
+os.environ.setdefault("ONCHAIN_ENABLED", "true")
 os.environ.setdefault("AGENTS_MCP_JWT_SECRET", "test-secret-not-for-production")
 os.environ.setdefault("AGENTS_BUILTIN_MCP_URL", "http://test-mcp:8765/mcp")
 # Keep OIDC tests deterministic when a developer has local OIDC values in .env

@@ -1558,3 +1558,80 @@ export interface InvoiceFacets {
     draft: number
   }
 }
+
+export type OnChainKind = 'solana' | 'evm'
+
+export interface OnChainChain {
+  key: string
+  display_name: string
+  symbol: string
+  kind: OnChainKind
+  /** False when the deployment has no transfer-history source for the chain.
+   *  Balances still read; a trace would fail on submit, so the picker
+   *  disables the option instead of letting the user find out. */
+  traceable: boolean
+}
+
+/** An address already connected through the `onchain` provider, offered as a
+ *  starting point so a trace does not have to begin with a paste. */
+export interface OnChainWatchedAddress {
+  chain: string
+  address: string
+  label: string
+  connection_id: string
+}
+
+export type TraceDirection = 'out' | 'in'
+
+export type TraceTerminalReason =
+  | 'max_hops'
+  | 'pooled'
+  | 'unpageable'
+  | 'budget'
+  | 'no_movement'
+  | 'no_match'
+  | 'partial'
+  | 'unavailable'
+
+export interface TraceNode {
+  id: string
+  chain: string
+  address: string
+  depth: number
+  symbol: string
+  balance: string | null
+  /** Set when the walk stopped here rather than carrying on. */
+  terminal_reason: TraceTerminalReason | null
+}
+
+export interface TraceEdge {
+  source: string
+  target: string
+  chain: string
+  symbol: string
+  amount: string
+  /** The transaction signature or hash the transfer happened in. */
+  reference: string
+  occurred_at: string
+}
+
+export interface TraceResult {
+  root: string
+  direction: TraceDirection
+  nodes: TraceNode[]
+  edges: TraceEdge[]
+  /** True when the node budget ran out before the walk did, so this is a
+   *  prefix of the trail rather than all of it. */
+  truncated: boolean
+}
+
+export interface TraceRequest {
+  chain: string
+  address: string
+  direction?: TraceDirection
+  max_hops?: number
+  max_branches?: number
+  min_amount?: string | number
+  since?: string
+  until?: string
+}

@@ -127,7 +127,8 @@
     "groupAdmin": "Amministrazione",
     "groupAgents": "IA",
     "agents": "Agenti",
-    "aiAgents": "Agenti IA"
+    "aiAgents": "Agenti IA",
+    "trace": "Traccia i fondi"
   },
   "invoices": {
     "title": "Invoices",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Riconnetti con un nuovo token",
       "reconnectDescription": "Incolla un nuovo token di configurazione per aggiornare questa connessione senza sostituirla. Account, transazioni, categorie e regole esistenti vengono conservati.",
-      "reconnect": "Riconnetti"
+      "reconnect": "Riconnetti",
+      "onchain": {
+        "title": "Osserva un portafoglio crypto",
+        "description": "Aggiungi uno o più indirizzi pubblici di portafoglio. Securo ne legge saldi e cronologia; non può mai spostare nulla.",
+        "tokenLabel": "Indirizzi del portafoglio",
+        "tokenPlaceholder": "solana:7xKX…\nethereum:0x1f9…\n# una riga di commento viene ignorata",
+        "tokenHelp": "Un indirizzo per riga. Anteponi la catena e i due punti — solana:, ethereum:, base:, polygon: — quando l'indirizzo da solo è ambiguo, e inizia una riga con # per lasciare una nota. Incolla solo indirizzi pubblici: questa connessione è di sola lettura e Securo non chiede mai una chiave privata o una frase seed.",
+        "connect": "Osserva gli indirizzi"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "Banche statunitensi e internazionali tramite SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Portafogli Solana ed EVM di sola lettura, tramite indirizzo pubblico"
       }
     },
     "reconnected": "Banca riconnessa correttamente"
@@ -2456,5 +2468,53 @@
         "openai": "OpenAI Responses API"
       }
     }
+  },
+  "trace": {
+    "section": "Conti",
+    "title": "Traccia i fondi",
+    "intro": "Segui il movimento della moneta nativa da un indirizzo pubblico, salto dopo salto. L'indirizzo non deve essere tuo.",
+    "quickPick": "Parti da un indirizzo osservato",
+    "chain": "Catena",
+    "chainPlaceholder": "Scegli una catena",
+    "chainNotTraceable": "tracciamento non disponibile",
+    "chainNotTraceableHelp": "Una catena in grigio non ha una fonte di cronologia dei trasferimenti su questo server. Imposta una chiave API Etherscan per tracciare le catene EVM.",
+    "address": "Indirizzo",
+    "addressPlaceholder": "Indirizzo pubblico del portafoglio",
+    "direction": "Direzione",
+    "directionOut": "Dove sono andati i fondi",
+    "directionIn": "Da dove sono arrivati i fondi",
+    "minAmount": "Importo minimo",
+    "minAmountPlaceholder": "Ignora i trasferimenti sotto questa soglia",
+    "maxHops": "Salti massimi",
+    "maxHopsHelp": "Quanto seguire la pista.",
+    "maxBranches": "Rami per salto",
+    "maxBranchesHelp": "Quanti trasferimenti seguire da ogni indirizzo, dai più grandi.",
+    "submit": "Traccia",
+    "tracing": "Tracciamento…",
+    "failed": "Non è stato possibile completare il tracciamento",
+    "idle": "Scegli una catena e un indirizzo per avviare un tracciamento.",
+    "empty": "Con questi filtri non si è mosso nulla da questo indirizzo.",
+    "rootLabel": "A partire da",
+    "origin": "Indirizzo di partenza",
+    "hop": "Salto {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "saldo {{amount}} {{symbol}}",
+    "copyAddress": "Copia indirizzo",
+    "copyFailed": "Copia negli appunti non riuscita",
+    "truncated": "Il percorso ha esaurito il budget prima della fine della pista. Vedi l'inizio del cammino, non tutto — riduci i rami per salto o il numero di salti per seguire una linea più a fondo.",
+    "terminal": {
+      "max_hops": "Fine della pista: qui è stato raggiunto il limite di salti.",
+      "pooled": "I fondi hanno raggiunto un exchange o un servizio.",
+      "unpageable": "La pista si interrompe qui: questo indirizzo ha troppa attività più recente per risalire ai trasferimenti in questione.",
+      "budget": "Fine della pista: il percorso ha esaurito il budget prima di raggiungere questo indirizzo.",
+      "no_movement": "I fondi si sono fermati qui — da questo indirizzo non è uscito nulla.",
+      "no_match": "Qui non ha corrisposto nulla ai tuoi filtri — da questo indirizzo i fondi si sono mossi.",
+      "partial": "La pista può continuare: questo indirizzo ha avuto più attività di quanta se ne sia potuta esaminare.",
+      "unavailable": "La pista si interrompe qui: non è stato possibile leggere questo indirizzo."
+    },
+    "terminalDetail": {
+      "pooled": "A questo indirizzo confluiscono i fondi di molte parti, quindi il salto successivo sarebbe la contabilità interna dell'operatore e non un pagamento. Qui finisce un tracciamento e inizia una segnalazione all'operatore."
+    },
+    "chainsUnavailable": "Impossibile caricare l'elenco delle catene. Il supporto on-chain potrebbe essere disattivato sul server."
   }
 }

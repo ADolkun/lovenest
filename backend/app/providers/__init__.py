@@ -49,6 +49,14 @@ KNOWN_PROVIDERS = [
         "requires_institution_select": False,
         "supports_asset_sync": True,
     },
+    {
+        "name": "onchain",
+        "display_name": "Crypto wallet address",
+        "description": "Watch-only Solana and EVM wallets, by public address",
+        "flow_type": "token",
+        "requires_institution_select": False,
+        "supports_asset_sync": True,
+    },
 ]
 
 
@@ -105,6 +113,10 @@ def _auto_register_providers() -> None:
     if settings.coinbase_enabled:
         from app.providers.coinbase import CoinbaseProvider
         register_provider("coinbase", CoinbaseProvider)
+
+    if settings.onchain_enabled:
+        from app.providers.onchain import OnChainProvider
+        register_provider("onchain", OnChainProvider)
 
 
 _auto_register_providers()

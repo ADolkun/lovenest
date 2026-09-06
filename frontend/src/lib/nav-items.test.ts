@@ -39,14 +39,11 @@ describe('nav catalog', () => {
     }
   })
 
+  // Set equality, not list equality: a module may carry more than one link
+  // (tracing rides along with accounts), but none may be left unreachable.
   it('has a link for every module in the catalog', () => {
     const covered = navItems.filter((i) => i.type === 'link' && !i.external).map((i) => i.module)
-    expect([...covered].sort()).toEqual([...MODULE_IDS].sort())
-  })
-
-  it('gives every link a distinct module', () => {
-    const covered = navItems.filter((i) => i.type === 'link' && !i.external).map((i) => i.module)
-    expect(new Set(covered).size).toBe(covered.length)
+    expect([...new Set(covered)].sort()).toEqual([...MODULE_IDS].sort())
   })
 })
 
@@ -56,6 +53,7 @@ describe('visibleNavItems', () => {
     expect(linkKeys(personal)).toEqual([
       'transactions',
       'accounts',
+      'trace',
       'import',
       'reports',
       'assets',

@@ -15,5 +15,6 @@ export function useFeatureFlags() {
   return {
     isLoading,
     agentsEnabled: !!data?.features?.agents,
+    onchainEnabled: !!data?.features?.onchain,
   }
 }

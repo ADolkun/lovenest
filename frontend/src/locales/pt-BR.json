@@ -127,7 +127,8 @@
     "groupAdmin": "Administração",
     "groupAgents": "IA",
     "agents": "Agentes",
-    "aiAgents": "Agentes IA"
+    "aiAgents": "Agentes IA",
+    "trace": "Rastrear fundos"
   },
   "invoices": {
     "title": "Cobranças",
@@ -960,7 +961,15 @@
       },
       "reconnectTitle": "Reconectar com um novo token",
       "reconnectDescription": "Cole um novo token de configuração para atualizar esta conexão no lugar. Contas, transações, categorias e regras existentes são preservadas.",
-      "reconnect": "Reconectar"
+      "reconnect": "Reconectar",
+      "onchain": {
+        "title": "Monitorar uma carteira cripto",
+        "description": "Adicione um ou mais endereços públicos de carteira. O Securo lê seus saldos e histórico; ele nunca consegue mover nada.",
+        "tokenLabel": "Endereços da carteira",
+        "tokenPlaceholder": "solana:7xKX…\nethereum:0x1f9…\n# uma linha de comentário é ignorada",
+        "tokenHelp": "Um endereço por linha. Prefixe a linha com a rede e dois-pontos — solana:, ethereum:, base:, polygon: — quando o endereço sozinho for ambíguo, e comece uma linha com # para deixar uma nota. Cole apenas endereços públicos: esta conexão é somente leitura, e o Securo nunca pede chave privada nem frase de recuperação.",
+        "connect": "Monitorar endereços"
+      }
     },
     "providers": {
       "pluggy": {
@@ -971,6 +980,9 @@
       },
       "simplefin": {
         "description": "Bancos dos EUA e internacionais via SimpleFIN Bridge"
+      },
+      "onchain": {
+        "description": "Carteiras Solana e EVM somente leitura, por endereço público"
       }
     },
     "reconnected": "Banco reconectado com sucesso"
@@ -2456,5 +2468,53 @@
         "openai": "OpenAI Responses API"
       }
     }
+  },
+  "trace": {
+    "section": "Contas",
+    "title": "Rastrear fundos",
+    "intro": "Acompanhe a movimentação da moeda nativa a partir de um endereço público, salto a salto. O endereço não precisa ser seu.",
+    "quickPick": "Começar por um endereço monitorado",
+    "chain": "Rede",
+    "chainPlaceholder": "Escolha uma rede",
+    "chainNotTraceable": "rastreio indisponível",
+    "chainNotTraceableHelp": "Uma rede esmaecida não tem fonte de histórico de transferências neste servidor. Configure uma chave de API do Etherscan para rastrear redes EVM.",
+    "address": "Endereço",
+    "addressPlaceholder": "Endereço público da carteira",
+    "direction": "Sentido",
+    "directionOut": "Para onde os fundos foram",
+    "directionIn": "De onde os fundos vieram",
+    "minAmount": "Valor mínimo",
+    "minAmountPlaceholder": "Ignorar transferências abaixo disso",
+    "maxHops": "Máximo de saltos",
+    "maxHopsHelp": "Até onde seguir o rastro.",
+    "maxBranches": "Ramificações por salto",
+    "maxBranchesHelp": "Quantas transferências seguir de cada endereço, das maiores primeiro.",
+    "submit": "Rastrear",
+    "tracing": "Rastreando…",
+    "failed": "Não foi possível concluir o rastreio",
+    "idle": "Escolha uma rede e um endereço para iniciar um rastreio.",
+    "empty": "Com esses filtros, nada saiu deste endereço.",
+    "rootLabel": "A partir de",
+    "origin": "Endereço inicial",
+    "hop": "Salto {{n}}",
+    "amount": "{{amount}} {{symbol}}",
+    "balance": "saldo {{amount}} {{symbol}}",
+    "copyAddress": "Copiar endereço",
+    "copyFailed": "Falha ao copiar para a área de transferência",
+    "truncated": "A busca atingiu seu limite antes de o rastro acabar. Você vê o começo do caminho, não o todo — reduza as ramificações por salto ou o número de saltos para seguir uma linha mais adiante.",
+    "terminal": {
+      "max_hops": "Fim do rastro: o limite de saltos foi atingido aqui.",
+      "pooled": "Os fundos chegaram a uma corretora ou serviço.",
+      "unpageable": "O rastro se interrompe aqui: este endereço tem atividade recente demais para voltar até as transferências em questão.",
+      "budget": "Fim do rastro: a busca esgotou seu limite antes de chegar a este endereço.",
+      "no_movement": "Os fundos pararam aqui — nada saiu deste endereço.",
+      "no_match": "Aqui nada correspondeu aos seus filtros — deste endereço os fundos saíram sim.",
+      "partial": "O rastro pode continuar: este endereço teve mais atividade do que foi possível examinar.",
+      "unavailable": "O rastro se interrompe aqui: não foi possível ler este endereço."
+    },
+    "terminalDetail": {
+      "pooled": "Neste endereço os fundos de muitas partes ficam agrupados, então o próximo salto seria a contabilidade interna do operador e não um pagamento. É aqui que um rastreio termina e uma denúncia ao operador começa."
+    },
+    "chainsUnavailable": "Não foi possível carregar a lista de redes. O suporte on-chain pode estar desativado no servidor."
   }
 }

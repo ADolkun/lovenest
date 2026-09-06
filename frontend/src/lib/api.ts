@@ -85,6 +85,10 @@ import type {
   InstallmentSeriesInput,
   TransactionApplyScope,
   InvoiceAttachment,
+  OnChainChain,
+  OnChainWatchedAddress,
+  TraceRequest,
+  TraceResult,
 } from '@/types'
 
 const api = axios.create({
@@ -1423,6 +1427,22 @@ export const reports = {
   },
 }
 
+// On-chain address tracing
+export const onchain = {
+  chains: async (): Promise<OnChainChain[]> => {
+    const { data } = await api.get('/onchain/chains')
+    return data
+  },
+  addresses: async (): Promise<OnChainWatchedAddress[]> => {
+    const { data } = await api.get('/onchain/addresses')
+    return data
+  },
+  trace: async (payload: TraceRequest): Promise<TraceResult> => {
+    const { data } = await api.post('/onchain/trace', payload)
+    return data
+  },
+}
+
 // Currencies
 export const currencies = {
   list: async (): Promise<{ code: string; symbol: string; name: string; flag: string }[]> => {
@@ -1570,7 +1590,7 @@ export const search = {
 
 // App-level feature flags (whether optional modules like agents are mounted)
 export interface AppInfo {
-  features: { agents: boolean; tesouro_direto?: boolean }
+  features: { agents: boolean; tesouro_direto?: boolean; onchain?: boolean }
 }
 
 export const info = {
