@@ -204,6 +204,12 @@ indistinguishable at those lengths — and it is why a mistyped Bitcoin address
 is refused at the paste box instead of being watched forever as an empty
 wallet.
 
+The segwit check validates the witness program's length too, not just the
+checksum. That was first left to the index on the grounds that a malformed
+program is merely a rejected request — which stopped being true once a rejected
+read began failing the whole sync. One address nobody can look up would wedge
+every other address on the connection, so it is refused where it is pasted.
+
 Where the key is absent the Trace raises rather than returning an empty walk,
 and `trace` deliberately lets `ProviderNotConfiguredError` and
 `ProviderRateLimited` past its per-node handler: both are true of every address

@@ -524,26 +524,47 @@ def _esplora_handler(*, stats=None, history=None):
 
 
 @pytest.mark.parametrize(
-    "address,valid",
+    "address,valid,why",
     [
-        (BTC_A, True),
-        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", True),        # BIP-173 v0
-        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297", True),  # BIP-350 v1
-        ("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4", True),        # upper case is legal
-        (BTC_A[:-1] + "s", False),                                    # base58 typo
-        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", False),        # bech32 typo
-        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3298", False),
-        ("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", False),        # testnet
+        (BTC_A, True, "P2PKH"),
+        ("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy", True, "P2SH"),
+        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", True, "BIP-173 v0 P2WPKH"),
+        ("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", True, "v0 P2WSH"),
+        ("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4", True, "upper case is legal"),
+        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297", True, "v1 taproot"),
+        ("BC1SW50QGDZ25J", True, "BIP-350 v16, bech32m"),
+        (BTC_A[:-1] + "s", False, "base58 checksum typo"),
+        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5", False, "bech32 checksum typo"),
+        ("bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3298", False, "bech32m typo"),
+        ("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx", False, "testnet hrp"),
+        ("mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn", False, "testnet version byte"),
+        # The two checksums are not interchangeable: BIP-350 split them so a v1+
+        # address could not be re-encoded under the flawed v0 scheme.
+        ("bc1zw508d6qejxtdg4y5r3zarvary0c5xw7kn40wf2", False, "v2 with the v0 checksum"),
+        ("BC1SW50QA3JX3S", False, "v16 with the v0 checksum"),
+        ("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kemeawh", False, "v0 with the v1+ checksum"),
+        ("BC130XLXVLHEMJA6C4DQV22UAPCTQUPFHLXM9H8Z3K2E72Q4K9HCZ7VQ7ZWS8R", False,
+         "witness version 17"),
+        # Checksum-valid but the program is not a program. These reach the index
+        # as a rejected request, and a rejected read fails the whole sync.
+        ("bc1q2teqrxlduq", False, "v0, 2-byte program"),
+        ("bc1qqqqqp399et2xygdj5xreqhjjvcmzhxw4aywxecjdzew6hylgvsesrxh6hy", False,
+         "v0, 41-byte program"),
+        ("bc1pw5dgrnzv", False, "v1, 1-byte program"),
+        ("bc1gmk9yu", False, "empty data section"),
+        ("", False, "empty"),
+        ("1" * 34, False, "all base58 zeroes"),
     ],
 )
-def test_a_bitcoin_address_is_accepted_on_its_checksum_not_its_shape(address, valid):
+def test_a_bitcoin_address_is_accepted_on_its_checksum_not_its_shape(address, valid, why):
     """A typo has to be caught here or it is watched forever as an empty wallet.
 
     Both Bitcoin forms carry a checksum, unlike a Solana or EVM address, so
     there is a real answer available and nothing is gained by only pattern
-    matching.
+    matching. Vectors are BIP-173 and BIP-350's own, plus the program-length
+    cases that separate a checksum check from address validation.
     """
-    assert onchain.address_is_valid(BTC, address) is valid
+    assert onchain.address_is_valid(BTC, address) is valid, why
 
 
 def test_a_legacy_bitcoin_address_is_not_mistaken_for_a_solana_one():

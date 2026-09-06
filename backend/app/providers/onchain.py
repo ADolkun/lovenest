@@ -148,32 +148,60 @@ def _bech32_polymod(values: list[int]) -> int:
     return checksum
 
 
-def _bech32_valid(address: str) -> bool:
-    """Check a mainnet segwit address's checksum.
+def _witness_program(values: list[int]) -> Optional[bytes]:
+    """Regroup the 5-bit data section into bytes, or None if it does not divide.
 
-    Both constants are needed: BIP-173 (witness v0, the ``bc1q`` addresses)
-    ends on 1, and BIP-350 (v1+, Taproot's ``bc1p``) on a different one after
-    an earlier length-extension flaw. Accepting either constant for either
-    version would wave through the exact substitution the split was made to
-    stop. The witness program's own length is left to the node — a wrong-length
-    program is a rejected request, whereas a bad checksum is a typo that would
-    otherwise be watched forever as an empty wallet.
+    Leftover bits are only legal as zero padding, and fewer than eight of them.
+    Anything else is a re-encoding of a different program that happens to hit the
+    same checksum, so it is rejected rather than truncated.
+    """
+    accumulator = bits = 0
+    out = bytearray()
+    for value in values:
+        accumulator = (accumulator << 5) | value
+        bits += 5
+        while bits >= 8:
+            bits -= 8
+            out.append((accumulator >> bits) & 0xFF)
+    if bits >= 5 or (accumulator << (8 - bits)) & 0xFF:
+        return None
+    return bytes(out)
+
+
+def _bech32_valid(address: str) -> bool:
+    """Validate a mainnet segwit address: checksum, witness version and length.
+
+    Both checksum constants are needed: BIP-173 (witness v0, the ``bc1q``
+    addresses) ends on 1, and BIP-350 (v1+, Taproot's ``bc1p``) on a different
+    one after an earlier length-extension flaw. Accepting either constant for
+    either version would wave through the exact substitution the split was made
+    to stop.
+
+    The program's length is checked here rather than left to the node. A
+    checksum-valid address with a malformed program is one the index rejects,
+    and `_native_holding` turns a rejected read into a failed sync — so letting
+    one through would wedge the whole connection rather than the one address.
     """
     if address != address.lower() and address != address.upper():
         return False  # mixed case is unspecified, and a wallet never emits it
     hrp, separator, data = address.lower().rpartition("1")
-    if separator != "1" or hrp != "bc" or len(data) < 6:
+    if separator != "1" or hrp != "bc" or len(data) < 7:
         return False
     try:
         values = [_BECH32_CHARSET.index(char) for char in data]
     except ValueError:
         return False
     expanded = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
-    constant = _bech32_polymod(expanded + values)
     version = values[0]
     if version > 16:
         return False
-    return constant == (1 if version == 0 else 0x2BC830A3)
+    if _bech32_polymod(expanded + values) != (1 if version == 0 else 0x2BC830A3):
+        return False
+    program = _witness_program(values[1:-6])
+    if program is None or not 2 <= len(program) <= 40:
+        return False
+    # v0 is only ever a 20-byte key hash or a 32-byte script hash.
+    return version != 0 or len(program) in (20, 32)
 
 
 def _bitcoin_address_valid(address: str) -> bool:
