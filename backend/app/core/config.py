@@ -1,9 +1,11 @@
+import json
 from functools import lru_cache
 from os import getenv
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Use the same environment variable that systemd uses: https://systemd.io/CREDENTIALS/
 # If not defined, defaults to docker secrets defaults (https://docs.docker.com/compose/how-tos/use-secrets/)
@@ -56,7 +58,7 @@ class Settings(BaseSettings):
     # Per-chain JSON-RPC overrides, e.g. {"solana": "https://your-node"}. The
     # public defaults rate-limit hard, and a trace is dozens of requests, so a
     # deployment that uses this seriously wants its own endpoints.
-    onchain_rpc_urls: dict[str, str] = {}
+    onchain_rpc_urls: Annotated[dict[str, str], NoDecode] = {}
     # Etherscan V2 key — one key covers Ethereum, Base and Polygon. Only
     # tracing needs it: EVM JSON-RPC serves balances but has no call that
     # lists an address's transactions.
@@ -143,6 +145,16 @@ class Settings(BaseSettings):
     @property
     def oidc_login_available(self) -> bool:
         return bool(self.oidc_enabled and self.oidc_client_id and self.oidc_discovery_url)
+
+    @field_validator("onchain_rpc_urls", mode="before")
+    @classmethod
+    def _parse_rpc_urls(cls, value: object) -> object:
+        # NoDecode hands the raw string over: an unset compose variable arrives
+        # as "", which is not JSON and would otherwise abort startup for every
+        # deployment that never touched this setting.
+        if isinstance(value, str):
+            return json.loads(value) if value.strip() else {}
+        return value
 
     @model_validator(mode="after")
     def validate_auth_settings(self) -> "Settings":

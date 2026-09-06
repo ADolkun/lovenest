@@ -174,6 +174,20 @@ and every report, and needs the user to notice and undo it by hand. Between a
 recoverable wrong answer and an unrecoverable one, this surface takes the
 recoverable one every time — the same rule that governs "nothing moved".
 
+### Naming what went unread beats failing the whole connection
+
+An all-or-nothing raise costs the 24 addresses that answered their sync for the
+sake of the one that did not. `get_holdings` therefore raises `PartialHoldings`,
+which carries the holdings it did read plus the scopes it could not: the sync
+layer holds exactly those out of the archive sweep and processes the rest
+normally, so a dead RPC endpoint stales one address instead of the connection.
+Failure is per address, not per read — a wallet whose native balance answers but
+whose token index does not counts as unread, since keeping the half that
+answered would archive the other half.
+
+The account balance is the exception: it is a derived total, so a partial read
+leaves it short for a cycle rather than blocking the sync it sits in front of.
+
 ## Reaching a Pooled Address is the answer, not a failure
 
 A Trace that stops at an exchange has succeeded. Custody changed there: the
