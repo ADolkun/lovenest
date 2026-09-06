@@ -899,8 +899,11 @@ async def _evm_history(
             "for the chain."
         )
     trimmed = False
+    index = chain.token_index_url.rstrip("/")
     for path in ("transactions", "internal-transactions"):
-        page, verdict, short = await _blockscout_history(chain, address, path, since, client)
+        page, verdict, short = await _blockscout_history(
+            chain, index, address, path, since, client
+        )
         rows.extend(page)
         saturated = saturated or verdict
         trimmed = trimmed or short
@@ -914,12 +917,17 @@ async def _evm_history(
 
 async def _blockscout_history(
     chain: Chain,
+    index: str,
     address: str,
     path: str,
     since: Optional[datetime],
     client: Optional[httpx.AsyncClient],
 ) -> tuple[list[dict], Optional[str], bool]:
     """One Blockscout list, paged, in Etherscan's row shape.
+
+    The instance arrives already resolved, because the caller is the one that
+    knows whether the chain has one — `Chain.token_index_url` is optional and
+    the chains without it never reach here.
 
     Speaking Etherscan's shape rather than its own keeps one decoder for both
     sources; a second would be a second place for "which field held the amount"
@@ -933,7 +941,7 @@ async def _blockscout_history(
     than failing the read — what did load is real, and returning it as a short
     list is what stops "nothing moved" being concluded from it.
     """
-    url = f"{chain.token_index_url.rstrip('/')}/api/v2/addresses/{address}/{path}"
+    url = f"{index}/api/v2/addresses/{address}/{path}"
     rows: list[dict] = []
     params: Optional[dict] = None
     verdict: Optional[str] = None
