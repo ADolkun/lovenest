@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { connections } from '@/lib/api'
-import { buildAllowlist, initialSelection, shouldSaveAllowlist } from '@/lib/account-allowlist'
+import {
+  allowlistAdmitsMore,
+  buildAllowlist,
+  initialSelection,
+  shouldSaveAllowlist,
+} from '@/lib/account-allowlist'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -84,30 +90,38 @@ export function ConnectionSettingsDialog({
     })
 
   const mutation = useMutation({
-    mutationFn: () =>
-      connections.updateSettings(connection!.id, {
+    mutationFn: async () => {
+      const stored = connection!.settings?.account_allowlist
+      // Omitted when the listing failed: an allowlist rebuilt from accounts
+      // we could not read would exclude everything the provider didn't return.
+      const allowlist =
+        accountList && shouldSaveAllowlist(selected, accountList, stored)
+          ? buildAllowlist(selected, accountList, stored)
+          : null
+      await connections.updateSettings(connection!.id, {
         display_name: displayName.trim() || null,
         payee_source: payeeSource,
         import_pending: importPending,
         // Only persist asset-sync for connectors that actually import holdings.
         ...(supportsAssetSync ? { sync_assets: syncAssets } : {}),
-        // Omitted when the listing failed: an allowlist rebuilt from accounts
-        // we could not read would exclude everything the provider didn't return.
-        ...(accountList &&
-        shouldSaveAllowlist(selected, accountList, connection!.settings?.account_allowlist)
+        ...(allowlist
           ? {
-              account_allowlist: buildAllowlist(
-                selected,
-                accountList,
-                connection!.settings?.account_allowlist,
-              ),
+              account_allowlist: allowlist,
               // What the user was shown, so an account they unchecked here is
               // not offered again as pending after the next sync.
-              reviewed_account_ids: accountList.map((a) => a.external_id),
+              reviewed_account_ids: accountList!.map((a) => a.external_id),
             }
           : {}),
-      }),
+      })
+      // Approving an account is asking for its data. Without this the
+      // connection shows "No accounts found" until a scheduled sync happens to
+      // run, which is indistinguishable from a broken connector.
+      if (allowlist && allowlistAdmitsMore(allowlist, stored)) {
+        await connections.sync(connection!.id)
+      }
+    },
     onSuccess: () => {
+      invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
       toast.success(t('accounts.updated'))
       onClose()

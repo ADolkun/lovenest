@@ -73,3 +73,20 @@ export function buildAllowlist(
   const kept = (stored ?? []).filter((id) => !shown.has(id))
   return [...accounts.filter((a) => selected.has(a.external_id)).map((a) => a.external_id), ...kept]
 }
+
+/** Whether saving this allowlist newly admits an account.
+ *
+ * Picking an account in the settings dialog is a request for its data, but the
+ * allowlist alone only decides what the *next* sync imports — a connection
+ * whose accounts were all pending stays empty, and reads as broken, until
+ * something runs one. A connection with no stored allowlist already syncs
+ * everything, so writing its first one can only narrow.
+ */
+export function allowlistAdmitsMore(
+  next: string[],
+  stored: string[] | null | undefined,
+): boolean {
+  if (!Array.isArray(stored)) return false
+  const before = new Set(stored)
+  return next.some((id) => !before.has(id))
+}

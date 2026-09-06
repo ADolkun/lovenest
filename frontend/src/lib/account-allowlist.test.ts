@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildAllowlist,
-  initialSelection,
-  needsAccountReview,
-  shouldSaveAllowlist,
-} from './account-allowlist'
+import { allowlistAdmitsMore, buildAllowlist, initialSelection, needsAccountReview, shouldSaveAllowlist } from './account-allowlist'
 import type { BankConnection, ConnectionSettings, ProviderAccount } from '../types'
 
 const account = (
@@ -94,5 +89,23 @@ describe('buildAllowlist', () => {
 
   it('ignores ticks for accounts that are not on screen', () => {
     expect(buildAllowlist(new Set(['a', 'ghost']), shown, null)).toEqual(['a'])
+  })
+})
+
+describe('allowlistAdmitsMore', () => {
+  it('is true when an account the stored list excluded is now in', () => {
+    expect(allowlistAdmitsMore(['a', 'b'], ['a'])).toBe(true)
+  })
+
+  it('is true for the review-first case, where nothing was admitted yet', () => {
+    expect(allowlistAdmitsMore(['a'], [])).toBe(true)
+  })
+
+  it('is false when the save only drops accounts', () => {
+    expect(allowlistAdmitsMore(['a'], ['a', 'b'])).toBe(false)
+  })
+
+  it('is false for a first allowlist, which can only narrow a sync-everything connection', () => {
+    expect(allowlistAdmitsMore(['a'], undefined)).toBe(false)
   })
 })
