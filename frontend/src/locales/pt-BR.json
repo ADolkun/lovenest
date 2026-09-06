@@ -2511,7 +2511,8 @@
       "no_movement": "Os fundos pararam aqui — nada saiu deste endereço.",
       "no_match": "Aqui nada correspondeu aos seus filtros — deste endereço os fundos saíram sim.",
       "partial": "O rastro pode continuar: este endereço teve mais atividade do que foi possível examinar.",
-      "unavailable": "O rastro se interrompe aqui: não foi possível ler este endereço."
+      "unavailable": "O rastro se interrompe aqui: não foi possível ler este endereço.",
+      "rate_limited": "A trilha termina aqui: o nó da rede limitou a taxa do rastreamento antes que este endereço pudesse ser lido. Tente novamente em instantes ou defina uma URL de RPC dedicada em ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "Neste endereço os fundos de muitas partes ficam agrupados, então o próximo salto seria a contabilidade interna do operador e não um pagamento. É aqui que um rastreio termina e uma denúncia ao operador começa."

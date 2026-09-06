@@ -1890,7 +1890,8 @@
       "no_movement": "The funds stopped here — nothing has moved out of this address.",
       "no_match": "Nothing matched your filters here — this address did move funds.",
       "partial": "The trail may continue: this address had more activity than could be examined.",
-      "unavailable": "The trail breaks here: this address could not be read."
+      "unavailable": "The trail breaks here: this address could not be read.",
+      "rate_limited": "The trail breaks here: the chain node rate-limited the trace before this address could be read. Try again shortly, or set a dedicated RPC URL in ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "Funds from many parties are pooled at this address, so the next hop would be the operator's internal accounting rather than a payment. This is where a trace ends and a report to the operator begins."

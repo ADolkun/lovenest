@@ -2511,7 +2511,8 @@
       "no_movement": "Die Mittel liegen hier — von dieser Adresse ist nichts abgeflossen.",
       "no_match": "Hier passte nichts zu Ihren Filtern — von dieser Adresse sind Mittel abgeflossen.",
       "partial": "Die Spur kann weitergehen: diese Adresse hatte mehr Aktivität, als geprüft werden konnte.",
-      "unavailable": "Die Spur bricht hier ab: diese Adresse konnte nicht gelesen werden."
+      "unavailable": "Die Spur bricht hier ab: diese Adresse konnte nicht gelesen werden.",
+      "rate_limited": "Die Spur bricht hier ab: der Chain-Knoten hat die Verfolgung gedrosselt, bevor diese Adresse gelesen werden konnte. Versuchen Sie es gleich erneut oder legen Sie eine eigene RPC-URL in ONCHAIN_RPC_URLS fest."
     },
     "terminalDetail": {
       "pooled": "An dieser Adresse werden Mittel vieler Parteien gebündelt, der nächste Schritt wäre also die interne Buchführung des Betreibers und keine Zahlung. Hier endet eine Verfolgung und beginnt die Meldung an den Betreiber."

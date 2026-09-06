@@ -2636,7 +2636,8 @@
       "no_movement": "Środki zatrzymały się tutaj — nic nie wyszło z tego adresu.",
       "no_match": "Tutaj nic nie pasowało do Twoich filtrów — z tego adresu środki jednak wyszły.",
       "partial": "Ślad może biec dalej: ten adres miał więcej aktywności, niż dało się zbadać.",
-      "unavailable": "Ślad urywa się tutaj: nie udało się odczytać tego adresu."
+      "unavailable": "Ślad urywa się tutaj: nie udało się odczytać tego adresu.",
+      "rate_limited": "Ślad urywa się tutaj: węzeł łańcucha ograniczył tempo śledzenia, zanim udało się odczytać ten adres. Spróbuj ponownie za chwilę lub ustaw dedykowany adres RPC w ONCHAIN_RPC_URLS."
     },
     "terminalDetail": {
       "pooled": "Pod tym adresem gromadzone są środki wielu stron, więc kolejny krok byłby wewnętrzną księgowością operatora, a nie płatnością. Tutaj kończy się śledzenie, a zaczyna zgłoszenie do operatora."

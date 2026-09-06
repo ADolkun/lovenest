@@ -197,12 +197,13 @@ name of the party who can be asked whose account received the funds — which is
 the only thing that was ever actionable. The UI gives that ending the prominent
 treatment for the same reason.
 
-## Balances are read over public RPC; history sometimes cannot be
+## Balances are read over public RPC; history comes from an index
 
 Solana's JSON-RPC answers "what did this address do" directly, so Solana needs
 no key for either balances or Traces. EVM JSON-RPC has no such call — an
 address's history exists only in an indexer — so `native_balance` works on a
-public node while `_evm_transfers` requires an Etherscan key.
+public node while `_evm_transfers` goes to Blockscout, or to Etherscan when a
+key is set.
 
 Bitcoin has no account to read at all: an address is a set of unspent outputs,
 so even its *balance* is an index query. Both sides therefore go to Esplora,
@@ -224,16 +225,55 @@ program is merely a rejected request — which stopped being true once a rejecte
 read began failing the whole sync. One address nobody can look up would wedge
 every other address on the connection, so it is refused where it is pasted.
 
-Where the key is absent the Trace raises rather than returning an empty walk,
-and `trace` deliberately lets `ProviderNotConfiguredError` and
-`ProviderRateLimited` past its per-node handler: both are true of every address
-the walk would visit, so recording them against one node would dress a total
-failure up as a trail that happens to end early. Returning an empty history
-would be indistinguishable from an address that never transacted, which on this
-surface is not a missing feature but a false exoneration.
+Where no source exists at all the Trace raises rather than returning an empty
+walk, and `trace` deliberately lets `ProviderNotConfiguredError` past its
+per-node handler: it is true of every address the walk would visit, so
+recording it against one node would dress a total failure up as a trail that
+happens to end early. Returning an empty history would be indistinguishable
+from an address that never transacted, which on this surface is not a missing
+feature but a false exoneration.
 
-EVM history reads two Etherscan lists, not one. `txlist` covers what the
-address itself sent and received; `txlistinternal` covers native coin moved by
-a contract. The dominant EVM drain is a victim signing a zero-value call whose
-sweep happens inside the contract, so reading only the first reports the
-drained wallet as untouched.
+EVM history reads two lists, not one. One covers what the address itself sent
+and received; the other covers native coin moved by a contract. The dominant
+EVM drain is a victim signing a zero-value call whose sweep happens inside the
+contract, so reading only the first reports the drained wallet as untouched.
+
+## The keyless index is preferred, and it is why the rate test runs per page
+
+Etherscan was the first EVM history source and requiring its key made EVM
+Traces unreachable by default: every deployment that never signed up saw the
+chains greyed out, which is a feature that does not exist as far as its user is
+concerned. Blockscout answers both lists unauthenticated on every EVM chain
+here — it is already the source for ERC-20 balances — so it is the default and
+the key is an upgrade, buying a page a thousand rows deep against Blockscout's
+fifty.
+
+That page size is what moves the pooled test. It cannot run after the paging
+finishes, because the addresses it exists to recognise are exactly the ones
+Blockscout stops answering for: an exchange hot wallet's first page returns in
+about a second, and paging deeper into the same address times out. Judging each
+page as it arrives ends the walk on the first one — one request, and the
+verdict the trail was asking for — where judging afterwards spends the Trace's
+whole time budget and then reports the address as unreadable.
+
+Unpageable is not treated the same way, because paging is its remedy: it says
+the window sits further back than this page reached, and the next page may
+reach it. Only pooled stops the paging. A later page that will not load ends
+the list rather than failing the read, and the shortfall travels back as
+`trimmed` — half a list is evidence, it is just not evidence of absence.
+
+## A throttle mid-walk keeps the trail it already found
+
+`ProviderRateLimited` used to leave `trace` the same way a missing source does,
+on the same reasoning: a throttled node will refuse every address left, not
+just this one. That is still true, and the walk still ends there. What changed
+is what happens to the hops already taken. Discarding them answers a smaller
+question than the one the caller asked, and it is the common case on a shared
+public node — the first hops succeed, then the node starts refusing.
+
+So the walk stops, the address it was reading and every address still queued
+are marked `rate_limited`, and the partial trail is returned as a partial
+trail. The property in the module docstring is unharmed: every address the walk
+stopped at still carries a reason, and nothing claims the trail ended there. A
+Trace that found nothing at all still raises, because there is no trail to
+qualify and an empty graph would read as an answer.
