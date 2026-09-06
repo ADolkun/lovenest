@@ -101,7 +101,11 @@ SOLANA_TOKEN_PROGRAMS = (
 JUPITER_TOKEN_URL = "https://lite-api.jup.ag/tokens/v2/search"
 JUPITER_QUERY_BATCH = 50
 # A spammed address holds thousands of airdropped tokens. The cap is applied
-# after ranking by value, so what it discards is the tail, not the position.
+# after ranking, and the ranking puts vouched tokens ahead of unvouched ones
+# before it looks at value at all. Ranking on value alone would hand the cap to
+# an attacker: minting 25 tokens quoted at a million dollars each is cheap, and
+# they would sort above every real position and push it out of the payload —
+# which the sync layer reads as the position being gone.
 MAX_TOKENS_PER_ADDRESS = 25
 
 _SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -384,8 +388,22 @@ class TokenHolding:
 
     @property
     def quoted_value(self) -> Decimal:
-        """What the index says it is worth, vouched for or not — for ranking."""
+        """What the index says it is worth, vouched for or not.
+
+        Only meaningful next to ``trusted``. An unvouched quote is a number an
+        attacker chose, so this may not order a vouched holding — see
+        ``rank`` — and may not reach a total.
+        """
         return self.quantity * self.usd_price if self.usd_price is not None else Decimal("0")
+
+    @property
+    def rank(self) -> tuple[bool, Decimal]:
+        """Sort key for the cap: vouched first, then value.
+
+        Value alone would let anyone who can mint a token decide which of a
+        user's real holdings stay in the payload.
+        """
+        return self.trusted, self.quoted_value
 
 
 def detect_chain(address: str) -> Optional[Chain]:
@@ -1098,7 +1116,7 @@ async def token_holdings(
         found = await _evm_token_holdings(chain, address, client)
     else:
         return []
-    found.sort(key=lambda token: token.quoted_value, reverse=True)
+    found.sort(key=lambda token: token.rank, reverse=True)
     return found[:MAX_TOKENS_PER_ADDRESS]
 
 
@@ -1326,9 +1344,13 @@ class OnChainProvider(BankProvider):
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
         """The native coin and every priced token, per watched address.
 
-        The two are read independently and neither can lose the other: a wallet
-        holding no SOL but 500 USDC is a real wallet, and a node that will not
-        answer for one of them is not evidence about the other.
+        The two are read independently — a wallet holding no SOL but 500 USDC is
+        a real wallet, and neither read's result is inferred from the other's.
+
+        Both raise rather than return short. Every holding this omits, the sync
+        layer archives, so a partial answer here is indistinguishable from a
+        liquidated wallet — and unlike a stale value, an archived asset does not
+        come back on its own.
         """
         watched = self._watched(credentials)
         prices = await usd_spot_prices()
@@ -1353,21 +1375,18 @@ class OnChainProvider(BankProvider):
         layer logs and keeps the previous values, and the holdings go stale
         rather than being rewritten at a price nobody knows.
 
-        An address the node cannot answer for is skipped for the same reason:
-        a request that timed out is not a wallet that emptied, and writing the
-        zero would archive a live position.
+An address the node cannot answer for fails the whole sync rather
+        than dropping out of the payload. The sync layer archives any holding
+        it stops seeing, so a dropped holding is not a gap — it is a claim the
+        position is gone. A raise is caught upstream and leaves every value
+        stale, which is the recoverable answer; archiving is silent and sticks.
         """
-        try:
-            quantity = await native_balance(entry.chain, entry.address, client=client)
-        except Exception:
-            logger.exception("Could not read %s balance", entry.external_id)
-            return None
+        quantity = await native_balance(entry.chain, entry.address, client=client)
         if quantity is None:
-            return None
+            raise RuntimeError(f"No balance returned for {entry.external_id}")
         price = prices.get(entry.chain.symbol)
         if price is None and quantity != 0:
-            logger.warning("No USD price for %s; skipping holding", entry.chain.symbol)
-            return None
+            raise RuntimeError(f"No USD price for {entry.chain.symbol}")
         return HoldingData(
             external_id=entry.external_id,
             name=f"{entry.chain.display_name} {entry.short}",
@@ -1396,12 +1415,12 @@ class OnChainProvider(BankProvider):
         would let anyone who can mint a token and a pool write a number into
         this user's net worth; hiding it would answer a question the user asked
         with silence. Naming it and valuing it at nothing does neither.
+
+        An index that cannot be reached raises, for the reason
+        `_native_holding` gives: an empty list here is read downstream as every
+        token in this wallet having been disposed of.
         """
-        try:
-            tokens = await token_holdings(entry.chain, entry.address, client=client)
-        except Exception:
-            logger.exception("Could not read %s token balances", entry.external_id)
-            return []
+        tokens = await token_holdings(entry.chain, entry.address, client=client)
         holdings: list[HoldingData] = []
         for token in tokens:
             price = token.usd_price if token.trusted else None
@@ -1410,7 +1429,15 @@ class OnChainProvider(BankProvider):
                     external_id=f"{entry.external_id}:{token.contract}",
                     name=f"{token.symbol} · {entry.chain.display_name} {entry.short}",
                     currency="USD",
-                    ticker=token.symbol,
+                    # Only a vouched symbol becomes a ticker. `ticker` is the
+                    # key positions consolidate on and imports match against,
+                    # so an attacker-chosen one joins a real position and takes
+                    # its cost basis down with it — a token calling itself AAPL
+                    # would null the gain on 500 shares of the real thing. It
+                    # is also what `is_cash_equivalent_ticker` reads, so a junk
+                    # "USDC" would be filed as cash. The name still shows the
+                    # symbol; nothing keys on the name.
+                    ticker=token.symbol if token.trusted else None,
                     quantity=token.quantity,
                     unit_price=price,
                     current_value=token.quoted_value if token.trusted else Decimal("0"),

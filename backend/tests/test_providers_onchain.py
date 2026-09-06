@@ -74,14 +74,25 @@ def _tx(block_time: int, deltas: dict[str, int]) -> dict:
     }
 
 
-def _solana_handler(*, balances=None, signatures=None, txs=None):
-    """Serve getBalance / getSignaturesForAddress / getTransaction from dicts."""
+def _solana_handler(*, balances=None, signatures=None, txs=None, token_accounts=None):
+    """Serve getBalance / getSignaturesForAddress / getTransaction from dicts.
+
+    Token reads answer empty by default — a wallet holding no SPL tokens — so a
+    test about native balances does not have to describe a token index too.
+    """
     balances = balances or {}
     signatures = signatures or {}
     txs = txs or {}
+    token_accounts = token_accounts or {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if "jup.ag" in request.url.host:
+            return httpx.Response(200, json=[])
         body = json.loads(request.content)
+        if body["method"] == "getTokenAccountsByOwner":
+            return httpx.Response(
+                200, json={"result": {"value": token_accounts.get(body["params"][0], [])}, "id": 1}
+            )
         method, params = body["method"], body["params"]
         if method == "getBalance":
             return httpx.Response(
@@ -829,7 +840,9 @@ async def test_an_unvouched_token_is_listed_with_its_quantity_and_never_valued()
         holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
     assert held.trusted is False
     assert held.usd_price == Decimal("1000000")
-    token = next(h for h in holdings if h.ticker == "USDC")
+    # No ticker: an unvouched symbol must not consolidate with a real position.
+    token = next(h for h in holdings if h.external_id.endswith(MINT_A))
+    assert token.ticker is None
     assert token.quantity == Decimal("1000")
     assert token.unit_price is None
     assert token.current_value == Decimal("0")
@@ -938,25 +951,25 @@ async def test_a_wallet_holding_no_native_coin_still_reports_its_tokens():
 
 
 @pytest.mark.asyncio
-async def test_a_token_index_outage_does_not_take_the_native_holding_with_it():
-    """A failure to look is not a finding that there is nothing there."""
-    def handler(request):
-        if "jup.ag" in request.url.host:
-            return httpx.Response(503)
-        body = json.loads(request.content)
-        if body["method"] == "getBalance":
-            return httpx.Response(200, json={"result": {"value": 2 * 10**9}, "id": 1})
-        return httpx.Response(
-            200,
-            json={"result": {"value": [_token_account(MINT_A, "1000000", 6)]}, "id": 1},
-        )
+async def test_the_two_reads_are_independent_even_though_either_can_fail_the_sync():
+    """A token failure is not caused by the native read, or the reverse.
 
+    Both still raise — see the outage tests above — but they raise for their
+    own reasons, so a diagnosis points at the index that actually broke.
+    """
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "500000000", 6)]},
+        jupiter=[_jupiter_row(MINT_A, "USDC", "1", True)],
+        native=2 * 10**9,
+    )
     with _settings(), _patched_client(handler), patch.object(
         onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
     ):
         holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
-    assert [h.ticker for h in holdings] == ["SOL"]
-    assert holdings[0].current_value == Decimal("200")
+    assert {h.ticker for h in holdings} == {"SOL", "USDC"}
+    assert next(h for h in holdings if h.ticker == "SOL").current_value == Decimal("200")
+    assert next(h for h in holdings if h.ticker == "USDC").current_value == Decimal("500")
 
 
 # ----- holdings -------------------------------------------------------------
@@ -983,7 +996,13 @@ async def test_each_watched_address_becomes_one_holding_priced_in_usd():
 
 
 @pytest.mark.asyncio
-async def test_an_address_the_node_cannot_answer_for_is_skipped_not_zeroed():
+async def test_an_address_the_node_cannot_answer_for_fails_the_sync_rather_than_emptying_it():
+    """Dropping the holding is not a gap, it is a claim the position is gone.
+
+    The sync layer archives every holding it stops being told about, and an
+    archived asset does not come back on its own. Raising leaves the previous
+    values stale instead, which the user can see and which heals itself.
+    """
     provider = OnChainProvider()
 
     async def fake_prices():
@@ -997,7 +1016,52 @@ async def test_an_address_the_node_cannot_answer_for_is_skipped_not_zeroed():
         _patched_client(handler),
         patch("app.providers.onchain.usd_spot_prices", fake_prices),
     ):
-        assert await provider.get_holdings({"addresses": [f"solana:{A}"]}) == []
+        with pytest.raises(Exception):
+            await provider.get_holdings({"addresses": [f"solana:{A}"]})
+
+
+@pytest.mark.asyncio
+async def test_a_token_index_outage_fails_the_sync_rather_than_emptying_the_wallet():
+    """Same rule for the token half: an unreachable index is not a liquidation."""
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+
+    def handler(request):
+        if "jup.ag" in request.url.host:
+            return httpx.Response(503)
+        body = json.loads(request.content)
+        if body["method"] == "getBalance":
+            return httpx.Response(200, json={"result": {"value": 10**9}, "id": 1})
+        return httpx.Response(
+            200, json={"result": {"value": [_token_account(MINT_A, "1000000", 6)]}, "id": 1}
+        )
+
+    with _settings(), _patched_client(handler), patch.object(
+        onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
+    ):
+        with pytest.raises(Exception):
+            await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
+
+
+@pytest.mark.asyncio
+async def test_an_unvouched_token_cannot_push_a_real_holding_out_of_the_payload():
+    """The cap ranks vouched first, so minting a fake price cannot displace.
+
+    Ranking on value alone would let anyone mint `MAX_TOKENS_PER_ADDRESS`
+    tokens quoted at a million dollars, sort them above every real position,
+    and have the sync layer archive what fell off the end.
+    """
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    fakes = [f"fake{i}".ljust(44, "9") for i in range(onchain.MAX_TOKENS_PER_ADDRESS)]
+    handler = _token_handler(
+        accounts={original: [_token_account(m, "1000000", 6) for m in fakes + [MINT_A]]},
+        jupiter=[_jupiter_row(m, f"SCAM{i}", "1000000", False) for i, m in enumerate(fakes)]
+        + [_jupiter_row(MINT_A, "USDC", "1", True)],
+    )
+    with _settings(), _patched_client(handler):
+        held = await onchain.token_holdings(SOL, A)
+    assert len(held) == onchain.MAX_TOKENS_PER_ADDRESS
+    assert held[0].symbol == "USDC"
+    assert "USDC" in {t.symbol for t in held}
 
 
 @pytest.mark.asyncio

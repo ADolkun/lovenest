@@ -138,10 +138,41 @@ real quantity, keeps the refused quote in `external_metadata`, and contributes
 zero. Understating is recoverable by hand; a fabricated number in a net worth
 is not noticed at all.
 
+*Should it order the others?* Also only if vouched. This was the hole in the
+first version: the cap keeps the 25 most valuable tokens, and ranking by the
+quoted value alone handed that choice to whoever quoted it. Minting 25 tokens
+priced at a million dollars each and airdropping them costs a few dollars and
+needs nothing from the victim; they would sort above every real position, push
+it out of the payload, and the sync layer would archive what fell off the end.
+`TokenHolding.rank` puts vouched before unvouched and only then compares value.
+Refusing a number for one purpose and trusting it for another is the general
+shape of this mistake.
+
 Identity is read from the mint or contract address, never from the symbol the
 token reports. A token can call itself USDC; it cannot occupy USDC's mint. That
 is why pricing does not go through the Coinbase symbol table the native coins
-use, even though it is already wired up.
+use, even though it is already wired up. For the same reason an unvouched
+symbol never becomes an `Asset.ticker`: the ticker is what positions
+consolidate on, what CSV imports match against, and what decides whether a
+holding is a cash equivalent, so an attacker-chosen one joins a real position
+and takes its cost basis down with it. The name still shows the symbol, because
+nothing keys on the name.
+
+## A short payload is a claim, not a gap
+
+`_sync_holdings` archives every asset the provider stops reporting. That is
+right for a redeemed bond and wrong for a wallet whose index was unreachable
+for thirty seconds, and the provider is the only layer that can tell the two
+apart. So `get_holdings` raises rather than returning a partial list: a raise is
+caught upstream and leaves every value stale, where a short list silently
+archives real positions — and `_upsert_asset_from_holding` only un-archives when
+a holding moves between connections, so they do not come back on their own.
+
+Staleness is visible in the connection's last-synced time and heals on the next
+good sync. Archiving is silent, removes the holding from net worth, allocation
+and every report, and needs the user to notice and undo it by hand. Between a
+recoverable wrong answer and an unrecoverable one, this surface takes the
+recoverable one every time — the same rule that governs "nothing moved".
 
 ## Reaching a Pooled Address is the answer, not a failure
 

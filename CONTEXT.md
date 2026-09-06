@@ -217,7 +217,11 @@ also stands behind (Jupiter's `verified`, Blockscout's `reputation: ok`). Only a
 Vouched Token's price may move a total. Minting a token, a pool and a price is
 cheap, so an unvouched quote is treated as a claim rather than a fact: the
 position is still listed with its quantity and the quote that was refused, and
-counts as zero. Listing it and valuing it are two different decisions.
+counts as zero. Listing it, ranking it and valuing it are three different
+decisions: an unvouched quote may not order a vouched holding either, or minting
+tokens would let an attacker choose which of a user's real positions survive the
+per-address cap. An unvouched symbol also never becomes a ticker, which is what
+positions consolidate on.
 
 **Change Address** — on Bitcoin, the output a spend pays back to its own
 sender because a transaction must consume whole outputs. Where it returns to an
