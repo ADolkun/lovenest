@@ -212,6 +212,13 @@ a drawing of an address's neighbourhood: each hop inherits the previous
 transfer's instant as its horizon, because money cannot leave an address before
 it arrives there.
 
+**Vouched Token** — a non-native token whose identity the index that priced it
+also stands behind (Jupiter's `verified`, Blockscout's `reputation: ok`). Only a
+Vouched Token's price may move a total. Minting a token, a pool and a price is
+cheap, so an unvouched quote is treated as a claim rather than a fact: the
+position is still listed with its quantity and the quote that was refused, and
+counts as zero. Listing it and valuing it are two different decisions.
+
 **Change Address** — on Bitcoin, the output a spend pays back to its own
 sender because a transaction must consume whole outputs. Where it returns to an
 address the transaction already spent from, it is recognised and not counted as

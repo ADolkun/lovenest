@@ -87,6 +87,23 @@ SATURATED_POOLED = "pooled"
 SATURATED_UNPAGEABLE = "unpageable"
 ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
 
+# SPL tokens live in accounts owned by one of two programs — the original and
+# Token-2022 — and a wallet holding both kinds answers only half the question
+# if just one is asked for.
+SOLANA_TOKEN_PROGRAMS = (
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+)
+# A token account names a mint, never a symbol, so identity comes from an
+# index. Jupiter's is keyless, answers in one batched call, and — decisively —
+# prices by mint rather than by symbol, so a token *claiming* to be USDC is
+# quoted as the worthless thing it is instead of at a dollar.
+JUPITER_TOKEN_URL = "https://lite-api.jup.ag/tokens/v2/search"
+JUPITER_QUERY_BATCH = 50
+# A spammed address holds thousands of airdropped tokens. The cap is applied
+# after ranking by value, so what it discards is the tail, not the position.
+MAX_TOKENS_PER_ADDRESS = 25
+
 _SOLANA_ADDRESS = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 _EVM_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 # Shape only. Both Bitcoin forms carry a checksum, and the checksum is what
@@ -173,6 +190,12 @@ class Chain:
     ``symbol`` is the native coin's ticker, which is what a holding is
     denominated in. ``explorer_chain_id`` is Etherscan's V2 chain id, and every
     EVM chain here has one — Solana and Bitcoin never reach the explorer path.
+
+    ``token_index_url`` is a Blockscout instance, and only the EVM chains have
+    one: an ERC-20 balance is a mapping inside a contract, so listing what an
+    address holds means asking an index rather than the chain. Solana carries
+    its token accounts on-chain and reads them over its own RPC; Bitcoin has no
+    tokens at all, so both leave it None for different reasons.
     """
 
     key: str
@@ -182,6 +205,7 @@ class Chain:
     decimals: int
     default_rpc_url: str
     explorer_chain_id: Optional[int] = None
+    token_index_url: Optional[str] = None
 
 
 CHAINS: dict[str, Chain] = {
@@ -214,6 +238,7 @@ CHAINS: dict[str, Chain] = {
         decimals=18,
         default_rpc_url="https://eth.llamarpc.com",
         explorer_chain_id=1,
+        token_index_url="https://eth.blockscout.com",
     ),
     "base": Chain(
         key="base",
@@ -223,6 +248,7 @@ CHAINS: dict[str, Chain] = {
         decimals=18,
         default_rpc_url="https://mainnet.base.org",
         explorer_chain_id=8453,
+        token_index_url="https://base.blockscout.com",
     ),
     "polygon": Chain(
         key="polygon",
@@ -232,6 +258,7 @@ CHAINS: dict[str, Chain] = {
         decimals=18,
         default_rpc_url="https://polygon-rpc.com",
         explorer_chain_id=137,
+        token_index_url="https://polygon.blockscout.com",
     ),
 }
 
@@ -334,6 +361,31 @@ class Transfers:
     @property
     def complete(self) -> bool:
         return self.saturated is None and not self.trimmed and not self.unreadable
+
+
+@dataclass(frozen=True)
+class TokenHolding:
+    """One non-native token an address holds.
+
+    ``usd_price`` is what the index quotes, and ``trusted`` is whether that
+    quote may move a net worth. The two are kept apart on purpose: a token is
+    listed on the strength of having a market at all, but only counted on the
+    strength of the index vouching for it, because minting an airdrop with a
+    manipulated price is cheap and a portfolio total is the thing it would be
+    minted to attack.
+    """
+
+    chain_key: str
+    contract: str  # SPL mint, or ERC-20 contract address
+    symbol: str
+    quantity: Decimal
+    usd_price: Optional[Decimal]
+    trusted: bool
+
+    @property
+    def quoted_value(self) -> Decimal:
+        """What the index says it is worth, vouched for or not — for ranking."""
+        return self.quantity * self.usd_price if self.usd_price is not None else Decimal("0")
 
 
 def detect_chain(address: str) -> Optional[Chain]:
@@ -822,25 +874,38 @@ async def _etherscan_page(
     raise RuntimeError(f"Etherscan returned an unexpected payload for {chain.key}")
 
 
-async def _esplora(chain: Chain, path: str, client: Optional[httpx.AsyncClient]) -> Any:
-    """One Esplora GET, retried through a shared indexer's momentary throttle."""
-    url = f"{rpc_url(chain).rstrip('/')}{path}"
+async def _get_json(
+    url: str,
+    label: str,
+    client: Optional[httpx.AsyncClient],
+    *,
+    params: Optional[dict] = None,
+) -> Any:
+    """One GET against a public index, retried through a momentary throttle.
+
+    Shared by every keyless index this module reads. The URL never reaches the
+    caller for the reason `_raise_for_status` gives.
+    """
     for attempt in range(RPC_RETRY_ATTEMPTS):
         if client is not None:
-            resp = await client.get(url)
+            resp = await client.get(url, params=params)
         else:
             async with _client() as own:
-                resp = await own.get(url)
+                resp = await own.get(url, params=params)
         if resp.status_code != 429:
             break
         if attempt == RPC_RETRY_ATTEMPTS - 1:
-            raise ProviderRateLimited("The Bitcoin indexer rate-limited the request")
+            raise ProviderRateLimited(f"{label} rate-limited the request")
         await asyncio.sleep(RPC_RETRY_BACKOFF_SECONDS * (attempt + 1))
-    _raise_for_status(resp, "Bitcoin indexer")
+    _raise_for_status(resp, label)
     try:
         return resp.json()
     except ValueError as exc:
-        raise RuntimeError("Bitcoin indexer returned a non-JSON response") from exc
+        raise RuntimeError(f"{label} returned a non-JSON response") from exc
+
+
+async def _esplora(chain: Chain, path: str, client: Optional[httpx.AsyncClient]) -> Any:
+    return await _get_json(f"{rpc_url(chain).rstrip('/')}{path}", "Bitcoin indexer", client)
 
 
 def _sats(raw: Any) -> int:
@@ -1016,6 +1081,187 @@ async def _bitcoin_transfers(
     return Transfers(items=trimmed, trimmed=len(trimmed) < len(found))
 
 
+async def token_holdings(
+    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None
+) -> list[TokenHolding]:
+    """Non-native tokens the address holds, richest first.
+
+    Only tokens the index can price are returned. That is the spam filter: an
+    address that has been airdropped for years holds thousands of tokens with
+    no market, and listing them would bury the handful that are positions. It
+    is a filter on *having a price*, not on the price being large, so a
+    memecoin worth cents survives it and a worthless airdrop does not.
+    """
+    if chain.kind == "solana":
+        found = await _solana_token_holdings(chain, address, client)
+    elif chain.kind == "evm":
+        found = await _evm_token_holdings(chain, address, client)
+    else:
+        return []
+    found.sort(key=lambda token: token.quoted_value, reverse=True)
+    return found[:MAX_TOKENS_PER_ADDRESS]
+
+
+def _parsed_token_account(entry: Any) -> Optional[tuple[str, Decimal]]:
+    """A token account's mint and balance, or None when the node sent a shape we don't know."""
+    if not isinstance(entry, dict):
+        return None
+    account = entry.get("account")
+    data = account.get("data") if isinstance(account, dict) else None
+    parsed = data.get("parsed") if isinstance(data, dict) else None
+    info = parsed.get("info") if isinstance(parsed, dict) else None
+    amount = info.get("tokenAmount") if isinstance(info, dict) else None
+    if not isinstance(amount, dict) or not isinstance(info, dict):
+        return None
+    mint = info.get("mint")
+    try:
+        quantity = _scale(amount.get("amount"), int(amount.get("decimals")))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(mint, str) or quantity is None:
+        return None
+    return mint, quantity
+
+
+async def _solana_token_holdings(
+    chain: Chain, address: str, client: Optional[httpx.AsyncClient]
+) -> list[TokenHolding]:
+    """SPL balances from the chain, then their identity from Jupiter.
+
+    Balances are authoritative here — they come from the ledger — and only the
+    naming and pricing depend on an index. A mint Jupiter does not know is
+    dropped rather than shown as an unnamed number, which is what the wallet
+    UIs do and is the only readable answer for a mint that has no market.
+    """
+    quantities: dict[str, Decimal] = {}
+    for program in SOLANA_TOKEN_PROGRAMS:
+        result = await _json_rpc(
+            chain,
+            "getTokenAccountsByOwner",
+            [address, {"programId": program}, {"encoding": "jsonParsed"}],
+            client=client,
+        )
+        entries = result.get("value") if isinstance(result, dict) else None
+        for entry in entries or []:
+            parsed = _parsed_token_account(entry)
+            if parsed is None:
+                continue
+            mint, quantity = parsed
+            if quantity > 0:
+                # One wallet can hold several accounts for the same mint, and
+                # the position is their sum, not whichever came back last.
+                quantities[mint] = quantities.get(mint, Decimal("0")) + quantity
+    if not quantities:
+        return []
+    known = await _jupiter_tokens(list(quantities), client)
+    return [
+        TokenHolding(
+            chain_key=chain.key,
+            contract=mint,
+            symbol=meta["symbol"],
+            quantity=quantity,
+            usd_price=meta["price"],
+            trusted=meta["trusted"],
+        )
+        for mint, quantity in quantities.items()
+        if (meta := known.get(mint)) is not None and meta["price"] is not None
+    ]
+
+
+async def _jupiter_tokens(
+    mints: list[str], client: Optional[httpx.AsyncClient]
+) -> dict[str, dict]:
+    """Symbol, USD price and a verification verdict per mint.
+
+    Jupiter's `verified` tag is a curation decision, and it is what gates
+    whether a price counts. An unverified token still gets listed with its
+    quantity — the user asked to see their memecoins — but contributes nothing
+    to a total, because a made-up price on a made-up token is the cheapest way
+    to make this app report a number that is not true.
+    """
+    found: dict[str, dict] = {}
+    for start in range(0, len(mints), JUPITER_QUERY_BATCH):
+        batch = mints[start : start + JUPITER_QUERY_BATCH]
+        payload = await _get_json(
+            JUPITER_TOKEN_URL, "Jupiter", client, params={"query": ",".join(batch)}
+        )
+        for row in payload if isinstance(payload, list) else []:
+            if not isinstance(row, dict):
+                continue
+            mint, symbol = row.get("id"), row.get("symbol")
+            if not isinstance(mint, str) or not isinstance(symbol, str):
+                continue
+            tags = row.get("tags")
+            found[mint] = {
+                "symbol": symbol,
+                "price": _decimal_or_none(row.get("usdPrice")),
+                "trusted": bool(row.get("isVerified"))
+                or (isinstance(tags, list) and "verified" in tags),
+            }
+    return found
+
+
+async def _evm_token_holdings(
+    chain: Chain, address: str, client: Optional[httpx.AsyncClient]
+) -> list[TokenHolding]:
+    """ERC-20 balances from Blockscout, which is keyless on every chain here.
+
+    Deliberately not Etherscan: its token-balance endpoint is a paid tier,
+    where Blockscout answers balance, symbol, decimals, price and a reputation
+    verdict in one unauthenticated call. That also means token balances work on
+    a deployment with no ETHERSCAN_API_KEY, unlike EVM *tracing*.
+
+    The route is unpaginated and takes no type filter, so an address that has
+    been airdropped into the thousands can time the request out. The caller
+    treats that as "tokens unknown for this address" and keeps the native
+    holding, which is the honest reading — it is a failure to look, not a
+    finding that there is nothing there.
+    """
+    if not chain.token_index_url:
+        return []
+    payload = await _get_json(
+        f"{chain.token_index_url.rstrip('/')}/api/v2/addresses/{address}/token-balances",
+        "Blockscout",
+        client,
+    )
+    found: list[TokenHolding] = []
+    for row in payload if isinstance(payload, list) else []:
+        token = row.get("token") if isinstance(row, dict) else None
+        if not isinstance(token, dict) or token.get("type") != "ERC-20":
+            continue
+        contract, symbol = token.get("address_hash") or token.get("address"), token.get("symbol")
+        if not isinstance(contract, str) or not isinstance(symbol, str):
+            continue
+        try:
+            quantity = _scale(row.get("value"), int(token.get("decimals")))
+        except (TypeError, ValueError):
+            continue
+        price = _decimal_or_none(token.get("exchange_rate"))
+        if quantity is None or quantity <= 0 or price is None:
+            continue
+        found.append(
+            TokenHolding(
+                chain_key=chain.key,
+                contract=contract.lower(),
+                symbol=symbol,
+                quantity=quantity,
+                usd_price=price,
+                trusted=token.get("reputation") == "ok",
+            )
+        )
+    return found
+
+
+def _decimal_or_none(raw: Any) -> Optional[Decimal]:
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = Decimal(str(raw))
+    except (TypeError, ValueError, ArithmeticError):
+        return None
+    return value if value.is_finite() and value > 0 else None
+
+
 class OnChainProvider(BankProvider):
     """Watch-only wallets addressed by their public keys.
 
@@ -1078,7 +1324,28 @@ class OnChainProvider(BankProvider):
         ]
 
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
-        """One holding per watched address, valued at the native coin's spot.
+        """The native coin and every priced token, per watched address.
+
+        The two are read independently and neither can lose the other: a wallet
+        holding no SOL but 500 USDC is a real wallet, and a node that will not
+        answer for one of them is not evidence about the other.
+        """
+        watched = self._watched(credentials)
+        prices = await usd_spot_prices()
+        holdings: list[HoldingData] = []
+        async with session() as client:
+            for entry in watched:
+                native = await self._native_holding(entry, prices, client)
+                if native is not None:
+                    holdings.append(native)
+                holdings.extend(await self._token_holdings(entry, client))
+        return holdings
+
+    @staticmethod
+    async def _native_holding(
+        entry: WatchedAddress, prices: dict[str, Decimal], client: httpx.AsyncClient
+    ) -> Optional[HoldingData]:
+        """The address's native-coin position, valued at Coinbase's spot.
 
         The price comes from Coinbase's public rate table, which needs no key
         and works with Coinbase switched off — but does mean a Coinbase outage
@@ -1090,40 +1357,78 @@ class OnChainProvider(BankProvider):
         a request that timed out is not a wallet that emptied, and writing the
         zero would archive a live position.
         """
-        watched = self._watched(credentials)
-        prices = await usd_spot_prices()
+        try:
+            quantity = await native_balance(entry.chain, entry.address, client=client)
+        except Exception:
+            logger.exception("Could not read %s balance", entry.external_id)
+            return None
+        if quantity is None:
+            return None
+        price = prices.get(entry.chain.symbol)
+        if price is None and quantity != 0:
+            logger.warning("No USD price for %s; skipping holding", entry.chain.symbol)
+            return None
+        return HoldingData(
+            external_id=entry.external_id,
+            name=f"{entry.chain.display_name} {entry.short}",
+            currency="USD",
+            ticker=entry.chain.symbol,
+            quantity=quantity,
+            unit_price=price,
+            current_value=quantity * price if price is not None else Decimal("0"),
+            account_external_id=ACCOUNT_EXTERNAL_ID,
+            account_name="On-chain wallets",
+            metadata={
+                "chain": entry.chain.key,
+                "address": entry.address,
+                "watch_only": True,
+            },
+        )
+
+    @staticmethod
+    async def _token_holdings(
+        entry: WatchedAddress, client: httpx.AsyncClient
+    ) -> list[HoldingData]:
+        """The address's token positions, valued only where the index vouches.
+
+        An untrusted token is still reported, with its quantity and the quote
+        that was refused, and carries no value. Showing it at the index's price
+        would let anyone who can mint a token and a pool write a number into
+        this user's net worth; hiding it would answer a question the user asked
+        with silence. Naming it and valuing it at nothing does neither.
+        """
+        try:
+            tokens = await token_holdings(entry.chain, entry.address, client=client)
+        except Exception:
+            logger.exception("Could not read %s token balances", entry.external_id)
+            return []
         holdings: list[HoldingData] = []
-        async with session() as client:
-            for entry in watched:
-                try:
-                    quantity = await native_balance(entry.chain, entry.address, client=client)
-                except Exception:
-                    logger.exception("Could not read %s balance", entry.external_id)
-                    continue
-                if quantity is None:
-                    continue
-                price = prices.get(entry.chain.symbol)
-                if price is None and quantity != 0:
-                    logger.warning("No USD price for %s; skipping holding", entry.chain.symbol)
-                    continue
-                holdings.append(
-                    HoldingData(
-                        external_id=entry.external_id,
-                        name=f"{entry.chain.display_name} {entry.short}",
-                        currency="USD",
-                        ticker=entry.chain.symbol,
-                        quantity=quantity,
-                        unit_price=price,
-                        current_value=quantity * price if price is not None else Decimal("0"),
-                        account_external_id=ACCOUNT_EXTERNAL_ID,
-                        account_name="On-chain wallets",
-                        metadata={
-                            "chain": entry.chain.key,
-                            "address": entry.address,
-                            "watch_only": True,
-                        },
-                    )
+        for token in tokens:
+            price = token.usd_price if token.trusted else None
+            holdings.append(
+                HoldingData(
+                    external_id=f"{entry.external_id}:{token.contract}",
+                    name=f"{token.symbol} · {entry.chain.display_name} {entry.short}",
+                    currency="USD",
+                    ticker=token.symbol,
+                    quantity=token.quantity,
+                    unit_price=price,
+                    current_value=token.quoted_value if token.trusted else Decimal("0"),
+                    account_external_id=ACCOUNT_EXTERNAL_ID,
+                    account_name="On-chain wallets",
+                    metadata={
+                        "chain": entry.chain.key,
+                        "address": entry.address,
+                        "watch_only": True,
+                        "token_contract": token.contract,
+                        "token_symbol": token.symbol,
+                        "token_trusted": token.trusted,
+                        # Kept even when refused, so the reason a position shows
+                        # no value is inspectable rather than mysterious.
+                        "token_quoted_usd": str(token.usd_price) if token.usd_price else None,
+                    },
                 )
+            )
         return holdings
 
     @staticmethod

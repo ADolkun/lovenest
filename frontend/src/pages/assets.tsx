@@ -745,11 +745,12 @@ export default function AssetsPage() {
         : null
     const needsBuys = isMarketPriced && !hasCost && !asset.sell_date
     // A watched wallet's external_id is the `chain:address` pair the trace
-    // page takes, so the holding can hand the tracer its own subject.
-    const watched =
-      onchainEnabled && asset.source === 'onchain' && asset.external_id?.includes(':')
-        ? asset.external_id.split(/:(.*)/s)
-        : null
+    // page takes, so the holding can hand the tracer its own subject. A token
+    // position appends `:contract` and is not traceable — the tracer follows
+    // native coins — so only the two-part form gets the action.
+    const parts =
+      onchainEnabled && asset.source === 'onchain' ? (asset.external_id?.split(':') ?? []) : []
+    const watched = parts.length === 2 ? parts : null
 
     return (
       <div key={asset.id} className="border-b border-border last:border-b-0">

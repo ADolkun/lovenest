@@ -119,6 +119,30 @@ account moving the other way — which it used to do — attaches a real signatu
 to a wallet that received nothing, and every hop after that is fiction carrying
 the same confidence as fact.
 
+## A token is listed on having a market, and valued on being vouched for
+
+A Watched Address holds more than its native coin, and the two questions a
+token raises have different answers.
+
+*Should it appear at all?* Only if the index can price it. An address that has
+existed for years holds thousands of airdropped tokens with no market, and
+listing them buries the handful that are positions. The filter is on having a
+price, not on the price being large, so a memecoin worth twelve cents survives
+it — that is the point, since the user asked to see exactly those.
+
+*Should its price count?* Only if the index vouches for the token — Jupiter's
+`verified`, Blockscout's `reputation: ok`. Anyone can mint a token, seed a pool
+and quote it at any number, and a portfolio total is precisely what such a
+token would be minted to attack. So an unvouched position is named, carries its
+real quantity, keeps the refused quote in `external_metadata`, and contributes
+zero. Understating is recoverable by hand; a fabricated number in a net worth
+is not noticed at all.
+
+Identity is read from the mint or contract address, never from the symbol the
+token reports. A token can call itself USDC; it cannot occupy USDC's mint. That
+is why pricing does not go through the Coinbase symbol table the native coins
+use, even though it is already wired up.
+
 ## Reaching a Pooled Address is the answer, not a failure
 
 A Trace that stops at an exchange has succeeded. Custody changed there: the

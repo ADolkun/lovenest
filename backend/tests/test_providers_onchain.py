@@ -708,6 +708,257 @@ async def test_a_bitcoin_holding_is_priced_in_usd_like_every_other_chain():
     assert holding.current_value == Decimal("120000")
     assert holding.currency == "USD"
 
+# ----- SPL and ERC-20 tokens ------------------------------------------------
+
+MINT_A = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
+MINT_B = "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"
+MINT_C = "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+ERC20 = "0x" + "cd" * 20
+
+
+def _token_account(mint: str, amount: str, decimals: int) -> dict:
+    return {
+        "account": {
+            "data": {
+                "parsed": {
+                    "info": {
+                        "mint": mint,
+                        "tokenAmount": {"amount": amount, "decimals": decimals},
+                    }
+                }
+            }
+        }
+    }
+
+
+def _jupiter_row(mint: str, symbol: str, price, verified: bool) -> dict:
+    return {"id": mint, "symbol": symbol, "decimals": 6, "usdPrice": price,
+            "isVerified": verified, "tags": ["verified"] if verified else ["unknown"]}
+
+
+def _token_handler(*, accounts=None, jupiter=None, blockscout=None, native=0):
+    """Route SPL account reads, Jupiter lookups and Blockscout balances at once.
+
+    ``accounts`` is keyed by token program so a test can put a mint in the
+    original program, Token-2022, or both.
+    """
+    accounts = accounts or {}
+    jupiter = jupiter or []
+    blockscout = blockscout if blockscout is not None else []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        if "jup.ag" in host:
+            wanted = set((request.url.params.get("query") or "").split(","))
+            return httpx.Response(200, json=[r for r in jupiter if r["id"] in wanted])
+        if "blockscout" in host:
+            return httpx.Response(200, json=blockscout)
+        body = json.loads(request.content)
+        if body["method"] == "getTokenAccountsByOwner":
+            program = body["params"][1]["programId"]
+            return httpx.Response(200, json={"result": {"value": accounts.get(program, [])}, "id": 1})
+        if body["method"] == "getBalance":
+            return httpx.Response(200, json={"result": {"value": native}, "id": 1})
+        raise AssertionError(f"unexpected method {body['method']}")
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_spl_balances_are_read_from_both_token_programs():
+    """A wallet holding a Token-2022 mint answers only half if one is skipped."""
+    original, token22 = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={
+            original: [_token_account(MINT_A, "5000098", 6)],
+            token22: [_token_account(MINT_B, "2000000", 6)],
+        },
+        jupiter=[_jupiter_row(MINT_A, "USDC", 1, True), _jupiter_row(MINT_B, "NEW", 2, True)],
+    )
+    with _settings(), _patched_client(handler):
+        held = await onchain.token_holdings(SOL, A)
+    assert {(t.symbol, t.quantity) for t in held} == {
+        ("USDC", Decimal("5.000098")),
+        ("NEW", Decimal("2")),
+    }
+
+
+@pytest.mark.asyncio
+async def test_several_token_accounts_for_one_mint_are_one_position():
+    """A wallet can hold the same mint in several accounts; the position is their sum."""
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "1000000", 6),
+                             _token_account(MINT_A, "500000", 6)]},
+        jupiter=[_jupiter_row(MINT_A, "USDC", 1, True)],
+    )
+    with _settings(), _patched_client(handler):
+        [held] = await onchain.token_holdings(SOL, A)
+    assert held.quantity == Decimal("1.5")
+
+
+@pytest.mark.asyncio
+async def test_a_mint_with_no_market_is_not_a_position():
+    """The spam filter. A years-old address holds thousands of these."""
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "1000000", 6),
+                             _token_account(MINT_B, "9" * 12, 6)]},
+        jupiter=[_jupiter_row(MINT_A, "REAL", "0.5", True),
+                 _jupiter_row(MINT_B, "AIRDROP", None, False)],
+    )
+    with _settings(), _patched_client(handler):
+        held = await onchain.token_holdings(SOL, A)
+    assert [t.symbol for t in held] == ["REAL"]
+
+
+@pytest.mark.asyncio
+async def test_an_unvouched_token_is_listed_with_its_quantity_and_never_valued():
+    """Minting a token and a pool is cheap, so an unvouched quote may not
+    reach a net worth. Hiding the position would answer the user's question
+    with silence, so it is named and valued at nothing instead."""
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "1000000000", 6)]},
+        jupiter=[_jupiter_row(MINT_A, "USDC", "1000000", False)],
+    )
+    with _settings(), _patched_client(handler), patch.object(
+        onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
+    ):
+        [held] = await onchain.token_holdings(SOL, A)
+        holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
+    assert held.trusted is False
+    assert held.usd_price == Decimal("1000000")
+    token = next(h for h in holdings if h.ticker == "USDC")
+    assert token.quantity == Decimal("1000")
+    assert token.unit_price is None
+    assert token.current_value == Decimal("0")
+    # The refused quote stays inspectable rather than vanishing.
+    assert token.metadata == {
+        "chain": "solana",
+        "address": A,
+        "watch_only": True,
+        "token_contract": MINT_A,
+        "token_symbol": "USDC",
+        "token_trusted": False,
+        "token_quoted_usd": "1000000",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tokens_are_ranked_by_value_so_the_cap_discards_the_tail():
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    # Zero-padding would collide — "2" and "20" pad to the same 44 chars.
+    mints = [f"m{i}".ljust(44, "9") for i in range(onchain.MAX_TOKENS_PER_ADDRESS + 5)]
+    handler = _token_handler(
+        accounts={original: [_token_account(m, "1000000", 6) for m in mints]},
+        # Ascending price, so the richest are the last few minted.
+        jupiter=[_jupiter_row(m, f"T{i}", str(i + 1), True) for i, m in enumerate(mints)],
+    )
+    with _settings(), _patched_client(handler):
+        held = await onchain.token_holdings(SOL, A)
+    assert len(held) == onchain.MAX_TOKENS_PER_ADDRESS
+    assert held[0].symbol == f"T{len(mints) - 1}"
+    assert held == sorted(held, key=lambda t: t.quoted_value, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_an_emptied_token_account_is_not_a_position():
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "0", 6)]},
+        jupiter=[_jupiter_row(MINT_A, "GONE", "1", True)],
+    )
+    with _settings(), _patched_client(handler):
+        assert await onchain.token_holdings(SOL, A) == []
+
+
+def _blockscout_row(symbol: str, value: str, rate, reputation: str, kind="ERC-20") -> dict:
+    return {
+        "value": value,
+        "token": {"address_hash": ERC20, "symbol": symbol, "decimals": "18",
+                  "exchange_rate": rate, "reputation": reputation, "type": kind},
+    }
+
+
+@pytest.mark.asyncio
+async def test_erc20_balances_need_no_explorer_key():
+    """Blockscout answers where Etherscan's token endpoint is a paid tier, so
+    token balances work on a deployment that cannot trace EVM at all."""
+    handler = _token_handler(blockscout=[_blockscout_row("USDC", str(3 * 10**18), 0.9999, "ok")])
+    with _settings(etherscan_api_key=""), _patched_client(handler):
+        [held] = await onchain.token_holdings(BASE, EVM)
+    assert (held.symbol, held.quantity, held.trusted) == ("USDC", Decimal("3"), True)
+    assert held.contract == ERC20
+
+
+@pytest.mark.asyncio
+async def test_a_token_blockscout_will_not_vouch_for_is_listed_without_a_value():
+    handler = _token_handler(blockscout=[_blockscout_row("USDC", str(10**18), 1000, "scam")])
+    with _settings(), _patched_client(handler):
+        [held] = await onchain.token_holdings(BASE, EVM)
+    assert held.trusted is False
+
+
+@pytest.mark.asyncio
+async def test_an_nft_is_not_a_token_balance():
+    handler = _token_handler(blockscout=[_blockscout_row("APE", "1", 5000, "ok", kind="ERC-721")])
+    with _settings(), _patched_client(handler):
+        assert await onchain.token_holdings(BASE, EVM) == []
+
+
+@pytest.mark.asyncio
+async def test_bitcoin_has_no_tokens_and_its_index_is_never_asked():
+    calls: list[str] = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, json=[])
+
+    with _settings(), _patched_client(handler):
+        assert await onchain.token_holdings(CHAINS["bitcoin"], BTC_A) == []
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_wallet_holding_no_native_coin_still_reports_its_tokens():
+    """Nothing about an empty SOL balance says anything about 500 USDC."""
+    original, _ = onchain.SOLANA_TOKEN_PROGRAMS
+    handler = _token_handler(
+        accounts={original: [_token_account(MINT_A, "500000000", 6)]},
+        jupiter=[_jupiter_row(MINT_A, "USDC", "1", True)],
+        native=0,
+    )
+    with _settings(), _patched_client(handler), patch.object(
+        onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
+    ):
+        holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
+    assert {h.ticker for h in holdings} == {"SOL", "USDC"}
+    assert next(h for h in holdings if h.ticker == "USDC").current_value == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_a_token_index_outage_does_not_take_the_native_holding_with_it():
+    """A failure to look is not a finding that there is nothing there."""
+    def handler(request):
+        if "jup.ag" in request.url.host:
+            return httpx.Response(503)
+        body = json.loads(request.content)
+        if body["method"] == "getBalance":
+            return httpx.Response(200, json={"result": {"value": 2 * 10**9}, "id": 1})
+        return httpx.Response(
+            200,
+            json={"result": {"value": [_token_account(MINT_A, "1000000", 6)]}, "id": 1},
+        )
+
+    with _settings(), _patched_client(handler), patch.object(
+        onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
+    ):
+        holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
+    assert [h.ticker for h in holdings] == ["SOL"]
+    assert holdings[0].current_value == Decimal("200")
+
+
 # ----- holdings -------------------------------------------------------------
 
 
