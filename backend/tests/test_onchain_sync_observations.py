@@ -551,3 +551,62 @@ async def test_expired_sync_observation_never_combines_old_account_with_fresh_ho
     assert conn.status == "active"
     assert conn.last_sync_at is not None
     assert "unavailable_account_balance_ids" not in (conn.settings or {})
+
+
+@pytest.mark.parametrize("skip", ["reconnect", "excluded", "disabled_holdings", "closed", "fetch_failed"])
+async def test_incomplete_balance_requires_persisted_account_and_holdings_to_heal(
+    session, test_user, test_workspace, skip,
+):
+    register_provider("onchain", OnChainProvider)
+    conn = await _connection(session, test_user, test_workspace)
+    with _settings(), _clients(_counting_wallet(Counter())):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+    with _settings(), _clients(_counting_wallet(Counter(), native=2 * 10**9, index_status=503)):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+    account = (await session.execute(
+        select(Account).where(Account.connection_id == conn.id)
+    )).scalar_one()
+    native = (await _assets(session, conn))[f"solana:{A}"]
+    assert account.balance == Decimal("105")
+    assert native.units == 2
+    assert native.group_id is not None
+    group = await get_group(session, native.group_id, test_workspace.id, test_user.id)
+    assert group is not None and group.account_balance is None
+
+    if skip == "excluded":
+        conn.settings = {**(conn.settings or {}), "account_allowlist": []}
+    elif skip == "disabled_holdings":
+        conn.settings = {**(conn.settings or {}), "sync_assets": False}
+    elif skip == "closed":
+        account.is_closed = True
+    await session.commit()
+
+    with _settings(), _clients(_counting_wallet(Counter(), native=3 * 10**9)):
+        if skip == "reconnect":
+            await handle_oauth_callback(
+                session, test_workspace.id, test_user.id, f"solana:{A}",
+                provider_name="onchain", reconnect_connection_id=conn.id,
+            )
+        elif skip == "fetch_failed":
+            with patch.object(OnChainProvider, "get_holdings", side_effect=RuntimeError("Synthetic outage")):
+                await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+        else:
+            await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+    group = await get_group(session, native.group_id, test_workspace.id, test_user.id)
+    assert group is not None and group.account_balance is None
+    assert (conn.settings or {}).get("unavailable_account_balance_ids") == [onchain.ACCOUNT_EXTERNAL_ID]
+    assert native.is_archived is False
+
+    account.is_closed = False
+    conn.settings = {
+        **(conn.settings or {}), "account_allowlist": [onchain.ACCOUNT_EXTERNAL_ID], "sync_assets": True,
+    }
+    await session.commit()
+    with _settings(), _clients(_counting_wallet(Counter(), native=3 * 10**9)):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+    group = await get_group(session, native.group_id, test_workspace.id, test_user.id)
+    assert group is not None and group.account_balance == 305
+    assert account.balance == Decimal("305")
+    assert native.units == 3
+    assert conn.status == "active"
+    assert "unavailable_account_balance_ids" not in (conn.settings or {})

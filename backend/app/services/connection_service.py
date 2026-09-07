@@ -288,9 +288,10 @@ def _record_seen_accounts(
 
 
 def _record_balance_observation(
-    connection: BankConnection, accounts: list[AccountData], provider: BankProvider
+    connection: BankConnection, accounts: list[AccountData], provider: BankProvider,
+    *, persisted_account_ids: Optional[set[str]] = None,
 ) -> set[str]:
-    """Retain incomplete balances without losing provider account identity."""
+    """Only paired account/holdings persistence can heal an incomplete total."""
     updated = dict(connection.settings or {})
     unavailable = set(updated.get("unavailable_account_balance_ids") or [])
     observation = getattr(provider, "holdings_observation", None)
@@ -308,7 +309,7 @@ def _record_balance_observation(
     for account in accounts:
         if account.balance is None or incomplete:
             unavailable.add(account.external_id)
-        else:
+        elif persisted_account_ids and account.external_id in persisted_account_ids:
             unavailable.discard(account.external_id)
     if unavailable:
         updated["unavailable_account_balance_ids"] = sorted(unavailable)
@@ -358,7 +359,7 @@ async def _sync_holdings(
     synced_account_ids: Optional[set[str]] = None,
     *,
     provider: Optional[BankProvider] = None,
-) -> None:
+) -> bool:
     """Fetch investment holdings from the provider and upsert them as Assets.
 
     Each holding becomes one Asset (type="investment") keyed by
@@ -377,6 +378,9 @@ async def _sync_holdings(
     Failures here are swallowed: not all Pluggy connectors expose
     investment data, and we don't want a brokerage hiccup to break the
     bank-account sync that just succeeded.
+
+    Return whether holdings persistence finished, so an account-only read
+    cannot validate a total against retained holdings from an older read.
     """
     # Tolerate provider-side failures (e.g. Pluggy returning 500 for a
     # specific connector, a bank that doesn't expose /investments).
@@ -401,7 +405,7 @@ async def _sync_holdings(
         logger.exception(
             "Failed to fetch holdings for connection %s", connection.id
         )
-        return
+        return False
 
     source = connection.provider
     today = date.today()
@@ -908,6 +912,7 @@ async def _sync_holdings(
             if emptied.tax_treatment != "taxable":
                 continue
             await session.delete(emptied)
+    return True
 
 
 async def _sync_trades(
@@ -1814,8 +1819,9 @@ async def handle_oauth_callback(
     # Investment holdings live on /investments — separate endpoint from
     # /accounts. Pulled after account setup when enabled so holdings are
     # available on the Assets page immediately after the widget closes.
+    holdings_persisted = False
     if _sync_assets_enabled(connection.settings):
-        await _sync_holdings(
+        holdings_persisted = await _sync_holdings(
             session, user_id, connection, connection_data.credentials,
             synced_account_ids, provider=provider,
         )
@@ -1830,7 +1836,9 @@ async def handle_oauth_callback(
     # no opening balance at all, and on a first connect the holdings that say so
     # do not exist until `_sync_holdings` has run.
     unavailable = _record_balance_observation(
-        connection, connection_data.accounts, provider
+        connection, connection_data.accounts, provider,
+        persisted_account_ids={a.external_id for a in created_accounts if a.external_id}
+        if holdings_persisted else set(),
     )
     for account in created_accounts:
         if account.external_id not in unavailable:
@@ -3079,8 +3087,9 @@ async def sync_connection(
         # etc.) when enabled for this connection. Errors here are logged but
         # don't fail the sync; a bank connector that doesn't expose
         # /investments shouldn't block the transaction sync that just succeeded.
+        holdings_persisted = False
         if _sync_assets_enabled(conn_settings):
-            await _sync_holdings(
+            holdings_persisted = await _sync_holdings(
                 session, user_id, connection, credentials, synced_account_ids,
                 provider=provider,
             )
@@ -3091,7 +3100,11 @@ async def sync_connection(
         # after the holdings sync: an account whose balance carries Holdings is
         # not reconcilable against its cash ledger at all, and it is this run's
         # holdings that decide whether it does.
-        unavailable = _record_balance_observation(connection, provider_accounts, provider)
+        unavailable = _record_balance_observation(
+            connection, provider_accounts, provider,
+            persisted_account_ids={a.external_id for a in synced_account_rows if a.external_id}
+            if holdings_persisted else set(),
+        )
         incomplete_balances = any(a.external_id in unavailable for a in accounts_data)
         for account in synced_account_rows:
             if account.external_id not in unavailable:
