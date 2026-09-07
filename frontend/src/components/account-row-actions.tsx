@@ -76,7 +76,7 @@ function DesktopAccountActions({ actions, deletePending }: {
   deletePending: boolean
 }) {
   return (
-    <div className="ml-2 hidden items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 sm:flex">
+    <div className="ml-2 hidden items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
       {actions.map((action) => (
         <DesktopActionButton key={action.label} action={action} deletePending={deletePending} />
       ))}

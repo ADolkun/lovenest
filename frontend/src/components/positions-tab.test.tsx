@@ -48,3 +48,14 @@ it('does not hide a partly unpriced position as dust based on its known fraction
   expect(screen.getByRole('button', { name: /^UNKNOWN/ })).toBeInTheDocument()
   expect(screen.getByRole('status')).toBeInTheDocument()
 })
+
+it.each([
+  ['manual asset', { ...unknown, ticker: null }, true],
+  ['ticker position', unknown, false],
+])('only blocks allocation when the unpriced holding is an active ticker position: %s', (_kind, holding, showsAllocation) => {
+  renderWithProviders(positions([known, holding]))
+  expect(screen.queryByRole('region', { name: 'Allocation by asset class' }) !== null).toBe(showsAllocation)
+  expect(screen.queryByRole('region', { name: 'Allocation by account' }) !== null).toBe(showsAllocation)
+  expect(screen.queryByRole('region', { name: 'Allocation by account type' }) !== null).toBe(showsAllocation)
+  expect(screen.queryByRole('status') !== null).toBe(!showsAllocation)
+})

@@ -91,3 +91,38 @@ it('keeps archived trades within the selected collection on a legacy Activity li
   await waitFor(() => expect(screen.getByRole('button', { name: /Wallet A/ })).toBeInTheDocument())
   expect(screen.queryByText('Wallet B')).not.toBeInTheDocument()
 })
+
+it('keeps allocation above holdings across groupings and routes chart selections into the matching positions', async () => {
+  const stock = { ...held, id: 'stock', name: 'Example stock', ticker: 'STOCK', type: 'stock', units: 2, gain_loss: 25, gain_loss_primary: 25 }
+  const coin = { ...held, id: 'coin', name: 'Example coin', ticker: 'COIN', type: 'crypto', units: 1, current_value: 75, current_value_primary: 75, gain_loss: 5, gain_loss_primary: 5, group_id: 'wallet-b' }
+  const dust = { ...coin, id: 'dust', name: 'Small coin balance', ticker: 'SMALL', current_value: 0.1, current_value_primary: 0.1 }
+  const closed = { ...stock, id: 'closed', name: 'Sold example', ticker: 'SOLD', sell_date: '2026-01-01' }
+  vi.spyOn(assets, 'list').mockResolvedValue([stock, coin, held, dust, closed])
+  vi.spyOn(assets, 'income').mockResolvedValue({ holdings: {}, wallets: {} })
+  const { user } = renderWithProviders(<AssetsPage />)
+  const allocation = await screen.findByRole('region', { name: t('assets.allocationBreakdown') })
+  const holdingsHeading = screen.getByRole('heading', { name: t('accountHoldings.holdings') })
+  expect(allocation.compareDocumentPosition(holdingsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('button', { name: /^STOCK/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Private fund' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^SMALL/ })).not.toBeInTheDocument()
+
+  const accountChart = screen.getByRole('region', { name: t('assets.posAllocationByAccount') })
+  await user.click(within(accountChart).getByRole('button', { name: /Wallet A/ }))
+  expect(screen.getByRole('button', { name: /^STOCK/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^COIN/ })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'By wallet' }))
+  expect(screen.getByRole('region', { name: t('assets.allocationBreakdown') })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: t('assets.posRanking') })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: /Wallet B/, expanded: false }))
+  expect(screen.getByRole('button', { name: 'SMALL' })).toBeInTheDocument()
+
+  await user.click(within(accountChart).getByRole('button', { name: /Wallet B/ }))
+  expect(screen.getByRole('button', { name: 'By asset' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: /^COIN/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^STOCK/ })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: /Clear filter/ }))
+  expect(screen.getByRole('button', { name: /^STOCK/ })).toBeInTheDocument()
+  await user.click(screen.getByText(`${t('assets.soldAssets')} (1)`))
+  expect(screen.getByRole('button', { name: 'SOLD' })).toBeInTheDocument()
+})

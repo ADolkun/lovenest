@@ -959,9 +959,9 @@ export default function AssetsPage() {
   }
 
   // Mobile keeps the holding and balance visible; secondary fields expand below.
-  function renderHoldingsTable(rows: Asset[]) {
+  function renderHoldingsTable(rows: Asset[], embedded = false) {
     return (
-      <div className="rounded-xl border border-border bg-card shadow-sm lg:overflow-x-auto">
+      <div className={`bg-card lg:overflow-x-auto ${embedded ? '' : 'rounded-xl border border-border'}`}>
         <div className="lg:min-w-[820px]">
           {renderHoldingsHeader()}
           {rows.map(renderHoldingRow)}
@@ -1045,11 +1045,11 @@ export default function AssetsPage() {
 
     return (
       <div key={wallet.id} className="rounded-xl border border-border bg-card">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-3 px-4 py-4 sm:px-5">
           <button
             onClick={() => toggleWalletCollapse(wallet.id)}
             aria-expanded={!isCollapsed}
-            className="flex items-center gap-2 flex-1 min-w-0 group"
+            className="flex min-h-9 flex-1 items-center gap-2 min-w-0 group rounded-md text-left focus-visible:outline-2 focus-visible:outline-ring"
           >
             {isCollapsed ? (
               <ChevronRight size={14} className="text-muted-foreground" />
@@ -1102,16 +1102,16 @@ export default function AssetsPage() {
             <>
               <button
                 onClick={() => openEditWallet(wallet)}
-                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                title={t('assets.editWallet')}
+                className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring transition-colors"
+                aria-label={t('assets.editWallet')}
               >
                 <Pencil size={12} />
               </button>
               {!isSynced && (
                 <button
                   onClick={() => setDeletingWalletId(wallet.id)}
-                  className="p-1 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                  title={t('assets.deleteWallet')}
+                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring transition-colors"
+                  aria-label={t('assets.deleteWallet')}
                 >
                   <Trash2 size={12} />
                 </button>
@@ -1120,8 +1120,8 @@ export default function AssetsPage() {
           )}
         </div>
         {!isCollapsed && walletAssets.length > 0 && (
-          <div className="border-t border-border p-2">
-            {renderHoldingsTable(walletAssets)}
+          <div className="border-t border-border">
+            {renderHoldingsTable(walletAssets, true)}
           </div>
         )}
         {!isCollapsed && walletAssets.length === 0 && (
@@ -1156,12 +1156,24 @@ export default function AssetsPage() {
           {renderHoldingsTable(ungroupedAssets)}
         </section>
       )}
-      {soldAssets.length > 0 && (
-        <details className="rounded-xl border border-border bg-card p-3">
-          <summary className="cursor-pointer text-sm font-medium">{t('assets.soldAssets')} ({soldAssets.length})</summary>
-          <div className="mt-3">{renderHoldingsTable(soldAssets)}</div>
-        </details>
-      )}
+    </div>
+  )
+
+  const hasTickerHoldings = activeAssets.some((asset) => asset.ticker?.trim())
+  const holdingsControls = (
+    <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 className="text-base font-semibold">{t('accountHoldings.holdings')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t(portfolioView === 'assets' ? 'assets.byAssetHint' : 'assets.byWalletHint')}</p>
+      </div>
+      <div role="group" aria-label={t('assets.groupHoldings')} className="inline-flex w-full shrink-0 items-center rounded-lg border border-border bg-card p-1 sm:w-auto">
+        {(['assets', 'wallets'] as const).map((view) => (
+          <button key={view} type="button" aria-pressed={portfolioView === view} onClick={() => setView({ view })}
+            className={`min-h-9 min-w-24 flex-1 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring transition-colors ${portfolioView === view ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+            {t(view === 'assets' ? 'assets.groupByAsset' : 'assets.groupByWallet')}
+          </button>
+        ))}
+      </div>
     </div>
   )
 
@@ -1202,7 +1214,7 @@ export default function AssetsPage() {
                 setCollapsedWallets(null)
                 setView({ wallet: event.target.value || null })
               }}
-              className="max-w-[240px] rounded-md border border-input bg-card px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+              className="h-9 max-w-[240px] rounded-md border border-input bg-card px-3 text-sm focus-visible:outline-2 focus-visible:outline-ring"
             >
               <option value="">{t('assets.allWallets')}</option>
               {selectedWalletId && !selectedWallet && <option value={selectedWalletId}>{t('assets.walletUnavailable')}</option>}
@@ -1220,23 +1232,16 @@ export default function AssetsPage() {
         )}
         {assetsError && <Alert variant="warning">{t('assets.loadError')}</Alert>}
 
-        <TabsContent value="portfolio" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">{t(portfolioView === 'assets' ? 'assets.byAssetHint' : 'assets.byWalletHint')}</p>
-            <div role="group" aria-label={t('assets.groupHoldings')} className="inline-flex items-center rounded-lg border border-border p-0.5">
-              {(['assets', 'wallets'] as const).map((view) => (
-                <button key={view} type="button" aria-pressed={portfolioView === view} onClick={() => setView({ view })}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${portfolioView === view ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-                  {t(view === 'assets' ? 'assets.groupByAsset' : 'assets.groupByWallet')}
-                </button>
-              ))}
-            </div>
-          </div>
+        <TabsContent value="portfolio" className="space-y-6">
           {isLoading ? (
-            <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-          ) : portfolioView === 'wallets' ? walletHoldings : (
+            <div className="space-y-4">
+              <Skeleton className="h-8 w-56" />
+              <div className="grid gap-4 lg:grid-cols-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-48 rounded-xl lg:h-80" />)}</div>
+              <Skeleton className="h-48 rounded-xl" />
+            </div>
+          ) : (
             <>
-              {activeAssets.some((asset) => asset.ticker) && (
+              {hasTickerHoldings ? (
                 <PositionsTab
                   key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
                   holdings={assetsList ?? []}
@@ -1253,18 +1258,30 @@ export default function AssetsPage() {
                     setCollapsedWallets(new Set(sortedWallets.filter((wallet) => wallet.id !== holding?.group_id).map((wallet) => wallet.id)))
                     setView({ view: 'wallets', wallet: holding?.group_id ?? null })
                   }}
-                />
-              )}
-              {activeAssets.some((asset) => !asset.ticker) && (
-                <section className="space-y-2">
+                  walletContent={portfolioView === 'wallets' ? walletHoldings : undefined}
+                  onShowPositions={() => setView({ view: 'assets' })}
+                >
+                  {holdingsControls}
+                </PositionsTab>
+              ) : <>{holdingsControls}{portfolioView === 'wallets' && walletHoldings}</>}
+              {portfolioView === 'assets' && activeAssets.some((asset) => !asset.ticker?.trim()) && (
+                <section className="space-y-3">
                   <h2 className="text-sm font-semibold">{t('assets.otherAssets')}</h2>
-                  {renderHoldingsTable(activeAssets.filter((asset) => !asset.ticker))}
+                  {renderHoldingsTable(activeAssets.filter((asset) => !asset.ticker?.trim()))}
                 </section>
               )}
-              <details className="rounded-xl border border-border p-3">
-                <summary className="cursor-pointer text-sm font-medium">{t('assets.allHoldings')}</summary>
-                <div className="mt-3">{walletHoldings}</div>
-              </details>
+              {portfolioView === 'assets' && hasTickerHoldings && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-4 py-3 text-sm">
+                  <p className="text-muted-foreground">{t('assets.walletDetailsHint', 'Open a wallet for individual holdings, small balances, and editing.')}</p>
+                  <Button variant="outline" size="sm" onClick={() => setView({ view: 'wallets' })}>{t('assets.viewWalletDetails', 'View wallet details')}</Button>
+                </div>
+              )}
+              {soldAssets.length > 0 && (
+                <details className="rounded-xl border border-border bg-card">
+                  <summary className="cursor-pointer px-4 py-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring sm:px-5">{t('assets.soldAssets')} ({soldAssets.length})</summary>
+                  <div className="border-t border-border">{renderHoldingsTable(soldAssets, true)}</div>
+                </details>
+              )}
             </>
           )}
           {!isLoading && !assetsError && activeAssets.length === 0 && soldAssets.length === 0 && (
@@ -1274,9 +1291,9 @@ export default function AssetsPage() {
             </div>
           )}
           {portfolioData && portfolioData.trend.length > 0 && (
-            <details className="rounded-xl border border-border p-3">
-              <summary className="cursor-pointer text-sm font-medium">{t('assets.valueHistory')}</summary>
-              <div className="mt-3">{renderPortfolioChart(portfolioData)}</div>
+            <details className="rounded-xl border border-border bg-card">
+              <summary className="cursor-pointer px-4 py-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring sm:px-5">{t('assets.valueHistory')}</summary>
+              <div className="border-t border-border p-4 sm:p-5">{renderPortfolioChart(portfolioData)}</div>
             </details>
           )}
         </TabsContent>

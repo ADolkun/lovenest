@@ -934,6 +934,9 @@ export default function AccountDetailPage() {
     return <p className="text-muted-foreground">{t('accounts.notFound')}</p>
   }
 
+  const linkedWallets = (walletsQuery.data ?? []).filter((wallet) => wallet.account_id === account.id)
+  const showHoldings = hasModule('assets') && (account.type === 'investment' || linkedWallets.length > 0)
+
   return (
     <div>
       {/* Header */}
@@ -953,7 +956,7 @@ export default function AccountDetailPage() {
             <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl" title={getAccountName(account)}>
               {getAccountName(account)}
             </h1>
-            <div className="flex items-center gap-2 mt-1 overflow-hidden">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-muted-foreground">
                 {t(`accounts.type${account.type.split('_').map(s => s[0].toUpperCase() + s.slice(1)).join('')}`, account.type)}
               </span>
@@ -1005,15 +1008,27 @@ export default function AccountDetailPage() {
             </Button>
           )}
         </div>
-        {account.type === 'investment' && hasModule('assets') && (
-          <div className="rounded-lg border border-border px-4 py-3 text-sm">
-            <p className="font-medium">{t('accountHoldings.holdings')}</p>
-            <p className="mt-1 text-muted-foreground">{t(account.connection_id ? 'accountHoldings.providerHint' : 'accountHoldings.cashHint')}</p>
-            {walletsQuery.isError ? <p role="alert" className="text-destructive">{t('accountHoldings.loadError')}</p> : <AccountHoldingsSummary account={account} wallets={walletsQuery.data ?? []} />}
-            <Link className="mt-2 inline-block text-primary hover:underline" to="/accounts#unlinked-wallets">{t('accountHoldings.manageLinks')}</Link>
-          </div>
+        {showHoldings && (
+          <section aria-label={t('accountHoldings.holdings')} className="rounded-xl border border-border bg-card p-4 sm:p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+              <div className="min-w-0">
+                {walletsQuery.isPending ? <Skeleton className="h-14 w-40" /> : walletsQuery.isError ? (
+                  <p role="alert" className="text-sm text-destructive">{t('accountHoldings.loadError')} <button type="button" className="underline" onClick={() => void walletsQuery.refetch()}>{t('common.retry')}</button></p>
+                ) : linkedWallets.length > 0 ? (
+                  <div className="flex flex-wrap gap-6"><AccountHoldingsSummary account={account} wallets={linkedWallets} size="large" /></div>
+                ) : (
+                  <>
+                    <h2 className="text-sm font-semibold">{t('accountHoldings.holdings')}</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">{t('accountHoldings.noneLinked', 'No holdings are linked to this account.')}</p>
+                  </>
+                )}
+                <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">{t(account.connection_id ? 'accountHoldings.providerHint' : 'accountHoldings.cashHint')}</p>
+              </div>
+              <Button asChild variant="outline" size="sm" className="self-start"><Link to={linkedWallets.length > 0 ? `/assets?wallet=${encodeURIComponent(linkedWallets[0].id)}` : '/assets'}>{t('accountHoldings.openPortfolio')}</Link></Button>
+            </div>
+          </section>
         )}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {isCreditCard ? (
             <div className="flex items-center gap-1">
               <button
@@ -1319,7 +1334,7 @@ export default function AccountDetailPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
           <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
-              {t('accounts.currentBalance')}
+              {t(showHoldings ? account.connection_id ? 'accountHoldings.providerBalance' : 'accountHoldings.cashLedger' : 'accounts.currentBalance')}
             </p>
             <p className={`text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums ${(summary?.current_balance ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
               {mask(formatCurrency(totalBalance, displayCurrency, locale))}
