@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "forkProcessing": "enabled",
   "timezone": "Europe/Paris",
   "schedule": ["before 8am on monday"],
   "prConcurrentLimit": 5,
@@ -37,17 +38,18 @@
       "matchPackageNames": ["pgvector/pgvector"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Keep uv aligned across setup-uv, Docker images and the lock script",
+      "matchPackageNames": ["uv", "astral-sh/uv", "ghcr.io/astral-sh/uv"],
+      "groupName": "uv"
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "uv pinned in the Dockerfile, CI and scripts/lock.sh (marked with a `# renovate:` comment)",
-      "fileMatch": [
-        "^backend/Dockerfile$",
-        "^backend/scripts/lock\\.sh$",
-        "^\\.github/workflows/ci\\.yml$"
-      ],
+      "description": "uv pinned in scripts/lock.sh; Docker and setup-uv pins use native managers",
+      "managerFilePatterns": ["/^backend/scripts/lock\\.sh$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[^\\n]*?(?:==|@)(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ]

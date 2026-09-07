@@ -142,6 +142,9 @@ python3 scripts/check_migration_chain.py
 Product CI requires clean Ruff, type, migration-chain, and pytest checks.
 The upstream `main` workflow also enforces **60%** coverage; the local command
 above retains that coverage check, while product CI runs pytest without coverage.
+CI and Docker install frozen lock exports with `uv pip install --require-hashes`, then
+install the project editably with `--no-deps`. This uses uv without invoking pip
+and rejects missing dependency hashes; native `uv sync` verifies hashes when present.
 Add tests for new backend behavior.
 
 ### Adding a migration
@@ -160,7 +163,7 @@ lovenest's head rather than kept at the number Securo gave it. CI catches a
 clash: the Migration Chain job runs against your branch merged with the base,
 so it fails there rather than on someone's `alembic upgrade head`.
 
-### Frontend (Node 22, from `frontend/`)
+### Frontend (Node 24 LTS, from `frontend/`)
 
 ```bash
 cd frontend

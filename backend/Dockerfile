@@ -1,3 +1,4 @@
+FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
 FROM python:3.14-slim
 
 WORKDIR /app
@@ -9,22 +10,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies come from uv.lock (the source of truth — see scripts/lock.sh).
-# The export never touches the lock (--frozen); pip then installs with hash
-# checking, so the image only ever contains the exact audited versions. uv is
-# removed afterwards — it is a build tool, not a runtime dependency.
+# The export never touches the lock (--frozen); uv requires matching hashes
+# for every dependency. Mount uv only during builds so it stays out of the image.
 # This layer is cached until pyproject.toml or uv.lock change.
 COPY pyproject.toml uv.lock ./
-# renovate: datasource=pypi depName=uv
-RUN pip install --no-cache-dir uv==0.12.7 \
-    && uv export --frozen --no-emit-project -o /tmp/requirements.txt \
-    && pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
-    && pip uninstall -y uv \
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
+    uv export --frozen --no-emit-project -o /tmp/requirements.txt \
+    && uv pip install --system --no-cache --require-hashes -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY . .
 # The project itself: deps are already satisfied above, so --no-deps keeps
 # this layer from re-resolving anything outside the lock.
-RUN pip install --no-cache-dir --no-deps -e .
+RUN --mount=from=uv,source=/uv,target=/bin/uv \
+    uv pip install --system --no-cache --no-deps -e .
 
 EXPOSE 8000
 

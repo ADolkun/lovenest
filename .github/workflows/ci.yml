@@ -60,19 +60,27 @@ jobs:
           # Single source of truth with the Docker image: CI must test the
           # same interpreter the backend ships with.
           python-version-file: backend/.python-version
-          cache: pip
+
+      - name: Set up uv
+        if: steps.backend-changes.outputs.run_backend == 'true'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.10"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
 
       - name: Install dependencies
         if: steps.backend-changes.outputs.run_backend == 'true'
         run: |
           # Everything comes from uv.lock: export it (--frozen never touches
-          # the lock) and hand it to pip with hash checking, so CI installs
+          # the lock) and install it with hash checking, so CI installs
           # exactly the audited versions.
-          # renovate: datasource=pypi depName=uv
-          pip install -q uv==0.12.7
           uv export --frozen --all-extras --no-emit-project -o /tmp/requirements-dev.txt
-          pip install --require-hashes -r /tmp/requirements-dev.txt
-          pip install --no-deps -e .
+          uv pip install --system --require-hashes -r /tmp/requirements-dev.txt
+          uv pip install --system --no-deps -e .
 
       - name: Verify lockfile is in sync
         if: steps.backend-changes.outputs.run_backend == 'true'
@@ -149,7 +157,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
