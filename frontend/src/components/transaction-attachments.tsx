@@ -95,7 +95,7 @@ export function TransactionAttachments({
     const urls: string[] = []
 
     const renderPdfThumbnail = async (blobUrl: string): Promise<string> => {
-      const pdf = await getDocument(blobUrl).promise
+      const pdf = await getDocument({ url: blobUrl }).promise
       const page = await pdf.getPage(1)
       const scale = 200 / page.getViewport({ scale: 1 }).width
       const viewport = page.getViewport({ scale })
@@ -104,7 +104,7 @@ export function TransactionAttachments({
       canvas.height = viewport.height
       await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise
       const dataUrl = canvas.toDataURL('image/png')
-      pdf.destroy()
+      pdf.loadingTask.destroy()
       return dataUrl
     }
 
