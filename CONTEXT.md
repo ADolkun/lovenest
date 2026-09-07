@@ -59,10 +59,11 @@ a staking or interest payout, a reward, an airdrop, a distribution from an
 insolvency estate. They are worth their market value on the day they land, and
 that value is both the income and the basis of the lot they open. Recording them
 as free units would tax the same money twice — once as income, then again as the
-gain of a disposal that was never that large. Where that value cannot be
-established at all, the two sources part company on purpose: an import the user
-chose records the units at zero, while a sync records nothing rather than
-quietly understate a basis it would then be believed on (ADR 0008).
+gain of a disposal that was never that large. An import requires a usable stated
+unit price or total cost basis, including an explicit numeric zero. Without
+either, it rejects the row with `invalid_price`. A sync records nothing when
+value cannot be established rather than quietly understate a basis it would
+then be believed on (ADR 0008).
 
 **Transfer** — the same person's coins moving between their own wallets. Basis
 travels with them, so a transfer is neither an acquisition nor a disposal, and

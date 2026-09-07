@@ -26,7 +26,7 @@ import uuid
 from collections import Counter
 from datetime import date as date_type
 from datetime import datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
+from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -222,8 +222,8 @@ _COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
     # rather than unit prices, and the sale on the same row as the purchase.
     'cost_basis': (
         'cost basis', 'cost basis remaining', 'total cost', 'basis', 'book cost',
-        # An exchange states the fiat the units were worth rather than a
-        # cost basis, which for an acquisition is the same number.
+        # An exchange may state a reported fiat value here. Mapping it does
+        # not establish the source's tax treatment or recovery basis.
         'usd value', 'fair market value', 'native amount', 'subtotal',
     ),
     'date_sold': ('date sold', 'date disposed', 'disposal date', 'date closed', 'sold date'),
@@ -262,9 +262,9 @@ _BUY_WORDS = {
 #:
 #: - **Acquired.** Units arriving from somewhere that is not a purchase — a
 #:   staking reward, an airdrop, a fork, a distribution from an insolvency
-#:   estate. They open a Lot like a buy does, at whatever the row says they
-#:   were worth, which for an airdrop is usually nothing. Zero basis is the
-#:   honest answer there: the units cost nothing, so the whole disposal is gain.
+#:   estate. Under the current classifier they open a Lot like a buy, using a
+#:   stated price or total basis, including explicit zero. Missing value is
+#:   unknown; the label and number alone do not establish tax treatment.
 #: - **Transferred.** The same person's coins moving between their own wallets.
 #:   Basis travels with them, so a transfer is not an acquisition and not a
 #:   disposal; importing one would invent a Lot that never existed. Skipped,
@@ -277,11 +277,8 @@ _ACQUIRE_WORDS = {
     'fork', 'hard fork', 'distribution', 'insolvency distribution', 'claim',
     'dividend', 'dividend received',
     'bonus', 'gift received', 'rebate', 'cashback', 'award', 'referral',
-    # The plain word for the group, which a file is entitled to use instead of
-    # naming the particular flavour of acquisition. It belongs here and not
-    # next to `acquisto` in _BUY_WORDS: read as a buy, a row that states no
-    # value would be rejected for having no price, where the whole point of
-    # this group is that costing nothing is a legitimate answer.
+    # The plain words for the group use the same stated-value validation as
+    # purchases; classification alone cannot supply a missing price.
     'acquire', 'acquired', 'acquisition',
 }
 _TRANSFER_WORDS = {
@@ -659,10 +656,6 @@ def parse_orders_csv(
             price = Decimal('0')
         else:
             price = _price_for(cell(row, 'price'), cell(row, 'cost_basis'), quantity)
-        if price is None and meaning == 'acquire':
-            # A reward or an airdrop the file put no value on cost nothing, so
-            # the whole eventual disposal is gain. Zero, not unreadable.
-            price = Decimal('0')
         if price is None or price < 0:
             errors.append(AssetImportRowError(row=index, reason='invalid_price', ticker=ticker))
             continue
@@ -714,10 +707,18 @@ def _price_for(price_cell: str, basis_cell: str, quantity: Decimal) -> Optional[
     the divide is not a nicety: mapping that column onto `price` directly would
     multiply the cost basis by the number of units held.
     """
-    unit = _parse_decimal(price_cell)
-    if unit is not None:
-        return _to_ledger_scale(unit)
-    return _to_ledger_scale(_total_over(basis_cell, quantity))
+    for raw, is_total in ((price_cell, False), (basis_cell, True)):
+        try:
+            value = _total_over(raw, quantity) if is_total else _parse_decimal(raw)
+            if value is None or not value.is_finite() or value < 0:
+                continue
+            value = _to_ledger_scale(value)
+            if value is not None:
+                return value
+        except DecimalException:
+            # An unusable candidate must not block a supported alternative.
+            continue
+    return None
 
 
 def _total_over(total_cell: str, quantity: Decimal) -> Optional[Decimal]:

@@ -296,17 +296,19 @@ async def test_a_sell_beyond_the_position_is_caught_before_anything_is_written(
 async def test_an_acquisition_feeds_the_position_the_sell_after_it_draws_on(
     session: AsyncSession, test_user: User, test_workspace: Workspace, provider
 ):
-    """A dropped acquisition does not report itself: it starves the position,
-    and the row that fails is the perfectly good sell underneath it."""
+    """A valued acquisition supplies the units a later sale draws on."""
     summary = await _import(session, test_workspace, test_user, _csv(
         "ticker,date,quantity,price,kind",
-        "AAPL,2026-01-15,4,,acquire",
+        "AAPL,2026-01-15,4,7,acquire",
         "AAPL,2026-02-15,3,120.00,sell",
     ), provider)
 
     assert summary["errors"] == []
     assert summary["imported"] == 2
-    assert (await _only_asset(session, test_workspace)).units == Decimal("1")
+    stored = await _only_asset(session, test_workspace)
+    assert stored.units == Decimal("1")
+    assert stored.average_price == Decimal("7")
+    assert stored.realized_gain == Decimal("339")
 
 
 @pytest.mark.asyncio
@@ -726,15 +728,101 @@ def test_a_crypto_type_word_opens_or_closes_a_lot(type_word, kind, price):
     assert [(o.kind, o.price) for o in orders] == [(kind, price)]
 
 
-def test_an_airdrop_with_no_stated_value_opens_a_lot_at_zero_basis():
-    """Units that cost nothing make the whole eventual disposal a gain, which
-    is the honest answer — not an unreadable price."""
+def test_an_airdrop_with_no_stated_value_is_rejected():
     orders, errors, _, _ = asset_import_service.parse_orders_csv(_csv(
         "Asset,Timestamp,Amount,Cost Basis,Type",
         "AERO,2025-01-04,120,,Airdrop",
     ))
-    assert errors == []
-    assert [(o.kind, o.price) for o in orders] == [("buy", Decimal("0"))]
+    assert orders == []
+    assert [(e.row, e.reason, e.ticker) for e in errors] == [(2, "invalid_price", "AERO")]
+
+
+_ACQUISITION_LABELS = [
+    "buy", "acquire", "acquired", "acquisition", "claim", "insolvency distribution",
+    "distribution", "reward", "rewards", "staking reward", "staking rewards", "staking",
+    "interest income", "interest", "income", "mining", "mined", "airdrop", "fork", "hard fork",
+    "dividend", "dividend received", "bonus", "gift received", "rebate", "cashback", "award",
+    "referral",
+]
+
+
+@pytest.mark.parametrize("type_word", _ACQUISITION_LABELS)
+@pytest.mark.parametrize("price,basis", [
+    ("", ""), ("invalid", ""), ("", "invalid"),
+    ("NaN", ""), ("sNaN", ""), ("Infinity", ""), ("-Infinity", ""),
+    ("", "NaN"), ("", "sNaN"), ("", "Infinity"), ("", "-Infinity"),
+    ("1e20", ""), ("-1e20", ""), ("-1", ""), ("", "2e20"), ("", "-2e20"),
+])
+def test_an_acquisition_requires_a_usable_price_or_basis(type_word, price, basis):
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(
+        _csv(
+            "ticker,date,quantity,price,total,kind",
+            f"SYN,2031-04-05,2,{price},{basis},{type_word}",
+        ),
+        column_mapping={"cost_basis": "total"},
+    )
+    assert (orders, skips) == ([], [])
+    assert [(e.row, e.reason, e.ticker) for e in errors] == [(2, "invalid_price", "SYN")]
+
+
+@pytest.mark.parametrize("type_word", _ACQUISITION_LABELS)
+@pytest.mark.parametrize("price,basis,expected", [
+    ("0", "14", "0"), ("7", "invalid", "7"),
+    ("", "0", "0"), ("", "14", "7"), ("invalid", "14", "7"),
+    ("", "-14", "7"),
+    ("0.000000000000000001", "", "0.000000000000000001"),
+    ("99999999999999999999", "", "99999999999999999999"),
+])
+def test_an_acquisition_preserves_a_supported_price_or_basis(type_word, price, basis, expected):
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(
+        _csv(
+            "ticker,date,quantity,price,total,kind",
+            f"SYN,2031-04-05,2,{price},{basis},{type_word}",
+        ),
+        column_mapping={"cost_basis": "total"},
+    )
+    assert (errors, skips) == ([], [])
+    assert [(o.row, o.kind, o.quantity, o.price) for o in orders] == [
+        (2, "buy", Decimal("2"), Decimal(expected)),
+    ]
+
+
+@pytest.mark.parametrize("kind", ["buy", "acquire"])
+@pytest.mark.parametrize("price,basis,expected", [
+    ("NaN", "14", "7"), ("sNaN", "14", "7"),
+    ("Infinity", "14", "7"), ("-Infinity", "14", "7"),
+    ("1e20", "14", "7"), ("-1", "14", "7"), ("-1e-19", "14", "7"),
+    ("1e9999999", "14", "7"),
+    ("NaN", "0", "0"), ("0", "NaN", "0"), ("0", "1e9999999", "0"),
+])
+def test_price_candidates_are_validated_before_selection(kind, price, basis, expected):
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(
+        _csv(
+            "ticker,date,quantity,price,total,kind",
+            f"SYN,2031-04-05,2,{price},{basis},{kind}",
+        ),
+        column_mapping={"cost_basis": "total"},
+    )
+    assert (errors, skips) == ([], [])
+    assert [(o.row, o.kind, o.price) for o in orders] == [(2, "buy", Decimal(expected))]
+
+
+@pytest.mark.parametrize("kind", ["buy", "acquire"])
+@pytest.mark.parametrize("price,basis,quantity", [
+    ("1e9999999", "", "2"),
+    ("", "1e9999999", "2"),
+    ("", "1e999999", "1e-18"),
+])
+def test_extreme_price_or_basis_exponents_are_row_errors(kind, price, basis, quantity):
+    orders, errors, skips, _ = asset_import_service.parse_orders_csv(
+        _csv(
+            "ticker,date,quantity,price,total,kind",
+            f"SYN,2031-04-05,{quantity},{price},{basis},{kind}",
+        ),
+        column_mapping={"cost_basis": "total"},
+    )
+    assert (orders, skips) == ([], [])
+    assert [(e.row, e.reason, e.ticker) for e in errors] == [(2, "invalid_price", "SYN")]
 
 
 def test_a_transfer_between_the_users_own_wallets_is_skipped_with_its_reason():

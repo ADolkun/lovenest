@@ -56,9 +56,10 @@ spellings of each. They land in three places:
 - **Transfers are skipped**, with the reason reported. The same person's coins
   moving between their own wallets carry their basis with them; importing one
   would open a Lot that never existed and close one that never did either.
-- **Rewards, airdrops and distributions open a Lot**, at whatever the row says
-  the units were worth — zero when it says nothing, which is the honest answer:
-  units that cost nothing make the whole eventual disposal a gain.
+- **Rewards, airdrops and distributions open a Lot**, using a usable stated
+  unit price or total cost basis, including explicit numeric zero. If neither
+  yields a usable value, the row is rejected with `invalid_price`; missing value
+  stays unknown.
 - **A type this module does not model is a skip, not an error.** The row is
   well-formed; the gap is ours, and reporting it as malformed blames the file.
 

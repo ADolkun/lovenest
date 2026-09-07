@@ -6,7 +6,12 @@ from typing import Optional
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.models.asset import Asset
+from app.models.asset_transaction import AssetTransaction
+from app.models.asset_value import AssetValue
+from app.models.import_log import ImportLog
 from app.providers.market_price import (
     MarketPriceProvider,
     MarketSymbolQuote,
@@ -333,3 +338,166 @@ async def test_importing_into_a_taxable_wallet_yields_lots(
     assert lots["tax_character"] is True
     assert [lot["quantity"] for lot in lots["lots"]] == [6.0]
     assert [sale["quantity"] for sale in lots["sales"]] == [4.0]
+
+
+@pytest.mark.asyncio
+async def test_invalid_acquisitions_preview_and_apply_write_nothing(
+    client: AsyncClient, auth_headers, wallet_id, session
+):
+    content = (
+        b"ticker,date,quantity,price,kind\n"
+        b"AAPL,2026-01-01,2,,claim\n"
+        b"AAPL,2026-01-02,3,invalid,reward\n"
+    )
+    preview = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("synthetic.csv", content, "text/csv")},
+        data={"group_id": wallet_id},
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["parse_error"] is None
+    assert [(e["row"], e["reason"]) for e in body["errors"]] == [
+        (2, "invalid_price"), (3, "invalid_price"),
+    ]
+    assert body["orders"] == []
+    assert body["holdings_created"] == 0
+    for model in (Asset, AssetTransaction, AssetValue, ImportLog):
+        assert (await session.scalars(select(model))).all() == []
+
+    applied = await client.post(
+        "/api/assets/import",
+        json={"orders": body["orders"], "group_id": wallet_id},
+        headers=auth_headers,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["imported"] == 0
+    assert applied.json()["holdings_created"] == 0
+    assert applied.json()["import_log_id"] is None
+    assert applied.json()["errors"] == []
+    # Lots are derived from transactions; no ledger means no invented basis.
+    for model in (Asset, AssetTransaction, AssetValue, ImportLog):
+        assert (await session.scalars(select(model))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_mixed_acquisitions_preserve_stated_values_and_reject_an_unsupported_sale(
+    client: AsyncClient, auth_headers, wallet_id, session
+):
+    content = (
+        b"ticker,date,quantity,price,kind\n"
+        b"AAPL,2026-01-01,10,,claim\n"
+        b"AAPL,2026-01-02,10,invalid,reward\n"
+        b"AAPL,2026-01-03,2,0,claim\n"
+        b"AAPL,2026-01-04,3,7,acquire\n"
+        b"AAPL,2026-01-05,4,0,airdrop\n"
+        b"AAPL,2026-01-06,5,7,staking reward\n"
+        b"AAPL,2026-01-07,15,20,sell\n"
+    )
+    preview = await client.post(
+        "/api/assets/import/preview",
+        files={"file": ("synthetic.csv", content, "text/csv")},
+        data={"group_id": wallet_id},
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["parse_error"] is None
+    assert [(e["row"], e["reason"]) for e in body["errors"]] == [
+        (2, "invalid_price"), (3, "invalid_price"), (8, "oversell"),
+    ]
+    assert [(o["row"], o["kind"], Decimal(o["quantity"]), Decimal(o["price"]))
+            for o in body["orders"]] == [
+        (4, "buy", Decimal("2"), Decimal("0")),
+        (5, "buy", Decimal("3"), Decimal("7")),
+        (6, "buy", Decimal("4"), Decimal("0")),
+        (7, "buy", Decimal("5"), Decimal("7")),
+    ]
+    assert body["holdings_created"] == 1
+    for model in (Asset, AssetTransaction, AssetValue, ImportLog):
+        assert (await session.scalars(select(model))).all() == []
+
+    applied = await client.post(
+        "/api/assets/import",
+        json={"orders": body["orders"], "group_id": wallet_id},
+        headers=auth_headers,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["imported"] == 4
+    assert applied.json()["holdings_created"] == 1
+    assert applied.json()["errors"] == []
+    assets = (await client.get("/api/assets", headers=auth_headers)).json()
+    assert len(assets) == 1
+    assert assets[0]["units"] == 14
+    assert assets[0]["purchase_price"] == 56
+    assert assets[0]["average_price"] == 4
+    transactions = (await session.scalars(
+        select(AssetTransaction).order_by(AssetTransaction.date)
+    )).all()
+    assert [(t.kind, t.quantity, t.price) for t in transactions] == [
+        (o["kind"], Decimal(o["quantity"]), Decimal(o["price"])) for o in body["orders"]
+    ]
+    lots = (await client.get(
+        f"/api/assets/{assets[0]['id']}/tax-lots", headers=auth_headers
+    )).json()
+    assert [(lot["quantity"], lot["unit_price"], lot["cost"]) for lot in lots["lots"]] == [
+        (2, 0, 0), (3, 7, 21), (4, 0, 0), (5, 7, 35),
+    ]
+    assert lots["sales"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("price_fields", [
+    pytest.param({}, id="omitted"),
+    pytest.param({"price": None}, id="null"),
+    pytest.param({"price": ""}, id="blank"),
+    pytest.param({"price": "invalid"}, id="nonnumeric"),
+    pytest.param({"price": "NaN"}, id="nan"),
+    pytest.param({"price": "Infinity"}, id="infinity"),
+    pytest.param({"price": "-Infinity"}, id="negative-infinity"),
+])
+async def test_direct_import_rejects_an_unusable_price(
+    client: AsyncClient, auth_headers, wallet_id, session, price_fields
+):
+    applied = await client.post(
+        "/api/assets/import",
+        json={
+            "orders": [{
+                "row": 2, "ticker": "AAPL", "date": "2026-01-01",
+                "kind": "buy", "quantity": "2", **price_fields,
+            }],
+            "group_id": wallet_id,
+        },
+        headers=auth_headers,
+    )
+    assert applied.status_code == 422, applied.text
+    assert [e["loc"] for e in applied.json()["detail"]] == [["body", "orders", 0, "price"]]
+    for model in (Asset, AssetTransaction, AssetValue, ImportLog):
+        assert (await session.scalars(select(model))).all() == []
+
+
+@pytest.mark.asyncio
+async def test_direct_import_preserves_explicit_zero_price(
+    client: AsyncClient, auth_headers, wallet_id, session
+):
+    applied = await client.post(
+        "/api/assets/import",
+        json={
+            "orders": [{
+                "row": 2, "ticker": "AAPL", "date": "2026-01-01",
+                "kind": "buy", "quantity": "2", "price": "0",
+            }],
+            "group_id": wallet_id,
+        },
+        headers=auth_headers,
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["imported"] == 1
+    assert applied.json()["errors"] == []
+    transaction = (await session.scalars(select(AssetTransaction))).one()
+    assert transaction.price == Decimal("0")
+    assets = (await client.get("/api/assets", headers=auth_headers)).json()
+    assert len(assets) == 1
+    assert assets[0]["units"] == 2
+    assert assets[0]["purchase_price"] == 0
