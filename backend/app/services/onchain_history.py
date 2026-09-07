@@ -138,27 +138,64 @@ def reconcile_history(archive):
             row["samples"].append((version, observation, transaction["signature"]))
     for row in rows.values():
         account, identity = row["account"], _asset_key(row["asset"])
-        for _, version in versions:
-            if version.get("settlement") != "settled" or version.get("in_requested_window") is not True:
+        samples = sorted(row.pop("samples"), key=lambda sample: (sample[0].get("slot") if sample[0].get("slot") is not None else -1, sample[2]))
+        first, last = samples[0], samples[-1]
+        first_slot, last_slot = first[0].get("slot"), last[0].get("slot")
+        scope_gaps = set()
+        scoped_slots = []
+        interpretation_gaps = set()
+        for transaction, version in versions:
+            if version.get("in_requested_window") is False:
                 continue
-            for leg in version.get("legs", []):
-                if leg.get("non_additive") or leg.get("interpretation") == "unresolved":
+            observations = [item for item in version.get("observations", [])
+                            if item.get("account") == account and _asset_key(item.get("asset", {})) == identity]
+            legs = [leg for leg in version.get("legs", []) if _asset_key(leg["asset"]) == identity
+                    and account in (leg.get("source"), leg.get("destination")) and not leg.get("non_additive")]
+            if not observations and not legs:
+                continue
+            slot = version.get("slot")
+            if first_slot is not None and last_slot is not None and slot is not None:
+                if not first_slot <= slot <= last_slot:
                     continue
-                if _asset_key(leg["asset"]) != identity or leg.get("settlement", "settled") != "settled":
+                scoped_slots.append(slot)
+            else:
+                # Unknown placement cannot prove an account-affecting record
+                # lies outside the before/after transaction snapshots.
+                scope_gaps.add("snapshot_scope_unresolved")
+            interpretation_gaps.update(version.get("gaps", []))
+            if not observations:
+                scope_gaps.add("account_observation_unavailable")
+                continue
+            if len(observations) != 1 or observations[0].get("owner") != archive["owner"]:
+                scope_gaps.add("ownership_scope_unresolved")
+                continue
+            if observations[0].get("pre_quantity") is None or observations[0].get("post_quantity") is None:
+                scope_gaps.add("account_observation_unavailable")
+            if version.get("settlement") != "settled":
+                scope_gaps.add("provisional_observations")
+                continue
+            if version.get("in_requested_window") is not True:
+                scope_gaps.add("requested_window_unresolved")
+                continue
+            for leg in legs:
+                if any(leg.get(endpoint) == account and leg.get(f"{endpoint}_owner") != archive["owner"]
+                       for endpoint in ("source", "destination")):
+                    scope_gaps.add("ownership_scope_unresolved")
                     continue
                 quantity = leg.get("quantity")
-                if quantity is None:
+                if quantity is None or leg.get("interpretation") == "unresolved" or leg.get("settlement", "settled") != "settled":
+                    scope_gaps.add("account_change_unresolved")
                     continue
                 signed = int(leg.get("destination") == account) - int(leg.get("source") == account)
                 if signed:
                     row["changes"].append(Decimal(quantity) if signed > 0 else Decimal(quantity).copy_negate())
-        samples = sorted(row.pop("samples"), key=lambda sample: (sample[0].get("slot") or -1, sample[2]))
-        first, last = samples[0], samples[-1]
+        if len(set(scoped_slots)) != len(scoped_slots):
+            scope_gaps.add("same_slot_transaction_order_unknown")
         reasons = ["requested_boundary_snapshots_unavailable", "historical_inventory_unresolved", "basis_unknown"]
         if archive.get("coverage", {}).get("retrieval") != "complete":
             reasons.append("retrieval_incomplete")
-        interpretation_gaps = {gap for sample in samples for gap in sample[0].get("gaps", [])}
         reasons.extend(sorted(interpretation_gaps))
+        reasons.extend(sorted(scope_gaps))
         opening = first[1].get("pre_quantity")
         closing = last[1].get("post_quantity")
         if any(sample[0].get("settlement") != "settled" for sample in samples):
@@ -178,7 +215,7 @@ def reconcile_history(archive):
             reasons.append("missing_timestamp")
         with localcontext(prec=512):
             change = sum(row.pop("changes"), Decimal("0"))
-            expected = Decimal(opening) + change if opening is not None else None
+            expected = Decimal(opening) + change if opening is not None and not scope_gaps else None
             discrepancy = Decimal(closing) - expected if closing is not None and expected is not None else None
         row.update(
             opening=opening, closing=closing, settled_change=str(change),

@@ -366,21 +366,30 @@ async def test_resume_rejects_source_window_owner_and_inventory_changes(monkeypa
 async def test_timeout_cancels_inflight_without_background_work(monkeypatch):
     rpc = RPC()
     completed = []
+    loop = asyncio.get_running_loop()
+    timeout = asyncio.timeout(None)
+    inflight = loop.create_future()
+    tasks_before = asyncio.all_tasks()
 
     async def slow(*args, **kwargs):
         if kwargs["json_body"]["method"] == "getSignaturesForAddress":
             try:
-                await asyncio.sleep(1)
+                # Expire only after reaching the intended read, regardless of
+                # client setup or CI scheduling delays before this point.
+                timeout.reschedule(loop.time())
+                await inflight
             finally:
                 completed.append("cancelled")
         return await rpc(*args, **kwargs)
 
     install(monkeypatch, slow)
-    monkeypatch.setattr(history, "TIME_BUDGET_SECONDS", 0.01)
+    monkeypatch.setattr(history, "asyncio", SimpleNamespace(timeout=lambda seconds: timeout))
     result = await collect()
     assert result["gaps"] == ["deadline_exceeded"]
+    assert timeout.expired() and inflight.cancelled()
     assert completed == ["cancelled"]
     assert result["payloads"]
+    assert not asyncio.all_tasks() - tasks_before
 
 
 async def test_fake_monotonic_deadline_retains_successful_reads(monkeypatch):

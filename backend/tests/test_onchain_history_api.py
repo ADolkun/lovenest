@@ -449,3 +449,87 @@ async def test_postgres_busy_mapping_locks_do_not_wait_or_start_rpc(history_pg_c
             assert isinstance(busy.value.detail, dict)
             assert busy.value.detail["code"] == "history_busy"
         assert calls == []
+
+
+def _ownership_scope_archive(records):
+    from tests.test_solana_history import TOKEN, balance, instruction, transaction
+
+    archive = {"owner": A, "transactions": {}, "coverage": {"retrieval": "complete"}}
+    for index, (slot, owner, incoming, pre, amount) in enumerate(records):
+        signature = f"synthetic-scope-{index}"
+        units = int(Decimal(amount) * 1_000_000)
+        before = int(Decimal(pre) * 1_000_000)
+        after = before + (units if incoming else -units)
+        payload = transaction([
+            instruction(TOKEN, "transferChecked", source="pool-token" if incoming else "token-A",
+                        destination="token-A" if incoming else "pool-token", mint="mint-A",
+                        tokenAmount={"amount": str(units), "decimals": 6}),
+        ], keys=(A, "token-A", "pool-token"), pre=(1, 0, 0), post=(1, 0, 0), fee=0,
+            tokens_pre=[balance(1, before, owner=owner), balance(2, 100_000_000, owner="pool")],
+            tokens_post=[balance(1, after, owner=owner), balance(2, 100_000_000 - units if incoming else 100_000_000 + units, owner="pool")])
+        payload["slot"] = slot
+        payload["transaction"]["signatures"] = [signature]
+        version = collector.decode_solana_transaction(signature, payload, payload_digest=f"digest-{index}", owner=A,
+                                                      confirmation_status="finalized", anchor_slot=100)
+        version["in_requested_window"] = True
+        archive["transactions"][f"solana:{signature}"] = {
+            "signature": signature, "versions": [version], "canonical_version": version["version_id"],
+        }
+    return archive
+
+
+@pytest.mark.parametrize("external_slot", [8, 12])
+def test_reconciliation_excludes_other_owner_movements_outside_snapshot_bounds(external_slot):
+    archive = _ownership_scope_archive([(10, A, True, "10", "4"), (external_slot, B, False, "14", "3")])
+    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    assert row["status"] == "matched"
+    assert Decimal(row["opening"]) == 10
+    assert Decimal(row["settled_change"]) == 4
+    assert Decimal(row["closing"]) == 14
+    assert Decimal(row["discrepancy"]) == 0
+    assert row["opening_snapshot"]["slot"] == row["closing_snapshot"]["slot"] == 10
+
+
+@pytest.mark.parametrize("uncertainty", ["owner", "missing_owner", "missing_observation", "endpoint_owner", "missing_slot", "boundary_sibling"])
+def test_reconciliation_keeps_unknown_in_interval_ownership_or_placement(uncertainty):
+    archive = _ownership_scope_archive([
+        (10, A, True, "10", "4"), (12, A, False, "14", "3"),
+        (13, A, True, "11", "3"), (14, A, True, "14", "0"),
+    ])
+    versions = [transaction["versions"][0] for transaction in archive["transactions"].values()]
+    for version in versions[1:3]:
+        token_observation = next(item for item in version["observations"] if item["account"] == "token-A" and not item["asset"]["native"])
+        token_leg = next(leg for leg in version["legs"] if not leg["asset"]["native"])
+        if uncertainty in {"owner", "missing_owner"}:
+            token_observation["owner"] = B if uncertainty == "owner" else None
+        elif uncertainty == "missing_observation":
+            version["observations"].remove(token_observation)
+        elif uncertainty == "endpoint_owner":
+            token_leg["source_owner" if token_leg["source"] == "token-A" else "destination_owner"] = None
+        elif uncertainty == "missing_slot":
+            version["slot"] = None
+        elif uncertainty == "boundary_sibling":
+            version["slot"] = 10
+            token_observation["owner"] = B
+    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    assert row["status"] == "unknown"
+    # Unknown movements happen to cancel. That must never certify the interval.
+    assert Decimal(row["settled_change"]) == 4
+    assert row["expected_closing"] is None
+    assert row["discrepancy"] is None
+    expected = {
+        "owner": "ownership_scope_unresolved", "missing_owner": "ownership_scope_unresolved",
+        "missing_observation": "account_observation_unavailable", "endpoint_owner": "ownership_scope_unresolved",
+        "missing_slot": "snapshot_scope_unresolved", "boundary_sibling": "same_slot_transaction_order_unknown",
+    }[uncertainty]
+    assert expected in row["reasons"]
+
+
+def test_reconciliation_unknown_slot_cannot_be_assumed_outside_owned_interval():
+    archive = _ownership_scope_archive([(10, A, True, "10", "4"), (12, B, False, "14", "3")])
+    archive["transactions"]["solana:synthetic-scope-1"]["versions"][0]["slot"] = None
+    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    assert row["status"] == "unknown"
+    assert Decimal(row["settled_change"]) == 4
+    assert "snapshot_scope_unresolved" in row["reasons"]
+    assert "ownership_scope_unresolved" in row["reasons"]

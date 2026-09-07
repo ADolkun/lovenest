@@ -124,6 +124,11 @@ with explicit before/after transaction slots and references, alongside
 `requested_interval_status: unresolved` when independent UTC-boundary snapshots
 are unavailable. Unknown window membership contributes no settled change;
 interpretation gaps remain visible even when a known subtotal happens to match.
+The equation includes only transactions inside those observed slot boundaries
+with compatible account/asset ownership evidence. Earlier or later activity
+under another owner does not change that equation. Missing ownership, balance
+observations, or transaction ordering inside the interval leaves the known
+subtotal visible but the expected closing quantity and discrepancy unresolved.
 
 Unknown programs, unresolved keys/owners, unsupported token extensions, and
 uncorroborated bridge destinations retain source evidence and named gaps.
