@@ -3,7 +3,7 @@
 #   cd backend && uv sync --locked --group dev  # installs ruff + ty (from uv.lock)
 #   prek install                               # or: uv tool run pre-commit install
 #
-# Run by hand: prek run --all-files
+# Run by hand: prek run --all-files (or: uv tool run pre-commit run --all-files)
 #
 # The hooks use the backend dev group and verify uv.lock before running,
 # so their tool versions match CI without activating a virtual environment.
