@@ -3,9 +3,11 @@
 import json
 import os
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 import redis.asyncio as redis
 from redis.exceptions import RedisError
@@ -15,7 +17,7 @@ from app.services import onchain_trace
 from app.providers import onchain_reads
 from tests.test_onchain_rpc import isolated_redis  # noqa: F401
 from tests.test_providers_onchain import (
-    A, B, C, JAN23, _patched_client, _settings, _sig, _solana_handler, _tx,
+    A, B, C, EVM, JAN23, _patched_client, _settings, _sig, _solana_handler, _tx,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -184,6 +186,69 @@ async def test_api_continue_reuses_reads_preserves_branches_and_observation_time
         assert latest["started_at"] == initial["started_at"]
         assert [node["balance_observed_at"] for node in latest["nodes"]] == [node["balance_observed_at"] for node in initial["nodes"]]
         assert latest["nodes"][0]["coverage"]["fetched_at"] == initial["nodes"][0]["coverage"]["fetched_at"]
+        assert (await client.get("/api/onchain/trace/checkpoint", headers=headers)).json() == initial
+
+
+@pytest.mark.parametrize("bad", [
+    pytest.param(None, id="null"),
+    pytest.param({"status": "0", "message": "NOTOK", "result": "synthetic unsupported history"}, id="notok"),
+])
+@pytest.mark.parametrize("movement", [True, False])
+async def test_api_failed_internal_stream_keeps_completed_history_and_retries_only_failure(
+    client, auth_headers, checkpoint_store, bad, movement,
+):
+    calls = Counter()
+    recovered = False
+    recipient = "0x" + "cd" * 20
+    row = {
+        "hash": "synthetic-retained-evm", "timeStamp": str(JAN23), "value": str(10**18),
+        "from": EVM, "to": recipient, "isError": "0",
+    }
+
+    def handler(request):
+        action = request.url.params.get("action")
+        calls[action] += 1
+        if action == "txlist":
+            return httpx.Response(200, json={"status": "1", "result": [row] if movement else []})
+        if action == "txlistinternal":
+            return httpx.Response(200, content=json.dumps(
+                {"status": "1", "result": []} if recovered else bad,
+            ), headers={"Content-Type": "application/json"})
+        return httpx.Response(200, json={"result": "0x0"})
+
+    request = {"chain": "base", "address": EVM, "max_hops": 1}
+    with _settings(etherscan_api_key="synthetic-key"), _patched_client(handler):
+        response = await client.post("/api/onchain/trace", headers=auth_headers, json=request)
+        assert response.status_code == 200, response.text
+        initial = response.json()
+        assert [edge["reference"] for edge in initial["edges"]] == ([row["hash"]] if movement else [])
+        root = initial["nodes"][0]
+        assert root["coverage"]["pages_read"] == 1
+        assert root["coverage"]["rows_read"] == int(movement)
+        assert root["coverage"]["provider_exhausted"] is False
+        assert "provider_unavailable" in root["stop_reasons"]
+        assert not initial["complete"] and initial["continuation"]["status"] == "available"
+        assert calls["txlist"] == calls["txlistinternal"] == 1
+        token = initial["continuation"]["token"]
+        headers = {**auth_headers, "X-Trace-Continuation": token}
+        previous_calls = calls.copy()
+        reopened = await client.get("/api/onchain/trace/checkpoint", headers=headers)
+        assert reopened.status_code == 200 and reopened.json() == initial
+        # This saved JSON is also the evidence serialized by Download.
+        assert calls == previous_calls
+        recovered = True
+        continued = await client.post("/api/onchain/trace", headers=auth_headers, json={
+            **request, "continuation_token": token,
+        })
+        assert continued.status_code == 200, continued.text
+        latest = continued.json()
+        assert latest["edges"] == initial["edges"]
+        assert latest["nodes"][0]["coverage"]["provider_exhausted"] is True
+        assert latest["nodes"][0]["coverage"]["pages_read"] == 2
+        assert latest["nodes"][0]["coverage"]["fetched_at"] == root["coverage"]["fetched_at"]
+        assert "provider_unavailable" not in latest["nodes"][0]["stop_reasons"]
+        assert latest["continuation"]["status"] == "not_needed"
+        assert calls["txlist"] == 1 and calls["txlistinternal"] == 2
         assert (await client.get("/api/onchain/trace/checkpoint", headers=headers)).json() == initial
 
 

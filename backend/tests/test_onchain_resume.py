@@ -9,6 +9,7 @@ import httpx
 import pytest
 from pydantic import TypeAdapter
 
+from app.api import onchain as api
 from app.providers import onchain
 from app.services import onchain_trace as trace
 from tests.test_onchain_trace import history, moment
@@ -136,3 +137,139 @@ async def test_generic_unavailable_child_preserves_earlier_edges_and_remains_ret
     child = next(node for node in result.nodes if node.address == B)
     assert child.terminal_reason == "unavailable"
     assert result.edges and state.resumable and not result.complete
+
+
+@pytest.mark.parametrize("direction", ["out", "in"])
+@pytest.mark.parametrize("recovery", ["complete", "partial", "noncontaining", "branch_limit"])
+async def test_shallower_recovery_retires_only_a_completed_containing_hop_gap(direction, recovery):
+    moves = [
+        ("long-start", A, B, 10, 10), ("long-end", B, C, 20, 9),
+        ("short", A, C, 25 if recovery == "noncontaining" else 5, 8),
+    ]
+    if recovery == "partial":
+        moves.append(("unread", C, D, 30, 7))
+    elif recovery == "branch_limit":
+        moves.extend([
+            ("selected", C, D, 30, 7), ("cycle", C, B, 32, 6), ("omitted", C, A, 35, 5),
+        ])
+    if direction == "in":
+        moves = [(ref, target, source, 40 - offset, amount)
+                 for ref, source, target, offset, amount in moves]
+    serve = history(moves)
+    recovered = False
+    calls = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        key = (body["method"], body["params"][0])
+        calls.append(key)
+        if key == ("getTransaction", "unread") or (
+            key == ("getTransaction", "short") and not recovered
+        ):
+            return httpx.Response(200, json={"result": None})
+        return serve(request)
+
+    state = trace.TraceState()
+    with _settings(), _patched_client(handler):
+        first = await trace.trace("solana", A, direction=direction, max_hops=2, max_branches=2,
+                                  since=moment(0), until=moment(40), state=state)
+        original = asdict(first)
+        child = next(node for node in first.nodes if node.address == C)
+        assert child.depth == 2 and child.stop_reasons == ["max_hops"]
+        assert not first.complete and state.resumable
+        recovered = True
+        for _ in range(2):
+            # The API stores this JSON-compatible adapter output in its checkpoint.
+            state = api._state_adapter.validate_python(json.loads(json.dumps(
+                api._state_adapter.dump_python(state, mode="json"),
+            )))
+            final = await trace.trace("solana", A, direction=direction, max_hops=2, max_branches=2,
+                                      since=moment(0), until=moment(40), state=state)
+        response = api.TraceRead(**asdict(final), complete=final.complete)
+        response = api.TraceRead.model_validate_json(response.model_dump_json())
+    child = next(node for node in final.nodes if node.address == C)
+    assert child.depth == 1
+    assert asdict(child.effective_window) == original["nodes"][2]["effective_window"]
+    assert asdict(final.root_window) == original["root_window"]
+    assert all(edge in asdict(final)["edges"] for edge in original["edges"])
+    for before, after in zip(original["nodes"], final.nodes):
+        assert before["balance"] == after.balance
+        assert before["balance_observed_at"] == after.balance_observed_at
+    assert calls.count(("getTransaction", "long-start")) == 1
+    assert calls.count(("getTransaction", "long-end")) == 1
+    assert len(final.edges) == len({(edge.reference, edge.source, edge.target) for edge in final.edges})
+    assert response.complete == final.complete
+    assert response.nodes[2].stop_reasons == child.stop_reasons
+    if recovery in {"complete", "branch_limit"}:
+        assert final.complete == (recovery == "complete")
+        assert not state.resumable
+        assert child.stop_reasons == (["branch_limit"] if recovery == "branch_limit" else [])
+        assert all(gap.reason != "max_hops" for gap in child.unfinished_windows)
+        assert child.window_coverages[0].complete
+        with _settings(), _patched_client(history(moves)):
+            fresh = await trace.trace("solana", A, direction=direction, max_hops=2, max_branches=2,
+                                      since=moment(0), until=moment(40))
+        assert fresh.complete == final.complete
+        fresh_child = next(node for node in fresh.nodes if node.address == C)
+        assert child.stop_reasons == fresh_child.stop_reasons
+        assert {tuple(asdict(edge).items()) for edge in final.edges} == {
+            tuple(asdict(edge).items()) for edge in fresh.edges
+        }
+    else:
+        assert not final.complete
+        assert "max_hops" in child.stop_reasons
+        assert state.resumable == (recovery == "partial")
+        if recovery == "partial":
+            assert "missing_payload" in child.stop_reasons
+        else:
+            assert child.window_coverages[0].complete
+
+
+@pytest.mark.parametrize("other_reason", [
+    "branch_limit", "missing_payload", "unsupported_payload", "time_budget", "node_limit",
+])
+async def test_hop_supersession_preserves_other_reasons_and_complete_observations(other_reason):
+    window = trace.TraceWindow(moment(10), None)
+    coverage = onchain.TransferCoverage(moment(5), provider_exhausted=True)
+    node = trace.TraceNode("solana:" + C, "solana", C, 1, "SOL", effective_window=window)
+    capped = trace._Pending(C, 2, window.since, window.until, done=True,
+                            reasons=["max_hops", other_reason])
+    completed = trace._Pending(C, 1, moment(5), None, done=True, coverage=coverage)
+    state = trace.TraceState(result=trace.TraceResult(node.id, "out", nodes=[node]),
+                             work=[capped, completed])
+    trace._summarize(state, onchain.CHAINS["solana"], 2)
+    assert node.stop_reasons == [other_reason]
+    assert node.unfinished_windows == [trace.UnfinishedWindow(window.since, None, other_reason)]
+    assert node.window_coverages == [coverage] and node.coverage is coverage
+    assert state.work == [capped, completed]
+    assert state.result is not None and not state.result.complete
+
+
+@pytest.mark.parametrize("obstruction", [
+    "pending", "coverage_unavailable", "incomplete", "wrong_depth", "wrong_address",
+    "unsupported_payload", "time_budget", "node_limit",
+])
+async def test_unsuccessful_obligation_cannot_supersede_a_hop_gap(obstruction):
+    coverage = onchain.TransferCoverage(moment(5), provider_exhausted=True)
+    node = trace.TraceNode("solana:" + C, "solana", C, 1, "SOL")
+    capped = trace._Pending(C, 2, moment(10), None, done=True, reasons=["max_hops"])
+    candidate = trace._Pending(C, 1, moment(5), None, done=True, coverage=coverage)
+    if obstruction == "pending":
+        candidate.done = False
+    elif obstruction == "coverage_unavailable":
+        candidate.coverage = None
+    elif obstruction == "incomplete":
+        coverage.provider_exhausted = False
+    elif obstruction == "wrong_depth":
+        candidate.depth = 3
+    elif obstruction == "wrong_address":
+        candidate.address = B
+    else:
+        candidate.reasons = [obstruction]
+        coverage.gap(obstruction)
+    state = trace.TraceState(result=trace.TraceResult(node.id, "out", nodes=[node]),
+                             work=[capped, candidate])
+    trace._summarize(state, onchain.CHAINS["solana"], 2)
+    assert "max_hops" in node.stop_reasons
+    assert trace.UnfinishedWindow(moment(10), None, "max_hops") in node.unfinished_windows
+    assert state.result is not None and not state.result.complete

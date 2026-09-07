@@ -420,7 +420,19 @@ def _summarize(state: TraceState, chain: Chain, hops: int) -> None:
         work_items = [work for work in state.work if work.address == node.address]
         for work in work_items:
             if work.depth >= hops:
-                work.done, work.reasons = True, ["max_hops"]
+                work.done = True
+                work.reasons = [reason for reason in work.reasons
+                                if reason not in {"max_hops", "unexpanded_window"}]
+                # A recovered shorter path can finish this capped obligation.
+                # Retain its observations and every unrelated gap.
+                if not any(
+                    prior.depth < hops and prior.done
+                    and prior.coverage is not None and prior.coverage.complete
+                    and _contains(TraceWindow(prior.since, prior.until),
+                                  TraceWindow(work.since, work.until))
+                    for prior in work_items
+                ):
+                    work.reasons.append("max_hops")
             if work.coverage is not None:
                 node.window_coverages.append(work.coverage)
             for reason in work.reasons:

@@ -247,6 +247,60 @@ async def test_inline_history_retains_completed_page_or_stream_on_later_failure(
     assert calls[first_key] == 1
 
 
+@pytest.mark.parametrize("source", ["solana", "etherscan", "blockscout", "bitcoin"])
+async def test_replay_keeps_useful_mixed_rows_and_their_explicit_gap(source):
+    state = {}
+    good_returned = asyncio.Event()
+    calls = Counter()
+    recipient = "0x" + "cd" * 20
+
+    async def handler(request):
+        if source == "solana":
+            body = json.loads(request.content)
+            method, identity = body["method"], body["params"][0]
+            calls[method, identity] += 1
+            if method == "getSignaturesForAddress":
+                return httpx.Response(200, json={"result": [
+                    _sig("synthetic-good", JAN23), _sig("synthetic-bad", JAN23), None,
+                ]})
+            if identity == "synthetic-good":
+                good_returned.set()
+                return httpx.Response(200, json={"result": _tx(JAN23, {A: -COIN, B: COIN})})
+            await good_returned.wait()
+            return httpx.Response(503)
+        action = request.url.params.get("action")
+        key = action or request.url.path
+        calls[key] += 1
+        if source == "etherscan":
+            if action == "txlistinternal":
+                return httpx.Response(503)
+            return httpx.Response(200, json={"status": "1", "result": [{
+                "hash": "synthetic-good", "timeStamp": str(JAN23), "value": str(10**18),
+                "from": EVM, "to": recipient, "isError": "0",
+            }, None]})
+        if source == "blockscout":
+            if request.url.path.endswith("internal-transactions"):
+                return httpx.Response(503)
+            return httpx.Response(200, json={
+                "items": [_blockscout_item(sender=EVM, recipient=recipient, value=str(10**18), at=JAN23), None],
+                "next_page_params": None,
+            })
+        if "/chain/" in request.url.path:
+            return httpx.Response(503)
+        return httpx.Response(200, json=[
+            _btc_tx("synthetic-good", JAN23, [(BTC_A, COIN)], [(BTC_B, COIN)]), None,
+        ])
+
+    with _settings(etherscan_api_key="synthetic-key" if source == "etherscan" else ""), _patched_client(handler), patch.object(onchain, "BITCOIN_HISTORY_PAGE", 1):
+        chain, address = (SOL, A) if source == "solana" else (BTC, BTC_A) if source == "bitcoin" else (BASE, EVM)
+        first = await onchain.transfers(chain, address, limit=25, read_state=state)
+        assert onchain.retained_transfers(chain, address, limit=25, read_state=json.loads(json.dumps(state))) == first
+    assert len(first.items) == 1 and first.resumable and not first.complete
+    assert first.coverage is not None and "invalid_row" in first.coverage.stop_reasons
+    assert first.interruption == "provider_unavailable"
+    assert all(count == 1 for count in calls.values())
+
+
 @pytest.mark.parametrize("payload,accepted", [
     pytest.param({"status": "1", "result": []}, True, id="success-empty-list"),
     pytest.param({"status": 1, "result": []}, True, id="numeric-success-empty-list"),

@@ -1301,7 +1301,13 @@ async def _evm_history(
                         chain, address, action, api_key, client, deadline=deadline,
                         coverage=stream, reads=reads, page_number=page_number,
                     )
-                except ReadPending:
+                except (ReadPending, RuntimeError) as exc:
+                    # Invalid envelopes recur during replay; keep completed
+                    # streams while leaving the failed page uncached/retryable.
+                    if isinstance(exc, RuntimeError) and not (
+                        reads and reads.replay and any(s.pages_read for s in streams)
+                    ):
+                        raise
                     stream.gap(reads.interruption if reads and reads.interruption else "provider_unavailable")
                     stream.finish(False)
                     break
