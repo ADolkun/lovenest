@@ -114,6 +114,13 @@ SOLANA_TOKEN_PROGRAMS = (
 # quoted as the worthless thing it is instead of at a dollar.
 JUPITER_TOKEN_URL = "https://lite-api.jup.ag/tokens/v2/search"
 JUPITER_QUERY_BATCH = 50
+# A normal 25-address connection can price one batch per address. Spammed
+# addresses get at most two; the whole observation gets 25 logical batches
+# (at most 75 HTTP attempts under the shared three-attempt retry policy).
+MAX_JUPITER_BATCHES = 25
+MAX_JUPITER_BATCHES_PER_ADDRESS = 2
+ONCHAIN_SYNC_SECONDS = 45.0
+HOLDINGS_REUSE_SECONDS = 30.0
 # A spammed address holds thousands of airdropped tokens. The cap is applied
 # after ranking, and the ranking puts vouched tokens ahead of unvouched ones
 # before it looks at value at all. Ranking on value alone would hand the cap to
@@ -522,6 +529,28 @@ class TokenHolding:
         user's real holdings stay in the payload.
         """
         return self.trusted, self.quoted_value
+
+
+@dataclass
+class TokenRead:
+    items: list[TokenHolding] = field(default_factory=list)
+    reasons: set[str] = field(default_factory=set)
+
+
+@dataclass
+class TokenReadBudget:
+    deadline: float
+    batches_remaining: int = field(default_factory=lambda: MAX_JUPITER_BATCHES)
+    prices: dict[str, dict] = field(default_factory=dict)
+    batches_read: int = 0
+
+
+@dataclass
+class HoldingsObservation:
+    holdings: list[HoldingData]
+    unreadable: list[str]
+    metadata: dict[str, Any]
+    completed_at: float
 
 
 def detect_chain(address: str) -> Optional[Chain]:
@@ -1906,24 +1935,22 @@ async def _bitcoin_transfers(
 
 
 async def token_holdings(
-    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None
-) -> list[TokenHolding]:
-    """Non-native tokens the address holds, richest first.
-
-    Only tokens the index can price are returned. That is the spam filter: an
-    address that has been airdropped for years holds thousands of tokens with
-    no market, and listing them would bury the handful that are positions. It
-    is a filter on *having a price*, not on the price being large, so a
-    memecoin worth cents survives it and a worthless airdrop does not.
-    """
+    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None,
+    budget: TokenReadBudget | None = None,
+) -> TokenRead:
+    """Priced positions, ranked only after verification, with explicit gaps."""
+    budget = budget or TokenReadBudget(time.monotonic() + ONCHAIN_SYNC_SECONDS)
     if chain.kind == "solana":
-        found = await _solana_token_holdings(chain, address, client)
+        found = await _solana_token_holdings(chain, address, client, budget=budget)
     elif chain.kind == "evm":
-        found = await _evm_token_holdings(chain, address, client)
+        found = await _evm_token_holdings(chain, address, client, budget=budget)
     else:
-        return []
-    found.sort(key=lambda token: token.rank, reverse=True)
-    return found[:MAX_TOKENS_PER_ADDRESS]
+        return TokenRead()
+    found.items.sort(key=lambda token: token.rank, reverse=True)
+    if len(found.items) > MAX_TOKENS_PER_ADDRESS:
+        found.reasons.add("token_position_limit")
+        found.items = found.items[:MAX_TOKENS_PER_ADDRESS]
+    return found
 
 
 def _parsed_token_account(entry: Any) -> Optional[tuple[str, Decimal]]:
@@ -1938,24 +1965,30 @@ def _parsed_token_account(entry: Any) -> Optional[tuple[str, Decimal]]:
     if not isinstance(amount, dict) or not isinstance(info, dict):
         return None
     mint = info.get("mint")
+    raw, decimals = amount.get("amount"), amount.get("decimals")
+    if (
+        isinstance(raw, bool) or not isinstance(raw, (str, int))
+        or not str(raw).isascii() or not str(raw).isdecimal()
+        or type(decimals) is not int or not 0 <= decimals <= 255
+    ):
+        return None
     try:
-        quantity = _scale(amount.get("amount"), int(amount.get("decimals")))
+        quantity = _scale(raw, decimals)
     except (TypeError, ValueError):
         return None
-    if not isinstance(mint, str) or quantity is None:
+    if not isinstance(mint, str) or not mint or quantity is None:
         return None
     return mint, quantity
 
 
 async def _solana_token_holdings(
-    chain: Chain, address: str, client: Optional[httpx.AsyncClient]
-) -> list[TokenHolding]:
-    """SPL balances from the chain, then their identity from Jupiter.
+    chain: Chain, address: str, client: Optional[httpx.AsyncClient], *, budget: TokenReadBudget,
+) -> TokenRead:
+    """Read the inventory before bounded identity/pricing batches.
 
-    Balances are authoritative here — they come from the ledger — and only the
-    naming and pricing depend on an index. A mint Jupiter does not know is
-    dropped rather than shown as an unnamed number, which is what the wallet
-    UIs do and is the only readable answer for a mint that has no market.
+    An incomplete inventory cannot supply authoritative summed quantities.
+    Once the inventory is complete, successful pricing batches remain useful
+    even when a later batch fails or the request budget is exhausted.
     """
     quantities: dict[str, Decimal] = {}
     for program in SOLANA_TOKEN_PROGRAMS:
@@ -1964,21 +1997,26 @@ async def _solana_token_holdings(
             "getTokenAccountsByOwner",
             [address, {"programId": program}, {"encoding": "jsonParsed"}],
             client=client,
+            deadline=budget.deadline,
         )
         entries = result.get("value") if isinstance(result, dict) else None
-        for entry in entries or []:
+        if not isinstance(entries, list):
+            return TokenRead(reasons={"token_inventory_unreadable"})
+        for entry in entries:
             parsed = _parsed_token_account(entry)
             if parsed is None:
-                continue
+                return TokenRead(reasons={"token_inventory_unreadable"})
             mint, quantity = parsed
             if quantity > 0:
                 # One wallet can hold several accounts for the same mint, and
                 # the position is their sum, not whichever came back last.
                 quantities[mint] = quantities.get(mint, Decimal("0")) + quantity
     if not quantities:
-        return []
-    known = await _jupiter_tokens(list(quantities), client)
-    return [
+        return TokenRead()
+    known, reasons = await _jupiter_tokens(list(quantities), client, budget=budget)
+    if any(mint not in known or known[mint]["price"] is None for mint in quantities):
+        reasons.add("token_price_unavailable")
+    return TokenRead(items=[
         TokenHolding(
             chain_key=chain.key,
             contract=mint,
@@ -1989,12 +2027,12 @@ async def _solana_token_holdings(
         )
         for mint, quantity in quantities.items()
         if (meta := known.get(mint)) is not None and meta["price"] is not None
-    ]
+    ], reasons=reasons)
 
 
 async def _jupiter_tokens(
-    mints: list[str], client: Optional[httpx.AsyncClient]
-) -> dict[str, dict]:
+    mints: list[str], client: Optional[httpx.AsyncClient], *, budget: TokenReadBudget,
+) -> tuple[dict[str, dict], set[str]]:
     """Symbol, USD price and a verification verdict per mint.
 
     Jupiter's `verified` tag is a curation decision, and it is what gates
@@ -2003,32 +2041,66 @@ async def _jupiter_tokens(
     to a total, because a made-up price on a made-up token is the cheapest way
     to make this app report a number that is not true.
     """
-    found: dict[str, dict] = {}
-    for start in range(0, len(mints), JUPITER_QUERY_BATCH):
+    found = {mint: budget.prices[mint] for mint in mints if mint in budget.prices}
+    mints = [mint for mint in mints if mint not in found]
+    reasons: set[str] = set()
+    for batch_number, start in enumerate(range(0, len(mints), JUPITER_QUERY_BATCH)):
+        if (
+            batch_number >= MAX_JUPITER_BATCHES_PER_ADDRESS
+            or budget.batches_remaining <= 0
+        ):
+            reasons.add("token_request_limit")
+            break
         batch = mints[start : start + JUPITER_QUERY_BATCH]
-        payload = await _get_json(
-            JUPITER_TOKEN_URL, "Jupiter", client, params={"query": ",".join(batch)},
-            endpoint=JUPITER_TOKEN_URL,
-        )
-        for row in payload if isinstance(payload, list) else []:
+        try:
+            _check_deadline(budget.deadline)
+            budget.batches_remaining -= 1
+            budget.batches_read += 1
+            payload = await _get_json(
+                JUPITER_TOKEN_URL, "Jupiter", client, params={"query": ",".join(batch)},
+                endpoint=JUPITER_TOKEN_URL, deadline=budget.deadline,
+            )
+        except OnchainDeadlineExceeded:
+            reasons.add("time_budget")
+            break
+        except ProviderRateLimited:
+            reasons.add("token_rate_limited")
+            # Repeated calls from other addresses cannot heal an exhausted
+            # shared cooldown during the same observation.
+            budget.batches_remaining = 0
+            break
+        except Exception:  # noqa: BLE001
+            reasons.add("token_index_unavailable")
+            break
+        if not isinstance(payload, list):
+            reasons.add("token_index_unreadable")
+            break
+        for row in payload:
             if not isinstance(row, dict):
+                reasons.add("token_index_unreadable")
                 continue
             mint, symbol = row.get("id"), row.get("symbol")
-            if not isinstance(mint, str) or not isinstance(symbol, str):
+            if (
+                not isinstance(mint, str) or mint not in batch
+                or not isinstance(symbol, str) or not symbol
+            ):
+                reasons.add("token_index_unreadable")
                 continue
             tags = row.get("tags")
             found[mint] = {
                 "symbol": symbol,
                 "price": _decimal_or_none(row.get("usdPrice")),
-                "trusted": bool(row.get("isVerified"))
+                "trusted": row.get("isVerified") is True
                 or (isinstance(tags, list) and "verified" in tags),
             }
-    return found
+            if found[mint]["price"] is not None:
+                budget.prices[mint] = found[mint]
+    return found, reasons
 
 
 async def _evm_token_holdings(
-    chain: Chain, address: str, client: Optional[httpx.AsyncClient]
-) -> list[TokenHolding]:
+    chain: Chain, address: str, client: Optional[httpx.AsyncClient], *, budget: TokenReadBudget,
+) -> TokenRead:
     """ERC-20 balances from Blockscout, which is keyless on every chain here.
 
     Deliberately not Etherscan: its token-balance endpoint is a paid tier,
@@ -2043,29 +2115,53 @@ async def _evm_token_holdings(
     finding that there is nothing there.
     """
     if not chain.token_index_url:
-        return []
+        return TokenRead(reasons={"token_index_unavailable"})
     payload = await _get_json(
         f"{chain.token_index_url.rstrip('/')}/api/v2/addresses/{address}/token-balances",
         "Blockscout",
         client,
         endpoint=chain.token_index_url.rstrip("/"),
+        deadline=budget.deadline,
     )
-    found: list[TokenHolding] = []
-    for row in payload if isinstance(payload, list) else []:
+    found = TokenRead()
+    if not isinstance(payload, list):
+        return TokenRead(reasons={"token_inventory_unreadable"})
+    for row in payload:
         token = row.get("token") if isinstance(row, dict) else None
-        if not isinstance(token, dict) or token.get("type") != "ERC-20":
+        if not isinstance(token, dict):
+            found.reasons.add("token_inventory_unreadable")
+            continue
+        if token.get("type") != "ERC-20":
             continue
         contract, symbol = token.get("address_hash") or token.get("address"), token.get("symbol")
-        if not isinstance(contract, str) or not isinstance(symbol, str):
+        if not isinstance(contract, str) or not contract or not isinstance(symbol, str) or not symbol:
+            found.reasons.add("token_inventory_unreadable")
+            continue
+        raw, decimals = row.get("value"), token.get("decimals")
+        if any(
+            isinstance(value, bool) or not isinstance(value, (str, int))
+            or not str(value).isascii() or not str(value).isdecimal()
+            for value in (raw, decimals)
+        ):
+            found.reasons.add("token_inventory_unreadable")
             continue
         try:
-            quantity = _scale(row.get("value"), int(token.get("decimals")))
+            if not 0 <= int(decimals) <= 255:
+                raise ValueError("Invalid token decimals")
+            quantity = _scale(raw, int(decimals))
         except (TypeError, ValueError):
+            found.reasons.add("token_inventory_unreadable")
             continue
         price = _decimal_or_none(token.get("exchange_rate"))
-        if quantity is None or quantity <= 0 or price is None:
+        if quantity is None or quantity < 0:
+            found.reasons.add("token_inventory_unreadable")
             continue
-        found.append(
+        if quantity == 0:
+            continue
+        if price is None:
+            found.reasons.add("token_price_unavailable")
+            continue
+        found.items.append(
             TokenHolding(
                 chain_key=chain.key,
                 contract=contract.lower(),
@@ -2085,7 +2181,7 @@ def _decimal_or_none(raw: Any) -> Optional[Decimal]:
         value = Decimal(str(raw))
     except (TypeError, ValueError, ArithmeticError):
         return None
-    return value if value.is_finite() and value > 0 else None
+    return value if value.is_finite() and value >= 0 else None
 
 
 class OnChainProvider(BankProvider):
@@ -2097,6 +2193,11 @@ class OnChainProvider(BankProvider):
     account so the holdings land in one Wallet — the same shape Coinbase uses,
     for the same reason.
     """
+
+    def __init__(self) -> None:
+        self._holdings_memo: tuple[str, asyncio.Task | None, HoldingsObservation] | None = None
+        self.holdings_observation: dict[str, Any] | None = None
+        self.account_holdings_observation: dict[str, Any] | None = None
 
     @property
     def name(self) -> str:
@@ -2136,12 +2237,18 @@ class OnChainProvider(BankProvider):
         return []
 
     async def get_accounts(self, credentials: dict) -> list[AccountData]:
-        # An address that cannot be read leaves this total short instead of
-        # failing: the balance is derived and rewritten every sync, so it
-        # self-corrects, while `get_holdings` still keeps the sweep off the
-        # positions behind that address.
-        holdings, _ = await self._read(credentials)
-        total = sum((h.current_value for h in holdings), Decimal("0"))
+        # A new account read always refreshes, including a retry after a partial
+        # sync. Only its immediately following holdings read can consume it.
+        self._holdings_memo = None
+        self.account_holdings_observation = None
+        key = self._observation_key(credentials)
+        observation = await self._read(credentials)
+        self._holdings_memo = (key, asyncio.current_task(), observation)
+        self.account_holdings_observation = observation.metadata
+        total = (
+            sum((h.current_value for h in observation.holdings), Decimal("0"))
+            if observation.metadata["complete"] else None
+        )
         return [
             AccountData(
                 external_id=ACCOUNT_EXTERNAL_ID,
@@ -2154,71 +2261,104 @@ class OnChainProvider(BankProvider):
         ]
 
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
-        """The native coin and every priced token, per watched address.
+        """Reuse one compatible account observation, preserving its gaps."""
+        memo, self._holdings_memo = self._holdings_memo, None
+        if (
+            memo is not None
+            and memo[0] == self._observation_key(credentials)
+            and memo[1] is asyncio.current_task()
+            and 0 <= time.monotonic() - memo[2].completed_at <= HOLDINGS_REUSE_SECONDS
+        ):
+            observation = memo[2]
+            self.holdings_observation = observation.metadata
+        else:
+            observation = await self._read(credentials)
+        if observation.unreadable:
+            raise PartialHoldings(observation.holdings, observation.unreadable)
+        return observation.holdings
 
-        The two are read independently — a wallet holding no SOL but 500 USDC is
-        a real wallet, and neither read's result is inferred from the other's.
-
-        Both raise rather than return short. Every holding this omits, the sync
-        layer archives, so a partial answer here is indistinguishable from a
-        liquidated wallet — and unlike a stale value, an archived asset does not
-        come back on its own. An address that fails is named in
-        ``PartialHoldings`` so the rest of the connection can still sync while
-        that one's positions are left alone.
-        """
-        holdings, unreadable = await self._read(credentials)
-        if unreadable:
-            raise PartialHoldings(holdings, unreadable)
-        return holdings
-
-    async def _read(self, credentials: dict) -> tuple[list[HoldingData], list[str]]:
-        """Every readable address's positions, plus the ids of those that failed.
-
-        Failure is per address, not per read: a wallet whose native balance
-        answers but whose token index does not is unread as a whole, because
-        keeping the half that answered would archive the other half.
-        """
+    def _observation_key(self, credentials: dict) -> str:
         watched = self._watched(credentials)
-        prices = await usd_spot_prices()
+        context = {
+            **credentials,
+            "addresses": sorted(entry.external_id for entry in watched),
+            "sources": sorted(
+                (entry.chain.key, rpc_url(entry.chain), entry.chain.token_index_url)
+                for entry in watched
+            ),
+            "jupiter": JUPITER_TOKEN_URL,
+        }
+        # Source URLs and any connection context stay private and in memory.
+        return hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
+
+    async def _read(self, credentials: dict) -> HoldingsObservation:
+        """A bounded observation; omissions protect their address's old assets."""
+        watched = self._watched(credentials)
+        budget = TokenReadBudget(time.monotonic() + ONCHAIN_SYNC_SECONDS)
+        observed_at = datetime.now(timezone.utc).isoformat()
+        self.holdings_observation = None
+        try:
+            async with asyncio.timeout(max(0, budget.deadline - time.monotonic())):
+                prices = await usd_spot_prices()
+            _check_deadline(budget.deadline)
+        except Exception:  # noqa: BLE001
+            prices = {}
         holdings: list[HoldingData] = []
         unreadable: list[str] = []
+        reasons: set[str] = set()
         async with session() as client:
             for entry in watched:
+                entry_reasons: set[str] = set()
                 try:
-                    native = await self._native_holding(entry, prices, client)
-                    tokens = await self._token_holdings(entry, client)
+                    native = await self._native_holding(entry, prices, client, deadline=budget.deadline)
+                    if native is not None:
+                        holdings.append(native)
+                except OnchainDeadlineExceeded:
+                    entry_reasons.add("time_budget")
                 except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "Could not read %s; leaving its holdings untouched",
-                        entry.external_id,
-                        exc_info=True,
-                    )
+                    entry_reasons.add("native_unavailable")
+                try:
+                    tokens, token_reasons = await self._token_holdings(entry, client, budget=budget)
+                    holdings.extend(tokens)
+                    entry_reasons.update(token_reasons)
+                except OnchainDeadlineExceeded:
+                    entry_reasons.add("time_budget")
+                except ProviderRateLimited:
+                    entry_reasons.add("token_rate_limited")
+                except Exception:  # noqa: BLE001
+                    entry_reasons.add("token_inventory_unavailable")
+                if entry_reasons:
                     unreadable.append(entry.external_id)
-                    continue
-                if native is not None:
-                    holdings.append(native)
-                holdings.extend(tokens)
-        return holdings, unreadable
+                    reasons.update(entry_reasons)
+        # Refusing an unvouched quote is not proof that the position is worth
+        # zero. Its quantity still syncs; the derived account total is unknown.
+        if any(h.quantity and h.unit_price is None for h in holdings):
+            reasons.add("untrusted_price")
+        metadata = {
+            "observed_at": observed_at,
+            "complete": not reasons,
+            "reasons": sorted(reasons),
+            "unreadable_count": len(unreadable),
+            "jupiter_batches": budget.batches_read,
+        }
+        for holding in holdings:
+            holding.metadata = {**(holding.metadata or {}), "onchain_observation": metadata.copy()}
+        self.holdings_observation = metadata
+        return HoldingsObservation(holdings, unreadable, metadata, time.monotonic())
 
     @staticmethod
     async def _native_holding(
-        entry: WatchedAddress, prices: dict[str, Decimal], client: httpx.AsyncClient
+        entry: WatchedAddress, prices: dict[str, Decimal], client: httpx.AsyncClient,
+        *, deadline: float,
     ) -> Optional[HoldingData]:
         """The address's native-coin position, valued at Coinbase's spot.
 
-        The price comes from Coinbase's public rate table, which needs no key
-        and works with Coinbase switched off — but does mean a Coinbase outage
-        stops this sync. That is the intended failure: it raises, the sync
-        layer logs and keeps the previous values, and the holdings go stale
-        rather than being rewritten at a price nobody knows.
-
-An address the node cannot answer for fails the whole sync rather
-        than dropping out of the payload. The sync layer archives any holding
-        it stops seeing, so a dropped holding is not a gap — it is a claim the
-        position is gone. A raise is caught upstream and leaves every value
-        stale, which is the recoverable answer; archiving is silent and sticks.
+        Missing quantity or a missing price for a nonzero quantity leaves this
+        position unreadable. The caller can retain independently read tokens
+        while protecting the native position from the archive sweep. A known
+        zero quantity needs no price to establish a zero value.
         """
-        quantity = await native_balance(entry.chain, entry.address, client=client)
+        quantity = await native_balance(entry.chain, entry.address, client=client, deadline=deadline)
         if quantity is None:
             raise RuntimeError(f"No balance returned for {entry.external_id}")
         price = prices.get(entry.chain.symbol)
@@ -2243,8 +2383,8 @@ An address the node cannot answer for fails the whole sync rather
 
     @staticmethod
     async def _token_holdings(
-        entry: WatchedAddress, client: httpx.AsyncClient
-    ) -> list[HoldingData]:
+        entry: WatchedAddress, client: httpx.AsyncClient, *, budget: TokenReadBudget,
+    ) -> tuple[list[HoldingData], set[str]]:
         """The address's token positions, valued only where the index vouches.
 
         An untrusted token is still reported, with its quantity and the quote
@@ -2253,13 +2393,13 @@ An address the node cannot answer for fails the whole sync rather
         this user's net worth; hiding it would answer a question the user asked
         with silence. Naming it and valuing it at nothing does neither.
 
-        An index that cannot be reached raises, for the reason
-        `_native_holding` gives: an empty list here is read downstream as every
-        token in this wallet having been disposed of.
+        Completed batches keep their quantities and verified prices. Missing
+        inventory, quotes, or bounded-out positions accompany the result as
+        gaps so the sync cannot archive the omitted positions.
         """
-        tokens = await token_holdings(entry.chain, entry.address, client=client)
+        tokens = await token_holdings(entry.chain, entry.address, client=client, budget=budget)
         holdings: list[HoldingData] = []
-        for token in tokens:
+        for token in tokens.items:
             price = token.usd_price if token.trusted else None
             holdings.append(
                 HoldingData(
@@ -2289,11 +2429,11 @@ An address the node cannot answer for fails the whole sync rather
                         "token_trusted": token.trusted,
                         # Kept even when refused, so the reason a position shows
                         # no value is inspectable rather than mysterious.
-                        "token_quoted_usd": str(token.usd_price) if token.usd_price else None,
+                        "token_quoted_usd": str(token.usd_price) if token.usd_price is not None else None,
                     },
                 )
             )
-        return holdings
+        return holdings, tokens.reasons
 
     @staticmethod
     def _watched(credentials: dict) -> list[WatchedAddress]:

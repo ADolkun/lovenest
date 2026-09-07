@@ -266,4 +266,4 @@ async def test_the_provider_names_the_address_it_could_not_read(_no_backoff):
         f"solana:{A}",
         f"solana:{A}:{MINT_A}",
     }
-    assert account.balance > 0
+    assert account.balance is None

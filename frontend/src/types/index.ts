@@ -160,7 +160,7 @@ export interface ConnectionSettings {
 export interface ProviderAccount {
   external_id: string
   name: string
-  balance: string
+  balance: string | null
   currency: string
   // null where the provider does not say — not the same as "no holdings".
   has_holdings: boolean | null

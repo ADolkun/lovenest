@@ -1036,7 +1036,7 @@ async def test_spl_balances_are_read_from_both_token_programs():
         jupiter=[_jupiter_row(MINT_A, "USDC", 1, True), _jupiter_row(MINT_B, "NEW", 2, True)],
     )
     with _settings(), _patched_client(handler):
-        held = await onchain.token_holdings(SOL, A)
+        held = (await onchain.token_holdings(SOL, A)).items
     assert {(t.symbol, t.quantity) for t in held} == {
         ("USDC", Decimal("5.000098")),
         ("NEW", Decimal("2")),
@@ -1053,7 +1053,7 @@ async def test_several_token_accounts_for_one_mint_are_one_position():
         jupiter=[_jupiter_row(MINT_A, "USDC", 1, True)],
     )
     with _settings(), _patched_client(handler):
-        [held] = await onchain.token_holdings(SOL, A)
+        [held] = (await onchain.token_holdings(SOL, A)).items
     assert held.quantity == Decimal("1.5")
 
 
@@ -1068,7 +1068,7 @@ async def test_a_mint_with_no_market_is_not_a_position():
                  _jupiter_row(MINT_B, "AIRDROP", None, False)],
     )
     with _settings(), _patched_client(handler):
-        held = await onchain.token_holdings(SOL, A)
+        held = (await onchain.token_holdings(SOL, A)).items
     assert [t.symbol for t in held] == ["REAL"]
 
 
@@ -1085,7 +1085,7 @@ async def test_an_unvouched_token_is_listed_with_its_quantity_and_never_valued()
     with _settings(), _patched_client(handler), patch.object(
         onchain, "usd_spot_prices", return_value={"SOL": Decimal("100")}
     ):
-        [held] = await onchain.token_holdings(SOL, A)
+        [held] = (await onchain.token_holdings(SOL, A)).items
         holdings = await OnChainProvider().get_holdings({"addresses": [f"solana:{A}"]})
     assert held.trusted is False
     assert held.usd_price == Decimal("1000000")
@@ -1096,6 +1096,11 @@ async def test_an_unvouched_token_is_listed_with_its_quantity_and_never_valued()
     assert token.unit_price is None
     assert token.current_value == Decimal("0")
     # The refused quote stays inspectable rather than vanishing.
+    assert token.metadata is not None
+    observation = token.metadata.pop("onchain_observation")
+    assert observation["complete"] is False
+    assert observation["reasons"] == ["untrusted_price"]
+    assert observation["observed_at"]
     assert token.metadata == {
         "chain": "solana",
         "address": A,
@@ -1118,7 +1123,7 @@ async def test_tokens_are_ranked_by_value_so_the_cap_discards_the_tail():
         jupiter=[_jupiter_row(m, f"T{i}", str(i + 1), True) for i, m in enumerate(mints)],
     )
     with _settings(), _patched_client(handler):
-        held = await onchain.token_holdings(SOL, A)
+        held = (await onchain.token_holdings(SOL, A)).items
     assert len(held) == onchain.MAX_TOKENS_PER_ADDRESS
     assert held[0].symbol == f"T{len(mints) - 1}"
     assert held == sorted(held, key=lambda t: t.quoted_value, reverse=True)
@@ -1132,7 +1137,7 @@ async def test_an_emptied_token_account_is_not_a_position():
         jupiter=[_jupiter_row(MINT_A, "GONE", "1", True)],
     )
     with _settings(), _patched_client(handler):
-        assert await onchain.token_holdings(SOL, A) == []
+        assert (await onchain.token_holdings(SOL, A)).items == []
 
 
 def _blockscout_row(symbol: str, value: str, rate, reputation: str, kind="ERC-20") -> dict:
@@ -1149,7 +1154,7 @@ async def test_erc20_balances_need_no_explorer_key():
     token balances work on a deployment that cannot trace EVM at all."""
     handler = _token_handler(blockscout=[_blockscout_row("USDC", str(3 * 10**18), 0.9999, "ok")])
     with _settings(etherscan_api_key=""), _patched_client(handler):
-        [held] = await onchain.token_holdings(BASE, EVM)
+        [held] = (await onchain.token_holdings(BASE, EVM)).items
     assert (held.symbol, held.quantity, held.trusted) == ("USDC", Decimal("3"), True)
     assert held.contract == ERC20
 
@@ -1158,7 +1163,7 @@ async def test_erc20_balances_need_no_explorer_key():
 async def test_a_token_blockscout_will_not_vouch_for_is_listed_without_a_value():
     handler = _token_handler(blockscout=[_blockscout_row("USDC", str(10**18), 1000, "scam")])
     with _settings(), _patched_client(handler):
-        [held] = await onchain.token_holdings(BASE, EVM)
+        [held] = (await onchain.token_holdings(BASE, EVM)).items
     assert held.trusted is False
 
 
@@ -1166,7 +1171,7 @@ async def test_a_token_blockscout_will_not_vouch_for_is_listed_without_a_value()
 async def test_an_nft_is_not_a_token_balance():
     handler = _token_handler(blockscout=[_blockscout_row("APE", "1", 5000, "ok", kind="ERC-721")])
     with _settings(), _patched_client(handler):
-        assert await onchain.token_holdings(BASE, EVM) == []
+        assert (await onchain.token_holdings(BASE, EVM)).items == []
 
 
 @pytest.mark.asyncio
@@ -1178,7 +1183,7 @@ async def test_bitcoin_has_no_tokens_and_its_index_is_never_asked():
         return httpx.Response(200, json=[])
 
     with _settings(), _patched_client(handler):
-        assert await onchain.token_holdings(CHAINS["bitcoin"], BTC_A) == []
+        assert (await onchain.token_holdings(CHAINS["bitcoin"], BTC_A)).items == []
     assert calls == []
 
 
@@ -1241,6 +1246,11 @@ async def test_each_watched_address_becomes_one_holding_priced_in_usd():
     assert holding.ticker == "SOL"
     assert holding.quantity == Decimal("2")
     assert holding.current_value == Decimal("300")
+    assert holding.metadata is not None
+    observation = holding.metadata.pop("onchain_observation")
+    assert observation["complete"] is True
+    assert observation["reasons"] == []
+    assert observation["observed_at"]
     assert holding.metadata == {"chain": "solana", "address": A, "watch_only": True}
 
 
@@ -1307,7 +1317,7 @@ async def test_an_unvouched_token_cannot_push_a_real_holding_out_of_the_payload(
         + [_jupiter_row(MINT_A, "USDC", "1", True)],
     )
     with _settings(), _patched_client(handler):
-        held = await onchain.token_holdings(SOL, A)
+        held = (await onchain.token_holdings(SOL, A)).items
     assert len(held) == onchain.MAX_TOKENS_PER_ADDRESS
     assert held[0].symbol == "USDC"
     assert "USDC" in {t.symbol for t in held}

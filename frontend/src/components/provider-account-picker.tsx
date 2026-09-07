@@ -78,7 +78,9 @@ export function ProviderAccountPicker({
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  {formatCurrency(Number(account.balance), account.currency, locale)}
+                  {account.balance === null
+                    ? t('accountHoldings.unpriced')
+                    : formatCurrency(Number(account.balance), account.currency, locale)}
                   {account.has_holdings && ` · ${t('connections.accountHasHoldings')}`}
                 </p>
               </div>
