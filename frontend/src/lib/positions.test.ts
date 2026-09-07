@@ -395,6 +395,18 @@ describe('liquid cash', () => {
     expect(total).toBe(1000)
   })
 
+  it('distinguishes unknown wallet cash from a known zero without blocking ticker allocation', () => {
+    const portfolio = buildPortfolio(
+      [holding({ value: 125, groupId: 'partial' }), holding({ ticker: null, value: null, groupId: 'partial' })],
+      [wallet('partial', 'investment', 'taxable', 1000), wallet('missing', 'savings'), wallet('zero', 'cash', 'taxable', 0)],
+    )
+
+    expect(portfolio.unknownCashWalletIds).toEqual(['partial', 'missing'])
+    expect(portfolio.liquidCash).toEqual([{ walletId: 'zero', accountType: 'cash', amount: 0 }])
+    expect(portfolio.total).toBe(125)
+    expect(portfolio.byAssetClass).toEqual([{ key: 'stock', value: 125, weight: 1 }])
+  })
+
   it('keeps liquid cash out of allocation and the invested total', () => {
     const { investedTotal, byAssetClass, byAccountType } = buildPortfolio(
       [holding({ ticker: 'VOO', type: 'etf', value: 1000, groupId: 'w1' })],
@@ -567,6 +579,25 @@ describe('narrowing to one allocation slice', () => {
     expect(filterPortfolio(portfolio, { dim: 'accountType', key: 'savings' }).liquidCashTotal).toBe(200)
     // An asset class has no cash of its own, so a class slice reports none.
     expect(filterPortfolio(portfolio, { dim: 'class', key: 'etf' }).liquidCashTotal).toBe(0)
+  })
+
+  it('scopes unavailable cash with wallets and account types, while a class includes no wallet cash', () => {
+    const portfolio = buildPortfolio(
+      [holding({ value: 125, groupId: 'missing' })],
+      [wallet('missing', 'investment'), wallet('cash', 'savings', 'taxable', 500)],
+    )
+
+    expect(portfolio.total).toBe(625)
+    expect(portfolio.unknownCashWalletIds).toEqual(['missing'])
+    expect(filterPortfolio(portfolio, { dim: 'wallet', key: 'missing' }).unknownCashWalletIds).toEqual(['missing'])
+    expect(filterPortfolio(portfolio, { dim: 'accountType', key: 'investment' }).unknownCashWalletIds).toEqual(['missing'])
+    const cash = filterPortfolio(portfolio, { dim: 'wallet', key: 'cash' })
+    expect(cash.unknownCashWalletIds).toEqual([])
+    expect(cash.total).toBe(500)
+    const stock = filterPortfolio(portfolio, { dim: 'class', key: 'stock' })
+    expect(stock.unknownCashWalletIds).toEqual([])
+    expect(stock.liquidCashTotal).toBe(0)
+    expect(stock.total).toBe(125)
   })
 
   it('lists a wallet holding nothing but cash, so it can still be clicked', () => {

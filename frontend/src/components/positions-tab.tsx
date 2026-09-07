@@ -337,8 +337,10 @@ export default function PositionsTab({
   ).map((holding) => holding.id))
   const incompletePositions = view.positions.filter((position) => position.legs.some((leg) => unpricedIds.has(leg.assetId)))
   const hasUnpricedPositions = incompletePositions.length > 0
+  const hasUnknownCash = view.unknownCashWalletIds.length > 0
+  const hasIncompleteBalance = hasUnpricedPositions || hasUnknownCash
   const hasKnownValue = view.positions.some((position) => position.legs.some((leg) => !unpricedIds.has(leg.assetId))) || view.liquidCash.length > 0
-  const summaryValue = hasUnpricedPositions && !hasKnownValue ? null : view.total
+  const summaryValue = hasIncompleteBalance && !hasKnownValue ? null : view.total
 
   // Income the wallets in view received, however it was paid. Kept apart from
   // the per-holding column because it is the answer to a different question:
@@ -371,7 +373,7 @@ export default function PositionsTab({
     value === null ? DASH : mask(formatCurrency(value, currency, locale))
 
   const toDonutData = (slices: AllocationSlice[], label: (key: string) => string): DonutDatum[] =>
-    slices.map((slice, i) => ({
+    slices.filter((slice) => slice.value > 0).map((slice, i) => ({
       key: slice.key,
       label: label(slice.key),
       value: slice.value,
@@ -389,11 +391,6 @@ export default function PositionsTab({
       dim: 'wallet',
       title: t('assets.posAllocationByAccount'),
       data: toDonutData(portfolio.byWallet, labelFor.wallet),
-    },
-    {
-      dim: 'accountType',
-      title: t('assets.posAllocationByAccountType'),
-      data: toDonutData(portfolio.byAccountType, labelFor.accountType),
     },
   ]
 
@@ -413,25 +410,17 @@ export default function PositionsTab({
   // user can see what was classified as cash and put it back.
   const cashEquivalents = view.positions.filter((p) => p.isCashEquivalent && (!p.isDust || incompletePositions.includes(p)))
 
-  if (portfolio.positions.length === 0) {
-    return (
-      <div className="rounded-xl border border-border bg-card shadow-sm px-4 py-10 text-center">
-        <p className="text-sm text-muted-foreground">{t('assets.posNoPositions')}</p>
-      </div>
-    )
-  }
-
   function renderDonut({ dim, title, data }: Donut) {
     const selectedKey = !walletContent && filter?.dim === dim ? filter.key : null
     const dimmed = (key: string) => selectedKey !== null && selectedKey !== key
     return (
       <section className="h-full min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5" aria-label={title}>
-        <h3 className="text-sm font-semibold text-foreground mb-3 lg:min-h-10 xl:min-h-5">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-4">{title}</h3>
         {data.length === 0 ? (
           <p className="text-xs text-muted-foreground italic py-8 text-center">{t('assets.posNoPositions')}</p>
         ) : (
-          <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-3 lg:grid-cols-1 lg:gap-2">
-            <div className="relative h-32 w-full lg:h-44">
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-4 sm:grid-cols-[10rem_minmax(0,1fr)] xl:grid-cols-[11rem_minmax(0,1fr)]">
+            <div className="relative h-28 w-full sm:h-40 xl:h-44">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -473,21 +462,21 @@ export default function PositionsTab({
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute inset-0 hidden lg:flex flex-col items-center justify-center pointer-events-none">
+              <div className="absolute inset-0 hidden sm:flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-[10px] text-muted-foreground">{t('assets.posInvestedTotal')}</span>
                 <span className="text-sm font-semibold text-foreground tabular-nums">
                   {money(portfolio.investedTotal)}
                 </span>
               </div>
             </div>
-            <div className="max-h-32 min-w-0 overflow-y-auto overscroll-contain lg:max-h-28">
+            <div className="max-h-56 min-w-0 overflow-y-auto overscroll-contain">
               {data.map((d, i) => (
                 <button
                   key={`${i}-${d.key}`}
                   type="button"
                   onClick={() => toggleFilter(dim, d.key)}
                   aria-pressed={selectedKey === d.key}
-                  className={`flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring transition-colors ${
+                  className={`flex min-h-11 w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring transition-colors ${
                     dimmed(d.key) ? 'opacity-40' : ''
                   }`}
                 >
@@ -499,7 +488,7 @@ export default function PositionsTab({
                   >
                     {d.label}
                   </span>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatPercent(d.weight)}</span>
+                  <span className="shrink-0 text-right text-xs tabular-nums"><span className="block font-medium text-foreground">{money(d.value)}</span><span className="block text-muted-foreground">{formatPercent(d.weight)}</span></span>
                 </button>
               ))}
             </div>
@@ -698,18 +687,17 @@ export default function PositionsTab({
     value: number | null,
     hint?: string,
     share?: number,
-    emphasis = false,
   ) {
     return (
-      <div className="flex items-baseline justify-between gap-4 px-4 py-3 border-t border-border first:border-t-0 sm:px-5">
+      <div className="flex items-baseline justify-between gap-4 py-3 border-t border-border first:border-t-0">
         <div className="min-w-0">
-          <span className={`text-xs ${emphasis ? 'font-semibold text-foreground' : 'text-muted-foreground'}`}>
+          <span className="text-sm text-muted-foreground">
             {label}
           </span>
-          {hint && <span className="block text-[10px] text-muted-foreground">{hint}</span>}
+          {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
         </div>
         <span
-          className={`tabular-nums shrink-0 ${emphasis ? 'text-sm font-bold text-foreground' : 'text-xs text-muted-foreground'}`}
+          className="shrink-0 text-sm tabular-nums text-foreground"
         >
           {money(value)}
           {share !== undefined && (
@@ -722,23 +710,68 @@ export default function PositionsTab({
 
   return (
     <div className="space-y-6">
-      <section aria-label={t('assets.allocationBreakdown')} className="space-y-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <h2 className="text-base font-semibold">{t('assets.allocationBreakdown')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('assets.positionsAndCash')}{activeFilterLabel && ` · ${activeFilterLabel}`} <span className="ml-2 text-xl font-semibold tabular-nums text-foreground">{money(summaryValue)}</span>
-          </p>
-        </div>
+      <section aria-label={t('assets.balanceOverview')} className="rounded-xl border border-border bg-card p-4 sm:p-5">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-[1.4fr_1fr_1fr]">
+          <div className="col-span-2 sm:col-span-1">
+            <dt className="text-sm text-muted-foreground">{t('assets.positionsAndCash')}{activeFilterLabel && ` · ${activeFilterLabel}`}</dt>
+            <dd className="mt-1 text-2xl font-semibold tabular-nums">{money(summaryValue)}</dd>
+            {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
+          </div>
+          <div>
+            <dt className="text-sm text-muted-foreground">{t('assets.posInvestedTotal')}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(incompletePositions.some((position) => !position.isCashEquivalent) && view.investedTotal === 0 ? null : view.investedTotal)}</dd>
+            {incompletePositions.some((position) => !position.isCashEquivalent) && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownHoldingsValue')}</p>}
+          </div>
+          <div>
+            <dt className="text-sm text-muted-foreground">{t('assets.cashAndEquivalents')}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(hasIncompleteBalance && view.cashEquivalentTotal + view.liquidCashTotal === 0 ? null : view.cashEquivalentTotal + view.liquidCashTotal)}</dd>
+            {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
+          </div>
+        </dl>
+        {hasUnknownCash && <p role="status" className="mt-4 text-sm text-muted-foreground">{t('assets.unknownCashHint', 'Some wallet cash balances are unavailable. Balance and cash totals include known values only.')}</p>}
+        {walletIncome && <p className="mt-4 text-sm text-muted-foreground">{t('assets.posWalletIncome')} <span className="ml-2 font-medium tabular-nums text-foreground">{money(walletIncome.total)}</span></p>}
+        <details className="mt-4 border-t border-border pt-3">
+          <summary className="w-fit cursor-pointer rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{t('assets.balanceDetails')}</summary>
+          <div className="mt-2">
+            {view.cashEquivalentTotal > 0 && renderTotalRow(t('assets.posCashEquivalents'), view.cashEquivalentTotal, incompletePositions.some((position) => position.isCashEquivalent) ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posCashEquivalentHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total))}
+            {view.liquidCashTotal > 0 && renderTotalRow(t('assets.posLiquidCash'), view.liquidCashTotal, hasUnknownCash ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posLiquidCashHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.liquidCashTotal, view.total))}
+            {view.dustTotal > 0 && !hasUnpricedPositions && renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
+            {walletIncome && (
+              <div className="flex items-baseline justify-between gap-4 py-3 border-t border-border">
+                <div className="min-w-0">
+                  <span className="text-xs text-muted-foreground">{t('assets.posWalletIncome')}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t('assets.posWalletIncomeHint')}
+                  </span>
+                </div>
+                <span className="tabular-nums shrink-0 text-xs text-muted-foreground">
+                  {money(walletIncome.total)}
+                  <span className="block text-xs text-right">
+                    {walletIncome.cadence
+                      ? t(`assets.incomeCadence.${walletIncome.cadence}`)
+                      : t('assets.incomeIrregular')}
+                    {walletIncome.runRate !== null &&
+                      ` · ${t('assets.posRunRate', { amount: money(walletIncome.runRate) })}`}
+                  </span>
+                </span>
+              </div>
+            )}
+            <p className="pt-3 text-xs leading-relaxed text-muted-foreground">{t('assets.balanceScopeHint')}</p>
+          </div>
+        </details>
+      </section>
+      {portfolio.positions.length > 0 && <section aria-label={t('assets.allocationBreakdown')} className="space-y-4">
+        <h2 className="text-base font-semibold">{t('assets.allocationBreakdown')}</h2>
         <p className="text-sm text-muted-foreground">{t('assets.allocationScopeHint', 'Allocation covers invested ticker holdings. Cash and other assets are listed separately.')}</p>
         {unpricedIds.size > 0 && <p role="status" className="text-sm text-muted-foreground">{t('assets.unpricedPositionsHint')}</p>}
         {unpricedIds.size === 0 && (
-          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+          <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-2">
             {donuts.map((donut) => <div key={donut.dim} className="min-w-0">{renderDonut(donut)}</div>)}
           </div>
         )}
-      </section>
+      </section>}
       {children}
-      {walletContent ?? (
+      {walletContent ?? (portfolio.positions.length > 0 &&
         <section className="space-y-3" aria-label={t('assets.posRanking')}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">{t('assets.posRanking')}</h2>
@@ -786,46 +819,7 @@ export default function PositionsTab({
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card">
-            {renderTotalRow(t('assets.posInvestedTotal'), hasKnownValue ? view.investedTotal : null, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined)}
-            {view.cashEquivalentTotal > 0 &&
-              renderTotalRow(
-                t('assets.posCashEquivalents'),
-                view.cashEquivalentTotal,
-                t('assets.posCashEquivalentHint'),
-                hasUnpricedPositions ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total),
-              )}
-            {view.liquidCashTotal > 0 &&
-              renderTotalRow(
-                t('assets.posLiquidCash'),
-                view.liquidCashTotal,
-                t('assets.posLiquidCashHint'),
-                hasUnpricedPositions ? undefined : shareOfTotal(view.liquidCashTotal, view.total),
-              )}
-            {view.dustTotal > 0 && !hasUnpricedPositions &&
-              renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
-            {renderTotalRow(t('assets.positionsAndCash'), summaryValue, hasUnpricedPositions ? t('assets.knownHoldingsValue') : undefined, undefined, true)}
-            {walletIncome && (
-              <div className="flex items-baseline justify-between gap-4 px-4 py-3 border-t border-border first:border-t-0 sm:px-5">
-                <div className="min-w-0">
-                  <span className="text-xs text-muted-foreground">{t('assets.posWalletIncome')}</span>
-                  <span className="block text-[10px] text-muted-foreground">
-                    {t('assets.posWalletIncomeHint')}
-                  </span>
-                </div>
-                <span className="tabular-nums shrink-0 text-xs text-muted-foreground">
-                  {money(walletIncome.total)}
-                  <span className="block text-[10px] text-right">
-                    {walletIncome.cadence
-                      ? t(`assets.incomeCadence.${walletIncome.cadence}`)
-                      : t('assets.incomeIrregular')}
-                    {walletIncome.runRate !== null &&
-                      ` · ${t('assets.posRunRate', { amount: money(walletIncome.runRate) })}`}
-                  </span>
-                </span>
-              </div>
-            )}
-          </div>
+
         </section>
       )}
     </div>
