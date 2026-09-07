@@ -89,7 +89,7 @@ async def test_blocked_reads_stop_at_the_deadline_and_leave_no_payload_tasks(sta
         _settings(), _patched_client(handler),
         patch.object(onchain_trace, "TIME_BUDGET_SECONDS", 0.04),
     ):
-        result = await asyncio.wait_for(onchain_trace.trace("solana", A, max_hops=1), 0.5)
+        result = await asyncio.wait_for(onchain_trace.trace("solana", A, max_hops=2), 0.5)
     assert cancelled == 1
     assert pending == 0
     assert result.interruption is not None
@@ -116,7 +116,8 @@ async def test_failed_optional_balances_stay_unknown_after_successful_history():
         return serve(request)
 
     with _settings(), _patched_client(handler):
-        result = await onchain_trace.trace("solana", A, max_hops=1)
+        # Read the child too so this isolates optional balance failure from a hop cap.
+        result = await onchain_trace.trace("solana", A, max_hops=2)
     assert len(result.edges) == 1
     assert not result.truncated
     assert all(node.balance is None for node in result.nodes)

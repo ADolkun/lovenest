@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -6,7 +6,7 @@ import { ModuleRoute } from '@/components/module-route'
 import { OnChainRoute } from '@/components/onchain-route'
 import TracePage, { OwnedWalletActivity } from '@/pages/trace'
 import { renderWithProviders } from '@/test/utils'
-import type { OnChainWatchedAddress, TraceResult } from '@/types'
+import type { OnChainWatchedAddress, TraceResult, TransferCoverage } from '@/types'
 
 const onchain = vi.hoisted(() => ({ chains: vi.fn(), addresses: vi.fn(), trace: vi.fn() }))
 const workspace = vi.hoisted(() => ({ id: 'investment', modules: ['accounts', 'assets'], isLoading: false }))
@@ -26,11 +26,24 @@ const second: OnChainWatchedAddress = {
   chain: 'ethereum', address: 'wallet-two', label: 'Ethereum wallet-two',
   connection_id: 'connection-two', connection_name: 'Second wallet',
 }
+const coverage: TransferCoverage = {
+  requested_since: null, requested_until: null, fetched_at: '2025-01-25T00:00:00Z',
+  observed_oldest: '2025-01-23T00:00:00Z', observed_newest: '2025-01-24T00:00:00Z',
+  examined_oldest: '2025-01-23T23:00:00Z', examined_newest: '2025-01-23T23:00:00Z',
+  since_reached: true, until_reached: true, provider_exhausted: true,
+  pages_read: 1, rows_read: 2, signatures_read: 2, payloads_requested: 2, payloads_read: 1,
+  missing_timestamps: 0, missing_payloads: 1, unsupported_payloads: 0,
+  omitted_signatures: null, omitted_transfers: null, next_cursor: 'synthetic-page-cursor',
+  stop_reasons: ['missing_payload'],
+}
 const traceResult: TraceResult = {
-  root: 'solana:wallet-one', direction: 'out', truncated: true,
+  root: 'solana:wallet-one', direction: 'out', truncated: true, complete: false,
+  scope: 'native_coin', root_window: { since: null, until: null },
   nodes: [
-    { id: 'solana:wallet-one', chain: 'solana', address: 'wallet-one', depth: 0, symbol: 'SOL', balance: '10', terminal_reason: null },
-    { id: 'solana:recipient', chain: 'solana', address: 'recipient', depth: 1, symbol: 'SOL', balance: null, terminal_reason: 'pooled' },
+    { id: 'solana:wallet-one', chain: 'solana', address: 'wallet-one', depth: 0, symbol: 'SOL', balance: '10', terminal_reason: null,
+      effective_window: { since: null, until: null }, coverage, unfinished_windows: [], stop_reasons: ['missing_payload'], branch_omitted_transfers: 0 },
+    { id: 'solana:recipient', chain: 'solana', address: 'recipient', depth: 1, symbol: 'SOL', balance: null, terminal_reason: 'pooled',
+      effective_window: { since: '2025-01-23T23:00:00Z', until: null }, coverage: null, unfinished_windows: [], stop_reasons: ['high_activity'], branch_omitted_transfers: 0 },
   ],
   edges: [{ source: 'solana:wallet-one', target: 'solana:recipient', chain: 'solana', symbol: 'SOL', amount: '2', reference: 'synthetic-transfer-reference', occurred_at: '2025-01-23T23:00:00Z' }],
 }
@@ -101,6 +114,75 @@ describe('legacy trace route', () => {
 })
 
 describe('owned wallet activity', () => {
+  it('shows measured coverage for every node without turning unknown counts into zero', async () => {
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    const region = await screen.findByRole('region', { name: 'Native transfer coverage' })
+    expect(within(region).getByText(/Native history is incomplete/)).toBeInTheDocument()
+    const root = within(region).getByText(/Starting address · wallet-one/).closest('details')!
+    await user.click(root.querySelector('summary')!)
+    expect(root).toHaveAttribute('open')
+    for (const [label, value] of [
+      ['History pages read', '1'], ['Solana signatures read', '2'], ['Non-null payloads received', '1'],
+      ['Missing timestamps', '0'], ['Missing payloads', '1'], ['Signatures not examined', 'Unknown / not measured'],
+      ['Decoded transfers omitted', 'Unknown / not measured'],
+      ['Observed history-row dates', '2025-01-23 00:00:00 UTC → 2025-01-24 00:00:00 UTC'],
+      ['Examined payload dates', '2025-01-23 23:00:00 UTC → 2025-01-23 23:00:00 UTC'],
+    ]) expect(within(root).getByText(label).nextElementSibling).toHaveTextContent(value)
+    expect(within(root).getByText('synthetic-page-cursor')).toBeInTheDocument()
+    expect(within(root).getByText(/Continues the signature list only/)).toBeInTheDocument()
+    const child = within(region).getByText(/Hop 1 · recipient/).closest('details')!
+    await user.click(child.querySelector('summary')!)
+    expect(within(child).getByText(/Provider coverage is unknown/)).toBeInTheDocument()
+    expect(within(child).getByText(/High activity stopped further reading; it does not identify/)).toBeInTheDocument()
+    expect(within(root).getByText('Provider history exhausted').nextElementSibling).toHaveTextContent('Yes')
+    expect(within(region).queryByText(/^Complete for/)).not.toBeInTheDocument()
+  })
+
+  it.each(['out', 'in'] as const)('explains the %s root window and keeps a converging unfinished child window visible', async (direction) => {
+    const childWindow = direction === 'out'
+      ? { since: '2025-01-25T12:00:00.125Z', until: null }
+      : { since: null, until: '2025-01-22T12:00:00.125Z' }
+    onchain.trace.mockResolvedValue({
+      ...traceResult, direction, root_window: { since: '2025-01-23T00:00:00Z', until: '2025-01-24T00:00:00Z' },
+      nodes: [traceResult.nodes[0], { ...traceResult.nodes[1], effective_window: childWindow,
+        unfinished_windows: [{ ...childWindow, reason: 'unexpanded_window' }],
+        stop_reasons: ['unexpanded_window', 'branch_limit'], branch_omitted_transfers: 2,
+      }],
+    })
+    const { user } = renderWithProviders(panel(), { route: `/assets?chain=solana&address=wallet-one&direction=${direction}&since=2025-01-23T00:00:00Z&until=2025-01-24T00:00:00Z` })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    expect(screen.getByText(direction === 'out' ? /no inherited root end date/ : /no inherited root start date/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    const region = await screen.findByRole('region', { name: 'Native transfer coverage' })
+    const child = within(region).getByText(/Hop 1 · recipient/).closest('details')!
+    await user.click(child.querySelector('summary')!)
+    expect(within(child).getByRole('heading', { name: 'Unfinished windows' })).toBeInTheDocument()
+    expect(within(child).getByText('Eligible transfers omitted by the branch limit: 2')).toBeInTheDocument()
+    expect(within(child).getAllByText(/Another path requires a window that was not examined/)).toHaveLength(2)
+    expect(child).toHaveTextContent(direction === 'out' ? '2025-01-25 12:00:00.125 UTC → No upper bound' : 'No lower bound → 2025-01-22 12:00:00.125 UTC')
+  })
+
+  it('limits complete empty history to the native window and keeps absent observed dates unknown', async () => {
+    onchain.trace.mockResolvedValue({
+      ...traceResult, complete: true, truncated: false, edges: [], nodes: [{
+        ...traceResult.nodes[0], terminal_reason: 'no_movement', stop_reasons: [],
+        coverage: { ...coverage, observed_oldest: null, observed_newest: null, examined_oldest: null, examined_newest: null,
+          rows_read: 0, signatures_read: 0, payloads_requested: 0, payloads_read: 0, missing_payloads: 0,
+          omitted_signatures: 0, omitted_transfers: 0, next_cursor: null, stop_reasons: [] },
+      }],
+    })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    const region = await screen.findByRole('region', { name: 'Native transfer coverage' })
+    expect(within(region).getByText('Complete for the declared native-coin windows at the time of this read.')).toBeInTheDocument()
+    expect(screen.getByText('No matching native transfers in the examined complete window.')).toBeInTheDocument()
+    expect(within(region).getByText(/Tokens, fees, swaps, bridges, exchange activity and tax basis remain outside/)).toBeInTheDocument()
+    await user.click(within(region).getByText(/Starting address · wallet-one/))
+    expect(within(region).getByText('Observed history-row dates').nextElementSibling).toHaveTextContent('Unknown / not measured → Unknown / not measured')
+    expect(within(region).queryByText('Next signature-page cursor')).not.toBeInTheDocument()
+  })
+
   it('restricts root selection to saved addresses and the supplied wallet scope', async () => {
     const { user } = renderWithProviders(panel({ connectionIds: ['connection-one'] }), {
       route: '/assets?chain=solana&address=someone-else',
@@ -407,7 +489,7 @@ describe('trace interruptions and retry guidance', () => {
 
   it('qualifies balance-only expiry without inventing incomplete transfer coverage', async () => {
     onchain.trace.mockResolvedValue({
-      ...traceResult, truncated: false,
+      ...traceResult, truncated: false, complete: true,
       nodes: traceResult.nodes.map((node) => ({ ...node, balance: null })),
       interruption: { code: 'deadline_exceeded', phase: 'balances', retry_after_seconds: null },
     })
