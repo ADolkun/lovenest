@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { History, Trash2 } from 'lucide-react'
 
-import { importLogs as importLogsApi } from '@/lib/api'
+import { importLogs as importLogsApi, assetErrorMessage } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { formatCurrency } from '@/lib/format'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
@@ -22,7 +22,9 @@ import {
 
 interface ImportHistoryProps {
   /** Which importer's runs to list; the two never mix in one table. */
-  entity: 'transactions' | 'asset_orders'
+  entity: 'transactions' | 'asset_orders' | 'asset_evidence'
+  onUndo?: () => void
+  disabled?: boolean
 }
 
 /**
@@ -33,18 +35,18 @@ interface ImportHistoryProps {
  * this table but not its columns — an order import has no account and no
  * credit/debit totals, so those columns only appear for statements.
  */
-export function ImportHistory({ entity }: ImportHistoryProps) {
+export function ImportHistory({ entity, onUndo, disabled = false }: ImportHistoryProps) {
   const { t } = useTranslation()
   const locale = useDisplayLocale()
   const dateLocale = useDateLocale()
   const queryClient = useQueryClient()
   const { user } = useAuth()
-  const { canWrite } = useWorkspace()
+  const { canWrite, current } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const [deleteTarget, setDeleteTarget] = useState<ImportLog | null>(null)
 
-  const { data: logs = [] } = useQuery({
-    queryKey: ['import-logs'],
+  const { data: logs = [], isPending, isError, error, refetch } = useQuery({
+    queryKey: ['import-logs', current?.id],
     queryFn: importLogsApi.list,
   })
 
@@ -54,10 +56,12 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
       queryClient.invalidateQueries({ queryKey: ['import-logs'] })
       queryClient.invalidateQueries({ queryKey: ['assets'] })
       invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['investment-evidence'] })
+      onUndo?.()
       setDeleteTarget(null)
       toast.success(t('import.undone'))
     },
-    onError: () => toast.error(t('common.error')),
+    onError: (failure) => toast.error(assetErrorMessage(failure, t('common.error'))),
   })
 
   const rows = logs.filter((log) => (log.entity ?? 'transactions') === entity)
@@ -70,7 +74,8 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
         <h2 className="text-lg font-semibold text-foreground">{t('import.history')}</h2>
       </div>
 
-      {rows.length === 0 ? (
+      {entity === 'asset_evidence' && <p className="mb-3 text-sm text-muted-foreground">{t('evidence.historyHelp', 'Workspace evidence history. Saving retains observations; only an application run owns financial rows. Undo reverses the selected run’s active applications and links, preserving source evidence and replay protection. Independently supported activity may remain; dependent activity can prevent undo.')}</p>}
+      {isError ? <div role="alert" className="space-y-2 rounded-xl border border-border p-4 text-sm"><p>{assetErrorMessage(error, t('evidence.historyError', 'Import history could not be loaded.'))}</p><button onClick={() => refetch()} className="underline">{t('common.retry', 'Retry')}</button></div> : isPending ? <p role="status">{t('common.loading', 'Loading…')}</p> : rows.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
           {t('import.noHistory')}
         </div>
@@ -112,7 +117,7 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
                   {isStatement && (
                     <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{log.account_name || '—'}</td>
                   )}
-                  <td className="px-3 py-3 text-right text-foreground sm:px-4">{log.transaction_count}</td>
+                  <td className="px-3 py-3 text-right text-foreground sm:px-4">{log.evidence ? t('evidence.historyCounts', '{{saved}} saved · {{applied}} applied · {{links}} active links', { saved: log.evidence.observations, applied: log.evidence.applications, links: log.evidence.links }) : log.transaction_count}</td>
                   {isStatement && (
                     <>
                       <td className="hidden px-4 py-3 text-right font-medium text-emerald-600 sm:table-cell">
@@ -124,9 +129,10 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
                     </>
                   )}
                   <td className="px-3 py-3 text-right sm:px-4">
-                    {canWrite && (
+                    {canWrite && (!log.evidence || log.evidence.applications > 0 || log.evidence.links > 0) && (
                       <button
-                        onClick={() => setDeleteTarget(log)}
+                        disabled={disabled || deleteMutation.isPending}
+                        onClick={() => { deleteMutation.reset(); setDeleteTarget(log) }}
                         className="text-muted-foreground transition-colors hover:text-rose-500"
                         aria-label={t('import.undoImport')}
                         title={t('import.undoImport')}
@@ -147,12 +153,13 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
           <DialogHeader>
             <DialogTitle>{t('import.undoImport')}</DialogTitle>
             <DialogDescription>
-              {t(isStatement ? 'import.undoDescription' : 'import.undoOrdersDescription', {
+              {deleteTarget?.evidence ? t('evidence.undoDescription', 'Undo {{applied}} active financial rows and {{links}} links owned by this run. Saved observations remain. This does not undo a separate application run.', { applied: deleteTarget.evidence.applications, links: deleteTarget.evidence.links }) : t(isStatement ? 'import.undoDescription' : 'import.undoOrdersDescription', {
                 count: deleteTarget?.transaction_count,
                 filename: deleteTarget?.filename || '—',
               })}
             </DialogDescription>
           </DialogHeader>
+          {deleteMutation.isError && <p role="alert" className="text-sm text-destructive">{assetErrorMessage(deleteMutation.error, t('common.error'))}</p>}
           <DialogFooter>
             <button
               onClick={() => setDeleteTarget(null)}
@@ -162,7 +169,7 @@ export function ImportHistory({ entity }: ImportHistoryProps) {
             </button>
             <button
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              disabled={deleteMutation.isPending}
+              disabled={disabled || deleteMutation.isPending}
               className="rounded-lg bg-rose-500 px-4 py-2 text-sm text-white hover:bg-rose-600 disabled:opacity-50"
             >
               {deleteMutation.isPending ? t('import.deleting') : t('import.deleteAll')}

@@ -26,7 +26,9 @@ from app.schemas.investment_evidence import (
     EvidenceObservationInput, EvidencePreview,
     EvidenceReconciliation, EvidenceRecord, EvidenceResult, EvidenceSourceRef, EvidenceTarget,
 )
+from app.providers.base import INCOME_AT_RECEIPT_NOTE
 from app.services import asset_import_service, asset_transaction_service
+from app.services.option_contract import OPTION_TYPE, is_option_symbol, multiplier_for
 
 
 def _sum_exact(values):
@@ -225,8 +227,24 @@ def _holding_conflicts(item, asset):
     return list(dict.fromkeys(fields))
 
 
-def _conflicts(observation, leg):
+def _multiplier(leg, asset=None):
+    return multiplier_for(asset.type if asset is not None else OPTION_TYPE if is_option_symbol(leg.asset_symbol) else None)
+
+
+def _included_fee(observation, leg):
+    # Income reports consume gross price separately from acquisition fees.
+    if observation.source_kind == "primary_activity" and leg.classification == "income":
+        return False
+    # Historical basis on a sale says nothing about its execution fee.
+    return (leg.acquisition_basis is not None and (
+        observation.source_kind != "primary_activity" or leg.classification != "sell"
+    )) or (leg.unit_price_origin == "derived_execution" and leg.unit_price is not None)
+
+
+def _conflicts(observation, leg, asset=None):
     fields = []
+    if observation.source_kind == "primary_activity" and leg.classification == "income" and _multiplier(leg, asset) != 1:
+        fields.append("unsupported_option_income")
     if leg.total is not None and leg.subtotal is not None and leg.fee is not None:
         expected = _sum_exact([leg.subtotal, leg.fee if leg.direction == "in" else leg.fee.copy_negate()])
         if expected != leg.total:
@@ -234,8 +252,12 @@ def _conflicts(observation, leg):
     if leg.unit_price is not None and leg.subtotal is not None and leg.quantity is not None and leg.unit_price_origin not in {"derived_execution", "derived_spot"}:
         with localcontext() as ctx:
             ctx.prec = 512
-            if leg.unit_price * leg.quantity != leg.subtotal:
+            if leg.unit_price * leg.quantity * _multiplier(leg, asset) != leg.subtotal:
                 fields.append("subtotal")
+    if observation.source_kind == "primary_activity" and leg.classification == "income" and leg.acquisition_basis is not None and leg.fee is not None:
+        price = _price(observation, leg, asset=asset)
+        if price is not None and _sum_exact([_product_exact(_product_exact(price, leg.quantity), _multiplier(leg, asset)), leg.fee]) != leg.acquisition_basis:
+            fields.append("acquisition_basis")
     if leg.fee not in (None, Decimal("0")) and leg.fee_currency != leg.execution_currency:
         fields.append("fee_currency")
     if observation.settlement_status in {"failed", "pending"}:
@@ -245,7 +267,7 @@ def _conflicts(observation, leg):
     return list(dict.fromkeys(fields))
 
 
-def _price(observation, leg, opening_boundary=None):
+def _price(observation, leg, opening_boundary=None, asset=None):
     secondary = observation.source_kind != "primary_activity"
     if secondary and not (opening_boundary and observation.source_kind in {"remaining_lots", "tax_workpaper"}):
         return None
@@ -257,12 +279,20 @@ def _price(observation, leg, opening_boundary=None):
         return None
     with localcontext() as ctx:
         ctx.prec = 512
+        if not secondary and leg.classification == "income":
+            if leg.subtotal is not None:
+                return leg.subtotal / (leg.quantity * _multiplier(leg, asset))
+            if leg.unit_price is not None and leg.unit_price_origin != "derived_execution":
+                return leg.unit_price
+            if leg.acquisition_basis is not None and leg.fee == 0:
+                return leg.acquisition_basis / (leg.quantity * _multiplier(leg, asset))
+            return None
         if leg.acquisition_basis is not None and (secondary or leg.classification != "sell"):
-            return leg.acquisition_basis / leg.quantity
+            return leg.acquisition_basis / (leg.quantity * _multiplier(leg, asset))
         if leg.unit_price is not None:
             return leg.unit_price
         if leg.subtotal is not None:
-            return leg.subtotal / leg.quantity
+            return leg.subtotal / (leg.quantity * _multiplier(leg, asset))
     return None
 
 
@@ -329,6 +359,12 @@ async def preview_evidence(
                 identity = metadata.get("evidence_asset_identity") or metadata
                 if any(getattr(leg, key) and identity.get(key) and getattr(leg, key) != identity[key] for key in ("chain", "token_address", "provider_asset_id")):
                     raise HTTPException(422, "Asset identity contradicts the selected holding")
+    peers = {}
+    for source in inputs.values():
+        peers[source.reference] = [other for other in inputs.values() if (
+            other.reference == source.reference or (source.source_local_id
+            and identities[other.reference] == identities[source.reference])
+        )]
     asset_by_id = {a.id: a for a in assets}
     represented = {(str(link.observation_id), link.source_leg_key) for link in links}
     pool = []
@@ -345,15 +381,25 @@ async def preview_evidence(
     records = []
     for observation in inputs.values():
         for item in observation.legs:
-            own = next((leg for leg in legs if str(leg.observation_id) == observation.reference and leg.source_leg_key == item.key), None)
-            related = [link for link in links if str(link.observation_id) == observation.reference and link.source_leg_key == item.key]
-            active = [link for link in related if link.reversed_at is None]
-            application = bool(own and own.applied_at) or any(
-                leg.applied_at for leg in legs if leg.id in {link.leg_id for link in related}
+            versions_for_source = peers[observation.reference]
+            compatible_versions = all(
+                _status_progression(left, right) for left in versions_for_source for right in versions_for_source
+                if left.reference != right.reference
             )
-            application_reversed = bool(own and own.applied_at and own.asset_transaction_id is None)
-            conflicts = _conflicts(observation, item)
+            peer_refs = {part.reference for part in versions_for_source} if compatible_versions else {observation.reference}
+            peer_legs = [part for part in legs if str(part.observation_id) in peer_refs and part.source_leg_key == item.key]
+            related = [link for link in links if str(link.observation_id) in peer_refs and link.source_leg_key == item.key]
+            active = [link for link in related if link.reversed_at is None and str(link.observation_id) == observation.reference]
+            application_legs = peer_legs + [part for part in legs if part.id in {link.leg_id for link in related}]
+            application = any(part.applied_at for part in application_legs)
+            application_reversed = any(part.applied_at and part.asset_transaction_id is None for part in application_legs)
             matches = [asset for asset in assets if asset.id == item.asset_id] if item.asset_id else [asset for asset in assets if asset.ticker and item.asset_symbol and asset.ticker.upper() == item.asset_symbol.upper()]
+            asset = matches[0] if len(matches) == 1 else None
+            conflicts = _conflicts(observation, item, asset)
+            if not compatible_versions:
+                conflicts.append("source_version")
+            if sum(bool(part.applied_at) for part in peer_legs) > 1:
+                conflicts.append("multiple_application_owners")
             if len(matches) == 1:
                 conflicts.extend(_holding_conflicts(item, matches[0]))
             elif len(matches) > 1:
@@ -387,7 +433,7 @@ async def preview_evidence(
                 conflicts.append("source_version")
             if len(versions) > 1:
                 conflicts.append("source_version")
-            price = _price(observation, item, opening_boundary)
+            price = _price(observation, item, opening_boundary, asset)
             applicable = observation.source_kind == "primary_activity" and item.classification in {"buy", "sell", "income"}
             applicable |= bool(opening_boundary and observation.source_kind in {"remaining_lots", "tax_workpaper"})
             if observation.source_kind != "primary_activity":
@@ -424,11 +470,24 @@ async def preview_evidence(
                 reasons.append("settlement_review_required")
             if item.fee is None:
                 reasons.append("unknown_fee")
-            fee_supported = item.fee is not None or item.acquisition_basis is not None or item.unit_price_origin == "derived_execution"
+            fee_supported = item.fee is not None or _included_fee(observation, item)
             if applicable and not fee_supported:
                 reasons.append("fee_assumption_required")
             match = "linked" if active else "conflicting" if conflicts else "candidate" if candidates or ambiguous_draft or grouping else "unmatched"
             status = "already_applied" if application else "not_applicable" if not applicable else "blocked" if conflicts or candidates or ambiguous_draft or price is None or not fee_supported else "eligible"
+            if related and not application:
+                status = "blocked"
+                reasons.append("canonical_application_required")
+            # One retained version owns an unapplied execution. Prefer settled,
+            # richer facts; the reference is only a deterministic tie-breaker.
+            canonical = max(versions_for_source, key=lambda source: (
+                source.settlement_status == "settled",
+                sum(value is not None for part in source.legs for value in part.model_dump().values()),
+                source.reference,
+            ))
+            if compatible_versions and canonical.reference != observation.reference and not application:
+                status = "blocked"
+                reasons.append("canonical_source_version")
             if application_reversed:
                 status = "blocked"
                 reasons.append("application_reversed")
@@ -440,7 +499,7 @@ async def preview_evidence(
             if status == "eligible":
                 effects = EvidenceEffects(
                     ledger_rows=1, units_delta=quantity if item.direction == "in" else quantity.copy_negate(),
-                    basis_delta=_sum_exact([_product_exact(quantity, price), ((item.fee or Decimal("0")) if item.acquisition_basis is None and item.unit_price_origin != "derived_execution" else Decimal("0"))]) if item.direction == "in" else None,
+                    basis_delta=_sum_exact([_product_exact(_product_exact(quantity, price), _multiplier(item, asset)), ((item.fee or Decimal("0")) if not _included_fee(observation, item) else Decimal("0"))]) if item.direction == "in" else None,
                 )
             refs = [_ref(observation, item.key)]
             refs.extend(_ref(other, part.key) for other in grouping for part in other.legs)
@@ -502,9 +561,18 @@ async def preview_evidence(
 def _reconciliation(inputs, records, legs, events, opening_boundary):
     identity_fields = ("asset_symbol", "chain", "token_address", "provider_asset_id", "isin")
     scopes = {}
+    by_record = {(record.observation_ref, record.leg_key): record for record in records}
     for observation in inputs.values():
         for item in observation.legs:
             key = tuple(getattr(item, field) for field in identity_fields)
+            record = by_record[(observation.reference, item.key)]
+            targets = [leg for leg in legs if leg.id in {link.leg.leg_id for link in record.links}]
+            if not targets and record.application_status == "already_applied" and "source_version" not in record.conflicting_fields:
+                targets = [leg for leg in legs if leg.asset_transaction_id and leg.source_leg_key == item.key
+                           and _status_progression(observation, inputs[str(leg.observation_id)])]
+            aliases = {tuple(leg.payload.get(field) for field in identity_fields) for leg in targets}
+            if len(aliases) == 1:
+                key = aliases.pop()
             scopes.setdefault(key, []).append((observation, item))
     by_record = {(record.observation_ref, record.leg_key): record for record in records}
     result = []
@@ -512,19 +580,32 @@ def _reconciliation(inputs, records, legs, events, opening_boundary):
         snapshots = [(observation, item) for observation, item in evidence if observation.source_kind == "balance_snapshot"]
         snapshot, snapshot_item = max(snapshots, key=lambda pair: str(pair[0].event_at or pair[0].event_date or "")) if snapshots else (None, None)
         boundary = opening_boundary
-        relevant_events = [event for event in events if event.opening_boundary and any(
-            leg.event_id == event.id and tuple(leg.payload.get(field) for field in identity_fields) == identity for leg in legs
+        evidence_keys = {(observation.reference, item.key) for observation, item in evidence}
+        canonical_lots = [leg for leg in legs if (
+            (str(leg.observation_id), leg.source_leg_key) in evidence_keys
+            and leg.asset_transaction_id is not None
+            and inputs[str(leg.observation_id)].source_kind in {"remaining_lots", "tax_workpaper"}
         )]
-        if boundary is None and relevant_events:
+        relevant_events = [event for event in events if event.opening_boundary and any(
+            leg.event_id == event.id for leg in canonical_lots
+        )]
+        boundaries = {_digest(event.opening_boundary) for event in relevant_events}
+        if boundary is None and len(boundaries) == 1:
             from app.schemas.investment_evidence import EvidenceOpeningBoundary
             boundary = EvidenceOpeningBoundary.model_validate(relevant_events[0].opening_boundary)
         opening = None
-        if boundary:
-            lot_quantities = [item.quantity for observation, item in evidence if observation.source_kind in {"remaining_lots", "tax_workpaper"} and item.quantity is not None]
-            if lot_quantities:
-                opening = _sum_exact(lot_quantities)
-        signed = Decimal("0")
         missing = {"lifetime_history_unverified"}
+        if len(boundaries) > 1:
+            missing.add("competing_opening_boundaries")
+        elif boundary and boundaries == {_digest(boundary.model_dump(mode="json"))}:
+            lot_quantities = [EvidenceLegInput.model_validate(leg.payload).quantity for leg in canonical_lots]
+            if lot_quantities and all(quantity is not None for quantity in lot_quantities):
+                opening = _sum_exact(lot_quantities)
+        if any(observation.source_kind in {"remaining_lots", "tax_workpaper"} and
+               by_record[(observation.reference, item.key)].application_status != "already_applied"
+               for observation, item in evidence):
+            missing.add("unreviewed_opening_evidence")
+        signed = Decimal("0")
         if opening is None:
             missing.add("opening_balance_unknown")
         counted = set()
@@ -536,6 +617,9 @@ def _reconciliation(inputs, records, legs, events, opening_boundary):
             own = next((leg for leg in legs if str(leg.observation_id) == observation.reference and leg.source_leg_key == item.key), None)
             # Corroboration does not add another movement. Only canonical
             # settled primary legs enter the quantity equation.
+            if any(reason in record.reason_codes for reason in ("canonical_source_version", "canonical_application_required", "application_reversed")):
+                missing.add("unresolved_movements")
+                continue
             if record.links or (record.application_status == "already_applied" and (own is None or not own.asset_transaction_id)):
                 continue
             if record.match_status in {"candidate", "conflicting"} or observation.settlement_status != "settled":
@@ -679,7 +763,7 @@ async def _link(session, workspace_id, user_id, row, item, decision, group_id, l
             raise HTTPException(422, "Primary classifications conflict")
         if observation.source_kind == "tax_workpaper" and item.classification not in {"lot", target_item.classification}:
             raise HTTPException(422, "Tax workpaper classification conflicts with primary evidence")
-        if _conflicts(observation, item) or _conflicts(source, target_item) or _comparison_fields(observation, item, source, target_item):
+        if _conflicts(observation, item, await session.get(Asset, item.asset_id) if item.asset_id else None) or _conflicts(source, target_item, await session.get(Asset, target.asset_id) if target.asset_id else None) or _comparison_fields(observation, item, source, target_item):
             raise HTTPException(422, "Resolve conflicting source fields before confirming a link")
         if observation.provider != source.provider and observation.provider != "csv" and source.source != "ledger":
             raise HTTPException(422, "Provider identity conflicts")
@@ -708,8 +792,12 @@ async def _link(session, workspace_id, user_id, row, item, decision, group_id, l
     own = await session.scalar(select(InvestmentLeg).where(
         InvestmentLeg.observation_id == row.id, InvestmentLeg.source_leg_key == item.key,
     ))
-    if own.applied_at and any(t.applied_at and t.asset_transaction_id != own.asset_transaction_id for t, _ in targets):
+    if own.applied_at and any(t.asset_transaction_id != own.asset_transaction_id for t, _ in targets):
         raise HTTPException(409, "already_applied_overlap: existing ledger rows require separate correction")
+    if await session.scalar(select(InvestmentObservationLink.id).where(
+        InvestmentObservationLink.observation_id.in_([target.observation_id for target, _ in targets]),
+    ).limit(1)):
+        raise HTTPException(422, "Link directly to canonical legs, not corroborating observations")
     prior = list((await session.scalars(select(InvestmentObservationLink).where(
         InvestmentObservationLink.observation_id == row.id,
         InvestmentObservationLink.source_leg_key == item.key,
@@ -750,15 +838,6 @@ async def _apply(session, workspace_id, user_id, group, row, item, decision, *, 
         raise HTTPException(422, "Settlement must be explicitly reviewed before applying this activity")
     if opening_boundary and (not opening_boundary.overlap_reviewed or observation.event_date > opening_boundary.as_of):
         raise HTTPException(422, "Opening lots require a reviewed as-of and overlap boundary")
-    price = _price(observation, item, opening_boundary)
-    if price is None or observation.event_date is None:
-        raise HTTPException(422, "Supported value and acquisition date are required")
-    price, quantity = asset_import_service._to_ledger_scale(price), asset_import_service._to_ledger_scale(item.quantity)
-    if price is None or quantity is None or quantity <= 0:
-        raise HTTPException(422, "Amount cannot be represented by the ledger")
-    kind = "sell" if item.classification == "sell" else "buy"
-    if (kind == "buy" and item.direction != "in") or (kind == "sell" and item.direction != "out"):
-        raise HTTPException(422, "Classification and direction conflict")
     assets = list((await session.scalars(select(Asset).where(
         Asset.workspace_id == workspace_id, Asset.group_id == group.id,
         Asset.id == item.asset_id if item.asset_id else Asset.ticker == item.asset_symbol,
@@ -770,6 +849,15 @@ async def _apply(session, workspace_id, user_id, group, row, item, decision, *, 
         raise HTTPException(422, "Source asset identity does not establish the selected holding")
     if asset and asset.currency != item.execution_currency:
         raise HTTPException(422, "Valuation currency differs from the holding currency")
+    price = _price(observation, item, opening_boundary, asset)
+    if price is None or observation.event_date is None:
+        raise HTTPException(422, "Supported value and acquisition date are required")
+    price, quantity = asset_import_service._to_ledger_scale(price), asset_import_service._to_ledger_scale(item.quantity)
+    if price is None or quantity is None or quantity <= 0:
+        raise HTTPException(422, "Amount cannot be represented by the ledger")
+    kind = "sell" if item.classification == "sell" else "buy"
+    if (kind == "buy" and item.direction != "in") or (kind == "sell" and item.direction != "out"):
+        raise HTTPException(422, "Classification and direction conflict")
     if asset is None:
         if not item.asset_symbol or kind != "buy":
             raise HTTPException(422, "An identified holding is required")
@@ -790,13 +878,13 @@ async def _apply(session, workspace_id, user_id, group, row, item, decision, *, 
         }}
         session.add(asset)
         await session.flush()
-    fee = Decimal("0") if item.acquisition_basis is not None or item.unit_price_origin == "derived_execution" else item.fee
+    fee = Decimal("0") if _included_fee(observation, item) else item.fee
     tx = AssetTransaction(
         asset_id=asset.id, workspace_id=workspace_id, kind=kind,
         quantity=quantity, price=price, fee=fee, date=observation.event_date,
         source="import", external_id=item.execution_id, import_id=log.id if log else None,
         created_at=observation.event_at or datetime.now(timezone.utc),
-        notes=f"{observation.provider} {item.classification}; reviewed source evidence"[:500],
+        notes=f"{INCOME_AT_RECEIPT_NOTE + '; ' if observation.source_kind == 'primary_activity' and item.classification == 'income' else ''}{observation.provider} {item.classification}; reviewed source evidence"[:500],
     )
     session.add(tx)
     await session.flush()
@@ -866,7 +954,11 @@ async def _import_evidence(
     log_id = None
     if log:
         if retained or imported or linked:
-            log.transaction_count = retained
+            log.transaction_count = retained + imported + linked
+            if decisions and filename == "evidence.csv":
+                sources = list(dict.fromkeys(_input(rows[d.observation_ref]).source_locator for d in decisions))
+                action = "Apply" if imported else "Link"
+                log.filename = f"{action}: {group.name} · {', '.join(sources)}"[:255]
             log_id = log.id
         else:
             await session.delete(log)
@@ -1072,9 +1164,11 @@ async def sync_evidence(session, connection, observations, trades, holdings, syn
         records = {(record.observation_ref, record.leg_key): record for record in preview.records}
         for row, own, observation, item, trade, asset in pending.values():
             record = records[(str(row.id), item.key)]
-            if record.application_status == "already_applied":
+            if record.application_status == "already_applied" or any(reason in record.reason_codes for reason in (
+                "canonical_application_required", "canonical_source_version", "application_reversed",
+            )):
                 continue
-            if record.match_status in {"candidate", "conflicting"} or _conflicts(observation, item):
+            if record.match_status in {"candidate", "conflicting"} or record.conflicting_fields or _conflicts(observation, item, asset):
                 continue
             if not item.execution_id or observation.settlement_status != "settled" or observation.event_at is None:
                 continue

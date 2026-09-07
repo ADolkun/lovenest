@@ -4,8 +4,9 @@ import { EvidenceImportPanel } from './evidence-import-panel'
 import { renderWithProviders } from '@/test/utils'
 import type { EvidenceObservation, EvidencePreview, EvidenceRecord } from '@/types/investment-evidence'
 
-const api = vi.hoisted(() => ({ evidence: vi.fn(), previewImport: vi.fn(), importEvidence: vi.fn(), confirmEvidence: vi.fn(), unlinkEvidence: vi.fn(), list: vi.fn(), workspace: vi.fn() }))
-vi.mock('@/lib/api', () => ({ assets: api, assetGroups: { list: api.list }, assetErrorMessage: (error: { response?: { data?: { detail?: string } } }, fallback: string) => error.response?.data?.detail ?? fallback }))
+const api = vi.hoisted(() => ({ evidence: vi.fn(), previewImport: vi.fn(), importEvidence: vi.fn(), confirmEvidence: vi.fn(), unlinkEvidence: vi.fn(), list: vi.fn(), workspace: vi.fn(), logs: vi.fn().mockResolvedValue([]), undo: vi.fn() }))
+vi.mock('@/lib/api', () => ({ assets: api, importLogs: { list: api.logs, delete: api.undo }, assetGroups: { list: api.list }, assetErrorMessage: (error: { response?: { data?: { detail?: string } } }, fallback: string) => error.response?.data?.detail ?? fallback }))
+vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: {} } }) }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: api.workspace }))
 
 function fixture(): EvidencePreview {
@@ -163,4 +164,58 @@ describe('investment evidence review', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm unlink; retain activity' }))
     await waitFor(() => expect(api.unlinkEvidence).toHaveBeenCalledWith('link-a', 'revision-1', boundary))
   })
+})
+
+it('connects Save, Apply, History and Undo, retaining refusal details and refreshing the review', async () => {
+  let view = fixture()
+  const logs: Array<{ id: string; entity: string; filename: string; created_at: string; transaction_count: number; evidence: { observations: number; applications: number; links: number } }> = []
+  api.logs.mockImplementation(async () => [...logs])
+  api.evidence.mockImplementation(async () => view)
+  api.importEvidence.mockImplementation(async () => {
+    logs.push({ id: 'save-log', entity: 'asset_evidence', filename: 'saved-source.csv', created_at: '2026-01-10T12:00:00Z', transaction_count: 4, evidence: { observations: 4, applications: 0, links: 0 } })
+    return { evidence: view }
+  })
+  api.confirmEvidence.mockImplementation(async () => {
+    logs.unshift({ id: 'apply-log', entity: 'asset_evidence', filename: 'Apply: synthetic source', created_at: '2026-01-10T12:01:00Z', transaction_count: 1, evidence: { observations: 0, applications: 1, links: 0 } })
+    view = { ...view, revision: 'applied', records: view.records.map((record) => record.observation_ref === 'observation-3' ? { ...record, application_status: 'already_applied' } : record) }
+    return { evidence: view }
+  })
+  api.undo.mockImplementationOnce(async () => { throw { response: { data: { detail: 'Undo would invalidate dependent activity' } } } })
+  const { user } = await openReview()
+  await user.upload(screen.getByLabelText('CSV source file'), new File(['Asset,Amount'], 'saved-source.csv', { type: 'text/csv' }))
+  await user.click(screen.getByRole('button', { name: 'Preview source' }))
+  await user.click(await screen.findByRole('button', { name: 'Save observations' }))
+  expect(await screen.findByText('saved-source.csv')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Undo import/ })).not.toBeInTheDocument()
+  await user.click(screen.getByText('row-unmatched'))
+  await user.click(screen.getByLabelText('I reviewed the source, destination and financial effect above.'))
+  await user.click(screen.getByLabelText('I verified this activity settled. The source did not report settlement status.'))
+  await user.click(screen.getByRole('button', { name: 'Apply supported activity' }))
+  const application = (await screen.findByText('Apply: synthetic source')).closest('tr')!
+  expect(within(application).getByText('0 saved · 1 applied · 0 active links')).toBeInTheDocument()
+  await user.click(within(application).getByRole('button', { name: /Undo import/ }))
+  const dialog = within(screen.getByRole('dialog'))
+  await user.click(dialog.getByRole('button', { name: /Delete all/ }))
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Undo would invalidate dependent activity')
+  expect(api.undo).toHaveBeenCalledWith('apply-log')
+  api.undo.mockReset().mockImplementation(async () => {
+    logs[0] = { ...logs[0], evidence: { observations: 0, applications: 0, links: 0 } }
+    view = { ...view, revision: 'undone', records: view.records.map((record) => record.observation_ref === 'observation-3' ? { ...record, application_status: 'blocked', reason_codes: ['application_reversed'] } : record) }
+  })
+  await user.click(dialog.getByRole('button', { name: /Delete all/ }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  await waitFor(() => expect(within(application).queryByRole('button', { name: /Undo import/ })).not.toBeInTheDocument())
+  await user.click(screen.getByText('row-unmatched'))
+  expect(screen.getByText('application reversed')).toBeInTheDocument()
+  expect(screen.getByText('saved-source.csv')).toBeInTheDocument()
+})
+
+it('shows a retryable history read failure instead of an empty history', async () => {
+  api.logs.mockRejectedValue({ response: { data: { detail: 'History temporarily unavailable' } } })
+  const { user } = await openReview()
+  expect(await screen.findByText('History temporarily unavailable')).toBeInTheDocument()
+  expect(screen.queryByText('No imports yet')).not.toBeInTheDocument()
+  api.logs.mockResolvedValue([])
+  await user.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByText('No imports yet')).toBeInTheDocument()
 })

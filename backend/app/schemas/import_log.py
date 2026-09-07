@@ -14,6 +14,7 @@ class ImportLogRead(BaseModel):
     account_name: Optional[str] = None
     #: "transactions" for a bank statement, "asset_orders" for a broker file.
     entity: str = "transactions"
+    evidence: dict[str, int] | None = None
     filename: str
     format: str
     transaction_count: int

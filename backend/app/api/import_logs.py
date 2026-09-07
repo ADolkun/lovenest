@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -10,6 +10,8 @@ from app.core.workspace_context import (
     current_writable_workspace,
 )
 from app.models.import_log import ImportLog
+from app.models.asset_transaction import AssetTransaction
+from app.models.investment_evidence import InvestmentObservation, InvestmentObservationLink
 from app.models.transaction import Transaction
 from app.schemas.import_log import ImportLogRead
 from app.services import asset_import_service, contribution_service
@@ -29,6 +31,16 @@ async def list_import_logs(
         .order_by(ImportLog.created_at.desc())
     )
     logs = result.scalars().unique().all()
+    evidence = {log.id: {"observations": 0, "applications": 0, "links": 0} for log in logs if log.entity == "asset_evidence"}
+    if evidence:
+        for model, field in ((InvestmentObservation, "observations"), (AssetTransaction, "applications"), (InvestmentObservationLink, "links")):
+            query = select(model.import_id, func.count()).where(
+                model.workspace_id == ctx.workspace.id, model.import_id.in_(evidence),
+            ).group_by(model.import_id)
+            if model is InvestmentObservationLink:
+                query = query.where(model.reversed_at.is_(None))
+            for log_id, count in (await session.execute(query)).all():
+                evidence[log_id][field] = count
     return [
         ImportLogRead(
             id=log.id,
@@ -36,6 +48,7 @@ async def list_import_logs(
             account_id=log.account_id,
             account_name=log.account.name if log.account else None,
             entity=log.entity,
+            evidence=evidence.get(log.id),
             filename=log.filename,
             format=log.format,
             transaction_count=log.transaction_count,

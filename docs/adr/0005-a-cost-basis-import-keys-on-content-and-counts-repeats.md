@@ -14,21 +14,38 @@ digest and physical row identity for replay; equal amounts and dates only
 propose an overlap. Different verified executions in one source namespace
 survive identical economic fingerprints. Confirmed evidence links may allocate
 one source row across several compatible legs, but never add their quantities
-again. Link reversal preserves both observations and the existing ledger.
+again. A corroborating row cannot write its own application; apply its canonical
+legs instead. Link reversal preserves both observations and the existing ledger.
+Compatible revisions of one scoped source identity share application ownership
+and undo markers. Compatibility is checked across the whole identity family;
+a missing value cannot bridge two contradictory known values.
 
 Applying primary activity is a separate reviewed action using the existing
 buy/sell ledger. Missing acquisition value, unresolved fees, incompatible
 currencies and conflicting source facts block application. Displayed valuation
 is neither acquisition basis nor original cash funding. Remaining-lot reports
 and tax workpapers remain evidence unless the user chooses opening-lot mode and
-states an as-of/overlap boundary. Old imports are not retroactively reclassified.
+states an as-of/overlap boundary. Reconciliation counts applied canonical opening
+legs once at that exact boundary; unreviewed assertions add no opening inventory,
+and competing boundaries leave opening quantity unknown. Old imports are not
+retroactively reclassified.
+
+Option execution prices use the existing per-share contract convention, while
+reported aggregate basis and preview effects include the contract multiplier.
+A sale retains its execution fee even when historical acquisition basis is also
+reported. Applied income retains the existing income-at-receipt marker and wallet
+reportability rules.
 
 Preview revisions and row locks protect confirmation against stale and
 concurrent decisions. Import undo removes only rows that application owns when
 the remaining ledger is valid, preserving source records and independently
 supported primary rows; provider-balance or downstream conflicts refuse undo.
 An application marker survives reversal so replay cannot silently recreate an
-undone execution. A matching quantity never certifies basis or lifetime coverage.
+undone execution. The shared import history exposes evidence saves, applications,
+and active links with current owned-row counts. Save-only runs retain evidence;
+financial Undo belongs to the application run. Successful Undo refreshes evidence
+and financial queries; refusal keeps the run active and displays the reason.
+A matching quantity never certifies basis or lifetime coverage.
 
 Ticket #67 seeds historical cost basis from a file, because no aggregator
 supplies acquisition dates or tax lots. Re-uploading is the normal way people

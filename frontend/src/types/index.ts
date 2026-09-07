@@ -571,7 +571,8 @@ export interface ImportLog {
   /** Null for an order import, which lands on holdings rather than an account. */
   account_id: string | null
   account_name: string | null
-  entity: 'transactions' | 'asset_orders'
+  entity: 'transactions' | 'asset_orders' | 'asset_evidence'
+  evidence?: { observations: number; applications: number; links: number } | null
   filename: string
   format: string
   transaction_count: number

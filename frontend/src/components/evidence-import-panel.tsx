@@ -6,6 +6,7 @@ import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ImportHistory } from '@/components/import-history'
 import { NativeSelect } from '@/components/ui/native-select'
 import type { AssetGroup, AssetImportPreview } from '@/types'
 import type { EvidenceDecision, EvidenceObservation, EvidencePreview, EvidenceRecord, EvidenceSourceKind } from '@/types/investment-evidence'
@@ -214,6 +215,7 @@ function EvidenceWalletReview({ group, workspaceId, mode }: { group: AssetGroup;
         </div>)}
       </details>
     </>}
+    <ImportHistory entity="asset_evidence" disabled={busy} onUndo={invalidatePreview} />
   </div>
 }
 
