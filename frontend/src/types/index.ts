@@ -571,7 +571,8 @@ export interface ImportLog {
   /** Null for an order import, which lands on holdings rather than an account. */
   account_id: string | null
   account_name: string | null
-  entity: 'transactions' | 'asset_orders'
+  entity: 'transactions' | 'asset_orders' | 'asset_evidence'
+  evidence?: { observations: number; applications: number; links: number } | null
   filename: string
   format: string
   transaction_count: number
@@ -861,6 +862,9 @@ export interface AssetImportWarning {
 }
 
 export interface AssetImportPreview {
+  column_mapping?: Record<string, string>
+  unmapped_columns?: string[]
+  evidence?: import('./investment-evidence').EvidencePreview | null
   orders: AssetOrderImport[]
   errors: AssetImportRowError[]
   skips: AssetImportSkip[]
@@ -873,6 +877,7 @@ export interface AssetImportPreview {
 }
 
 export interface AssetImportResult {
+  evidence?: import('./investment-evidence').EvidencePreview | null
   imported: number
   skipped: number
   holdings_created: number

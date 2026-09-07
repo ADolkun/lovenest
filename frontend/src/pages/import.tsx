@@ -15,6 +15,7 @@ import { Upload, FileText, X, CheckCircle2, AlertCircle, Settings2, Download } f
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/page-header'
 import { AssetImportPanel } from '@/components/asset-import-panel'
+import { EvidenceImportPanel } from '@/components/evidence-import-panel'
 import { ContributionImportPanel } from '@/components/contribution-import-panel'
 import { ImportSummaryBar } from '@/components/import-summary-bar'
 import { ImportReviewTable } from '@/components/import-review-table'
@@ -651,6 +652,8 @@ const TAB_TITLES: Record<ImportTab, string> = {
     contributions. */
 export default function ImportPage() {
   const { t } = useTranslation()
+  const { current } = useWorkspace()
+  const [investmentMode, setInvestmentMode] = useState<'evidence' | 'orders' | 'opening_lots'>('evidence')
   const [searchParams, setSearchParams] = useSearchParams()
   const requested = searchParams.get('tab')
   const tab = requested === 'investments' || requested === 'contributions' ? requested : 'transactions'
@@ -666,7 +669,7 @@ export default function ImportPage() {
     <div className="space-y-6">
       <PageHeader
         section={t('import.title')}
-        title={t(TAB_TITLES[tab])}
+        title={tab === 'investments' && investmentMode !== 'orders' ? investmentMode === 'evidence' ? t('evidence.title', 'Review investment sources') : t('evidence.backfillTitle', 'Backfill opening lots') : t(TAB_TITLES[tab])}
       />
 
       <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-0.5">
@@ -685,7 +688,22 @@ export default function ImportPage() {
       </div>
 
       {tab === 'investments' ? (
-        <AssetImportPanel />
+        <div className="space-y-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium">{t('evidence.workspace', 'Workspace')}: {current?.name ?? t('evidence.unknown', 'Unknown')}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="investment-import-mode">{t('evidence.importMode', 'Import mode')}</Label>
+              <select id="investment-import-mode" value={investmentMode} onChange={(e) => setInvestmentMode(e.target.value as typeof investmentMode)} className="rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm">
+                <option value="evidence">{t('evidence.sourceReview', 'Source review')}</option>
+                <option value="orders">{t('evidence.orders', 'Standalone orders')}</option>
+                <option value="opening_lots">{t('evidence.openingLots', 'Standalone lot backfill')}</option>
+              </select>
+            </div>
+          </div>
+          {investmentMode !== 'orders'
+            ? <EvidenceImportPanel key={`${current?.id}:${investmentMode}`} mode={investmentMode} />
+            : <AssetImportPanel key={`${current?.id}:${investmentMode}`} mode={investmentMode} />}
+        </div>
       ) : tab === 'contributions' ? (
         <ContributionImportPanel />
       ) : (

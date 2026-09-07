@@ -30,6 +30,7 @@ No new dependency: ``jose`` signs the token, ``cryptography`` backs it, and
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import secrets
 import time
@@ -52,6 +53,7 @@ from app.providers.base import (
     BankProvider,
     ConnectionData,
     HoldingData,
+    InvestmentActivity,
     ProviderRateLimited,
     ProviderUserActionRequired,
     SessionExpiredError,
@@ -62,6 +64,8 @@ from app.providers.base import (
     to_decimal as _to_decimal,
 )
 from app.providers.favicon import favicon_url_for
+from app.schemas.investment_evidence import EvidenceLegInput, EvidenceObservationInput
+from app.services.investment_evidence_parser import evidence_settlement, evidence_time
 
 logger = logging.getLogger(__name__)
 
@@ -410,7 +414,7 @@ class CoinbaseProvider(BankProvider):
             raise ProviderRateLimited("Coinbase rate-limited the request")
         resp.raise_for_status()
         try:
-            payload = resp.json()
+            payload = resp.json(parse_float=Decimal)
         except ValueError as exc:
             raise RuntimeError(f"Coinbase returned a non-JSON response for {path}") from exc
         return payload if isinstance(payload, dict) else {}
@@ -687,6 +691,10 @@ class CoinbaseProvider(BankProvider):
         holdings: list[HoldingData] = []
         for raw, code, quantity, price in self._crypto_positions(raw_accounts, prices):
             account_id = str(raw["id"])
+            metadata = {"asset_code": code, "account_type": raw.get("type")}
+            currency = raw.get("currency")
+            if isinstance(currency, dict) and currency.get("id"):
+                metadata["provider_asset_id"] = currency["id"]
             holdings.append(
                 HoldingData(
                     external_id=account_id,
@@ -700,7 +708,7 @@ class CoinbaseProvider(BankProvider):
                     # reports neither. Real cost basis reaches the ledger via
                     # `get_trades`, not from a guess made here.
                     account_external_id=portfolio_id,
-                    metadata={"asset_code": code, "account_type": raw.get("type")},
+                    metadata=metadata,
                 )
             )
         return holdings
@@ -883,6 +891,10 @@ class CoinbaseProvider(BankProvider):
         )
 
     async def get_trades(self, credentials: dict) -> list[TradeData]:
+        """Compatibility view of the same complete investment history read."""
+        return (await self.get_investment_activity(credentials)).trades
+
+    async def get_investment_activity(self, credentials: dict) -> InvestmentActivity:
         """Everything that moved a holding's basis, one wallet's history at a time.
 
         Coinbase files a transaction under the wallet it moved, and that
@@ -899,20 +911,28 @@ class CoinbaseProvider(BankProvider):
         Fiat wallets carry no holding to write to, so they are skipped.
         """
         trades: list[TradeData] = []
+        observations: list[EvidenceObservationInput] = []
         unknown_types: Counter[str] = Counter()
         spot: dict[tuple[str, date], Optional[Decimal]] = {}
         left_off = 0
-        for raw_account in await self._walk_accounts(credentials):
+        raw_accounts = await self._walk_accounts(credentials)
+        portfolio_id = self._portfolio_id([a for a in raw_accounts if str(a.get("id") or "")])
+        observed_at = datetime.now(timezone.utc)
+        for raw_account in raw_accounts:
             account_id = str(raw_account.get("id") or "")
             if not account_id or self._is_fiat(raw_account):
                 continue
             rows = await self._walk(
                 TRANSACTIONS_PATH.format(account_id=account_id), credentials
             )
-            for row in rows:
+            for row_number, row in enumerate(rows, 1):
                 tx_type = str(row.get("type") or "").strip().lower()
                 income_name = _legacy_income_name(row)
                 tx_class = TX_INCOME if income_name else _classify_transaction(tx_type)
+                observation = self._source_observation(
+                    row, raw_account, portfolio_id, tx_type, tx_class, observed_at, row_number,
+                )
+                observations.append(observation)
                 if tx_class == TX_UNKNOWN:
                     unknown_types[tx_type or "(none)"] += 1
                 if tx_class not in (TX_TRADE, TX_INCOME):
@@ -924,6 +944,23 @@ class CoinbaseProvider(BankProvider):
                     left_off += 1
                     continue
                 trades.append(trade)
+                # Derived execution pricing remains a proposal; native valuation,
+                # actual total and fee retain their separate source meanings.
+                observation.legs[0].unit_price = trade.price
+                observation.legs[0].execution_currency = "USD"
+                native = row.get("native_amount")
+                if not isinstance(native, dict):
+                    native = {}
+                observation.legs[0].unit_price_origin = (
+                    "derived_execution" if _iso_currency(native.get("currency")) == "USD"
+                    and _to_decimal(native.get("amount")) not in (None, Decimal("0"))
+                    else "derived_spot"
+                )
+                if any(
+                    currency.upper() != "USD" for key, currency in observation.source_fields.items()
+                    if key in {"unit_price_currency", "subtotal_currency", "total_currency"} and currency
+                ) and "monetary_currency_conflict" not in observation.reason_codes:
+                    observation.reason_codes.append("monetary_currency_conflict")
         if unknown_types:
             logger.warning(
                 "Coinbase reported transaction types this build cannot read as a "
@@ -941,7 +978,105 @@ class CoinbaseProvider(BankProvider):
                 "derived basis",
                 left_off,
             )
-        return trades
+        return InvestmentActivity(trades=trades, observations=observations)
+
+    @staticmethod
+    def _source_observation(raw, account, portfolio_id, tx_type, tx_class, observed_at, row_number):
+        """Whitelist financial evidence before trade classification can discard it."""
+        account_id = str(account["id"])
+        external_id = str(raw.get("id") or "") or None
+        amount = raw.get("amount") if isinstance(raw.get("amount"), dict) else {}
+        native = raw.get("native_amount") if isinstance(raw.get("native_amount"), dict) else {}
+        network = raw.get("network") if isinstance(raw.get("network"), dict) else {}
+        currency = account.get("currency") if isinstance(account.get("currency"), dict) else {}
+        detail = raw.get(tx_type) if isinstance(raw.get(tx_type), dict) else {}
+        quantity = _to_decimal(amount.get("amount"))
+        time_fields, reasons = evidence_time(raw.get("created_at"))
+        fields = {"quantity": str(amount["amount"]) if amount.get("amount") is not None else None,
+                  "classification": tx_type or None, "valuation_currency": native.get("currency")}
+
+        def money(name, reported):
+            cell = reported.get("amount") if isinstance(reported, dict) else reported
+            if cell is not None:
+                fields[name] = str(cell)
+            value = _to_decimal(cell)
+            if cell is not None and (value is None or not value.is_finite()):
+                reasons.append(f"invalid_{name}")
+                return None
+            if value is not None and value < 0 and name == "fee":
+                reasons.append("negative_fee")
+            return value.copy_abs() if value is not None else None
+
+        if quantity is not None and not quantity.is_finite():
+            quantity = None
+        if quantity is None:
+            reasons.append("missing_quantity")
+        fee = detail.get("fee", raw.get("fee", network.get("transaction_fee")))
+        if fee is None and detail.get("commission") is not None:
+            fee = detail["commission"]
+            reasons.append("commission_semantics_unresolved")
+        order_ref = detail.get("order_id")
+        if not order_ref and tx_type == "trade":
+            order_ref = detail.get("id")
+        reported_price = detail.get("price", detail.get("fill_price", raw.get("price")))
+        for name, value in {
+            "unit_price": reported_price, "subtotal": detail.get("subtotal", raw.get("subtotal")),
+            "total": detail.get("total", raw.get("total")),
+        }.items():
+            if isinstance(value, dict) and value.get("currency"):
+                fields[f"{name}_currency"] = value["currency"]
+        execution_currencies = {
+            value.upper() for key, value in fields.items()
+            if key in {"unit_price_currency", "subtotal_currency", "total_currency"} and value
+        }
+        if len(execution_currencies) > 1:
+            reasons.append("monetary_currency_conflict")
+        classification = "unknown"
+        if tx_class == TX_TRADE and quantity:
+            classification = "buy" if quantity > 0 else "sell"
+        elif tx_class == TX_INCOME:
+            classification = "income_reversal" if quantity is not None and quantity < 0 else "income"
+        elif tx_class == TX_UNRECORDED:
+            classification = "transfer" if (
+                tx_type in {"send", "receive", "request", "transfer", "vault_withdrawal"}
+                or tx_type.endswith(("_transfer", "_deposit", "_withdrawal"))
+            ) else tx_type
+        leg = EvidenceLegInput(
+            key="amount", asset_symbol=CoinbaseProvider._asset_code(amount) or currency.get("code"),
+            provider_asset_id=currency.get("id"),
+            direction="in" if quantity is not None and quantity > 0 else "out" if quantity else "unknown",
+            classification=classification,
+            quantity=quantity.copy_abs() if quantity is not None else None,
+            unit_price=money("unit_price", reported_price),
+            unit_price_origin="reported" if reported_price is not None else "unknown",
+            execution_currency=next(iter(execution_currencies)) if len(execution_currencies) == 1 else None,
+            subtotal=money("subtotal", detail.get("subtotal", raw.get("subtotal"))),
+            total=money("total", detail.get("total", raw.get("total"))),
+            valuation_amount=money("valuation_amount", native.get("amount")),
+            valuation_currency=native.get("currency"), fee=money("fee", fee),
+            fee_currency=fee.get("currency") if isinstance(fee, dict) else None,
+            chain=network.get("chain"), token_address=amount.get("token_address"),
+            transaction_ref=network.get("hash") or network.get("transaction_hash"),
+            execution_id=external_id,
+        )
+        # The fallback locates an observation with no provider id; it never
+        # impersonates that missing id. No unrestricted source payload is kept.
+        fallback = hashlib.sha256(json.dumps([row_number, raw.get("created_at"), fields], sort_keys=True).encode()).hexdigest()
+        if external_id is None:
+            reasons.append("missing_source_identity")
+        reference = f"coinbase:{account_id}:{external_id or fallback}"
+        return EvidenceObservationInput(
+            reference=reference, source="coinbase_api", provider="coinbase",
+            source_account_id=account_id, account_external_id=portfolio_id,
+            holding_external_id=account_id, source_local_id=external_id,
+            source_locator=f"/v2/accounts/{account_id}/transactions/{external_id or ('#row=' + str(row_number))}",
+            observed_at=observed_at, **time_fields,
+            provider_status=raw.get("status"), network_status=network.get("status"),
+            settlement_status=evidence_settlement(raw.get("status"), network.get("status")),
+            order_ref=str(order_ref) if order_ref else None,
+            coverage=["fiat_wallet_history_not_collected", "account_list_coverage_unverified"],
+            reason_codes=reasons, source_fields=fields, legs=[leg],
+        )
 
     async def get_transactions(
         self,

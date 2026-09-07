@@ -1,5 +1,22 @@
 # An exchange transaction is classified before it is believed
 
+Issue #143 adds retained source observations alongside this buy/sell policy.
+Coinbase's activity read now returns observations and existing trade proposals
+from one history walk. Transfers, unknown values, incomplete timestamps and
+unsettled records can therefore remain inspectable without becoming buys or
+sells. Original displayed valuation currency stays separate from execution
+currency, and a reported price is distinguishable from an execution-derived or
+spot-derived proposal.
+
+Automatic sync still applies supported, unambiguous primary trades, but a
+possible overlap with imported evidence or a conflicting source assertion is
+retained for review before writing another ledger row. A shared source order
+reference groups conversion legs without collapsing their asset identities;
+nearby timestamps alone only suggest a grouping. Reviewed corroboration and
+unlinking do not change applied economics. The balance and tax-character
+boundaries below remain in force, and retained observations do not establish
+complete basis, external funding, or ownership of an unmatched transfer.
+
 Ticket #69 mapped `buy`, `sell` and `advanced_trade_fill` and left every other
 type Coinbase reports on the floor, which is why a wallet fed by a transfer or
 a staking payout replayed short of its balance and stayed a Snapshot. #70

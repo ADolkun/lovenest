@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { AlertCircle, AlertTriangle, CheckCircle2, Download, FileText, Info, Settings2, Upload, X } from 'lucide-react'
 
-import { assets as assetsApi, assetGroups as assetGroupsApi } from '@/lib/api'
+import { assets as assetsApi, assetGroups as assetGroupsApi, assetErrorMessage } from '@/lib/api'
 import type { AssetImportPreview, AssetImportRowError, AssetImportSkip, AssetOrderImport } from '@/types'
 import { ImportHistory } from '@/components/import-history'
 import { Button } from '@/components/ui/button'
@@ -97,7 +97,7 @@ function RowNotice({
  * whose first strip picks the destination — the wallet here, the account
  * there. Two importers that look different teach the same person two habits.
  */
-export function AssetImportPanel() {
+export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -113,6 +113,9 @@ export function AssetImportPanel() {
   const [dragOver, setDragOver] = useState(false)
   const [allowUnpriced, setAllowUnpriced] = useState(false)
   const [dateFormat, setDateFormat] = useState('')
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const previewRequest = useRef(0)
+  useEffect(() => () => { previewRequest.current += 1 }, [])
 
   const { data: wallets } = useQuery({
     queryKey: ['asset-groups'],
@@ -139,24 +142,33 @@ export function AssetImportPanel() {
     nextAllowUnpriced = allowUnpriced,
     nextDateFormat = dateFormat,
   ) {
+    const request = ++previewRequest.current
     setLoading(true)
+    setPreview(null)
+    setPreviewError(null)
     try {
       const result = await assetsApi.previewImport(selected, {
         column_mapping: nextMapping,
         group_id: nextGroup || null,
         allow_unpriced: nextAllowUnpriced,
         date_format: nextDateFormat || undefined,
+        mode,
       })
+      if (request !== previewRequest.current) return
       setPreview(result)
-    } catch {
-      toast.error(t('assetImport.previewError'))
+    } catch (error) {
+      if (request !== previewRequest.current) return
+      setPreviewError(assetErrorMessage(error, t('assetImport.previewError')))
       setPreview(null)
     } finally {
-      setLoading(false)
+      if (request === previewRequest.current) setLoading(false)
     }
   }
 
   function handleFile(selected: File | null) {
+    previewRequest.current += 1
+    setLoading(false)
+    setPreviewError(null)
     setFile(selected)
     setPreview(null)
     setMapping({})
@@ -200,7 +212,7 @@ export function AssetImportPanel() {
   }
 
   async function handleImport() {
-    if (!preview || preview.orders.length === 0 || !groupId) return
+    if (!canWrite || loading || importing || !preview || preview.orders.length === 0 || !groupId) return
     setImporting(true)
     try {
       const result = await assetsApi.importOrders(
@@ -208,6 +220,7 @@ export function AssetImportPanel() {
         groupId,
         file?.name,
         allowUnpriced,
+        { mode },
       )
       queryClient.invalidateQueries({ queryKey: ['assets'] })
       queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
@@ -229,6 +242,10 @@ export function AssetImportPanel() {
 
   return (
     <div className="space-y-6">
+      <div className="space-y-3 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+        <p>{t('evidence.standaloneWarning', 'Standalone imports apply orders directly. Review overlapping API, CSV, and lot evidence in Source review before using this mode.')}</p>
+      </div>
+      {previewError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning-foreground"><span>{previewError}</span><Button variant="outline" onClick={() => file && runPreview(file, mapping, groupId)}>{t('common.retry', 'Retry')}</Button></div>}
       {canWrite && (
         <div
           className={`cursor-pointer rounded-xl border-2 border-dashed bg-card transition-all ${
@@ -255,6 +272,7 @@ export function AssetImportPanel() {
                 </div>
                 <p className="text-sm font-semibold text-foreground">{t('assetImport.reading')}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{file?.name}</p>
+                <Button variant="ghost" className="mt-2" onClick={(event) => { event.stopPropagation(); handleReset() }}>{t('import.removeFile')}</Button>
               </>
             ) : file && preview && !needsMapping ? (
               <>
@@ -498,7 +516,7 @@ export function AssetImportPanel() {
                 <X size={14} className="mr-1" />
                 {t('common.cancel')}
               </Button>
-              <Button onClick={handleImport} disabled={importing || importable === 0 || !groupId} className="gap-2">
+              <Button onClick={handleImport} disabled={!canWrite || loading || importing || importable === 0 || !groupId} className="gap-2">
                 <Upload size={14} />
                 {importing ? t('assetImport.importing') : t('assetImport.confirm', { count: importable })}
               </Button>

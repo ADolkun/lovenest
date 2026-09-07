@@ -696,6 +696,16 @@ async def _sync_holdings(
         seen.add(holding.external_id)
         existing = existing_by_external.get(holding.external_id)
 
+        if existing is None and not holding.is_withdrawn:
+            from app.services.investment_evidence_service import evidence_holding_for_sync
+            mapped_group = await _wallet_for(holding)
+            existing, ambiguous = await evidence_holding_for_sync(session, connection, holding, mapped_group.id)
+            if ambiguous:
+                # Retain the pending API evidence below instead of adding a
+                # second snapshot beside a reviewed but unverified holding.
+                logger.info("Holding identity needs source review in wallet %s", mapped_group.id)
+                continue
+
         # A non-null connection owns the row until it is disconnected (the
         # FK then SET NULLs it). Provider ids are not guaranteed unique across
         # two live connections, so letting the latest sync adopt the row would
@@ -705,6 +715,10 @@ async def _sync_holdings(
             and existing.connection_id is not None
             and existing.connection_id != connection.id
         ):
+            if not holding.is_withdrawn:
+                # Retain a destination for this connection's evidence while
+                # leaving the other connection's holding and wallet alone.
+                await _wallet_for(holding)
             logger.warning(
                 "Skipping asset %s already owned by connection %s while syncing %s",
                 existing.id,
@@ -892,7 +906,8 @@ async def _sync_trades(
     """
     try:
         provider = get_provider(connection.provider)
-        trades = await provider.get_trades(credentials)
+        activity = await provider.get_investment_activity(credentials)
+        trades = activity.trades
     except Exception:  # noqa: BLE001
         logger.exception("Failed to fetch trades for connection %s", connection.id)
         return
@@ -910,7 +925,7 @@ async def _sync_trades(
         if a.external_id
         and (synced_account_ids is None or a.account_external_id in synced_account_ids)
     }
-    if not holdings:
+    if not holdings and not activity.observations:
         return
 
     by_id: dict[uuid.UUID, Asset] = {a.id: a for a in holdings.values()}
@@ -930,6 +945,14 @@ async def _sync_trades(
             written.add((asset_id, external_id))
 
     touched: dict[uuid.UUID, Asset] = {}
+    if activity.observations:
+        from app.services.investment_evidence_service import sync_evidence
+        touched = await sync_evidence(
+            session, connection, activity.observations, trades, holdings, synced_account_ids,
+        )
+        # The evidence-aware writer owns all proposals from this provider
+        # read, including blocked ones. They must not fall through below.
+        trades = []
     # Oldest first. `_recompute` replays by `(date, created_at)`, and rows
     # flushed together share a server-side `created_at` to the microsecond, so
     # left alone the tiebreak falls through to insertion order — which for a

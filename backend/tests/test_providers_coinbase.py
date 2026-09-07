@@ -114,6 +114,100 @@ RATES = {
 }
 
 
+@pytest.mark.asyncio
+async def test_investment_activity_retains_nontrades_and_original_source_facts_in_one_walk():
+    private_pem, _ = _generate_key()
+    accounts = [_account("synthetic-wallet", "XRP", "0")]
+    accounts[0]["currency"]["id"] = "invented-currency-id"
+    buy = _transaction("api-trade-A", "buy", "12", "84")
+    buy["buy"] = {"total": {"amount": "84", "currency": "USD"},
+                  "subtotal": {"amount": "82", "currency": "USD"},
+                  "fee": {"amount": "3", "currency": "USD"}}
+    transfer = _transaction(
+        "api-withdrawal", "send", "-0.12345678901234567890123456789", "-84",
+        created_at="2026-01-02T12:30:40.123456789+02:30",
+    )
+    transfer["network"] = {"status": "unconfirmed", "hash": "invented-network-reference"}
+    transfer["description"] = "PRIVATE DESCRIPTION MUST NOT BE STORED"
+    failed = _transaction("api-failed", "send", "-2", "-10", status="failed")
+    failed["network"] = {"transaction_fee": {"amount": "0.0000000000000000001", "currency": "XRP"}}
+    handler = _history_handler(accounts, {"synthetic-wallet": [
+        _tx_page([buy], "1"), _tx_page([transfer, failed]),
+    ]})
+    requested = []
+
+    def counted(request):
+        requested.append(request.url.path)
+        return handler(request)
+
+    with _patched_client(counted):
+        activity = await CoinbaseProvider().get_investment_activity(_credentials(private_pem))
+    assert len(requested) == 3  # one account read, two history pages, no duplicate walk
+    assert [trade.external_id for trade in activity.trades] == ["api-trade-A"]
+    purchase, withdrawal, failure = activity.observations
+    assert purchase.legs[0].execution_id == "api-trade-A"
+    assert purchase.legs[0].unit_price_origin == "derived_execution"
+    assert purchase.legs[0].execution_currency == "USD"
+    assert (purchase.legs[0].total, purchase.legs[0].subtotal, purchase.legs[0].fee) == (
+        Decimal("84"), Decimal("82"), Decimal("3"),
+    )
+    assert withdrawal.account_external_id == PORTFOLIO_ID
+    assert withdrawal.holding_external_id == withdrawal.source_account_id == "synthetic-wallet"
+    assert withdrawal.legs[0].provider_asset_id == "invented-currency-id"
+    assert withdrawal.legs[0].quantity == Decimal("0.12345678901234567890123456789")
+    assert withdrawal.legs[0].direction == "out"
+    assert withdrawal.event_time_raw == "2026-01-02T12:30:40.123456789+02:30"
+    assert withdrawal.time_precision == "fractional"
+    assert (withdrawal.provider_status, withdrawal.network_status) == ("completed", "unconfirmed")
+    assert withdrawal.settlement_status == "pending"
+    assert withdrawal.legs[0].valuation_amount == Decimal("84")
+    assert withdrawal.legs[0].total is withdrawal.legs[0].acquisition_basis is None
+    assert withdrawal.legs[0].external_funding_amount is None
+    assert "PRIVATE DESCRIPTION" not in withdrawal.model_dump_json()
+    assert failure.settlement_status == "failed"
+    assert failure.legs[0].fee == Decimal("0.0000000000000000001")
+
+
+@pytest.mark.asyncio
+async def test_json_monetary_numbers_are_decoded_without_a_float_round_trip():
+    with _patched_client(lambda request: httpx.Response(
+        200, content=b'{"amount":0.12345678901234567890123456789}',
+    )):
+        payload = await CoinbaseProvider()._get("/synthetic")
+    assert payload["amount"] == Decimal("0.12345678901234567890123456789")
+
+
+@pytest.mark.asyncio
+async def test_holdings_keep_the_provider_currency_identity_for_evidence_matching():
+    private_pem, _ = _generate_key()
+    account = _account("synthetic-wallet", "XRP", "12")
+    account["currency"]["id"] = "invented-currency-id"
+    with _patched_client(_routing_handler([_page([account])])):
+        holdings = await CoinbaseProvider().get_holdings(_credentials(private_pem))
+    assert holdings[0].metadata is not None
+    assert holdings[0].metadata["provider_asset_id"] == "invented-currency-id"
+
+
+@pytest.mark.asyncio
+async def test_a_usd_income_price_keeps_its_spot_origin_and_eur_native_valuation():
+    private_pem, _ = _generate_key()
+    income = _transaction(
+        "synthetic-income", "earn_payout", "12", "70", native_currency="EUR",
+        created_at="2026-01-02T12:00:00Z",
+    )
+    with _patched_client(_history_handler(
+        [_account("synthetic-wallet", "XRP", "12")],
+        {"synthetic-wallet": [_tx_page([income])]},
+        spot={("XRP-USD", "2026-01-02"): "7"},
+    )):
+        activity = await CoinbaseProvider().get_investment_activity(_credentials(private_pem))
+    leg = activity.observations[0].legs[0]
+    assert activity.trades[0].price == leg.unit_price == Decimal("7")
+    assert (leg.execution_currency, leg.unit_price_origin) == ("USD", "derived_spot")
+    assert (leg.valuation_amount, leg.valuation_currency) == (Decimal("70"), "EUR")
+    assert leg.total is leg.acquisition_basis is leg.external_funding_amount is None
+
+
 def _routing_handler(
     pages: list[dict],
     *,
