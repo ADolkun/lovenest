@@ -7,11 +7,12 @@ touches the network and no address in this file is anybody's wallet.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -38,14 +39,27 @@ EVM = "0x" + "ab" * 20
 JAN23 = 1737673208  # 2025-01-23T23:00:08Z
 
 
+@contextmanager
 def _patched_client(handler):
     """Point the module's shared client factory at a MockTransport."""
+    from app.providers import onchain_transport
+
     transport = httpx.MockTransport(handler)
+    coordination = AsyncMock()
+    coordination.eval.side_effect = lambda script, *args: (
+        [1, 0] if script == onchain_transport._ACQUIRE_SCRIPT else 0
+    )
 
     def fake_client():
         return httpx.AsyncClient(transport=transport, timeout=5)
 
-    return patch.object(onchain, "_client", fake_client)
+    # These existing tests exercise payloads, not distributed coordination.
+    # Real Redis/cross-process behavior is covered in test_onchain_rpc.py.
+    with (
+        patch.object(onchain, "_client", fake_client),
+        patch.object(onchain_transport, "_redis_client", lambda: coordination),
+    ):
+        yield
 
 
 def _settings(**overrides):
@@ -547,11 +561,12 @@ async def test_a_page_that_will_not_load_shortens_the_history_rather_than_losing
 @pytest.mark.asyncio
 async def test_a_first_page_that_will_not_load_is_a_failure_not_an_empty_history():
     def handler(request):
-        raise httpx.ReadTimeout("unreachable")
+        raise httpx.ReadTimeout("https://synthetic.invalid/secret-sentinel")
 
     with _settings(), _patched_client(handler):
-        with pytest.raises(httpx.ReadTimeout):
+        with pytest.raises(RuntimeError, match="request timed out") as error:
             await onchain.transfers(BASE, EVM, limit=25)
+    assert "sentinel" not in str(error.value)
 
 
 @pytest.mark.asyncio

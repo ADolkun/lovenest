@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,7 @@ from app.core.rate_limit import onchain_trace_rate_limit
 from app.core.workspace_context import WorkspaceContext, current_workspace
 from app.models.bank_connection import BankConnection
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
-from app.providers.onchain import CHAINS, WatchedAddress, parse_addresses
+from app.providers.onchain import CHAINS, OnchainRateLimited, WatchedAddress, parse_addresses
 from app.schemas.onchain import ChainRead, TraceRead, TraceRequest, WatchedAddressRead
 from app.services import onchain_trace
 
@@ -73,10 +73,27 @@ async def list_watched_addresses(
     return watched
 
 
+async def _trace_admission(request: Request) -> None:
+    try:
+        await onchain_trace_rate_limit(request)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+            raise
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "code": "trace_admission_limited",
+                "message": "This server has reached its trace request limit. Wait before retrying.",
+                "retry_after_seconds": int((exc.headers or {}).get("Retry-After", "60")),
+            },
+            headers=exc.headers,
+        ) from exc
+
+
 @router.post(
     "/trace",
     response_model=TraceRead,
-    dependencies=[Depends(onchain_trace_rate_limit)],
+    dependencies=[Depends(_trace_admission)],
 )
 async def trace_address(
     payload: TraceRequest,
@@ -102,13 +119,23 @@ async def trace_address(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except ProviderNotConfiguredError as exc:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "history_unavailable",
+                "message": "Transfer history is not configured for this chain on this server.",
+                "retry_after_seconds": None,
+            },
         ) from exc
     except ProviderRateLimited as exc:
+        retry_after = exc.retry_after_seconds if isinstance(exc, OnchainRateLimited) else None
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="The chain node rate-limited this trace. Try again shortly, or set a "
-            "dedicated RPC URL in ONCHAIN_RPC_URLS.",
+            detail={
+                "code": "upstream_rate_limited",
+                "message": "The chain provider limited this trace. Wait before retrying.",
+                "retry_after_seconds": retry_after,
+            },
+            headers={"Retry-After": str(retry_after)} if retry_after is not None else None,
         ) from exc
     return TraceRead(
         root=result.root,
@@ -116,4 +143,5 @@ async def trace_address(
         nodes=[node.__dict__ for node in result.nodes],
         edges=[edge.__dict__ for edge in result.edges],
         truncated=result.truncated,
+        interruption=result.interruption.__dict__ if result.interruption else None,
     )

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -6,7 +6,6 @@ import { isValid, parseISO } from 'date-fns'
 import { toast } from 'sonner'
 import { ArrowRight, Building2, Check, Copy, Download, Flag, Link2, Radar } from 'lucide-react'
 import { onchain } from '@/lib/api'
-import { extractApiError } from '@/lib/api-errors'
 import { cn } from '@/lib/utils'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -159,6 +158,20 @@ function TerminalMarker({ node }: { node: TraceNode }) {
 const HOP_OPTIONS = [1, 2, 3, 4, 5, 6]
 const BRANCH_OPTIONS = [1, 2, 3, 4, 5]
 
+const TRACE_ERROR_CODES = ['upstream_rate_limited', 'trace_admission_limited', 'history_unavailable'] as const
+
+function retryDelay(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+function traceFailure(error: unknown) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail
+  if (!detail || typeof detail !== 'object' || !('code' in detail)) return null
+  const code = TRACE_ERROR_CODES.find((candidate) => candidate === detail.code)
+  if (!code) return null
+  return { code, retry_after_seconds: retryDelay('retry_after_seconds' in detail ? detail.retry_after_seconds : null) }
+}
+
 export default function TracePage() {
   const { t } = useTranslation()
   const { hasModule, isLoading } = useWorkspace()
@@ -194,6 +207,15 @@ function traceDateInput(value: string | null, endOfDay = false): string {
 export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
   const { current } = useWorkspace()
   const [params] = useSearchParams()
+  // The form resets on URL/filter edits; a server cooldown still applies.
+  const [retryUntil, setRetryUntil] = useState(0)
+  const [now, setNow] = useState(Date.now)
+  const coolingDown = now < retryUntil
+  useEffect(() => {
+    if (!coolingDown) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [coolingDown])
   if (!current) return null
   // Every trace setting participates in the reset, including browser history
   // navigation. A URL only selects a saved address; it never starts a request.
@@ -210,14 +232,22 @@ export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
     until: traceDateInput(params.get('until'), true),
   }
   const key = JSON.stringify([current.id, initial, props.connectionIds, props.addressKeys])
-  return <WalletActivityForm key={key} {...props} workspaceId={current.id} initial={initial} />
+  return <WalletActivityForm key={key} {...props} workspaceId={current.id} initial={initial}
+    retrySeconds={Math.max(0, Math.ceil((retryUntil - now) / 1000))}
+    onRateLimited={(delay) => {
+      const receivedAt = Date.now()
+      setNow(receivedAt)
+      setRetryUntil((previous) => Math.max(previous, receivedAt + Math.max(5, retryDelay(delay) ?? 5) * 1000))
+    }} />
 }
 
 function WalletActivityForm({
-  workspaceId, initial, connectionIds, addressKeys,
+  workspaceId, initial, connectionIds, addressKeys, retrySeconds, onRateLimited,
 }: OwnedWalletActivityProps & {
   workspaceId: string
   initial: { selectedKey: string; direction: TraceDirection; maxHops: string; maxBranches: string; minAmount: string; since: string; until: string }
+  retrySeconds: number
+  onRateLimited: (delay: number | null) => void
 }) {
   const { t, i18n } = useTranslation()
   const location = useLocation()
@@ -243,10 +273,21 @@ function WalletActivityForm({
   })
 
   const traceMutation = useMutation({
+    retry: false,
     mutationFn: async (request: TraceRequest) => ({
       result: await onchain.trace(request, workspaceId), request, retrieved_at: new Date().toISOString(),
     }),
+    onSuccess: ({ result }) => {
+      if (result.interruption?.code === 'upstream_rate_limited') onRateLimited(result.interruption.retry_after_seconds)
+    },
+    onError: (error) => {
+      const failure = traceFailure(error)
+      if (failure?.code === 'upstream_rate_limited' || failure?.code === 'trace_admission_limited') {
+        onRateLimited(failure.retry_after_seconds)
+      }
+    },
   })
+  const failure = traceFailure(traceMutation.error)
 
   const chains = chainsQuery.data ?? []
   const watched = (watchedQuery.data ?? []).filter((entry) =>
@@ -260,6 +301,7 @@ function WalletActivityForm({
   const canSubmit = Boolean(selected && selectedChain?.traceable && !invalidWindow && !invalidAmount && !watchedQuery.isError && !chainsQuery.isError)
 
   const result = selected && !watchedQuery.isError ? traceMutation.data?.result : undefined
+  const retryable = failure?.code === 'upstream_rate_limited' || failure?.code === 'trace_admission_limited' || result?.interruption?.code === 'upstream_rate_limited'
   const hops = useMemo(() => (result ? buildHops(result) : []), [result])
   const nodeById = useMemo(
     () => new Map((result?.nodes ?? []).map((node) => [node.id, node])),
@@ -268,7 +310,7 @@ function WalletActivityForm({
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!canSubmit || !selected) return
+    if (!canSubmit || !selected || traceMutation.isPending || retrySeconds > 0) return
     traceMutation.mutate({
       chain: selected.chain,
       address: selected.address,
@@ -317,6 +359,7 @@ function WalletActivityForm({
               <Button asChild variant="outline" size="sm"><Link to="/accounts">{t('trace.manageWallets')}</Link></Button>
             </div>
             <p className="text-xs leading-relaxed text-muted-foreground">{t('trace.nativeOnly')}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('trace.requestCostHint')}</p>
 
             {chainsQuery.isError && <Alert variant="warning">{t('trace.chainsUnavailable')}</Alert>}
             {watchedQuery.isError && (
@@ -394,10 +437,11 @@ function WalletActivityForm({
                   </div>
                 </details>
                 <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-                  <Button type="submit" disabled={!canSubmit || traceMutation.isPending}>
+                  <Button type="submit" disabled={!canSubmit || traceMutation.isPending || retrySeconds > 0}>
                     <Radar size={16} />
-                    {traceMutation.isPending ? t('trace.tracing') : t('trace.submit')}
+                    {traceMutation.isPending ? t('trace.tracing') : retryable ? t('common.retry') : t('trace.submit')}
                   </Button>
+                  {retrySeconds > 0 && <span role="status" className="text-xs text-muted-foreground">{t('trace.retryIn', { seconds: retrySeconds })}</span>}
                   <span className="text-xs text-muted-foreground">{t('trace.utcHint')}</span>
                 </div>
               </>
@@ -445,7 +489,15 @@ function WalletActivityForm({
             </div>
           </div>
 
-          {result.truncated && <Alert variant="warning">{t('trace.truncated')}</Alert>}
+          {(result.truncated || result.interruption) && (
+            <Alert variant="warning" className="block space-y-2">
+              {result.interruption && <p>{result.interruption.phase === 'balances'
+                ? t(result.interruption.code === 'deadline_exceeded' ? 'trace.balanceDeadline' : 'trace.balanceRateLimited')
+                : t(result.interruption.code === 'deadline_exceeded' ? 'trace.deadline' : 'trace.error.upstream_rate_limited')}</p>}
+              {result.truncated && <p>{t('trace.truncated')}</p>}
+              {result.interruption?.code === 'upstream_rate_limited' && <p>{t('trace.rateLimitHelp')}</p>}
+            </Alert>
+          )}
 
           {hops.length === 0 && (
             <p className="text-sm text-muted-foreground">{t('trace.empty')}</p>
@@ -484,8 +536,9 @@ function WalletActivityForm({
       )}
 
       {traceMutation.isError && (
-        <Alert variant="warning">
-          {extractApiError(traceMutation.error, t('trace.failed'))}
+        <Alert variant="warning" className="block space-y-2">
+          <p>{failure ? t(`trace.error.${failure.code}`) : t('trace.failed')}</p>
+          {failure?.code === 'upstream_rate_limited' && <p>{t('trace.rateLimitHelp')}</p>}
         </Alert>
       )}
 

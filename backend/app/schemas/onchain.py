@@ -48,6 +48,12 @@ class TraceEdgeRead(BaseModel):
     occurred_at: datetime
 
 
+class TraceInterruptionRead(BaseModel):
+    code: Literal["deadline_exceeded", "upstream_rate_limited"]
+    phase: Literal["history", "balances"]
+    retry_after_seconds: Optional[int] = Field(default=None, ge=0)
+
+
 class TraceRead(BaseModel):
     root: str
     direction: str
@@ -56,6 +62,7 @@ class TraceRead(BaseModel):
     # True when the node budget ran out before the walk did, so the result is
     # a prefix of the trail rather than all of it.
     truncated: bool
+    interruption: Optional[TraceInterruptionRead] = None
 
 
 class WatchedAddressRead(BaseModel):

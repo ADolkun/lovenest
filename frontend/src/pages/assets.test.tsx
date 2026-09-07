@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import AssetsPage from './assets'
 import { renderWithProviders, t } from '@/test/utils'
 import { assets, assetGroups, contributions, currencies, onchain } from '@/lib/api'
@@ -69,6 +69,38 @@ it('keeps a saved own address visible after its holding moves into a manual wall
   await user.click(await screen.findByRole('combobox', { name: t('trace.wallet') }))
   expect(await screen.findByRole('option', { name: 'My connected wallet · My Solana address' })).toBeInTheDocument()
   expect(screen.queryByRole('option', { name: /Outside address/ })).not.toBeInTheDocument()
+})
+
+it('retains trace cooldown when the outer wallet scope remounts the result form', async () => {
+  scope.onchainEnabled = true
+  vi.spyOn(assets, 'list').mockResolvedValue([
+    { ...held, source: 'onchain', external_id: 'solana:owned-address' },
+    { ...outside, source: 'onchain', external_id: 'solana:outside-address' },
+  ])
+  vi.spyOn(onchain, 'chains').mockResolvedValue([{ key: 'solana', display_name: 'Solana', symbol: 'SOL', kind: 'solana', traceable: true }])
+  vi.spyOn(onchain, 'addresses').mockResolvedValue([
+    { chain: 'solana', address: 'owned-address', label: 'My Solana address', connection_id: 'first', connection_name: 'My connected wallet' },
+    { chain: 'solana', address: 'outside-address', label: 'Other Solana address', connection_id: 'second', connection_name: 'Other connected wallet' },
+  ])
+  const trace = vi.spyOn(onchain, 'trace').mockRejectedValue({
+    response: { data: { detail: { code: 'trace_admission_limited', retry_after_seconds: 60 } } },
+  })
+  const { user } = renderWithProviders(<AssetsPage />, {
+    route: '/assets?tab=activity&activity=wallets&chain=solana&address=owned-address',
+  })
+  await screen.findByRole('combobox', { name: 'Your wallet' })
+  await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+  await screen.findByText('This server has reached its trace request limit. Wait before retrying.')
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Wallet' }), 'wallet-b')
+  await user.click(screen.getByRole('combobox', { name: 'Your wallet' }))
+  expect(screen.queryByRole('option', { name: 'My connected wallet · My Solana address' })).not.toBeInTheDocument()
+  await user.click(screen.getByRole('option', { name: 'Other connected wallet · Other Solana address' }))
+  const submit = screen.getByRole('button', { name: 'Explore transfers' })
+  expect(submit).toBeDisabled()
+  expect(screen.getByRole('status')).toHaveTextContent(/Retry available in/)
+  fireEvent.submit(submit.closest('form')!)
+  expect(trace).toHaveBeenCalledOnce()
 })
 
 it('opens account wallet links, uses current holdings instead of stale rollups, and clears the filter', async () => {
