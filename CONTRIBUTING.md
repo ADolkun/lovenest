@@ -114,7 +114,13 @@ described in the deployment docs before logging in.
 
 ## Running the checks CI runs
 
-CI runs two jobs. Reproduce both locally before opening a PR.
+Product CI keeps two required checks: **Backend (lint + tests)** and
+**Frontend (lint + build)**. PRs run the relevant component's checks; changes
+limited to allowlisted root prose or Markdown under `docs/` skip both suites.
+Shared, workflow, and unknown paths run both, and uncertain change detection
+runs both or fails the check. Every push to `lovenest` runs both full suites.
+Reproduce the relevant checks locally before opening a PR; when changing CI
+selection, also run `python3 ci/test_changes.py` from the repository root.
 
 ### Backend (Python version from `backend/.python-version`, run from `backend/`)
 
@@ -133,8 +139,10 @@ uv sync --all-extras   # first time only — builds .venv from uv.lock, same ver
 python3 scripts/check_migration_chain.py
 ```
 
-CI fails the build if `ruff check` reports any issues or if coverage drops below **60%**. Add tests
-for new backend behavior.
+Product CI requires clean Ruff, type, migration-chain, and pytest checks.
+The upstream `main` workflow also enforces **60%** coverage; the local command
+above retains that coverage check, while product CI runs pytest without coverage.
+Add tests for new backend behavior.
 
 ### Adding a migration
 

@@ -6,10 +6,15 @@ on:
   push:
     branches: [lovenest]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (lint + tests)
     runs-on: ubuntu-latest
+    # ponytail: retain service startup on skipped PRs; split detection if its cost warrants it.
     services:
       redis:
         image: redis:8-alpine
@@ -26,40 +31,68 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Check CI selection and detect changes
+        id: changes
+        working-directory: .
+        run: |
+          python3 ci/test_changes.py
+          python3 ci/changes.py
+
+      - name: Skip unrelated backend checks
+        if: steps.changes.outputs.run_backend == 'false'
+        run: echo "No backend-relevant changes; skipping backend checks."
 
       - name: Set up Python
+        if: steps.changes.outputs.run_backend != 'false'
         uses: actions/setup-python@v7
         with:
           python-version-file: backend/.python-version
-          cache: pip
-          cache-dependency-path: backend/uv.lock
+
+      - name: Set up uv
+        if: steps.changes.outputs.run_backend != 'false'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
 
       - name: Install dependencies
+        if: steps.changes.outputs.run_backend != 'false'
         run: |
-          pip install -q uv==0.12.7
           uv export --frozen --all-extras --no-emit-project -o /tmp/requirements-dev.txt
-          pip install --require-hashes -r /tmp/requirements-dev.txt
-          pip install --no-deps -e .
+          uv pip install --system --require-hashes -r /tmp/requirements-dev.txt
+          uv pip install --system --no-deps -e .
 
       - name: Verify lockfile is in sync
+        if: steps.changes.outputs.run_backend != 'false'
         run: uv lock --check
 
       - name: Lint with Ruff
+        if: steps.changes.outputs.run_backend != 'false'
         run: ruff check .
 
       # Upstream runs this in its own workflow, which only fires on `main`.
       # This fork renumbers every upstream migration onto its own head, so the
       # clash the guard exists for is more likely here, not less.
       - name: Check the Alembic revision chain
+        if: steps.changes.outputs.run_backend != 'false'
         run: python3 scripts/check_migration_chain.py
 
       - name: Type check with ty
+        if: steps.changes.outputs.run_backend != 'false'
         run: ty check .
 
       - name: Run tests
+        if: steps.changes.outputs.run_backend != 'false'
         env:
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
-        run: pytest -n auto
+        run: pytest -n auto --durations=25
 
   frontend:
     name: Frontend (lint + build)
@@ -72,8 +105,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Check CI selection and detect changes
+        id: changes
+        working-directory: .
+        run: |
+          python3 ci/test_changes.py
+          python3 ci/changes.py
+
+      - name: Skip unrelated frontend checks
+        if: steps.changes.outputs.run_frontend == 'false'
+        run: echo "No frontend-relevant changes; skipping frontend checks."
 
       - name: Set up Node.js
+        if: steps.changes.outputs.run_frontend != 'false'
         uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -81,13 +128,17 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        if: steps.changes.outputs.run_frontend != 'false'
         run: npm ci
 
       - name: Lint
+        if: steps.changes.outputs.run_frontend != 'false'
         run: npm run lint
 
       - name: Type check & build
+        if: steps.changes.outputs.run_frontend != 'false'
         run: npm run build
 
       - name: Run tests
+        if: steps.changes.outputs.run_frontend != 'false'
         run: npm test

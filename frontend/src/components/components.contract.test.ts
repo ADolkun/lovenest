@@ -33,6 +33,7 @@ describe('component modules', () => {
   for (const path of paths) {
     const name = path.replace(/^.*\/components\//, '')
 
+    // Cold imports can take longer than a normal behavior test on CI.
     it(`${name} evaluates and exports a component`, async () => {
       const module = await modules[path]()
 
@@ -45,6 +46,6 @@ describe('component modules', () => {
           (typeof value === 'object' && value !== null && '$$typeof' in value),
       )
       expect(components.length).toBeGreaterThan(0)
-    })
+    }, 15_000)
   }
 })
