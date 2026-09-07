@@ -111,7 +111,8 @@ class AccountData:
     external_id: str
     name: str
     type: str  # checking, savings, credit_card, investment, cash
-    balance: Decimal
+    # None is an unreadable/incomplete observation, never a reported zero.
+    balance: Optional[Decimal]
     currency: str
     credit_limit: Optional[Decimal] = None
     statement_close_day: Optional[int] = None

@@ -143,7 +143,7 @@ class ProviderAccountRead(BaseModel):
 
     external_id: str
     name: str
-    balance: Decimal
+    balance: Optional[Decimal]
     currency: str
     # None where the provider does not say — an abstention, not "no holdings".
     has_holdings: Optional[bool]

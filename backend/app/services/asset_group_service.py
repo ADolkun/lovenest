@@ -256,6 +256,16 @@ async def _account_type_and_balance_for(
         return None, None, None
     if group.source == "manual":
         return account.type, None, account.id
+    if account.connection_id is not None:
+        connection = await session.get(BankConnection, account.connection_id)
+        if (
+            connection is not None
+            and connection.workspace_id == group.workspace_id
+            and account.external_id in (
+                (connection.settings or {}).get("unavailable_account_balance_ids") or []
+            )
+        ):
+            return account.type, None, account.id
     balance, currency = account.balance, account.currency
     if balance is None:
         return account.type, None, account.id

@@ -36,6 +36,7 @@ from app.models.user import User
 from app.providers import get_provider
 from app.providers.base import (
     AccountData,
+    BankProvider,
     HoldingData,
     PartialHoldings,
     ProviderNotConfiguredError,
@@ -286,6 +287,41 @@ def _record_seen_accounts(
     connection.settings = updated
 
 
+def _record_balance_observation(
+    connection: BankConnection, accounts: list[AccountData], provider: BankProvider
+) -> set[str]:
+    """Retain incomplete balances without losing provider account identity."""
+    updated = dict(connection.settings or {})
+    unavailable = set(updated.get("unavailable_account_balance_ids") or [])
+    observation = getattr(provider, "holdings_observation", None)
+    account_observation = getattr(provider, "account_holdings_observation", None)
+    changed = (
+        isinstance(account_observation, dict)
+        and isinstance(observation, dict)
+        and observation is not account_observation
+    )
+    # An expired memo may refresh holdings after account persistence. Those
+    # two complete observations still cannot establish a residual cash value.
+    incomplete = changed or (
+        isinstance(observation, dict) and observation.get("complete") is False
+    )
+    for account in accounts:
+        if account.balance is None or incomplete:
+            unavailable.add(account.external_id)
+        else:
+            unavailable.discard(account.external_id)
+    if unavailable:
+        updated["unavailable_account_balance_ids"] = sorted(unavailable)
+    else:
+        updated.pop("unavailable_account_balance_ids", None)
+    if isinstance(observation, dict):
+        updated["holdings_observation"] = dict(observation)
+        if changed:
+            updated["holdings_observation"]["account_balance_reason"] = "account_observation_changed"
+    connection.settings = updated
+    return unavailable
+
+
 def _syncable_accounts(
     connection: BankConnection, accounts: list[AccountData]
 ) -> tuple[list[AccountData], Optional[set[str]]]:
@@ -320,6 +356,8 @@ async def _sync_holdings(
     connection: BankConnection,
     credentials: dict,
     synced_account_ids: Optional[set[str]] = None,
+    *,
+    provider: Optional[BankProvider] = None,
 ) -> None:
     """Fetch investment holdings from the provider and upsert them as Assets.
 
@@ -349,7 +387,7 @@ async def _sync_holdings(
     # report that it closed.
     unreadable: list[str] = []
     try:
-        provider = get_provider(connection.provider)
+        provider = provider or get_provider(connection.provider)
         holdings = await provider.get_holdings(credentials)
     except PartialHoldings as partial:
         logger.warning(
@@ -1552,7 +1590,10 @@ async def handle_oauth_callback(
         )
         existing_reconnect.logo_url = _clean_logo_url(connection_data.logo_url) or existing_reconnect.logo_url
         existing_reconnect.credentials = connection_data.credentials
-        existing_reconnect.status = "active"
+        unavailable = _record_balance_observation(
+            existing_reconnect, connection_data.accounts, provider
+        )
+        existing_reconnect.status = "sync_error" if unavailable else "active"
         existing_reconnect.last_sync_error_account_id = None
         existing_reconnect.sync_state_version += 1
         # Re-sync from current data on next sync cycle.
@@ -1623,6 +1664,10 @@ async def handle_oauth_callback(
     institution_cache: dict[str, Institution] = {}
     created_accounts: list[Account] = []
     for acc_data in syncable_accounts:
+        if acc_data.balance is None:
+            # Keep the account in inventory/allowlists and sync its known
+            # holdings, but do not create a numeric zero for an unknown total.
+            continue
         is_cc = acc_data.type == "credit_card"
         institution = await _resolve_institution(
             session, connection.id, institution_cache, acc_data
@@ -1772,7 +1817,7 @@ async def handle_oauth_callback(
     if _sync_assets_enabled(connection.settings):
         await _sync_holdings(
             session, user_id, connection, connection_data.credentials,
-            synced_account_ids,
+            synced_account_ids, provider=provider,
         )
         await _sync_trades(
             session, connection, connection_data.credentials, synced_account_ids
@@ -1784,10 +1829,17 @@ async def handle_oauth_callback(
     # inside the account loop — an account whose balance carries Holdings gets
     # no opening balance at all, and on a first connect the holdings that say so
     # do not exist until `_sync_holdings` has run.
+    unavailable = _record_balance_observation(
+        connection, connection_data.accounts, provider
+    )
     for account in created_accounts:
-        await sync_opening_balance_for_connected_account(session, account)
+        if account.external_id not in unavailable:
+            await sync_opening_balance_for_connected_account(session, account)
 
-    connection.last_sync_at = datetime.now(timezone.utc)
+    if any(a.external_id in unavailable for a in syncable_accounts):
+        connection.status = "sync_error"
+    else:
+        connection.last_sync_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(connection)
     return connection
@@ -2625,9 +2677,9 @@ async def sync_connection(
         new_tx_ids: list[uuid.UUID] = []
         synced_account_rows: list[Account] = []
         merged_count = 0
-        accounts_data = await provider.get_accounts(credentials)
-        _record_seen_accounts(connection, accounts_data)
-        accounts_data, synced_account_ids = _syncable_accounts(connection, accounts_data)
+        provider_accounts = await provider.get_accounts(credentials)
+        _record_seen_accounts(connection, provider_accounts)
+        accounts_data, synced_account_ids = _syncable_accounts(connection, provider_accounts)
         institution_cache: dict[str, Institution] = {}
         for acc_data in accounts_data:
             syncing_account_id = None
@@ -2676,9 +2728,10 @@ async def sync_connection(
                 # label; once the user overrides the type to credit_card the
                 # downstream sites negate it, so store positive-for-debt to keep
                 # them provider-agnostic and avoid double-counting.
-                account.balance = _simplefin_to_internal_balance(
-                    connection.provider, account.type, acc_data.balance
-                )
+                if acc_data.balance is not None:
+                    account.balance = _simplefin_to_internal_balance(
+                        connection.provider, account.type, acc_data.balance
+                    )
                 account.name = acc_data.name
                 # Backfills existing accounts on their next sync. Only written
                 # when the provider actually returns an identifier, so a payload
@@ -2709,6 +2762,8 @@ async def sync_connection(
                     if acc_data.card_level is not None:
                         account.card_level = acc_data.card_level
             else:
+                if acc_data.balance is None:
+                    continue
                 is_cc = acc_data.type == "credit_card"
                 account = Account(
                     user_id=user_id,
@@ -3026,7 +3081,8 @@ async def sync_connection(
         # /investments shouldn't block the transaction sync that just succeeded.
         if _sync_assets_enabled(conn_settings):
             await _sync_holdings(
-                session, user_id, connection, credentials, synced_account_ids
+                session, user_id, connection, credentials, synced_account_ids,
+                provider=provider,
             )
             await _sync_trades(session, connection, credentials, synced_account_ids)
 
@@ -3035,8 +3091,11 @@ async def sync_connection(
         # after the holdings sync: an account whose balance carries Holdings is
         # not reconcilable against its cash ledger at all, and it is this run's
         # holdings that decide whether it does.
+        unavailable = _record_balance_observation(connection, provider_accounts, provider)
+        incomplete_balances = any(a.external_id in unavailable for a in accounts_data)
         for account in synced_account_rows:
-            await sync_opening_balance_for_connected_account(session, account)
+            if account.external_id not in unavailable:
+                await sync_opening_balance_for_connected_account(session, account)
 
         # Reap institution rows referenced by nothing. Id-carrying servers
         # never orphan a row (renames update in place), but a name-only
@@ -3056,7 +3115,8 @@ async def sync_connection(
         for orphan in orphaned_institutions.scalars().all():
             await session.delete(orphan)
 
-        connection.last_sync_at = datetime.now(timezone.utc)
+        if not incomplete_balances:
+            connection.last_sync_at = datetime.now(timezone.utc)
         action_required_warnings = getattr(provider, "action_required_warnings", None)
         if isinstance(action_required_warnings, list) and action_required_warnings:
             logger.warning(
@@ -3066,6 +3126,8 @@ async def sync_connection(
                 connection.id,
             )
             connection.status = "error"
+        elif incomplete_balances:
+            connection.status = "sync_error"
         else:
             connection.status = "active"
         connection.last_sync_error_account_id = None

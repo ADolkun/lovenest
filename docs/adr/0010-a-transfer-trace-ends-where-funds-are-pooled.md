@@ -181,12 +181,41 @@ sake of the one that did not. `get_holdings` therefore raises `PartialHoldings`,
 which carries the holdings it did read plus the scopes it could not: the sync
 layer holds exactly those out of the archive sweep and processes the rest
 normally, so a dead RPC endpoint stales one address instead of the connection.
-Failure is per address, not per read — a wallet whose native balance answers but
-whose token index does not counts as unread, since keeping the half that
-answered would archive the other half.
+Successful native and token reads remain useful even when another read fails.
+The unreadable address scope protects omitted positions from the archive sweep,
+including tokens omitted by the returned-position cap. An incomplete token
+inventory cannot supply authoritative summed quantities for a mint.
 
-The account balance is the exception: it is a derived total, so a partial read
-leaves it short for a cycle rather than blocking the sync it sits in front of.
+An incomplete observation does not supply a new account total. Account identity
+and selection remain available, but the provider balance is null. Sync retains
+an existing account's last complete balance and marks the connection for retry;
+it does not create an account with an invented zero on the first incomplete
+read. Linked wallets with an unavailable account total cannot derive cash from
+that retained value. Detailed balance provenance remains the work of #146.
+
+### Reuse one bounded observation per sync
+
+Account and holdings sync share the same provider instance. The account read
+retains one observation for the following holdings read, including its retrieval
+time and unreadable scopes. Reuse is consumed once, expires after 30 seconds,
+and requires the same normalized watched addresses and source configuration.
+A new sync obtains a fresh provider, so connections and workspaces do not share
+holdings observations.
+
+If the reuse window expires between the two phases, the replacement holdings
+remain usable but the earlier account total is marked unavailable until a sync
+reads both from one compatible observation.
+
+The holdings observation has a 45-second deadline. Jupiter reads at most two
+50-mint batches per address and 25 batches across the observation: at most 75
+HTTP attempts with the existing three-attempt retry policy. Reads remain serial
+and use the shared endpoint cooldown and deadline transport from #140. These
+are request bounds, not a guarantee against provider throttling.
+
+Ranking still puts verified tokens first among the inspected positions. A
+budget, missing price, malformed response, or position cap leaves explicit
+incomplete coverage and protects omitted holdings. A later successful sync can
+heal that scope; an uninspected mint is never inferred to be worthless or sold.
 
 ## Reaching a Pooled Address is the answer, not a failure
 
