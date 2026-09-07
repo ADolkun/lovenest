@@ -1570,7 +1570,13 @@
     "regenerate": "再生成",
     "allocationScopeHint": "Allocation covers invested ticker holdings. Cash and other assets are listed separately.",
     "walletDetailsHint": "Open a wallet for individual holdings, small balances, and editing.",
-    "viewWalletDetails": "View wallet details"
+    "viewWalletDetails": "View wallet details",
+    "balanceOverview": "Balance overview",
+    "knownSubtotal": "Known subtotal",
+    "unknownCashHint": "Some wallet cash balances are unavailable. Balance and cash totals include known values only.",
+    "cashAndEquivalents": "Cash and equivalents",
+    "balanceDetails": "Balance details",
+    "balanceScopeHint": "Includes ticker holdings, settled account cash and small balances. Other assets are listed separately. Income is shown for reference and is not added to the balance."
   },
   "reports": {
     "section": "分析",

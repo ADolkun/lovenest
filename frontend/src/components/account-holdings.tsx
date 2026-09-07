@@ -13,6 +13,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
+import { NativeSelect } from '@/components/ui/native-select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import type { Account, AssetGroup } from '@/types'
 
@@ -92,10 +93,10 @@ function WalletLinkRow({ wallet, accounts }: { wallet: AssetGroup; accounts: Acc
       {canWrite && accounts.length > 0 && (
         <form className="flex min-w-0 items-center gap-2 lg:ml-4 lg:w-80" onSubmit={(event) => { event.preventDefault(); if (accountId) link.mutate() }}>
           <label htmlFor={selectId} className="sr-only">{t('accountHoldings.chooseAccountFor', { wallet: wallet.name })}</label>
-          <select id={selectId} value={accountId} onChange={(event) => setAccountId(event.target.value)} disabled={link.isPending} className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
+          <NativeSelect wrapperClassName="flex-1" id={selectId} value={accountId} onChange={(event) => setAccountId(event.target.value)} disabled={link.isPending} className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
             <option value="">{t('accountHoldings.chooseAccount')}</option>
             {accounts.map((account) => <option key={account.id} value={account.id}>{getAccountName(account)}</option>)}
-          </select>
+          </NativeSelect>
           <Button type="submit" variant="outline" size="sm" disabled={!accountId || link.isPending}>{t('accountHoldings.link')}</Button>
         </form>
       )}

@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { NativeSelect } from '@/components/ui/native-select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -1165,6 +1166,7 @@ export default function AssetsPage() {
   )
 
   const hasTickerHoldings = activeAssets.some((asset) => asset.ticker?.trim())
+  const hasPortfolioBalance = hasTickerHoldings || (!assetsError && sortedWallets.some((wallet) => wallet.account_balance != null))
   const holdingsControls = (
     <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -1212,7 +1214,7 @@ export default function AssetsPage() {
           </TabsList>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <label htmlFor="assets-wallet-filter" className="text-xs text-muted-foreground">{t('assets.wallet')}</label>
-            <select
+            <NativeSelect
               id="assets-wallet-filter"
               value={selectedWalletId ?? ''}
               onChange={(event) => {
@@ -1224,7 +1226,7 @@ export default function AssetsPage() {
               <option value="">{t('assets.allWallets')}</option>
               {selectedWalletId && !selectedWallet && <option value={selectedWalletId}>{t('assets.walletUnavailable')}</option>}
               {(collectionWallets ?? []).map((wallet) => <option key={wallet.id} value={wallet.id}>{wallet.name}</option>)}
-            </select>
+            </NativeSelect>
             {selectedWalletId && (
               <Button variant="ghost" size="sm" onClick={() => setView({ wallet: null })} aria-label={t('assets.clearWalletFilter')} className="size-8 p-0">
                 <X size={15} />
@@ -1246,7 +1248,7 @@ export default function AssetsPage() {
             </div>
           ) : (
             <>
-              {hasTickerHoldings ? (
+              {hasPortfolioBalance ? (
                 <PositionsTab
                   key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
                   holdings={assetsList ?? []}
@@ -1289,7 +1291,7 @@ export default function AssetsPage() {
               )}
             </>
           )}
-          {!isLoading && !assetsError && activeAssets.length === 0 && soldAssets.length === 0 && (
+          {!isLoading && !assetsError && !hasPortfolioBalance && activeAssets.length === 0 && soldAssets.length === 0 && (
             <div className="py-10 text-center">
               <Package className="mx-auto mb-3 size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">{t('assets.noAssets')}</p>
@@ -1306,12 +1308,12 @@ export default function AssetsPage() {
         <TabsContent value="activity" className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="assets-activity-kind" className="text-sm font-medium">{t('assets.activityType')}</label>
-            <select id="assets-activity-kind" value={activityView} onChange={(event) => setView({ activity: event.target.value })}
+            <NativeSelect id="assets-activity-kind" value={activityView} onChange={(event) => setView({ activity: event.target.value })}
               className="max-w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
               <option value="trades">{t('assets.activityTrades')}</option>
               <option value="contributions">{t('assets.activityContributions')}</option>
               {walletActivityEnabled && <option value="wallets">{t('assets.activityWallets')}</option>}
-            </select>
+            </NativeSelect>
           </div>
           {activityView === 'wallets' && walletActivityEnabled ? (
             <OwnedWalletActivity
@@ -1357,7 +1359,7 @@ export default function AssetsPage() {
                   + {t('assets.newWallet')}
                 </button>
               </div>
-              <select
+              <NativeSelect
                 className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                 value={formGroupId}
                 onChange={e => setFormGroupId(e.target.value)}
@@ -1366,14 +1368,14 @@ export default function AssetsPage() {
                 {(collectionWallets ?? []).map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
 
             {/* Type + Currency */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>{t('assets.type')}</Label>
-                <select
+                <NativeSelect
                   className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                   value={formType}
                   onChange={e => setFormType(e.target.value)}
@@ -1385,11 +1387,11 @@ export default function AssetsPage() {
                       {t(assetTypeI18nKey(at))}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
               <div className="space-y-2">
                 <Label>{t('assets.currency')}</Label>
-                <select
+                <NativeSelect
                   className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full disabled:opacity-60 disabled:cursor-not-allowed"
                   value={formCurrency}
                   disabled={formMethod === 'market_price'}
@@ -1398,7 +1400,7 @@ export default function AssetsPage() {
                   {(supportedCurrencies ?? [{ code: userCurrency, symbol: userCurrency, name: userCurrency, flag: '' }]).map((c) => (
                     <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             </div>
 
@@ -1595,7 +1597,7 @@ export default function AssetsPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t('assets.growthType')}</Label>
-                    <select
+                    <NativeSelect
                       className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                       value={formGrowthType}
                       onChange={e => setFormGrowthType(e.target.value)}
@@ -1603,7 +1605,7 @@ export default function AssetsPage() {
                       {GROWTH_TYPES.map(gt => (
                         <option key={gt} value={gt}>{t(`assets.${gt}`)}</option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="space-y-2">
                     <Label>{t('assets.growthRate')}</Label>
@@ -1618,7 +1620,7 @@ export default function AssetsPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>{t('assets.growthFrequency')}</Label>
-                    <select
+                    <NativeSelect
                       className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                       value={formGrowthFrequency}
                       onChange={e => setFormGrowthFrequency(e.target.value)}
@@ -1626,7 +1628,7 @@ export default function AssetsPage() {
                       {GROWTH_FREQUENCIES.map(gf => (
                         <option key={gf} value={gf}>{t(`assets.${gf}`)}</option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="space-y-2">
                     <Label>{t('assets.growthStartDate')}</Label>
@@ -1793,7 +1795,7 @@ export default function AssetsPage() {
             </div>
             <div className="space-y-2">
               <Label>{t('assets.walletTaxTreatment')}</Label>
-              <select
+              <NativeSelect
                 className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                 value={walletFormTaxTreatment}
                 onChange={e => setWalletFormTaxTreatment(e.target.value as TaxTreatment)}
@@ -1801,7 +1803,7 @@ export default function AssetsPage() {
                 {TAX_TREATMENTS.map(tt => (
                   <option key={tt} value={tt}>{t(`assets.taxTreatment.${tt}`)}</option>
                 ))}
-              </select>
+              </NativeSelect>
               <p className="text-[11px] text-muted-foreground">
                 {t('assets.walletTaxTreatmentHint')}
               </p>
@@ -2784,7 +2786,7 @@ function AssetTransactionsTab({
             {!editingTx && (
               <div className="space-y-2">
                 <Label>{t('assets.holding')}</Label>
-                <select
+                <NativeSelect
                   className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                   value={formHolding}
                   onChange={(e) => {
@@ -2798,7 +2800,7 @@ function AssetTransactionsTab({
                       {h.ticker || h.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             )}
 
@@ -2814,7 +2816,7 @@ function AssetTransactionsTab({
                 </div>
                 <div className="space-y-2">
                   <Label>{t('assets.wallet')}</Label>
-                  <select
+                  <NativeSelect
                     className="bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary px-3 py-2 rounded-lg text-foreground text-sm w-full"
                     value={formGroupId}
                     onChange={(e) => setFormGroupId(e.target.value)}
@@ -2823,7 +2825,7 @@ function AssetTransactionsTab({
                     {wallets.map((w) => (
                       <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
               </div>
             )}
