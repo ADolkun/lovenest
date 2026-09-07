@@ -15,6 +15,7 @@ said when the evidence was complete enough to say it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ from app.providers.onchain import (
     SATURATED_POOLED,
     SATURATED_UNPAGEABLE,
     Chain,
+    OnchainDeadlineExceeded,
+    OnchainRateLimited,
     Transfer,
     address_is_valid,
     native_balance,
@@ -85,12 +88,20 @@ class TraceEdge:
 
 
 @dataclass
+class TraceInterruption:
+    code: Literal["deadline_exceeded", "upstream_rate_limited"]
+    phase: Literal["history", "balances"]
+    retry_after_seconds: Optional[int] = None
+
+
+@dataclass
 class TraceResult:
     root: str
     direction: Direction
     nodes: list[TraceNode] = field(default_factory=list)
     edges: list[TraceEdge] = field(default_factory=list)
     truncated: bool = False
+    interruption: Optional[TraceInterruption] = None
 
 
 @dataclass(frozen=True)
@@ -157,127 +168,146 @@ async def trace(
     since, until = _as_utc(since), _as_utc(until)
 
     deadline = time.monotonic() + TIME_BUDGET_SECONDS
-    async with session() as client:
-        root = TraceNode(
-            id=_node_id(chain, start),
-            chain=chain.key,
-            address=start,
-            depth=0,
-            symbol=chain.symbol,
-            balance=await _balance_or_none(chain, start, client),
-        )
-        result = TraceResult(root=root.id, direction=direction, nodes=[root])
-        nodes: dict[str, TraceNode] = {root.id: root}
-        queue: list[_Pending] = [_Pending(start, 0, since, until)]
-        expanded = 0
-        seen_edges: set[tuple[str, str, str]] = set()
-
-        while queue:
-            pending = queue.pop(0)
-            node = nodes[_node_id(chain, pending.address)]
-            if pending.depth >= hops:
-                _mark(node, TERMINAL_MAX_HOPS)
-                continue
-            if expanded >= MAX_NODES or time.monotonic() >= deadline:
-                _mark(node, TERMINAL_BUDGET)
-                result.truncated = True
-                continue
-            expanded += 1
-
-            try:
-                page = await transfers(
-                    chain,
-                    pending.address,
-                    limit=TRANSFERS_PER_NODE,
-                    since=pending.since,
-                    until=pending.until,
-                    client=client,
-                )
-            except ProviderNotConfiguredError:
-                # True of every address the walk would visit, not of this one.
-                # Recording it per node would dress a total failure up as a
-                # trail that happens to end early.
-                raise
-            except ProviderRateLimited:
-                # Also true of every address left — so it ends the walk rather
-                # than this branch, and every address it never reached says so.
-                # With nothing found yet there is no trail to qualify and the
-                # caller gets the error instead of an empty graph.
-                if not result.edges:
-                    raise
-                _mark(node, TERMINAL_RATE_LIMITED)
-                for waiting in queue:
-                    _mark(nodes[_node_id(chain, waiting.address)], TERMINAL_RATE_LIMITED)
-                result.truncated = True
-                break
-            except Exception:
-                logger.warning(
-                    "Trace could not read %s on %s", pending.address, chain.key, exc_info=True
-                )
-                # The reason stays a code, never the exception's text: an
-                # upstream URL carries an API key and this field is rendered
-                # to the user.
-                _mark(node, TERMINAL_UNAVAILABLE)
-                continue
-
-            if page.saturated:
-                _mark(node, page.saturated)
-                continue
-
-            followed = _pick(page.items, pending.address, direction, branches, min_amount)
-            if not followed:
-                # Three different silences, and only one of them means the
-                # money stopped here. Claiming that for the other two would
-                # exonerate an address the walk simply could not see past.
-                if not page.complete:
-                    _mark(node, TERMINAL_PARTIAL)
-                elif page.items:
-                    _mark(node, TERMINAL_NO_MATCH)
-                else:
-                    _mark(node, TERMINAL_NO_MOVEMENT)
-                continue
-            if not page.complete:
-                result.truncated = True
-
-            for transfer in followed:
-                other = transfer.counterparty(pending.address)
-                other_id = _node_id(chain, other)
-                key = (transfer.reference, transfer.sender, transfer.recipient)
-                if key not in seen_edges:
-                    seen_edges.add(key)
-                    result.edges.append(
-                        TraceEdge(
-                            source=_node_id(chain, transfer.sender),
-                            target=_node_id(chain, transfer.recipient),
-                            chain=chain.key,
-                            symbol=chain.symbol,
-                            amount=transfer.amount,
-                            reference=transfer.reference,
-                            occurred_at=transfer.occurred_at,
-                        )
-                    )
-                if other_id in nodes:
+    root = TraceNode(
+        id=_node_id(chain, start), chain=chain.key, address=start, depth=0, symbol=chain.symbol
+    )
+    result = TraceResult(root=root.id, direction=direction, nodes=[root])
+    nodes: dict[str, TraceNode] = {root.id: root}
+    queue: list[_Pending] = [_Pending(start, 0, since, until)]
+    expanded = 0
+    seen_edges: set[tuple[str, str, str]] = set()
+    current_node = root
+    phase: Literal["history", "balances"] = "history"
+    budget = asyncio.timeout(max(0, deadline - time.monotonic()))
+    try:
+        async with budget, session() as client:
+            while queue:
+                pending = queue.pop(0)
+                node = nodes[_node_id(chain, pending.address)]
+                current_node = node
+                if pending.depth >= hops:
+                    _mark(node, TERMINAL_MAX_HOPS)
                     continue
-                child = TraceNode(
-                    id=other_id,
-                    chain=chain.key,
-                    address=other,
-                    depth=pending.depth + 1,
-                    symbol=chain.symbol,
-                    balance=await _balance_or_none(chain, other, client),
-                )
-                nodes[other_id] = child
-                result.nodes.append(child)
-                queue.append(
-                    _Pending(
+                if expanded >= MAX_NODES:
+                    _mark(node, TERMINAL_BUDGET)
+                    result.truncated = True
+                    continue
+                _check_deadline(deadline)
+                expanded += 1
+
+                try:
+                    page = await transfers(
+                        chain,
+                        pending.address,
+                        limit=TRANSFERS_PER_NODE,
+                        since=pending.since,
+                        until=pending.until,
+                        client=client,
+                        deadline=deadline,
+                    )
+                    _check_deadline(deadline)
+                except (OnchainDeadlineExceeded, ProviderNotConfiguredError, ProviderRateLimited):
+                    raise
+                except Exception:
+                    logger.warning(
+                        "Trace could not read %s on %s", pending.address, chain.key, exc_info=True
+                    )
+                    # The reason stays a code, never the exception's text: an
+                    # upstream URL carries an API key and this field is rendered
+                    # to the user.
+                    _mark(node, TERMINAL_UNAVAILABLE)
+                    continue
+
+                if page.saturated:
+                    _mark(node, page.saturated)
+                    continue
+
+                followed = _pick(page.items, pending.address, direction, branches, min_amount)
+                if not followed:
+                    # Three different silences, and only one of them means the
+                    # money stopped here. Claiming that for the other two would
+                    # exonerate an address the walk simply could not see past.
+                    if not page.complete:
+                        _mark(node, TERMINAL_PARTIAL)
+                    elif page.items:
+                        _mark(node, TERMINAL_NO_MATCH)
+                    else:
+                        _mark(node, TERMINAL_NO_MOVEMENT)
+                    continue
+                if not page.complete:
+                    result.truncated = True
+
+                for transfer in followed:
+                    other = transfer.counterparty(pending.address)
+                    other_id = _node_id(chain, other)
+                    key = (transfer.reference, transfer.sender, transfer.recipient)
+                    if key not in seen_edges:
+                        seen_edges.add(key)
+                        result.edges.append(
+                            TraceEdge(
+                                source=_node_id(chain, transfer.sender),
+                                target=_node_id(chain, transfer.recipient),
+                                chain=chain.key,
+                                symbol=chain.symbol,
+                                amount=transfer.amount,
+                                reference=transfer.reference,
+                                occurred_at=transfer.occurred_at,
+                            )
+                        )
+                    if other_id in nodes:
+                        continue
+                    child = TraceNode(
+                        id=other_id,
+                        chain=chain.key,
                         address=other,
                         depth=pending.depth + 1,
-                        # The hop inherits the transfer's instant as its own
-                        # horizon — see ADR 0010.
-                        since=transfer.occurred_at if direction == "out" else None,
-                        until=None if direction == "out" else transfer.occurred_at,
+                        symbol=chain.symbol,
                     )
-                )
+                    nodes[other_id] = child
+                    result.nodes.append(child)
+                    queue.append(
+                        _Pending(
+                            address=other,
+                            depth=pending.depth + 1,
+                            # The hop inherits the transfer's instant as its own
+                            # horizon — see ADR 0010.
+                            since=transfer.occurred_at if direction == "out" else None,
+                            until=None if direction == "out" else transfer.occurred_at,
+                        )
+                    )
+
+            # Balances are optional current context. Transfer evidence gets the
+            # budget first, and no balance is accepted after the deadline.
+            phase = "balances"
+            for node in result.nodes:
+                _check_deadline(deadline)
+                balance = await _balance_or_none(chain, node.address, client, deadline=deadline)
+                _check_deadline(deadline)
+                node.balance = balance
+    except OnchainDeadlineExceeded:
+        result.interruption = TraceInterruption("deadline_exceeded", phase)
+    except TimeoutError:
+        if not budget.expired():
+            raise
+        result.interruption = TraceInterruption("deadline_exceeded", phase)
+    except ProviderRateLimited as exc:
+        if phase == "history" and not result.edges:
+            raise
+        result.interruption = TraceInterruption(
+            "upstream_rate_limited", phase,
+            exc.retry_after_seconds if isinstance(exc, OnchainRateLimited) else None,
+        )
+
+    if result.interruption and phase == "history":
+        reason = (
+            TERMINAL_BUDGET if result.interruption.code == "deadline_exceeded"
+            else TERMINAL_RATE_LIMITED
+        )
+        _mark(current_node, reason)
+        for waiting in queue:
+            if waiting.depth < hops:
+                _mark(nodes[_node_id(chain, waiting.address)], reason)
+        result.truncated = True
 
     for node in result.nodes:
         if node.terminal_reason is None and node.depth >= hops:
@@ -313,10 +343,19 @@ def _node_id(chain: Chain, address: str) -> str:
     return f"{chain.key}:{address}"
 
 
-async def _balance_or_none(chain: Chain, address: str, client) -> Optional[Decimal]:
+def _check_deadline(deadline: float) -> None:
+    if time.monotonic() >= deadline:
+        raise OnchainDeadlineExceeded()
+
+
+async def _balance_or_none(
+    chain: Chain, address: str, client, *, deadline: Optional[float] = None
+) -> Optional[Decimal]:
     """A node's balance is context, not the answer — never fail the trace for it."""
     try:
-        return await native_balance(chain, address, client=client)
+        return await native_balance(chain, address, client=client, deadline=deadline)
+    except (OnchainDeadlineExceeded, ProviderRateLimited):
+        raise
     except Exception:
         logger.debug("No balance for %s", address, exc_info=True)
         return None

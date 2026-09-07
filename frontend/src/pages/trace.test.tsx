@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Route, Routes, useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ModuleRoute } from '@/components/module-route'
 import { OnChainRoute } from '@/components/onchain-route'
@@ -322,4 +322,116 @@ describe('owned wallet activity', () => {
     }
   })
 
+})
+
+function ChangeTraceDates() {
+  const [, setParams] = useSearchParams()
+  return <button onClick={() => setParams({ chain: 'solana', address: 'wallet-one', since: '2025-01-23' })}>Change trace dates</button>
+}
+
+describe('trace interruptions and retry guidance', () => {
+  const failure = (code: string, retry_after_seconds: unknown = 10) => ({
+    response: { data: { detail: { code, retry_after_seconds, message: 'https://secret.invalid/private-provider-key' } } },
+  })
+
+  it.each([
+    ['upstream_rate_limited', 'The chain provider limited this trace. Wait before retrying.'],
+    ['trace_admission_limited', 'This server has reached its trace request limit. Wait before retrying.'],
+    ['history_unavailable', 'Transfer history is not configured for this chain on this server.'],
+    ['unrecognized_upstream_code', 'The trace could not be completed'],
+  ])('renders safe guidance for %s without exposing upstream detail', async (code, message) => {
+    onchain.trace.mockRejectedValue(failure(code))
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.queryByText(/private-provider-key/)).not.toBeInTheDocument()
+    if (code.endsWith('limited')) {
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+      expect(screen.getByRole('status')).toHaveTextContent('Retry available in 10s.')
+    } else {
+      expect(screen.queryByText(/Retry available/)).not.toBeInTheDocument()
+    }
+    expect(Boolean(screen.queryByText(/A server operator can configure/))).toBe(code === 'upstream_rate_limited')
+    expect(onchain.trace).toHaveBeenCalledOnce()
+  })
+
+  it('keeps cooldown across form and URL edits and only retries on submission after it expires', async () => {
+    onchain.trace.mockRejectedValueOnce(failure('upstream_rate_limited'))
+    renderWithProviders(<>{panel()}<ChangeTraceDates /></>, { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    vi.useFakeTimers()
+    try {
+      fireEvent.submit(screen.getByRole('button', { name: 'Explore transfers' }).closest('form')!)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+      fireEvent.change(screen.getByLabelText('From (UTC)'), { target: { value: '2025-01-22T00:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Change trace dates' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      const submit = screen.getByRole('button', { name: 'Explore transfers' })
+      expect(submit).toBeDisabled()
+      fireEvent.submit(submit.closest('form')!)
+      expect(onchain.trace).toHaveBeenCalledOnce()
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+      expect(submit).toBeEnabled()
+      expect(onchain.trace).toHaveBeenCalledOnce()
+      fireEvent.submit(submit.closest('form')!)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(onchain.trace).toHaveBeenCalledTimes(2)
+      expect(onchain.trace.mock.calls[1][0].since).toBe('2025-01-23T00:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([null, -1, '10', Infinity])('uses a short manual retry floor for invalid guidance %s', async (delay) => {
+    onchain.trace.mockRejectedValue(failure('upstream_rate_limited', delay))
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Retry available in 5s.')
+    expect(onchain.trace).toHaveBeenCalledOnce()
+  })
+
+  it('keeps completed transfers visible with partial throttle cooldown', async () => {
+    onchain.trace.mockResolvedValue({ ...traceResult, interruption: { code: 'upstream_rate_limited', phase: 'history', retry_after_seconds: 120 } })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    expect(await screen.findByTitle('synthetic-transfer-reference')).toBeInTheDocument()
+    expect(screen.getByText(/Only part of the trail is shown/)).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Retry available in 120s.')
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Download result' })).toBeEnabled()
+  })
+
+  it('qualifies balance-only expiry without inventing incomplete transfer coverage', async () => {
+    onchain.trace.mockResolvedValue({
+      ...traceResult, truncated: false,
+      nodes: traceResult.nodes.map((node) => ({ ...node, balance: null })),
+      interruption: { code: 'deadline_exceeded', phase: 'balances', retry_after_seconds: null },
+    })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    expect(await screen.findByText(/Some current balances could not be read/)).toBeInTheDocument()
+    expect(screen.getByTitle('synthetic-transfer-reference')).toBeInTheDocument()
+    expect(screen.queryByText(/Only part of the trail is shown/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/balance 0 SOL/)).not.toBeInTheDocument()
+  })
+
+  it('makes zero-edge deadline expiry explicit rather than claiming empty history', async () => {
+    onchain.trace.mockResolvedValue({
+      ...traceResult, edges: [],
+      nodes: [{ ...traceResult.nodes[0], balance: null, terminal_reason: 'budget' }],
+      interruption: { code: 'deadline_exceeded', phase: 'history', retry_after_seconds: null },
+    })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+    expect(await screen.findByText(/The time limit interrupted the history read/)).toBeInTheDocument()
+    expect(screen.getByText(/Only part of the trail is shown/)).toBeInTheDocument()
+    expect(screen.queryByText(/No transfers were returned/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No native-coin transfers were found/)).not.toBeInTheDocument()
+  })
 })

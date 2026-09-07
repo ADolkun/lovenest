@@ -2672,7 +2672,7 @@
       "no_match": "Tutaj nic nie pasowało do Twoich filtrów — z tego adresu środki jednak wyszły.",
       "partial": "Ślad może biec dalej: ten adres miał więcej aktywności, niż dało się zbadać.",
       "unavailable": "Ślad urywa się tutaj: nie udało się odczytać tego adresu.",
-      "rate_limited": "Ślad urywa się tutaj: węzeł łańcucha ograniczył tempo śledzenia, zanim udało się odczytać ten adres. Spróbuj ponownie za chwilę lub ustaw dedykowany adres RPC w ONCHAIN_RPC_URLS."
+      "rate_limited": "Ślad urywa się tutaj: węzeł łańcucha ograniczył tempo śledzenia, zanim udało się odczytać ten adres."
     },
     "terminalDetail": {
       "pooled": "Activity suggests a pooled wallet or service, but does not identify its owner. Movements beyond this address cannot be attributed to your funds from this trail alone."
@@ -2706,7 +2706,18 @@
     "download": "Download result",
     "hopTransfers_one": "{{count}} transfer",
     "hopTransfers_other": "{{count}} transfers",
-    "downloadFailed": "Could not download the trace. Please try again."
+    "downloadFailed": "Could not download the trace. Please try again.",
+    "error": {
+      "upstream_rate_limited": "The chain provider limited this trace. Wait before retrying.",
+      "trace_admission_limited": "This server has reached its trace request limit. Wait before retrying.",
+      "history_unavailable": "Transfer history is not configured for this chain on this server."
+    },
+    "deadline": "The time limit interrupted the history read. Any transfers shown are only the completed part of this trace. Try a narrower UTC date range.",
+    "balanceDeadline": "Some current balances could not be read before the time limit and remain unknown. This does not change the transfer coverage shown.",
+    "balanceRateLimited": "The chain provider limited the current balance reads. Unread balances remain unknown; this does not change the transfer coverage shown.",
+    "rateLimitHelp": "A server operator can configure a dedicated RPC endpoint, but it may still have limits.",
+    "retryIn": "Retry available in {{seconds}}s.",
+    "requestCostHint": "A narrower UTC date range can reduce transaction reads. Fewer hops or branches limit later exploration but do not reduce the first address's up to 25 transaction reads."
   },
   "accountHoldings": {
     "holdings": "Holdings",
