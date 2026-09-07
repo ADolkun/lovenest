@@ -833,11 +833,11 @@ export default function ReportsPage() {
                   tickCount={5}
                 />
                 <Tooltip
-                  formatter={(value?: number, name?: string) => [
-                    privacyMode ? MASK : formatCurrency(value ?? 0, userCurrency, locale),
+                  formatter={(value, name) => [
+                    privacyMode ? MASK : formatCurrency((value as number | undefined) ?? 0, userCurrency, locale),
                     name === 'value'
                       ? t('reports.netIncome')
-                      : t(`reports.${name ?? ''}`, { defaultValue: name ?? '' }),
+                      : t(`reports.${name ?? ''}`, { defaultValue: (name as string | undefined) ?? '' }),
                   ]}
                   labelFormatter={(label) => label}
                   contentStyle={tooltipStyle}
@@ -1297,8 +1297,8 @@ export default function ReportsPage() {
                                     </defs>
                                     <XAxis dataKey="date" hide />
                                     <Tooltip
-                                      formatter={(value?: number) => [
-                                        privacyMode ? MASK : formatCurrency(value ?? 0, userCurrency, locale),
+                                      formatter={(value) => [
+                                        privacyMode ? MASK : formatCurrency((value as number | undefined) ?? 0, userCurrency, locale),
                                         item.label,
                                       ]}
                                       labelFormatter={(label) => label}

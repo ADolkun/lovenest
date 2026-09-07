@@ -1,4 +1,4 @@
-"""Run with python3 ci/test_changes.py; no application dependencies needed."""
+"""Run with python3 .github/ci/test_changes.py; no application dependencies needed."""
 
 import json
 import os
@@ -77,8 +77,9 @@ class CIChangesTest(unittest.TestCase):
             ({"backend/README.md": "fixture"}, ("true", "false")),
             ({"backend/new.py": "code", "frontend/new.ts": "code"}, ("true", "true")),
         ]
-        for name in (".github/workflows/lovenest-ci.yml", "ci/changes.py",
-                     "ci/test_changes.py", "docker-compose.yml", "mise.toml",
+        for name in (".github/workflows/lovenest-ci.yml", ".github/ci/changes.py",
+                     ".github/ci/test_changes.py", "extras/tax/pyproject.toml",
+                     "extras/tax/uv.lock", "docker-compose.yml", "mise.toml",
                      "docs/tool.py", "unexpected.md", "new-package/code.py"):
             cases.append(({name: "shared"}, ("true", "true")))
         for files, expected in cases:

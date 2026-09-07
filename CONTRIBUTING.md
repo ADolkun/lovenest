@@ -120,32 +120,46 @@ limited to allowlisted root prose or Markdown under `docs/` skip both suites.
 Shared, workflow, and unknown paths run both, and uncertain change detection
 runs both or fails the check. Every push to `lovenest` runs both full suites.
 Reproduce the relevant checks locally before opening a PR; when changing CI
-selection, also run `python3 ci/test_changes.py` from the repository root.
+selection, also run `python3 .github/ci/test_changes.py` from the repository root.
 
 ### Backend (Python version from `backend/.python-version`, run from `backend/`)
 
 ```bash
 cd backend
-uv sync --all-extras   # first time only — builds .venv from uv.lock, same versions as CI
-.venv/bin/ruff check .
-.venv/bin/ty check .
-.venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=60
+uv sync --locked --group dev   # creates .venv and rejects an out-of-date uv.lock
+uv run --no-sync ruff check .
+uv run --no-sync ty check .
+uv run --no-sync pytest -n auto --dist loadfile --cov=app --cov-report=term-missing --cov-fail-under=60
 
 # After changing dependencies in pyproject.toml: regenerate the lock and
 # commit uv.lock along with it (CI enforces this)
 ./scripts/lock.sh
 
 # After adding a migration: check the revision chain is still a single line
-python3 scripts/check_migration_chain.py
+uv run --no-sync python scripts/check_migration_chain.py
 ```
 
 Product CI requires clean Ruff, type, migration-chain, and pytest checks.
 The upstream `main` workflow also enforces **60%** coverage; the local command
 above retains that coverage check, while product CI runs pytest without coverage.
-CI and Docker install frozen lock exports with `uv pip install --require-hashes`, then
-install the project editably with `--no-deps`. This uses uv without invoking pip
-and rejects missing dependency hashes; native `uv sync` verifies hashes when present.
+CI and development use `uv sync --locked --group dev`; Docker uses
+`uv sync --locked --no-dev`. Both install the project and its dependencies directly
+from `uv.lock`. Run tools with `uv run --no-sync` after syncing so checks use the
+same environment without resolving or installing dependencies again.
 Add tests for new backend behavior.
+
+### Tax planner
+
+The backend CI gate also validates the separate tax planner project:
+
+```bash
+cd extras/tax
+uv sync --locked
+uv run --no-sync python -m unittest discover -v
+```
+
+Commit `extras/tax/uv.lock` with dependency changes to its `pyproject.toml`.
+Each Python project keeps its own `.venv` and `.python-version`.
 
 ### Adding a migration
 

@@ -23,8 +23,6 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 5
-    strategy:
-      fail-fast: false
     defaults:
       run:
         working-directory: backend
@@ -38,8 +36,8 @@ jobs:
         id: changes
         working-directory: .
         run: |
-          python3 ci/test_changes.py
-          python3 ci/changes.py
+          python3 .github/ci/test_changes.py
+          python3 .github/ci/changes.py
 
       - name: Skip unrelated backend checks
         if: steps.changes.outputs.run_backend == 'false'
@@ -61,44 +59,45 @@ jobs:
             backend/uv.lock
             backend/pyproject.toml
             backend/.python-version
+            extras/tax/uv.lock
+            extras/tax/pyproject.toml
+            extras/tax/.python-version
 
       - name: Install dependencies
         if: steps.changes.outputs.run_backend != 'false'
-        run: |
-          uv export --frozen --all-extras --no-emit-project -o /tmp/requirements-dev.txt
-          uv pip install --system --require-hashes -r /tmp/requirements-dev.txt
-          uv pip install --system --no-deps -e .
-
-      - name: Verify lockfile is in sync
-        if: steps.changes.outputs.run_backend != 'false'
-        run: uv lock --check
+        run: uv sync --locked --group dev
 
       - name: Lint with Ruff
         if: steps.changes.outputs.run_backend != 'false'
-        run: ruff check .
+        run: uv run --no-sync ruff check .
 
       # Upstream runs this in its own workflow, which only fires on `main`.
       # This fork renumbers every upstream migration onto its own head, so the
       # clash the guard exists for is more likely here, not less.
       - name: Check the Alembic revision chain
         if: steps.changes.outputs.run_backend != 'false'
-        run: python3 scripts/check_migration_chain.py
+        run: uv run --no-sync python scripts/check_migration_chain.py
 
       - name: Type check with ty
         if: steps.changes.outputs.run_backend != 'false'
-        run: ty check .
+        run: uv run --no-sync ty check .
+
+      - name: Check tax planner lock and tests
+        if: steps.changes.outputs.run_backend != 'false'
+        working-directory: extras/tax
+        run: |
+          uv sync --locked
+          uv run --no-sync python -m unittest discover -v
 
       - name: Run tests
         if: steps.changes.outputs.run_backend != 'false'
         env:
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
-        run: pytest -n auto --durations=25
+        run: uv run --no-sync pytest -n auto --dist loadfile --durations=25
 
   frontend:
     name: Frontend (lint + build)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     defaults:
       run:
         working-directory: frontend
@@ -112,8 +111,8 @@ jobs:
         id: changes
         working-directory: .
         run: |
-          python3 ci/test_changes.py
-          python3 ci/changes.py
+          python3 .github/ci/test_changes.py
+          python3 .github/ci/changes.py
 
       - name: Skip unrelated frontend checks
         if: steps.changes.outputs.run_frontend == 'false'

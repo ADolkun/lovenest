@@ -1,15 +1,15 @@
-[env]
-_.python.venv = { path = ".venv", create = true }
-
 [settings]
 idiomatic_version_file_enable_tools = ["python"]
 
 [tasks.install]
 alias = "i"
-run = "uv sync --all-extras"
+run = "uv sync --locked --group dev"
 
 [tasks.lint]
-run = "ruff check ."
+run = "uv run --no-sync ruff check ."
+
+[tasks.typecheck]
+run = "uv run --no-sync ty check ."
 
 [tasks.test]
-run = "pytest --cov=app --cov-report=term-missing"
+run = "uv run --no-sync pytest --cov=app --cov-report=term-missing"

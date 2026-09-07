@@ -3,27 +3,23 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install system deps for asyncpg
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Compose mounts source at /app; keep the Linux environment outside that mount.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_PYTHON_DOWNLOADS=0 \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH"
 
-# Dependencies come from uv.lock (the source of truth — see scripts/lock.sh).
-# The export never touches the lock (--frozen); uv requires matching hashes
-# for every dependency. Mount uv only during builds so it stays out of the image.
-# This layer is cached until pyproject.toml or uv.lock change.
-COPY pyproject.toml uv.lock ./
+# Cache dependencies separately from source and leave uv out of the runtime image.
+COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=from=uv,source=/uv,target=/bin/uv \
-    uv export --frozen --no-emit-project -o /tmp/requirements.txt \
-    && uv pip install --system --no-cache --require-hashes -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project
 
 COPY . .
-# The project itself: deps are already satisfied above, so --no-deps keeps
-# this layer from re-resolving anything outside the lock.
+# Editable installation also supports the backend, Celery and MCP source binds.
 RUN --mount=from=uv,source=/uv,target=/bin/uv \
-    uv pip install --system --no-cache --no-deps -e .
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
 
 EXPOSE 8000
 

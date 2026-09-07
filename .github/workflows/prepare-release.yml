@@ -69,7 +69,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # backend/pyproject.toml is installed into the image with `uv pip install -e .`,
+          # backend/pyproject.toml is installed into the image with `uv sync --locked`,
           # so this is the version the running backend actually reports.
           sed -i -E "0,/^version = /s|^version = .*|version = \"$VERSION\"|" backend/pyproject.toml
 

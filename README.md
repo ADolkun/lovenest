@@ -81,14 +81,19 @@ Contributing with AI is welcome. We review the author, not the tool: whatever wr
 ## Development
 
 ```bash
-# Run backend tests (from backend/, needs Python 3.11+; same as CI)
+# Run backend tests with the Python version in backend/.python-version
 cd backend
-pip install -e ".[dev]"   # first time only — installs pytest and dev deps
-pytest
+uv sync --locked --group dev
+uv run --no-sync pytest
 
 # Rebuild after dependency changes
 docker compose up --build
 ```
+
+The backend installs editably into `.venv`; after changing dependencies, run
+`backend/scripts/lock.sh` and commit `backend/uv.lock`. See
+[Contributing](CONTRIBUTING.md#running-the-checks-ci-runs) for the full checks and
+[tax planner development](extras/tax/README.md) for its separate uv project.
 
 If you've [mise](https://mise.jdx.dev/) installed, you can install backend/frontend directly with it:
 

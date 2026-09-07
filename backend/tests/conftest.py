@@ -145,9 +145,42 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture
 async def clean_db(session: AsyncSession):
     """Clean all data between tests."""
-    for table in reversed(Base.metadata.sorted_tables):
-        await session.execute(table.delete())
+    import aiosqlite
+
+    assert not (session.new or session.dirty or session.deleted), (
+        "clean_db requires a fresh session without pending ORM changes"
+    )
+    # Batch the same deletes into one driver round trip. An explicit BEGIN keeps
+    # cleanup atomic: executescript otherwise runs each delete in autocommit.
+    statements = ";\n".join(
+        str(table.delete().compile(dialect=engine.dialect))
+        for table in reversed(Base.metadata.sorted_tables)
+    )
+    connection = await session.connection()
+    raw = await connection.get_raw_connection()
+    driver = raw.driver_connection
+    assert isinstance(driver, aiosqlite.Connection)
+    # executescript implicitly commits an existing SQLite transaction. Fail
+    # before touching data if a caller violates this fixture's fresh-session contract.
+    assert not driver.in_transaction, "clean_db requires a fresh session without a transaction"
+    async with driver.executescript("BEGIN;\n" + statements):
+        pass
     await session.commit()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fast_password_hashes():
+    """Exercise real Argon2 hash/verify/upgrade at test-only work costs."""
+    from pwdlib.hashers.argon2 import Argon2Hasher
+
+    def _test_argon2_hasher(*args, **kwargs):
+        # Explicit constructor calls retain all production parameter defaults.
+        if args or kwargs:
+            return Argon2Hasher(*args, **kwargs)
+        return Argon2Hasher(time_cost=1, memory_cost=8, parallelism=1)
+
+    with patch("fastapi_users.password.Argon2Hasher", _test_argon2_hasher):
+        yield
 
 
 async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
