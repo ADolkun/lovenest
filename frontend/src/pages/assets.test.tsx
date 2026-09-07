@@ -37,15 +37,17 @@ beforeEach(() => {
 
 it.each(['/assets', '/assets?wallet=wallet-a'])('retains expanded holding details, history, and management in %s', async (route) => {
   scope.canWrite = true
-  vi.spyOn(assets, 'list').mockResolvedValue([{ ...held, units: 3, average_price: 25, last_price: 40, total_invested: 75, gain_loss: 50, realized_gain: 10 }])
+  vi.spyOn(assets, 'list').mockResolvedValue([{ ...held, units: 3, average_price: 25, last_price: 40, total_invested: 75, gain_loss: 50, value_count: 1, realized_gain: 10 }])
   const { user } = renderWithProviders(<AssetsPage />, { route })
   const holding = await screen.findByRole('button', { name: 'Private fund' })
   expect(holding).toHaveAttribute('aria-expanded', 'false')
   expect(within(holding.closest('.grid')!).getByText('$125.00')).toBeInTheDocument()
+  expect(within(holding.closest('.grid')!).getByText('+$50.00')).toBeInTheDocument()
+  expect(within(holding.closest('.grid')!).getByText('+66.7%')).toBeInTheDocument()
   expect(screen.queryByRole('definition')).not.toBeInTheDocument()
   await user.click(holding)
   expect(holding).toHaveAttribute('aria-expanded', 'true')
-  expect(screen.getAllByRole('definition').map((element) => element.textContent)).toEqual(['3', '$25.00', '$40.00', '+66.7%', '$10.00', '100.0%100.0% invested'])
+  expect(screen.getAllByRole('definition').map((element) => element.textContent)).toEqual(['3', '$25.00', '$40.00', '+$50.00+66.7%', '$10.00', '100.0%100.0% invested'])
   expect(screen.getByText(t('assets.valueHistoryHint'))).toBeInTheDocument()
   expect(screen.getByRole('button', { name: t('common.delete') })).toBeEnabled()
   await user.click(screen.getByRole('button', { name: t('assets.moveToWallet') }))

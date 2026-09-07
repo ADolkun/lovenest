@@ -67,6 +67,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
+import { getAssetProfit } from '@/lib/asset-profit'
 import { formatCurrency } from '@/lib/format'
 
 // Renders a logo image when one is available, falling back to the asset's
@@ -737,10 +738,7 @@ export default function AssetsPage() {
     const isMarketPriced = asset.valuation_method === 'market_price'
     const isProviderOwned = isSynced && !isMarketPriced
     const hasCost = asset.average_price != null && asset.total_invested != null
-    const returnPct =
-      hasCost && asset.gain_loss != null && asset.total_invested
-        ? (asset.gain_loss / asset.total_invested) * 100
-        : null
+    const profit = getAssetProfit(asset)
     const pctOfPortfolio =
       portfolioTotalPrimary > 0 && asset.current_value_primary != null
         ? (asset.current_value_primary / portfolioTotalPrimary) * 100
@@ -771,9 +769,16 @@ export default function AssetsPage() {
         </button>
       ) : <span className="text-muted-foreground">—</span>
     )
-    const returnValue = returnPct != null ? (
-      <span className={returnPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-        {returnPct >= 0 ? '+' : ''}{returnPct.toFixed(1)}%
+    const returnValue = profit ? (
+      <span className={profit.amount >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+        <span className="block">
+          {profit.amount >= 0 ? '+' : ''}{mask(formatCurrency(profit.amount, asset.currency, locale))}
+        </span>
+        {profit.percentage != null && (
+          <span className="block text-[10px]">
+            {profit.percentage >= 0 ? '+' : ''}{profit.percentage.toFixed(1)}%
+          </span>
+        )}
       </span>
     ) : <span className="text-muted-foreground">—</span>
     const realizedGain = asset.realized_gain ? (

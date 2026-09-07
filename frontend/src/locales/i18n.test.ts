@@ -11,7 +11,7 @@ const LOCALES = readdirSync(LOCALES_DIR)
 
 // ponytail: these upstream locales fall back to English for Lovenest-only keys;
 // remove a locale once its downstream strings have translations.
-const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'ja', 'sk'])
+const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'hi', 'ja', 'sk'])
 
 function readRaw(locale: string): string {
   return readFileSync(path.join(LOCALES_DIR, `${locale}.json`), 'utf-8')
@@ -124,6 +124,15 @@ function findDuplicateKeys(source: string): string[] {
 }
 
 describe('i18n locale files', () => {
+  it('keeps Hindi translations and falls back to English for Lovenest-only keys', async () => {
+    const { default: i18n } = await import('@/lib/i18n')
+    const hindi = i18n.getFixedT('hi')
+
+    expect(hindi('nav.assets')).toBe(JSON.parse(readRaw('hi')).nav.assets)
+    expect(i18n.getResource('hi', 'translation', 'nav.trace')).toBeUndefined()
+    expect(hindi('nav.trace')).toBe(JSON.parse(readRaw('en')).nav.trace)
+  })
+
   describe('no duplicate keys', () => {
     for (const locale of LOCALES) {
       it(`${locale}.json`, () => {
@@ -200,8 +209,7 @@ describe('i18n locale files', () => {
 
   // Every screen that offers a language picker reads SUPPORTED_LANGS, so a
   // translation that ships a bundle without landing in that list is offered
-  // nowhere. Read the source rather than importing it: the module initialises
-  // i18next against browser APIs this node-environment suite does not have.
+  // nowhere. Check every bundle against the language picker's registry.
   it('offers every locale bundle in SUPPORTED_LANGS', () => {
     const source = readFileSync(path.join(LOCALES_DIR, '..', 'lib', 'i18n.ts'), 'utf-8')
     const block = source.match(/SUPPORTED_LANGS[^=]*=\s*\[([\s\S]*?)\]/)
