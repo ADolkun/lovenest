@@ -126,3 +126,19 @@ it('keeps allocation above holdings across groupings and routes chart selections
   await user.click(screen.getByText(`${t('assets.soldAssets')} (1)`))
   expect(screen.getByRole('button', { name: 'SOLD' })).toBeInTheDocument()
 })
+
+it('keeps native wallet and activity selectors connected to their scoped views', async () => {
+  scope.onchainEnabled = true
+  vi.spyOn(onchain, 'chains').mockResolvedValue([])
+  vi.spyOn(onchain, 'addresses').mockResolvedValue([])
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?tab=activity&activity=wallets' })
+  const activity = await screen.findByRole('combobox', { name: t('assets.activityType') })
+  await user.selectOptions(activity, 'trades')
+  expect(await screen.findByText('Archived trade')).toBeInTheDocument()
+  const wallet = screen.getByRole('combobox', { name: t('assets.wallet') })
+  await user.selectOptions(wallet, 'wallet-b')
+  expect(wallet).toHaveValue('wallet-b')
+  expect(activity).toHaveValue('trades')
+  expect(screen.getByText('Outside trade')).toBeInTheDocument()
+  expect(screen.queryByText('Archived trade')).not.toBeInTheDocument()
+})
