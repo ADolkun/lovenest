@@ -684,7 +684,7 @@ async def test_competing_applied_opening_boundaries_are_unknown(session, test_wo
             )
         )
     for boundary in (None, EvidenceOpeningBoundary.model_validate(events[0].opening_boundary)):
-        result = service._reconciliation(inputs, records, legs, events, boundary)
+        result = service._reconciliation(inputs, records, legs, events, boundary, {(r.observation_ref, r.leg_key): (r.observation_ref, r.leg_key) for r in records})
         assert result[0].opening_quantity is None and result[0].expected_closing_quantity is None
         assert "competing_opening_boundaries" in result[0].missing_coverage
 

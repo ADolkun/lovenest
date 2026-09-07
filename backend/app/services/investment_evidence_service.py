@@ -193,6 +193,24 @@ def _status_progression(left, right):
     return True
 
 
+
+def _source_families(inputs, identities):
+    """Exact source namespace plus direct compatibility, never transitive links."""
+    groups = {}
+    for reference, source in inputs.items():
+        key = (bool(source.source_local_id), identities[reference] if source.source_local_id else reference)
+        groups.setdefault(key, []).append(source)
+    families, conflicting = {}, set()
+    for sources in groups.values():
+        compatible = all(_status_progression(left, right) for index, left in enumerate(sources) for right in sources[index + 1:])
+        canonical = min(source.reference for source in sources)
+        for source in sources:
+            families[source.reference] = canonical if compatible else source.reference
+            if not compatible:
+                conflicting.add(source.reference)
+    return families, conflicting
+
+
 def _comparison_fields(left, item, right, other):
     fields = []
     if left.source_kind == "primary_activity" and right.source_kind == "primary_activity":
@@ -342,7 +360,7 @@ async def preview_evidence(
     }
     known = {(o.identity_key, o.fingerprint): o for o in saved}
     inputs = {_input(o).reference: _input(o) for o in saved}
-    identities = {o.reference: _identity(group.id, cid, o) for o in inputs.values()}
+    identities = {str(o.id): o.identity_key for o in saved}
     for observation in observations:
         identity = _identity(group.id, cid, observation)
         old = known.get((identity, _fingerprint(observation)))
@@ -359,12 +377,8 @@ async def preview_evidence(
                 identity = metadata.get("evidence_asset_identity") or metadata
                 if any(getattr(leg, key) and identity.get(key) and getattr(leg, key) != identity[key] for key in ("chain", "token_address", "provider_asset_id")):
                     raise HTTPException(422, "Asset identity contradicts the selected holding")
-    peers = {}
-    for source in inputs.values():
-        peers[source.reference] = [other for other in inputs.values() if (
-            other.reference == source.reference or (source.source_local_id
-            and identities[other.reference] == identities[source.reference])
-        )]
+    families, conflicting_sources = _source_families(inputs, identities)
+    leg_families = {leg.id: (families[str(leg.observation_id)], leg.source_leg_key) for leg in legs}
     asset_by_id = {a.id: a for a in assets}
     represented = {(str(link.observation_id), link.source_leg_key) for link in links}
     pool = []
@@ -379,24 +393,22 @@ async def preview_evidence(
             source = _legacy(tx, asset_by_id[tx.asset_id])
             pool.append((tx.id, tx.id, source, source.legs[0], None))
     records = []
+    family_keys = {}
     for observation in inputs.values():
         for item in observation.legs:
-            versions_for_source = peers[observation.reference]
-            compatible_versions = all(
-                _status_progression(left, right) for left in versions_for_source for right in versions_for_source
-                if left.reference != right.reference
-            )
-            peer_refs = {part.reference for part in versions_for_source} if compatible_versions else {observation.reference}
-            peer_legs = [part for part in legs if str(part.observation_id) in peer_refs and part.source_leg_key == item.key]
-            related = [link for link in links if str(link.observation_id) in peer_refs and link.source_leg_key == item.key]
+            family_key = (families[observation.reference], item.key)
+            family_keys[(observation.reference, item.key)] = family_key
+            peer_legs = [part for part in legs if leg_families[part.id] == family_key]
+            related = [link for link in links if (families[str(link.observation_id)], link.source_leg_key) == family_key]
             active = [link for link in related if link.reversed_at is None and str(link.observation_id) == observation.reference]
-            application_legs = peer_legs + [part for part in legs if part.id in {link.leg_id for link in related}]
+            application_families = {family_key, *(leg_families[link.leg_id] for link in related)}
+            application_legs = [part for part in legs if leg_families[part.id] in application_families]
             application = any(part.applied_at for part in application_legs)
             application_reversed = any(part.applied_at and part.asset_transaction_id is None for part in application_legs)
             matches = [asset for asset in assets if asset.id == item.asset_id] if item.asset_id else [asset for asset in assets if asset.ticker and item.asset_symbol and asset.ticker.upper() == item.asset_symbol.upper()]
             asset = matches[0] if len(matches) == 1 else None
             conflicts = _conflicts(observation, item, asset)
-            if not compatible_versions:
+            if observation.reference in conflicting_sources:
                 conflicts.append("source_version")
             if sum(bool(part.applied_at) for part in peer_legs) > 1:
                 conflicts.append("multiple_application_owners")
@@ -478,16 +490,6 @@ async def preview_evidence(
             if related and not application:
                 status = "blocked"
                 reasons.append("canonical_application_required")
-            # One retained version owns an unapplied execution. Prefer settled,
-            # richer facts; the reference is only a deterministic tie-breaker.
-            canonical = max(versions_for_source, key=lambda source: (
-                source.settlement_status == "settled",
-                sum(value is not None for part in source.legs for value in part.model_dump().values()),
-                source.reference,
-            ))
-            if compatible_versions and canonical.reference != observation.reference and not application:
-                status = "blocked"
-                reasons.append("canonical_source_version")
             if application_reversed:
                 status = "blocked"
                 reasons.append("application_reversed")
@@ -525,6 +527,18 @@ async def preview_evidence(
                 candidate_legs=candidates, link_ids=[link.id for link in active],
                 reason_codes=list(dict.fromkeys(reasons)), conflicting_fields=list(dict.fromkeys(conflicts)), effects=effects,
             ))
+    # Only independently eligible records compete for manual application.
+    # Sync and reconciliation enforce their own prerequisites on the same family.
+    manual_owners = set()
+    for record in sorted(records, key=lambda record: record.observation_ref, reverse=True):
+        if record.application_status != "eligible":
+            continue
+        family_key = family_keys[(record.observation_ref, record.leg_key)]
+        if family_key in manual_owners:
+            record.application_status = "blocked"
+            record.reason_codes.append("canonical_source_version")
+            record.effects = EvidenceEffects()
+        manual_owners.add(family_key)
     revision = _digest({
         "group": [str(group.id), str(group.connection_id), str(group.account_id)],
         "observations": sorted((identities[o.reference], _fingerprint(o)) for o in inputs.values()),
@@ -534,7 +548,7 @@ async def preview_evidence(
         "assets": sorted((str(a.id), str(a.units), str(a.group_id), str(a.connection_id)) for a in assets),
         "opening_boundary": opening_boundary.model_dump(mode="json") if opening_boundary else None,
     })
-    reconciliation = _reconciliation(inputs, records, legs, events, opening_boundary)
+    reconciliation = _reconciliation(inputs, records, legs, events, opening_boundary, family_keys)
     workspace = await session.get(Workspace, workspace_id)
     if workspace is None:
         raise HTTPException(404, "Workspace not found")
@@ -558,19 +572,28 @@ async def preview_evidence(
     )
 
 
-def _reconciliation(inputs, records, legs, events, opening_boundary):
+def _reconciliation(inputs, records, legs, events, opening_boundary, family_keys):
     identity_fields = ("asset_symbol", "chain", "token_address", "provider_asset_id", "isin")
+    family_identities = {}
+    for observation in inputs.values():
+        for item in observation.legs:
+            family_key = family_keys[(observation.reference, item.key)]
+            reported = tuple(getattr(item, field) for field in identity_fields)
+            known = family_identities.get(family_key, reported)
+            # Only fully compatible scoped families share a key. Preserve
+            # source payloads; fill their identity gaps for grouping alone.
+            family_identities[family_key] = tuple(value if value is not None else prior for value, prior in zip(reported, known))
     scopes = {}
     by_record = {(record.observation_ref, record.leg_key): record for record in records}
     for observation in inputs.values():
         for item in observation.legs:
-            key = tuple(getattr(item, field) for field in identity_fields)
+            key = family_identities[family_keys[(observation.reference, item.key)]]
             record = by_record[(observation.reference, item.key)]
             targets = [leg for leg in legs if leg.id in {link.leg.leg_id for link in record.links}]
             if not targets and record.application_status == "already_applied" and "source_version" not in record.conflicting_fields:
                 targets = [leg for leg in legs if leg.asset_transaction_id and leg.source_leg_key == item.key
                            and _status_progression(observation, inputs[str(leg.observation_id)])]
-            aliases = {tuple(leg.payload.get(field) for field in identity_fields) for leg in targets}
+            aliases = {family_identities[family_keys[(str(leg.observation_id), leg.source_leg_key)]] for leg in targets}
             if len(aliases) == 1:
                 key = aliases.pop()
             scopes.setdefault(key, []).append((observation, item))
@@ -617,7 +640,7 @@ def _reconciliation(inputs, records, legs, events, opening_boundary):
             own = next((leg for leg in legs if str(leg.observation_id) == observation.reference and leg.source_leg_key == item.key), None)
             # Corroboration does not add another movement. Only canonical
             # settled primary legs enter the quantity equation.
-            if any(reason in record.reason_codes for reason in ("canonical_source_version", "canonical_application_required", "application_reversed")):
+            if any(reason in record.reason_codes for reason in ("canonical_application_required", "application_reversed")):
                 missing.add("unresolved_movements")
                 continue
             if record.links or (record.application_status == "already_applied" and (own is None or not own.asset_transaction_id)):
@@ -635,7 +658,7 @@ def _reconciliation(inputs, records, legs, events, opening_boundary):
             if item.classification not in {"buy", "sell", "income", "transfer", "fee"}:
                 missing.add("unsupported_movement_classification")
                 continue
-            canonical_key = str(own.id) if own else (observation.reference, item.key)
+            canonical_key = family_keys[(observation.reference, item.key)]
             if canonical_key not in counted:
                 signed = _sum_exact([signed, item.quantity if item.direction == "in" else item.quantity.copy_negate()])
                 counted.add(canonical_key)
@@ -1017,10 +1040,27 @@ async def undo_evidence_import(session, workspace_id, log):
     removable = []
     for tx in transactions:
         leg = await session.scalar(select(InvestmentLeg).where(InvestmentLeg.asset_transaction_id == tx.id))
+        supporting_legs = []
+        if leg:
+            source = await session.get(InvestmentObservation, leg.observation_id)
+            versions = list((await session.scalars(select(InvestmentObservation).where(
+                InvestmentObservation.workspace_id == workspace_id,
+                InvestmentObservation.identity_key == source.identity_key,
+            ))).all())
+            inputs = {str(row.id): _input(row) for row in versions}
+            families, conflicting = _source_families(inputs, {str(row.id): row.identity_key for row in versions})
+            if str(source.id) in conflicting:
+                raise HTTPException(409, "Resolve conflicting source revisions before undoing this application")
+            peers = [row.id for row in versions if families[str(row.id)] == families[str(source.id)]]
+            supporting_legs = select(InvestmentLeg.id).where(
+                InvestmentLeg.workspace_id == workspace_id,
+                InvestmentLeg.observation_id.in_(peers), InvestmentLeg.source_leg_key == leg.source_leg_key,
+            )
         supported = await session.scalar(select(InvestmentObservationLink.id).where(
-            InvestmentObservationLink.leg_id == leg.id,
+            InvestmentObservationLink.workspace_id == workspace_id,
+            InvestmentObservationLink.leg_id.in_(supporting_legs),
             InvestmentObservationLink.reversed_at.is_(None),
-            InvestmentObservationLink.import_id != log.id,
+            InvestmentObservationLink.import_id.is_distinct_from(log.id),
         ).limit(1)) if leg else None
         if supported:
             tx.import_id = None
@@ -1162,15 +1202,19 @@ async def sync_evidence(session, connection, observations, trades, holdings, syn
         # candidate retrieval is the upgrade if individual histories outgrow it.
         preview = await preview_evidence(session, connection.workspace_id, group_id)
         records = {(record.observation_ref, record.leg_key): record for record in preview.records}
+        written_families = set()
         for row, own, observation, item, trade, asset in pending.values():
             record = records[(str(row.id), item.key)]
             if record.application_status == "already_applied" or any(reason in record.reason_codes for reason in (
-                "canonical_application_required", "canonical_source_version", "application_reversed",
+                "canonical_application_required", "application_reversed",
             )):
                 continue
             if record.match_status in {"candidate", "conflicting"} or record.conflicting_fields or _conflicts(observation, item, asset):
                 continue
             if not item.execution_id or observation.settlement_status != "settled" or observation.event_at is None:
+                continue
+            family_key = (row.identity_key, item.key)
+            if family_key in written_families:
                 continue
             # TradeData already carries the provider's established pricing
             # policy (including explicit reward valuation). Preserve it;
@@ -1185,6 +1229,7 @@ async def sync_evidence(session, connection, observations, trades, holdings, syn
             await session.flush()
             own.asset_id, own.asset_transaction_id, own.applied_at = asset.id, tx.id, datetime.now(timezone.utc)
             touched[asset.id] = asset
+            written_families.add(family_key)
         await session.flush()
     return touched
 
