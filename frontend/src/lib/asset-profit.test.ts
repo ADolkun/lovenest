@@ -9,6 +9,7 @@ const baseAsset = {
   sell_date: null,
   sell_price: null,
   total_invested: null,
+  valuation_method: 'manual' as const,
   value_count: 0,
 }
 
@@ -41,6 +42,15 @@ describe('getAssetProfit', () => {
       gain_loss: 0,
       purchase_price: 1000,
     })).toBeNull()
+  })
+
+  it('keeps quoted market profit after valuation history is deleted', () => {
+    expect(getAssetProfit({
+      ...baseAsset,
+      valuation_method: 'market_price',
+      gain_loss: 50,
+      total_invested: 200,
+    })).toEqual({ amount: 50, percentage: 25 })
   })
 
   it('shows the cumulative realized gain for a sold ledger asset', () => {

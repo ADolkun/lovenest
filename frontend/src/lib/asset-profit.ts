@@ -8,6 +8,7 @@ type ProfitAsset = Pick<
   | 'sell_date'
   | 'sell_price'
   | 'total_invested'
+  | 'valuation_method'
   | 'value_count'
 >
 
@@ -18,7 +19,7 @@ export function getAssetProfit(asset: ProfitAsset) {
         ? asset.sell_price - asset.purchase_price
         : null
     )
-    : asset.value_count > 0 ? asset.gain_loss : null
+    : asset.valuation_method === 'market_price' || asset.value_count > 0 ? asset.gain_loss : null
 
   if (amount == null) return null
 
