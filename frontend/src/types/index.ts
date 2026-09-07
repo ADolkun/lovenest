@@ -861,6 +861,9 @@ export interface AssetImportWarning {
 }
 
 export interface AssetImportPreview {
+  column_mapping?: Record<string, string>
+  unmapped_columns?: string[]
+  evidence?: import('./investment-evidence').EvidencePreview | null
   orders: AssetOrderImport[]
   errors: AssetImportRowError[]
   skips: AssetImportSkip[]
@@ -873,6 +876,7 @@ export interface AssetImportPreview {
 }
 
 export interface AssetImportResult {
+  evidence?: import('./investment-evidence').EvidencePreview | null
   imported: number
   skipped: number
   holdings_created: number

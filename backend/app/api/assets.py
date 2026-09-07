@@ -25,6 +25,10 @@ from app.schemas.asset_import import (
     AssetImportRequest,
     AssetImportResult,
 )
+from app.schemas.investment_evidence import (
+    EvidenceConfirmRequest, EvidenceOpeningBoundary, EvidencePreview, EvidenceResult,
+)
+from app.services import investment_evidence_service
 from app.schemas.asset import (
     AssetBuyCreate,
     AssetCreate,
@@ -312,6 +316,12 @@ async def preview_asset_import(
     date_format: str | None = Form(None),
     group_id: uuid.UUID | None = Form(None),
     allow_unpriced: bool = Form(False),
+    mode: str = Form("orders"),
+    provider: str = Form("csv"),
+    source_kind: str = Form("primary_activity"),
+    source_account_id: str | None = Form(None),
+    connection_id: uuid.UUID | None = Form(None),
+    opening_boundary: str | None = Form(None),
     ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -327,6 +337,31 @@ async def preview_asset_import(
             mapping = json.loads(column_mapping)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="column_mapping must be valid JSON")
+
+    if mode in {"evidence", "opening_lots"}:
+        from app.services.investment_evidence_parser import parse_observations_csv
+        if group_id is None:
+            raise HTTPException(422, "Choose a destination wallet before reviewing evidence")
+        try:
+            boundary = EvidenceOpeningBoundary.model_validate_json(opening_boundary) if opening_boundary else None
+            parsed = parse_observations_csv(
+                content, column_mapping=mapping, date_format=date_format,
+                source_kind=source_kind, provider=provider, source_account_id=source_account_id,
+                source_locator=file.filename or "evidence.csv",
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        evidence = await investment_evidence_service.preview_evidence(
+            session, ctx.workspace.id, group_id, parsed["observations"],
+            connection_id=connection_id, opening_boundary=boundary,
+        )
+        return AssetImportPreview(
+            evidence=evidence, csv_columns=parsed["csv_columns"],
+            column_mapping=parsed["column_mapping"], unmapped_columns=parsed["unmapped_columns"],
+            errors=[{"row": e["row"], "reason": e["reason"], "detail": e.get("field")} for e in parsed["errors"]],
+        )
+    if mode != "orders":
+        raise HTTPException(422, "Unknown import mode")
 
     try:
         orders, errors, skips, columns = asset_import_service.parse_orders_csv(
@@ -376,6 +411,20 @@ async def import_asset_orders(
     session: AsyncSession = Depends(get_async_session),
 ):
     """Apply the previewed orders to the workspace's holdings."""
+    if data.mode in {"evidence", "opening_lots"}:
+        if data.group_id is None or not data.expected_revision:
+            raise HTTPException(422, "A destination wallet and preview revision are required")
+        result = await investment_evidence_service.import_evidence(
+            session, ctx.workspace.id, ctx.user_id, data.group_id, data.observations,
+            filename=data.filename, connection_id=data.connection_id,
+            decisions=data.decisions, expected_revision=data.expected_revision,
+            opening_boundary=data.opening_boundary, allow_unpriced=data.allow_unpriced,
+        )
+        return AssetImportResult(
+            **result.model_dump(), skipped=0, holdings_created=0, holdings_matched=0,
+        )
+    if data.mode != "orders":
+        raise HTTPException(422, "Unknown import mode")
     try:
         summary = await asset_import_service.import_orders(
             session, ctx.workspace.id, ctx.user_id, data.orders,
@@ -388,6 +437,63 @@ async def import_asset_orders(
             detail="Market data provider is currently rate-limiting. Try again in a minute.",
         )
     return AssetImportResult(**summary)
+
+
+@router.get("/evidence", response_model=EvidencePreview)
+async def list_investment_evidence(
+    group_id: uuid.UUID,
+    opening_as_of: date | None = None,
+    opening_assumption: str | None = Query(None, min_length=1, max_length=500),
+    overlap_reviewed: bool = False,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    boundary = None
+    if opening_as_of is not None:
+        if not opening_assumption:
+            raise HTTPException(422, "State the opening balance assumption")
+        boundary = EvidenceOpeningBoundary(
+            as_of=opening_as_of, assumption=opening_assumption, overlap_reviewed=overlap_reviewed,
+        )
+    return await investment_evidence_service.preview_evidence(
+        session, ctx.workspace.id, group_id, opening_boundary=boundary,
+    )
+
+
+@router.post("/evidence/confirm", response_model=EvidenceResult)
+async def confirm_investment_evidence(
+    data: EvidenceConfirmRequest,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await investment_evidence_service.confirm_evidence(
+        session, ctx.workspace.id, ctx.user_id, data.group_id,
+        data.decisions, data.expected_revision, opening_boundary=data.opening_boundary,
+        allow_unpriced=data.allow_unpriced,
+    )
+
+
+@router.delete("/evidence/links/{link_id}", response_model=EvidencePreview)
+async def unlink_investment_evidence(
+    link_id: uuid.UUID,
+    expected_revision: str,
+    opening_as_of: date | None = None,
+    opening_assumption: str | None = Query(None, min_length=1, max_length=500),
+    overlap_reviewed: bool = False,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    boundary = None
+    if opening_as_of is not None:
+        if not opening_assumption:
+            raise HTTPException(422, "State the opening balance assumption")
+        boundary = EvidenceOpeningBoundary(
+            as_of=opening_as_of, assumption=opening_assumption, overlap_reviewed=overlap_reviewed,
+        )
+    return await investment_evidence_service.reverse_link(
+        session, ctx.workspace.id, link_id, expected_revision,
+        opening_boundary=boundary,
+    )
 
 
 @router.post("/buy", response_model=AssetRead, status_code=status.HTTP_201_CREATED)

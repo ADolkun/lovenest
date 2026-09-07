@@ -1230,13 +1230,17 @@ export const assets = {
   },
   previewImport: async (
     file: File,
-    options?: { column_mapping?: Record<string, string>; date_format?: string; group_id?: string | null; allow_unpriced?: boolean },
+    options?: import('@/types/investment-evidence').EvidenceImportOptions,
   ): Promise<AssetImportPreview> => {
     const formData = new FormData()
     formData.append('file', file)
     if (options?.date_format) formData.append('date_format', options.date_format)
     if (options?.allow_unpriced) formData.append('allow_unpriced', 'true')
     if (options?.group_id) formData.append('group_id', options.group_id)
+    if (options?.opening_boundary) formData.append('opening_boundary', JSON.stringify(options.opening_boundary))
+    for (const field of ['mode', 'provider', 'source_account_id', 'source_kind', 'connection_id'] as const) {
+      if (options?.[field]) formData.append(field, options[field])
+    }
     if (options?.column_mapping && Object.keys(options.column_mapping).length > 0) {
       formData.append('column_mapping', JSON.stringify(options.column_mapping))
     }
@@ -1248,10 +1252,43 @@ export const assets = {
     group_id?: string | null,
     filename?: string,
     allow_unpriced?: boolean,
+    options?: { mode: 'orders' | 'opening_lots'; opening_boundary?: import('@/types/investment-evidence').EvidenceOpeningBoundary },
   ): Promise<AssetImportResult> => {
     const { data } = await api.post('/assets/import', {
       orders, group_id: group_id || null, filename, allow_unpriced: !!allow_unpriced,
+      ...options,
     })
+    return data
+  },
+  evidence: async (groupId: string, boundary?: import('@/types/investment-evidence').EvidenceOpeningBoundary): Promise<import('@/types/investment-evidence').EvidencePreview> => {
+    const { data } = await api.get('/assets/evidence', { params: { group_id: groupId, ...(boundary ? { opening_as_of: boundary.as_of, opening_assumption: boundary.assumption, overlap_reviewed: boundary.overlap_reviewed } : {}) } })
+    return data
+  },
+  importEvidence: async (request: {
+    mode: 'evidence' | 'opening_lots'
+    observations: import('@/types/investment-evidence').EvidenceObservation[]
+    decisions: import('@/types/investment-evidence').EvidenceDecision[]
+    expected_revision: string
+    group_id: string
+    connection_id?: string | null
+    filename: string
+    opening_boundary?: import('@/types/investment-evidence').EvidenceOpeningBoundary
+  }): Promise<import('@/types/investment-evidence').EvidenceResult> => {
+    const { data } = await api.post('/assets/import', request)
+    return data
+  },
+  confirmEvidence: async (request: {
+    group_id: string
+    expected_revision: string
+    decisions: import('@/types/investment-evidence').EvidenceDecision[]
+    opening_boundary?: import('@/types/investment-evidence').EvidenceOpeningBoundary
+    allow_unpriced?: boolean
+  }): Promise<import('@/types/investment-evidence').EvidenceResult> => {
+    const { data } = await api.post('/assets/evidence/confirm', request)
+    return data
+  },
+  unlinkEvidence: async (id: string, revision: string, boundary?: import('@/types/investment-evidence').EvidenceOpeningBoundary): Promise<import('@/types/investment-evidence').EvidencePreview> => {
+    const { data } = await api.delete(`/assets/evidence/links/${id}`, { params: { expected_revision: revision, ...(boundary ? { opening_as_of: boundary.as_of, opening_assumption: boundary.assumption, overlap_reviewed: boundary.overlap_reviewed } : {}) } })
     return data
   },
   importTemplate: async (): Promise<void> => {

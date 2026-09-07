@@ -1,5 +1,35 @@
 # A cost-basis import keys on content, and counts repeats
 
+## Source review and standalone imports
+
+Issue #143 adds a separate Source review mode to the same investment import
+panel. The counted fingerprint policy below remains the explicit legacy order
+import behavior. Source review retains observations before financial application:
+API IDs, CSV IDs, original timestamps and their precision, independent provider
+and network statuses, and reported monetary meanings stay separate.
+
+An observation is identified in its selected workspace, wallet, provider,
+connection and source-account namespace. An anonymous CSV row uses its file
+digest and physical row identity for replay; equal amounts and dates only
+propose an overlap. Different verified executions in one source namespace
+survive identical economic fingerprints. Confirmed evidence links may allocate
+one source row across several compatible legs, but never add their quantities
+again. Link reversal preserves both observations and the existing ledger.
+
+Applying primary activity is a separate reviewed action using the existing
+buy/sell ledger. Missing acquisition value, unresolved fees, incompatible
+currencies and conflicting source facts block application. Displayed valuation
+is neither acquisition basis nor original cash funding. Remaining-lot reports
+and tax workpapers remain evidence unless the user chooses opening-lot mode and
+states an as-of/overlap boundary. Old imports are not retroactively reclassified.
+
+Preview revisions and row locks protect confirmation against stale and
+concurrent decisions. Import undo removes only rows that application owns when
+the remaining ledger is valid, preserving source records and independently
+supported primary rows; provider-balance or downstream conflicts refuse undo.
+An application marker survives reversal so replay cannot silently recreate an
+undone execution. A matching quantity never certifies basis or lifetime coverage.
+
 Ticket #67 seeds historical cost basis from a file, because no aggregator
 supplies acquisition dates or tax lots. Re-uploading is the normal way people
 fix a mapping mistake, so the import has to be idempotent, and the three

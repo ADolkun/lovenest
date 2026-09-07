@@ -65,6 +65,11 @@ async def delete_import_log(
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import log not found")
 
+    if log.entity == "asset_evidence":
+        from app.services.investment_evidence_service import undo_evidence_import
+        await undo_evidence_import(session, ctx.workspace.id, log)
+        return
+
     if log.entity == "asset_contributions":
         # The FK is ON DELETE SET NULL, so dropping the log alone would leave
         # the contributions behind with nothing pointing at them.

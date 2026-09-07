@@ -5,6 +5,10 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.investment_evidence import (
+    EvidenceDecision, EvidenceObservationInput, EvidenceOpeningBoundary, EvidencePreview,
+)
+
 
 class AssetOrderImport(BaseModel):
     """One buy or sell read from the file, before it reaches a holding."""
@@ -77,10 +81,19 @@ class AssetImportPreview(BaseModel):
     holdings_created: int = 0
     holdings_matched: int = 0
     skipped: int = 0
+    evidence: EvidencePreview | None = None
+    column_mapping: dict[str, str] = {}
+    unmapped_columns: list[str] = []
 
 
 class AssetImportRequest(BaseModel):
-    orders: list[AssetOrderImport]
+    orders: list[AssetOrderImport] = []
+    mode: str = "orders"
+    observations: list[EvidenceObservationInput] = []
+    decisions: list[EvidenceDecision] = []
+    expected_revision: str | None = None
+    connection_id: UUID | None = None
+    opening_boundary: EvidenceOpeningBoundary | None = None
     group_id: Optional[UUID] = None
     #: Only for the history entry, so a past import is recognisable.
     filename: Optional[str] = None
@@ -99,3 +112,6 @@ class AssetImportResult(BaseModel):
     errors: list[AssetImportRowError] = []
     skips: list[AssetImportSkip] = []
     warnings: list[AssetImportWarning] = []
+    retained: int = 0
+    linked: int = 0
+    evidence: EvidencePreview | None = None

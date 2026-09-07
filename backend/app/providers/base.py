@@ -2,7 +2,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+if TYPE_CHECKING:
+    from app.schemas.investment_evidence import EvidenceObservationInput
 
 
 # Outcome of asking a provider to pull fresh data from the underlying institution
@@ -276,6 +279,14 @@ class TradeData:
 
 
 @dataclass
+class InvestmentActivity:
+    """Source observations and existing trade proposals from the same read."""
+
+    trades: list[TradeData] = field(default_factory=list)
+    observations: list["EvidenceObservationInput"] = field(default_factory=list)
+
+
+@dataclass
 class InstitutionData:
     """One ASPSP/bank offered by an OAuth provider."""
 
@@ -513,6 +524,10 @@ class BankProvider(ABC):
         one, and the sync layer would have no way to tell the two apart.
         """
         return []
+
+    async def get_investment_activity(self, credentials: dict) -> InvestmentActivity:
+        """Preserve existing providers until they expose source observations."""
+        return InvestmentActivity(trades=await self.get_trades(credentials))
 
     async def get_bills(self, credentials: dict, account_external_id: str) -> list[BillData]:
         """Fetch credit-card bills (faturas) for an account.
