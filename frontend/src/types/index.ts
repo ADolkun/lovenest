@@ -1594,6 +1594,119 @@ export interface OnChainWatchedAddress {
   connection_name: string
 }
 
+export interface HistoryRequest {
+  connection_id: string
+  ownership_confirmed: true
+  chain: string
+  address: string
+  since?: string
+  until?: string
+  supplied_accounts?: { address: string; owner: string; reviewed: true }[]
+  collection_id?: string
+  expected_revision?: string
+  reobserve?: boolean
+}
+
+export interface HistoryAsset {
+  chain: string
+  native?: boolean
+  mint?: string | null
+  token_program?: string | null
+}
+
+export interface HistoryLeg {
+  key: string
+  asset: HistoryAsset
+  role: string
+  source?: string | null
+  destination?: string | null
+  source_owner?: string | null
+  destination_owner?: string | null
+  raw_units?: string | null
+  quantity?: string | null
+  decimals?: number | null
+  settlement: string
+  interpretation?: string
+  non_additive?: boolean
+}
+
+export interface HistoryVersion {
+  payload_digest: string
+  version_id: string
+  slot?: number | null
+  block_time?: number | string | null
+  time_precision?: string
+  execution: string
+  confirmation_status?: string | null
+  settlement: string
+  legs: HistoryLeg[]
+  gaps: string[]
+}
+
+export interface HistoryEvidence {
+  version: string
+  decoder_version: string
+  chain: string
+  owner: string
+  requested: { since: string | null; until: string | null; commitment: string }
+  anchor: { slot?: number | null; blockhash?: string | null; commitment?: string } | null
+  inventory: Record<string, { address: string; kind: string; discoveries: unknown[]; ownership: unknown[] }>
+  streams: Record<string, {
+    cursor: string | null
+    pages_examined: number
+    exhausted: boolean
+    stop_reason: string | null
+    oldest_at: string | null
+    newest_at: string | null
+    unknown_timestamps: number
+    payload_gaps: string[]
+  }>
+  transactions: Record<string, {
+    signature: string
+    discovery_refs: unknown[]
+    versions: HistoryVersion[]
+    canonical_version: string | null
+    retrieval_gap?: string | null
+  }>
+  coverage: Record<'inventory' | 'retrieval' | 'interpretation' | 'settlement', string>
+  reconciliation?: {
+    account: string
+    asset: HistoryAsset | string
+    opening: string | null
+    settled_change: string | null
+    closing: string | null
+    discrepancy: string | null
+    status: string
+    reasons: string[]
+    missing_coverage?: string[]
+    scope?: string
+    requested_interval_status?: string
+    opening_snapshot?: { slot?: number | null; time?: string | null; position?: string }
+    closing_snapshot?: { slot?: number | null; time?: string | null; position?: string }
+  }[]
+  limits: Record<string, unknown>
+  gaps: string[]
+  resumable: boolean
+}
+
+export interface HistoryCollection {
+  collection_id: string
+  revision: string
+  request: HistoryRequest
+  evidence: HistoryEvidence
+  observations: unknown[]
+  group_id?: string | null
+}
+
+export interface HistoryCollectionSummary {
+  collection_id: string
+  revision: string
+  request: HistoryRequest
+  updated_at: string
+  coverage: HistoryEvidence['coverage']
+  transaction_count: number
+}
+
 export type TraceDirection = 'out' | 'in'
 
 export type TraceTerminalReason =

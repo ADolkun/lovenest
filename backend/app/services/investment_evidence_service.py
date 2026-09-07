@@ -67,6 +67,11 @@ def _input(row: InvestmentObservation) -> EvidenceObservationInput:
     data = dict(row.payload)
     data["source_reference"] = data.get("source_reference") or data["reference"]
     data["reference"] = str(row.id)
+    if row.is_current is False:
+        # Preserve the original payload and reviewed links. A superseded chain
+        # interpretation remains inspectable but cannot settle or corroborate.
+        data["settlement_status"] = "unknown"
+        data["reason_codes"] = [*data.get("reason_codes", []), "superseded_history_observation"]
     return EvidenceObservationInput.model_validate(data)
 
 

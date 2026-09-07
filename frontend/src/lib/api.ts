@@ -87,6 +87,9 @@ import type {
   InvoiceAttachment,
   OnChainChain,
   OnChainWatchedAddress,
+  HistoryRequest,
+  HistoryCollection,
+  HistoryCollectionSummary,
   TraceRequest,
   TraceResult,
 } from '@/types'
@@ -1466,6 +1469,29 @@ export const reports = {
 
 // On-chain address tracing
 export const onchain = {
+  collectHistory: async (payload: HistoryRequest, workspaceId: string): Promise<HistoryCollection> => {
+    const { data } = await api.post('/onchain/history', payload, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  histories: async (workspaceId: string, connectionId?: string, address?: string, signal?: AbortSignal): Promise<HistoryCollectionSummary[]> => {
+    const { data } = await api.get<HistoryCollectionSummary[]>('/onchain/history', {
+      headers: { 'X-Workspace-Id': workspaceId }, params: { connection_id: connectionId }, signal,
+    })
+    // Addresses stay out of URLs and ordinary server access logs.
+    return address ? data.filter((entry) => entry.request.address === address) : data
+  },
+  history: async (id: string, workspaceId: string): Promise<HistoryCollection> => {
+    const { data } = await api.get(`/onchain/history/${encodeURIComponent(id)}`, {
+      headers: { 'X-Workspace-Id': workspaceId },
+    })
+    return data
+  },
+  exportHistory: async (id: string, workspaceId: string): Promise<Blob> => {
+    const { data } = await api.get(`/onchain/history/${encodeURIComponent(id)}/export`, {
+      headers: { 'X-Workspace-Id': workspaceId }, responseType: 'blob',
+    })
+    return data
+  },
   chains: async (workspaceId?: string, signal?: AbortSignal): Promise<OnChainChain[]> => {
     const { data } = await api.get('/onchain/chains', {
       headers: workspaceId ? { 'X-Workspace-Id': workspaceId } : undefined,

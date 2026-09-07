@@ -16,7 +16,7 @@ from app.models.asset_contribution import AssetContribution
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.models.investment_evidence import (
-    InvestmentEvent, InvestmentLeg, InvestmentObservation, InvestmentObservationLink,
+    InvestmentEvent, InvestmentHistoryCollection, InvestmentLeg, InvestmentObservation, InvestmentObservationLink,
 )
 from app.models.asset_value import AssetValue
 from app.models.fx_rate import FxRate
@@ -58,6 +58,7 @@ __all__ = [
     "AssetGroup",
     "AssetTransaction",
     "InvestmentEvent",
+    "InvestmentHistoryCollection",
     "InvestmentLeg",
     "InvestmentObservation",
     "InvestmentObservationLink",

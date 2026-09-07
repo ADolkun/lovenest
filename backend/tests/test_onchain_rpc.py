@@ -194,6 +194,34 @@ async def test_expired_deadline_starts_no_request(clocked_rpc):
 
 
 @pytest.mark.asyncio
+async def test_collection_attempt_budget_counts_retries_across_reads(clocked_rpc):
+    attempts = []
+    budget = rpc.RequestBudget(max_attempts=3)
+
+    def handler(request):
+        attempts.append(1)
+        if len(attempts) == 2:
+            return httpx.Response(200, json={"result": []})
+        return httpx.Response(429, headers={"Retry-After": "0"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async def read():
+            return await rpc.request_json(
+                client, "POST", "https://synthetic.invalid/rpc",
+                endpoint="https://synthetic.invalid/rpc", label="Synthetic RPC",
+                deadline=45, attempts=3, backoff=1.5, timeout=30,
+                concurrency=5, rpc=True, budget=budget,
+            )
+
+        assert await read() == {"result": []}
+        with pytest.raises(rpc.OnchainRequestLimitExceeded):
+            await read()
+        with pytest.raises(rpc.OnchainRequestLimitExceeded):
+            await read()
+    assert len(attempts) == budget.attempts == 3
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("response", ["success", "http-error", "rpc-error", "bad-json", "network"])
 async def test_signature_returned_past_deadline_starts_no_payload(clocked_rpc, response):
     clock, _ = clocked_rpc

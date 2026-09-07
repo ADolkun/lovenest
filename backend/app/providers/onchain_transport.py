@@ -9,6 +9,7 @@ import random
 import time
 import uuid
 from collections.abc import Awaitable
+from dataclasses import dataclass
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, cast
@@ -55,6 +56,23 @@ return cooldown
 
 class OnchainDeadlineExceeded(TimeoutError):
     """The caller's monotonic budget has elapsed; start no further reads."""
+
+
+class OnchainRequestLimitExceeded(RuntimeError):
+    """The collection's aggregate upstream attempt allowance is exhausted."""
+
+
+@dataclass
+class RequestBudget:
+    max_attempts: int
+    attempts: int = 0
+
+    def consume(self) -> None:
+        # No await between checking and consuming: concurrent reads share this
+        # invocation's allowance, including each transport retry.
+        if self.attempts >= self.max_attempts:
+            raise OnchainRequestLimitExceeded("On-chain request limit reached")
+        self.attempts += 1
 
 
 class OnchainRateLimited(ProviderRateLimited):
@@ -182,6 +200,7 @@ async def request_json(
     json_body: dict | None = None,
     params: dict | None = None,
     rpc: bool = False,
+    budget: RequestBudget | None = None,
 ) -> Any:
     """One bounded read, with atomic per-endpoint permits and shared cooldown.
 
@@ -228,6 +247,8 @@ async def request_json(
 
                 try:
                     async with asyncio.timeout(_remaining(attempt_deadline)):
+                        if budget is not None:
+                            budget.consume()
                         response = await client.request(
                             method,
                             url,
