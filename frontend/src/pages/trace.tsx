@@ -32,6 +32,7 @@ import type {
   TraceResult,
   TraceRequest,
   TraceTerminalReason,
+  TraceWindow,
 } from '@/types'
 
 function shorten(address: string): string {
@@ -152,6 +153,62 @@ function TerminalMarker({ node }: { node: TraceNode }) {
         {prominent && <p className="text-xs">{t('trace.terminalDetail.pooled')}</p>}
       </div>
     </div>
+  )
+}
+
+function TraceCoverage({ result }: { result: TraceResult }) {
+  const { t } = useTranslation()
+  const unknown = t('trace.coverage.unknown')
+  const moment = (value: string | null) => value?.replace('T', ' ').replace(/Z$/, ' UTC') ?? unknown
+  const windowText = (window: TraceWindow) => `${window.since ? moment(window.since) : t('trace.coverage.openStart')} → ${window.until ? moment(window.until) : t('trace.coverage.openEnd')}`
+  const flag = (value: boolean | null) => value === null ? unknown : t(value ? 'trace.coverage.yes' : 'trace.coverage.no')
+  const reasonText = (reason: string) => t(`trace.coverage.reasons.${reason}`, { defaultValue: reason })
+  const counters = ['pages_read', 'rows_read', 'signatures_read', 'payloads_requested', 'payloads_read', 'missing_timestamps', 'missing_payloads', 'unsupported_payloads', 'omitted_signatures', 'omitted_transfers'] as const
+
+  return (
+    <section aria-label={t('trace.coverage.title')} className="space-y-3">
+      <div className="space-y-1">
+        <h3 className="font-semibold">{t('trace.coverage.title')}</h3>
+        <p className="text-sm">{t(result.complete ? 'trace.coverage.complete' : 'trace.coverage.incomplete')}</p>
+        <p className="break-words text-sm text-muted-foreground">{t('trace.coverage.rootWindow')}: {windowText(result.root_window)}</p>
+        <p className="max-w-prose text-sm text-muted-foreground">{t('trace.coverage.boundsHint')}</p>
+      </div>
+      <div className="divide-y divide-border border-y border-border">
+        {result.nodes.map((node) => (
+          <details key={node.id} className="py-3">
+            <summary className="cursor-pointer break-all text-sm font-medium">
+              {node.depth === 0 ? t('trace.origin') : t('trace.hop', { n: node.depth })} · {node.address}
+              <span className="ml-2 font-normal text-muted-foreground">{t('trace.coverage.details')}</span>
+            </summary>
+            <div className="mt-3 space-y-3 text-sm">
+              <p className="break-words">{t('trace.coverage.effectiveWindow')}: {windowText(node.effective_window)}</p>
+              {node.stop_reasons.length > 0 && <ul className="list-disc space-y-1 pl-5">{node.stop_reasons.map((reason) => <li key={reason}>{reasonText(reason)}</li>)}</ul>}
+              <p>{t('trace.coverage.branchOmitted')}: {node.branch_omitted_transfers}</p>
+              {node.unfinished_windows.length > 0 && (
+                <div className="space-y-1">
+                  <h4 className="font-medium">{t('trace.coverage.unfinished')}</h4>
+                  <ul className="list-disc space-y-1 pl-5">{node.unfinished_windows.map((window, index) => <li key={index} className="break-words">{windowText(window)} · {reasonText(window.reason)}</li>)}</ul>
+                </div>
+              )}
+              {node.coverage ? (
+                <>
+                  <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.requestedWindow')}</dt><dd className="break-words">{windowText({ since: node.coverage.requested_since, until: node.coverage.requested_until })}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.observed')}</dt><dd className="break-words">{moment(node.coverage.observed_oldest)} → {moment(node.coverage.observed_newest)}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.examined')}</dt><dd className="break-words">{moment(node.coverage.examined_oldest)} → {moment(node.coverage.examined_newest)}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.fetchedAt')}</dt><dd>{moment(node.coverage.fetched_at)}</dd></div>
+                    {(['since_reached', 'until_reached', 'provider_exhausted'] as const).map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd>{flag(node.coverage![key])}</dd></div>)}
+                    {counters.map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd className="tabular-nums">{node.coverage![key] ?? unknown}</dd></div>)}
+                  </dl>
+                  {node.coverage.stop_reasons.length > 0 && <p>{t('trace.coverage.providerStops')}: {node.coverage.stop_reasons.map(reasonText).join(' · ')}</p>}
+                  {node.coverage.next_cursor && <div className="space-y-1"><p className="font-medium">{t('trace.coverage.cursor')}</p><p className="break-all font-mono">{node.coverage.next_cursor}</p><p className="text-muted-foreground">{t('trace.coverage.cursorHint')}</p></div>}
+                </>
+              ) : <p className="text-muted-foreground">{t('trace.coverage.unavailable')}</p>}
+            </div>
+          </details>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -402,13 +459,14 @@ function WalletActivityForm({
                   </div>
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-since">{t('trace.since')}</Label>
-                    <Input id="trace-since" type="datetime-local" step="any" className="min-w-0" value={since} max={until || undefined} onChange={(event) => setSince(event.target.value)} />
+                    <Input id="trace-since" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={since} max={until || undefined} onChange={(event) => setSince(event.target.value)} />
                   </div>
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-until">{t('trace.until')}</Label>
-                    <Input id="trace-until" type="datetime-local" step="any" className="min-w-0" value={until} min={since || undefined} onChange={(event) => setUntil(event.target.value)} />
+                    <Input id="trace-until" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={until} min={since || undefined} onChange={(event) => setUntil(event.target.value)} />
                   </div>
                 </div>
+                <p id="trace-window-hint" className="max-w-prose text-sm text-muted-foreground">{t(direction === 'out' ? 'trace.rootWindowOut' : 'trace.rootWindowIn')}</p>
                 {invalidWindow && <Alert variant="warning">{t('trace.invalidWindow')}</Alert>}
                 {invalidAmount && <Alert variant="warning">{t('trace.invalidAmount')}</Alert>}
                 <details className="border-t border-border pt-3" open={maxHops !== '3' || maxBranches !== '3' || Boolean(minAmount)}>
@@ -498,6 +556,8 @@ function WalletActivityForm({
               {result.interruption?.code === 'upstream_rate_limited' && <p>{t('trace.rateLimitHelp')}</p>}
             </Alert>
           )}
+
+          {result.root_window && <TraceCoverage result={result} />}
 
           {hops.length === 0 && (
             <p className="text-sm text-muted-foreground">{t('trace.empty')}</p>

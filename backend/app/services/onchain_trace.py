@@ -32,6 +32,7 @@ from app.providers.onchain import (
     OnchainDeadlineExceeded,
     OnchainRateLimited,
     Transfer,
+    TransferCoverage,
     address_is_valid,
     native_balance,
     normalize_address,
@@ -45,8 +46,8 @@ Direction = Literal["out", "in"]
 
 MAX_HOPS_ALLOWED = 6
 MAX_BRANCHES_ALLOWED = 5
-# Every expanded address costs a signature page plus a request per transaction
-# it contributes, so the node cap bounds the request count. It does not bound
+# Every expanded address costs bounded history pages and payload requests,
+# so the expansion cap bounds the request count. It does not bound
 # the *time*, because a throttled node can spend thirty seconds on any one of
 # them — TIME_BUDGET_SECONDS does that, and is what actually keeps a trace
 # inside a request rather than holding a worker for minutes.
@@ -65,6 +66,19 @@ TERMINAL_UNAVAILABLE = "unavailable"
 TERMINAL_RATE_LIMITED = "rate_limited"
 
 
+@dataclass(frozen=True)
+class TraceWindow:
+    since: Optional[datetime] = None
+    until: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class UnfinishedWindow:
+    since: Optional[datetime]
+    until: Optional[datetime]
+    reason: str
+
+
 @dataclass
 class TraceNode:
     id: str
@@ -74,6 +88,11 @@ class TraceNode:
     symbol: str
     balance: Optional[Decimal] = None
     terminal_reason: Optional[str] = None
+    effective_window: TraceWindow = field(default_factory=TraceWindow)
+    coverage: Optional[TransferCoverage] = None
+    unfinished_windows: list[UnfinishedWindow] = field(default_factory=list)
+    stop_reasons: list[str] = field(default_factory=list)
+    branch_omitted_transfers: int = 0
 
 
 @dataclass
@@ -102,6 +121,12 @@ class TraceResult:
     edges: list[TraceEdge] = field(default_factory=list)
     truncated: bool = False
     interruption: Optional[TraceInterruption] = None
+    scope: Literal["native_coin"] = "native_coin"
+    root_window: TraceWindow = field(default_factory=TraceWindow)
+
+    @property
+    def complete(self) -> bool:
+        return not self.truncated
 
 
 @dataclass(frozen=True)
@@ -126,9 +151,12 @@ def _as_utc(moment: Optional[datetime]) -> Optional[datetime]:
     in a non-UTC zone would otherwise shift it by its own offset — quietly
     changing which transfers count.
     """
-    if moment is None or moment.tzinfo is not None:
-        return moment
-    return moment.replace(tzinfo=timezone.utc)
+    if moment is None:
+        return None
+    try:
+        return moment.replace(tzinfo=moment.tzinfo or timezone.utc).astimezone(timezone.utc)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("Date is outside the supported UTC range.") from exc
 
 
 async def trace(
@@ -166,12 +194,16 @@ async def trace(
     if not address_is_valid(chain, start):
         raise ValueError(f"{address!r} is not a valid {chain.display_name} address.")
     since, until = _as_utc(since), _as_utc(until)
+    if since is not None and until is not None and since > until:
+        raise ValueError("The end date must be on or after the start date.")
 
     deadline = time.monotonic() + TIME_BUDGET_SECONDS
+    root_window = TraceWindow(since, until)
     root = TraceNode(
-        id=_node_id(chain, start), chain=chain.key, address=start, depth=0, symbol=chain.symbol
+        id=_node_id(chain, start), chain=chain.key, address=start, depth=0, symbol=chain.symbol,
+        effective_window=root_window,
     )
-    result = TraceResult(root=root.id, direction=direction, nodes=[root])
+    result = TraceResult(root=root.id, direction=direction, nodes=[root], root_window=root_window)
     nodes: dict[str, TraceNode] = {root.id: root}
     queue: list[_Pending] = [_Pending(start, 0, since, until)]
     expanded = 0
@@ -187,10 +219,11 @@ async def trace(
                 current_node = node
                 if pending.depth >= hops:
                     _mark(node, TERMINAL_MAX_HOPS)
+                    _unfinished(node, node.effective_window, "max_hops")
                     continue
                 if expanded >= MAX_NODES:
                     _mark(node, TERMINAL_BUDGET)
-                    result.truncated = True
+                    _unfinished(node, node.effective_window, "node_limit")
                     continue
                 _check_deadline(deadline)
                 expanded += 1
@@ -216,27 +249,40 @@ async def trace(
                     # upstream URL carries an API key and this field is rendered
                     # to the user.
                     _mark(node, TERMINAL_UNAVAILABLE)
+                    _unfinished(node, node.effective_window, "provider_unavailable")
                     continue
+
+                node.coverage = page.coverage
+                reasons = list(page.coverage.stop_reasons) if page.coverage else ["coverage_unavailable"]
+                if page.saturated:
+                    reasons.append("high_activity" if page.saturated == SATURATED_POOLED else "window_not_reached")
+                if page.trimmed and not {"payload_limit", "transfer_limit"}.intersection(reasons):
+                    reasons.append("transfer_limit")
+                if not page.complete and not reasons:
+                    reasons.append("coverage_unavailable")
+                for reason in reasons:
+                    _unfinished(node, node.effective_window, reason)
 
                 if page.saturated:
                     _mark(node, page.saturated)
                     continue
 
-                followed = _pick(page.items, pending.address, direction, branches, min_amount)
+                followed, node.branch_omitted_transfers = _pick(
+                    page.items, pending.address, direction, branches, min_amount
+                )
+                if node.branch_omitted_transfers:
+                    _unfinished(node, node.effective_window, "branch_limit")
                 if not followed:
                     # Three different silences, and only one of them means the
                     # money stopped here. Claiming that for the other two would
                     # exonerate an address the walk simply could not see past.
-                    if not page.complete:
+                    if node.stop_reasons:
                         _mark(node, TERMINAL_PARTIAL)
                     elif page.items:
                         _mark(node, TERMINAL_NO_MATCH)
                     else:
                         _mark(node, TERMINAL_NO_MOVEMENT)
                     continue
-                if not page.complete:
-                    result.truncated = True
-
                 for transfer in followed:
                     other = transfer.counterparty(pending.address)
                     other_id = _node_id(chain, other)
@@ -254,7 +300,15 @@ async def trace(
                                 occurred_at=transfer.occurred_at,
                             )
                         )
+                    child_window = TraceWindow(
+                        since=transfer.occurred_at if direction == "out" else None,
+                        until=None if direction == "out" else transfer.occurred_at,
+                    )
                     if other_id in nodes:
+                        # ponytail: expand each address once; retain skipped ranges
+                        # until a bounded resume workflow can revisit them.
+                        if not _contains(nodes[other_id].effective_window, child_window):
+                            _unfinished(nodes[other_id], child_window, "unexpanded_window")
                         continue
                     child = TraceNode(
                         id=other_id,
@@ -262,6 +316,7 @@ async def trace(
                         address=other,
                         depth=pending.depth + 1,
                         symbol=chain.symbol,
+                        effective_window=child_window,
                     )
                     nodes[other_id] = child
                     result.nodes.append(child)
@@ -271,8 +326,8 @@ async def trace(
                             depth=pending.depth + 1,
                             # The hop inherits the transfer's instant as its own
                             # horizon — see ADR 0010.
-                            since=transfer.occurred_at if direction == "out" else None,
-                            until=None if direction == "out" else transfer.occurred_at,
+                            since=child_window.since,
+                            until=child_window.until,
                         )
                     )
 
@@ -304,14 +359,19 @@ async def trace(
             else TERMINAL_RATE_LIMITED
         )
         _mark(current_node, reason)
+        gap = "time_budget" if result.interruption.code == "deadline_exceeded" else "upstream_rate_limited"
+        _unfinished(current_node, current_node.effective_window, gap)
         for waiting in queue:
             if waiting.depth < hops:
-                _mark(nodes[_node_id(chain, waiting.address)], reason)
-        result.truncated = True
+                waiting_node = nodes[_node_id(chain, waiting.address)]
+                _mark(waiting_node, reason)
+                _unfinished(waiting_node, waiting_node.effective_window, gap)
 
     for node in result.nodes:
         if node.terminal_reason is None and node.depth >= hops:
             _mark(node, TERMINAL_MAX_HOPS)
+            _unfinished(node, node.effective_window, "max_hops")
+    result.truncated = any(node.stop_reasons or node.unfinished_windows for node in result.nodes)
     return result
 
 
@@ -321,7 +381,7 @@ def _pick(
     direction: Direction,
     branches: int,
     min_amount: Optional[Decimal],
-) -> list[Transfer]:
+) -> tuple[list[Transfer], int]:
     """The transfers worth following: right way, big enough, largest first."""
     candidates = [
         transfer
@@ -330,8 +390,29 @@ def _pick(
         and transfer.counterparty(address) != address
         and (min_amount is None or transfer.amount >= min_amount)
     ]
-    candidates.sort(key=lambda t: (t.amount, t.occurred_at), reverse=True)
-    return candidates[:branches]
+    candidates.sort(
+        key=lambda t: (t.amount, t.occurred_at, t.reference, t.sender, t.recipient), reverse=True
+    )
+    return candidates[:branches], max(0, len(candidates) - branches)
+
+
+def _contains(outer: TraceWindow, inner: TraceWindow) -> bool:
+    return (
+        outer.since is None or (inner.since is not None and outer.since <= inner.since)
+    ) and (
+        outer.until is None or (inner.until is not None and outer.until >= inner.until)
+    )
+
+
+def _unfinished(node: TraceNode, window: TraceWindow, reason: str) -> None:
+    # These are ranges not fully explored, not a claim about a precise missing slice.
+    gap = UnfinishedWindow(window.since, window.until, reason)
+    if gap not in node.unfinished_windows:
+        node.unfinished_windows.append(gap)
+    if reason not in node.stop_reasons:
+        node.stop_reasons.append(reason)
+    if node.terminal_reason in (TERMINAL_NO_MOVEMENT, TERMINAL_NO_MATCH):
+        node.terminal_reason = TERMINAL_PARTIAL
 
 
 def _mark(node: TraceNode, reason: str) -> None:

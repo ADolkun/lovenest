@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from dataclasses import replace
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -398,3 +398,110 @@ async def test_budget_response_identifies_whether_history_or_only_balance_contex
     }
     assert body["truncated"] is (phase == "history")
     assert body["nodes"][0]["balance"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("since,until", [
+    ("2025-01-24T00:00:00", "2025-01-23T00:00:00Z"),
+    ("2025-01-23T01:00:00+01:00", "2025-01-22T23:59:59.999999Z"),
+])
+async def test_inverted_trace_dates_are_rejected_before_the_service(client, auth_headers, since, until):
+    with patch.object(onchain_trace, "trace", AsyncMock()) as walk:
+        response = await client.post("/api/onchain/trace", headers=auth_headers, json={
+            "chain": "solana", "address": A, "since": since, "until": until,
+        })
+    assert response.status_code == 422
+    walk.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("since,until", [
+    ("2025-01-23T23:00:08", "2025-01-23T23:00:08Z"),
+    ("2025-01-24T01:00:08+02:00", "2025-01-23T15:00:08-08:00"),
+])
+async def test_api_normalizes_naive_and_offset_dates_and_keeps_inclusive_boundaries(
+    client, auth_headers, since, until,
+):
+    from tests.test_providers_onchain import JAN23, _patched_client, _settings, _sig, _solana_handler, _tx
+
+    handler = _solana_handler(
+        signatures={A: [_sig("after", JAN23 + 1), _sig("at-boundary", JAN23), _sig("before", JAN23 - 1)]},
+        txs={"at-boundary": _tx(JAN23, {A: -10**9, B: 10**9})},
+    )
+    with _settings(), _patched_client(handler), patch.object(onchain_trace, "trace", wraps=onchain_trace.trace) as walk:
+        response = await client.post("/api/onchain/trace", headers=auth_headers, json={
+            "chain": "solana", "address": A, "since": since, "until": until,
+        })
+    assert response.status_code == 200
+    body = response.json()
+    assert walk.call_args.kwargs["since"].tzinfo == timezone.utc
+    assert walk.call_args.kwargs["until"].tzinfo == timezone.utc
+    assert body["scope"] == "native_coin"
+    assert body["root_window"] == {"since": "2025-01-23T23:00:08Z", "until": "2025-01-23T23:00:08Z"}
+    assert [edge["reference"] for edge in body["edges"]] == ["at-boundary"]
+    assert body["complete"] and not body["truncated"]
+    assert body["nodes"][1]["effective_window"] == {"since": "2025-01-23T23:00:08Z", "until": None}
+
+
+@pytest.mark.asyncio
+async def test_provider_service_and_api_preserve_partial_native_evidence(client, auth_headers):
+    from tests.test_providers_onchain import JAN23, _patched_client, _settings, _sig, _solana_handler, _tx
+
+    handler = _solana_handler(
+        signatures={A: [_sig("read", JAN23), _sig("missing", JAN23)]},
+        txs={"read": _tx(JAN23, {A: -10**9, B: 10**9})},
+    )
+    with _settings(), _patched_client(handler):
+        response = await client.post("/api/onchain/trace", headers=auth_headers, json={"chain": "solana", "address": A})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"] == "native_coin"
+    assert body["truncated"] and not body["complete"]
+    root = body["nodes"][0]
+    assert root["terminal_reason"] is None
+    assert root["effective_window"] == {"since": None, "until": None}
+    assert root["coverage"]["pages_read"] == 1
+    assert root["coverage"]["signatures_read"] == 2
+    assert root["coverage"]["payloads_requested"] == 2
+    assert root["coverage"]["payloads_read"] == 1
+    assert root["coverage"]["missing_payloads"] == 1
+    assert root["coverage"]["next_cursor"] is None
+    assert root["coverage"]["provider_exhausted"] is True
+    assert root["coverage"]["examined_oldest"] == "2025-01-23T23:00:08Z"
+    assert "missing_payload" in root["stop_reasons"]
+    assert {"since": None, "until": None, "reason": "missing_payload"} in root["unfinished_windows"]
+    assert len(body["edges"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pooled,reason", [(False, "provider_page_limit"), (True, "high_activity")])
+async def test_api_keeps_cursor_and_unreached_or_high_activity_history_facts(client, auth_headers, pooled, reason):
+    from app.providers import onchain
+    from tests.test_providers_onchain import JAN23, _patched_client, _settings, _sig, _solana_handler
+
+    handler = _solana_handler(signatures={A: [
+        _sig("synthetic-newer", JAN23 + (2 if pooled else 4 * 86400)),
+        _sig("synthetic-cursor", JAN23 + 1),
+    ]})
+    with (
+        _settings(), _patched_client(handler),
+        patch.object(onchain, "SOLANA_SIGNATURE_PAGE", 2),
+        patch.object(onchain, "SOLANA_HISTORY_MAX_PAGES", 1),
+    ):
+        response = await client.post("/api/onchain/trace", headers=auth_headers, json={
+            "chain": "solana", "address": A, "direction": "in", "until": "2025-01-23T23:00:07Z",
+        })
+    assert response.status_code == 200
+    body = response.json()
+    root = body["nodes"][0]
+    assert not body["edges"] and not body["complete"] and body["truncated"]
+    assert root["terminal_reason"] != "no_movement"
+    assert reason in root["stop_reasons"]
+    assert root["coverage"]["next_cursor"] == "synthetic-cursor"
+    assert root["coverage"]["provider_exhausted"] is False
+    assert root["coverage"]["until_reached"] is False
+    assert root["coverage"]["pages_read"] == 1
+    assert root["coverage"]["signatures_read"] == 2
+    assert root["coverage"]["payloads_read"] == 0
+    assert root["coverage"]["examined_oldest"] is None
+    assert root["coverage"]["omitted_transfers"] is None

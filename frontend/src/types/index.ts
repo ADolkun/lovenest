@@ -1607,6 +1607,36 @@ export type TraceTerminalReason =
   | 'unavailable'
   | 'rate_limited'
 
+export interface TraceWindow {
+  since: string | null
+  until: string | null
+}
+
+export interface TransferCoverage {
+  requested_since: string | null
+  requested_until: string | null
+  fetched_at: string | null
+  observed_oldest: string | null
+  observed_newest: string | null
+  examined_oldest: string | null
+  examined_newest: string | null
+  since_reached: boolean | null
+  until_reached: boolean | null
+  provider_exhausted: boolean | null
+  pages_read: number | null
+  rows_read: number | null
+  signatures_read: number | null
+  payloads_requested: number | null
+  payloads_read: number | null
+  missing_timestamps: number | null
+  missing_payloads: number | null
+  unsupported_payloads: number | null
+  omitted_signatures: number | null
+  omitted_transfers: number | null
+  next_cursor: string | null
+  stop_reasons: string[]
+}
+
 export interface TraceNode {
   id: string
   chain: string
@@ -1616,6 +1646,11 @@ export interface TraceNode {
   balance: string | null
   /** Set when the walk stopped here rather than carrying on. */
   terminal_reason: TraceTerminalReason | null
+  effective_window: TraceWindow
+  coverage: TransferCoverage | null
+  unfinished_windows: Array<TraceWindow & { reason: string }>
+  stop_reasons: string[]
+  branch_omitted_transfers: number
 }
 
 export interface TraceEdge {
@@ -1640,8 +1675,10 @@ export interface TraceResult {
   direction: TraceDirection
   nodes: TraceNode[]
   edges: TraceEdge[]
-  /** True when the node budget ran out before the walk did, so this is a
-   *  prefix of the trail rather than all of it. */
+  scope: 'native_coin'
+  root_window: TraceWindow
+  complete: boolean
+  /** History gaps, omitted branches, and unfinished windows remain visible. */
   truncated: boolean
   interruption?: TraceInterruption | null
 }

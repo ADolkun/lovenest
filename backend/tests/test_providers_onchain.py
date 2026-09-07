@@ -72,7 +72,7 @@ def _settings(**overrides):
     return patch.object(onchain, "get_settings", lambda: SimpleNamespace(**base))
 
 
-def _sig(signature: str, block_time: int, err=None) -> dict:
+def _sig(signature: str, block_time: int | None, err=None) -> dict:
     return {"signature": signature, "blockTime": block_time, "err": err, "slot": 1}
 
 
@@ -82,6 +82,7 @@ def _tx(block_time: int, deltas: dict[str, int]) -> dict:
     return {
         "blockTime": block_time,
         "meta": {
+            "err": None,
             "preBalances": [10**12] * len(keys),
             "postBalances": [10**12 + deltas[k] for k in keys],
         },
@@ -114,7 +115,10 @@ def _solana_handler(*, balances=None, signatures=None, txs=None, token_accounts=
                 200, json={"result": {"value": balances.get(params[0], 0)}, "id": 1}
             )
         if method == "getSignaturesForAddress":
-            return httpx.Response(200, json={"result": signatures.get(params[0], []), "id": 1})
+            rows = sorted(signatures.get(params[0], []), key=lambda row: row["blockTime"], reverse=True)
+            cursor = params[1].get("before")
+            start = next((i + 1 for i, row in enumerate(rows) if row["signature"] == cursor), 0)
+            return httpx.Response(200, json={"result": rows[start:start + params[1]["limit"]], "id": 1})
         if method == "getTransaction":
             return httpx.Response(200, json={"result": txs.get(params[0]), "id": 1})
         raise AssertionError(f"unexpected method {method}")
@@ -352,14 +356,19 @@ async def test_a_busy_wallet_spread_over_months_is_still_a_wallet_and_gets_follo
 
 @pytest.mark.asyncio
 async def test_a_page_that_never_reached_the_window_says_so_instead_of_reporting_nothing():
-    # Every signature is newer than the window we asked about, and the page
-    # came back full — so the transfers in question exist beyond it.
-    rows = _full_page(90 * 86400, newest=JAN23 + 400 * 86400)
+    # Every allowed page is newer than the requested ceiling. A bounded scan
+    # must retain the unread window and cursor instead of declaring it empty.
+    count = onchain.SOLANA_SIGNATURE_PAGE * (onchain.SOLANA_HISTORY_MAX_PAGES + 1)
+    rows = [_sig(f"s{i}", JAN23 + (count - i) * 86400) for i in range(count)]
     handler = _solana_handler(signatures={A: rows})
-    since = datetime.fromtimestamp(JAN23, tz=timezone.utc)
+    until = datetime.fromtimestamp(JAN23, tz=timezone.utc)
     with _settings(), _patched_client(handler):
-        page = await onchain.transfers(SOL, A, limit=25, since=since)
-    assert page.saturated == onchain.SATURATED_UNPAGEABLE
+        page = await onchain.transfers(SOL, A, limit=25, until=until)
+    assert not page.complete and page.items == []
+    assert page.coverage is not None
+    assert page.coverage.pages_read == onchain.SOLANA_HISTORY_MAX_PAGES
+    assert page.coverage.next_cursor is not None
+    assert set(page.coverage.stop_reasons) == {"provider_page_limit", "window_not_reached"}
 
 
 @pytest.mark.asyncio
@@ -582,7 +591,7 @@ async def test_a_chain_with_neither_a_key_nor_an_index_says_so_rather_than_retur
 async def test_an_explorer_key_is_preferred_over_blockscout_for_its_deeper_page():
     def handler(request):
         assert "blockscout" not in request.url.host
-        return httpx.Response(200, json={"status": "0", "result": []})
+        return httpx.Response(200, json={"status": "0", "message": "No transactions found", "result": []})
 
     with _settings(etherscan_api_key="k"), _patched_client(handler):
         assert (await onchain.transfers(BASE, EVM, limit=25)).items == []
@@ -605,7 +614,7 @@ async def test_an_evm_transfer_is_decoded_from_wei_and_lowercased():
     def handler(request):
         assert request.url.params["chainid"] == "8453"
         if request.url.params["action"] != "txlist":
-            return httpx.Response(200, json={"status": "0", "result": []})
+            return httpx.Response(200, json={"status": "0", "message": "No transactions found", "result": []})
         return httpx.Response(
             200,
             json={

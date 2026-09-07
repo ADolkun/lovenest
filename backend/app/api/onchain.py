@@ -1,4 +1,5 @@
 import logging
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -137,11 +138,4 @@ async def trace_address(
             },
             headers={"Retry-After": str(retry_after)} if retry_after is not None else None,
         ) from exc
-    return TraceRead(
-        root=result.root,
-        direction=result.direction,
-        nodes=[node.__dict__ for node in result.nodes],
-        edges=[edge.__dict__ for edge in result.edges],
-        truncated=result.truncated,
-        interruption=result.interruption.__dict__ if result.interruption else None,
-    )
+    return TraceRead(**asdict(result), complete=result.complete)
