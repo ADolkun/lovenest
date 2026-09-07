@@ -1,0 +1,14 @@
+[project]
+name = "lovenest-tax-planner"
+# Internal project metadata; this application is not distributed as a package.
+version = "0.0.0"
+description = "Lovenest tax and retirement planner"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.4",
+    "psycopg[binary]>=3.3.5",
+]
+
+[tool.uv]
+package = false

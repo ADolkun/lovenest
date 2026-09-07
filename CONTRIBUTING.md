@@ -114,27 +114,69 @@ described in the deployment docs before logging in.
 
 ## Running the checks CI runs
 
-CI runs two jobs. Reproduce both locally before opening a PR.
+Product CI keeps two required checks: **Backend (lint + tests)** and
+**Frontend (lint + build)**. PRs run the relevant component's checks; changes
+limited to allowlisted root prose or Markdown under `docs/` skip both suites.
+Shared, workflow, and unknown paths run both, and uncertain change detection
+runs both or fails the check. Every push to `lovenest` runs both full suites.
+Reproduce the relevant checks locally before opening a PR; when changing CI
+selection, also run `python3 .github/ci/test_changes.py` from the repository root.
 
 ### Backend (Python version from `backend/.python-version`, run from `backend/`)
 
 ```bash
 cd backend
-uv sync --all-extras   # first time only — builds .venv from uv.lock, same versions as CI
-.venv/bin/ruff check .
-.venv/bin/ty check .
-.venv/bin/pytest --cov=app --cov-report=term-missing --cov-fail-under=60
+uv sync --locked --group dev   # creates .venv and rejects an out-of-date uv.lock
+uv run --no-sync ruff check .
+uv run --no-sync ty check .
+uv run --no-sync pytest -n auto --dist loadfile --cov=app --cov-report=term-missing --cov-fail-under=60
 
 # After changing dependencies in pyproject.toml: regenerate the lock and
 # commit uv.lock along with it (CI enforces this)
 ./scripts/lock.sh
 
 # After adding a migration: check the revision chain is still a single line
-python3 scripts/check_migration_chain.py
+uv run --no-sync python scripts/check_migration_chain.py
 ```
 
-CI fails the build if `ruff check` reports any issues or if coverage drops below **60%**. Add tests
-for new backend behavior.
+Product CI requires clean Ruff, type, migration-chain, and pytest checks.
+The upstream `main` workflow also enforces **60%** coverage; the local command
+above retains that coverage check, while product CI runs pytest without coverage.
+CI and development use `uv sync --locked --group dev`; Docker uses
+`uv sync --locked --no-dev`. Both install the project and its dependencies directly
+from `uv.lock`. Run tools with `uv run --no-sync` after syncing so checks use the
+same environment without resolving or installing dependencies again.
+Add tests for new backend behavior.
+
+The PostgreSQL report and concurrency tests use a separate disposable schema per
+test. CI supplies a PostgreSQL 16 service through `EVIDENCE_TEST_DATABASE_URL`;
+missing configuration fails CI, while local runs skip these tests unless opted in.
+To run them locally against a disposable database (never your application database):
+
+```bash
+docker run --rm -d --name securo-test-postgres -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_USER=securo_test -e POSTGRES_PASSWORD=securo_test \
+  -e POSTGRES_DB=securo_test pgvector/pgvector:pg16
+# Wait for this readiness check to succeed before running pytest.
+docker exec securo-test-postgres pg_isready -h 127.0.0.1 -U securo_test -d securo_test
+EVIDENCE_TEST_DATABASE_URL=postgresql+asyncpg://securo_test:securo_test@127.0.0.1:55432/securo_test \
+  uv run --no-sync pytest -n auto --dist loadfile \
+  tests/test_investment_evidence_postgres.py tests/test_reports_postgres.py
+docker stop securo-test-postgres
+```
+
+### Tax planner
+
+The backend CI gate also validates the separate tax planner project:
+
+```bash
+cd extras/tax
+uv sync --locked
+uv run --no-sync python -m unittest discover -v
+```
+
+Commit `extras/tax/uv.lock` with dependency changes to its `pyproject.toml`.
+Each Python project keeps its own `.venv` and `.python-version`.
 
 ### Adding a migration
 
@@ -152,7 +194,7 @@ lovenest's head rather than kept at the number Securo gave it. CI catches a
 clash: the Migration Chain job runs against your branch merged with the base,
 so it fails there rather than on someone's `alembic upgrade head`.
 
-### Frontend (Node 22, from `frontend/`)
+### Frontend (Node 24 LTS, from `frontend/`)
 
 ```bash
 cd frontend

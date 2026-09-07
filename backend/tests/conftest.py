@@ -64,6 +64,9 @@ setattr(_pgv, "Vector", _VectorJSON)
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.dialects.postgresql import UUID  # noqa: E402
+from sqlalchemy.ext.compiler import compiles  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker  # noqa: E402
 
 from app.core.database import Base, get_async_session  # noqa: E402
@@ -97,12 +100,9 @@ from app.agents.models import (  # noqa: E402,F401
     LlmUsage,
 )
 
-# Use SQLite for tests — fast, no external dependency.
-# Keep the DB file off the bind-mounted project dir (macOS bind mounts
-# have known SQLite locking/journal quirks under aiosqlite) — /tmp is a
-# tmpfs inside the container. StaticPool + a single shared connection
-# is required so async fixtures and tests running on the shared
-# session-scoped event loop see the same in-memory schema state.
+# In-memory SQLite keeps tests independent of external databases and other
+# workers. StaticPool shares the connection across fixtures and tests on the
+# session-scoped event loop so they see the same schema state.
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -116,10 +116,12 @@ engine = create_async_engine(
 TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-# SQLite doesn't support PostgreSQL UUID type natively — SQLAlchemy handles the
-# mapping automatically when we create tables via Base.metadata (it converts
-# PostgreSQL UUID to CHAR(32)). We just need to make sure we use string-based
-# UUID comparisons.
+# SQLite gives the PostgreSQL UUID type numeric affinity, corrupting UUID hex
+# that looks like a number. Keep its normal bind/result handling but store text;
+# the dialect-specific hook leaves PostgreSQL's native UUID DDL unchanged.
+@compiles(UUID, "sqlite")
+def _compile_sqlite_uuid(type_, compiler, **kw):
+    return "CHAR(32)"
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
@@ -130,12 +132,6 @@ async def setup_database():
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    # Clean up test db file
-    import os
-    try:
-        os.remove("/tmp/securo_test.db")
-    except FileNotFoundError:
-        pass
 
 
 @pytest_asyncio.fixture
@@ -148,11 +144,69 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
+async def postgres_sessions():
+    """Give each PostgreSQL test its own schema, including under xdist."""
+    url = os.environ.get("EVIDENCE_TEST_DATABASE_URL")
+    if not url:
+        if os.environ.get("CI"):
+            pytest.fail("CI must supply EVIDENCE_TEST_DATABASE_URL for PostgreSQL tests")
+        pytest.skip("isolated PostgreSQL not configured")
+    schema = f"postgres_test_{uuid.uuid4().hex}"
+    pg_engine = create_async_engine(url)
+    scoped = pg_engine.execution_options(schema_translate_map={None: schema})
+    try:
+        async with pg_engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+        async with scoped.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield async_sessionmaker(scoped, expire_on_commit=False)
+    finally:
+        try:
+            async with pg_engine.begin() as conn:
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        finally:
+            await pg_engine.dispose()
+
+
+@pytest_asyncio.fixture
 async def clean_db(session: AsyncSession):
     """Clean all data between tests."""
-    for table in reversed(Base.metadata.sorted_tables):
-        await session.execute(table.delete())
+    import aiosqlite
+
+    assert not (session.new or session.dirty or session.deleted), (
+        "clean_db requires a fresh session without pending ORM changes"
+    )
+    # Batch the same deletes into one driver round trip. An explicit BEGIN keeps
+    # cleanup atomic: executescript otherwise runs each delete in autocommit.
+    statements = ";\n".join(
+        str(table.delete().compile(dialect=engine.dialect))
+        for table in reversed(Base.metadata.sorted_tables)
+    )
+    connection = await session.connection()
+    raw = await connection.get_raw_connection()
+    driver = raw.driver_connection
+    assert isinstance(driver, aiosqlite.Connection)
+    # executescript implicitly commits an existing SQLite transaction. Fail
+    # before touching data if a caller violates this fixture's fresh-session contract.
+    assert not driver.in_transaction, "clean_db requires a fresh session without a transaction"
+    async with driver.executescript("BEGIN;\n" + statements):
+        pass
     await session.commit()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fast_password_hashes():
+    """Exercise real Argon2 hash/verify/upgrade at test-only work costs."""
+    from pwdlib.hashers.argon2 import Argon2Hasher
+
+    def _test_argon2_hasher(*args, **kwargs):
+        # Explicit constructor calls retain all production parameter defaults.
+        if args or kwargs:
+            return Argon2Hasher(*args, **kwargs)
+        return Argon2Hasher(time_cost=1, memory_cost=8, parallelism=1)
+
+    with patch("fastapi_users.password.Argon2Hasher", _test_argon2_hasher):
+        yield
 
 
 async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
