@@ -148,6 +148,23 @@ from `uv.lock`. Run tools with `uv run --no-sync` after syncing so checks use th
 same environment without resolving or installing dependencies again.
 Add tests for new backend behavior.
 
+The PostgreSQL report and concurrency tests use a separate disposable schema per
+test. CI supplies a PostgreSQL 16 service through `EVIDENCE_TEST_DATABASE_URL`;
+missing configuration fails CI, while local runs skip these tests unless opted in.
+To run them locally against a disposable database (never your application database):
+
+```bash
+docker run --rm -d --name securo-test-postgres -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_USER=securo_test -e POSTGRES_PASSWORD=securo_test \
+  -e POSTGRES_DB=securo_test pgvector/pgvector:pg16
+# Wait for this readiness check to succeed before running pytest.
+docker exec securo-test-postgres pg_isready -h 127.0.0.1 -U securo_test -d securo_test
+EVIDENCE_TEST_DATABASE_URL=postgresql+asyncpg://securo_test:securo_test@127.0.0.1:55432/securo_test \
+  uv run --no-sync pytest -n auto --dist loadfile \
+  tests/test_investment_evidence_postgres.py tests/test_reports_postgres.py
+docker stop securo-test-postgres
+```
+
 ### Tax planner
 
 The backend CI gate also validates the separate tax planner project:

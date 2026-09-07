@@ -16,6 +16,17 @@ jobs:
     runs-on: ubuntu-latest
     # ponytail: retain service startup on skipped PRs; split detection if its cost warrants it.
     services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: securo_test
+          POSTGRES_PASSWORD: securo_test
+          POSTGRES_DB: securo_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U securo_test -d securo_test"
+          --health-interval 5s --health-timeout 3s --health-retries 5
       redis:
         image: redis:8-alpine
         ports:
@@ -92,6 +103,7 @@ jobs:
       - name: Run tests
         if: steps.changes.outputs.run_backend != 'false'
         env:
+          EVIDENCE_TEST_DATABASE_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
         run: uv run --no-sync pytest -n auto --dist loadfile --durations=25
 

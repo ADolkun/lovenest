@@ -1,16 +1,12 @@
 """Real row-lock checks in a disposable schema; set EVIDENCE_TEST_DATABASE_URL."""
 import asyncio
-import os
-import uuid
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
-from app.core.database import Base
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.models.user import User
@@ -19,35 +15,19 @@ from app.schemas.investment_evidence import EvidenceAllocation, EvidenceDecision
 from app.services import investment_evidence_service as service
 from tests.test_investment_evidence import observation
 
-pytestmark = pytest.mark.skipif(not os.environ.get("EVIDENCE_TEST_DATABASE_URL"), reason="isolated PostgreSQL not configured")
-
-
 @pytest_asyncio.fixture
-async def pg_context():
-    schema = f"evidence_test_{uuid.uuid4().hex}"
-    engine = create_async_engine(os.environ["EVIDENCE_TEST_DATABASE_URL"])
-    async with engine.begin() as conn:
-        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    scoped = engine.execution_options(schema_translate_map={None: schema})
-    try:
-        async with scoped.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        sessions = async_sessionmaker(scoped, expire_on_commit=False)
-        async with sessions() as session:
-            user = User(email="synthetic-evidence@example.invalid", hashed_password="synthetic-unused")
-            session.add(user)
-            await session.flush()
-            workspace = Workspace(name="Synthetic Investment", created_by_user_id=user.id)
-            session.add(workspace)
-            await session.flush()
-            group = AssetGroup(name="Synthetic Wallet", workspace_id=workspace.id, user_id=user.id)
-            session.add(group)
-            await session.commit()
-            yield sessions, workspace.id, user.id, group.id
-    finally:
-        async with engine.begin() as conn:
-            await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        await engine.dispose()
+async def pg_context(postgres_sessions):
+    async with postgres_sessions() as session:
+        user = User(email="synthetic-evidence@example.invalid", hashed_password="synthetic-unused")
+        session.add(user)
+        await session.flush()
+        workspace = Workspace(name="Synthetic Investment", created_by_user_id=user.id)
+        session.add(workspace)
+        await session.flush()
+        group = AssetGroup(name="Synthetic Wallet", workspace_id=workspace.id, user_id=user.id)
+        session.add(group)
+        await session.commit()
+        return postgres_sessions, workspace.id, user.id, group.id
 
 
 @pytest.mark.asyncio
