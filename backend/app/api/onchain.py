@@ -1,7 +1,9 @@
 import logging
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,11 +13,16 @@ from app.core.rate_limit import onchain_trace_rate_limit
 from app.core.workspace_context import WorkspaceContext, current_workspace
 from app.models.bank_connection import BankConnection
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
-from app.providers.onchain import CHAINS, OnchainRateLimited, WatchedAddress, parse_addresses
-from app.schemas.onchain import ChainRead, TraceRead, TraceRequest, WatchedAddressRead
-from app.services import onchain_trace
+from app.providers.onchain import (
+    CHAINS, OnchainRateLimited, WatchedAddress, address_is_valid, normalize_address, parse_addresses,
+)
+from app.schemas.onchain import (
+    ChainRead, TraceContinuationRead, TraceRead, TraceRequest, WatchedAddressRead,
+)
+from app.services import onchain_checkpoint as checkpoints, onchain_trace
 
 logger = logging.getLogger(__name__)
+_state_adapter = TypeAdapter(onchain_trace.TraceState)
 
 router = APIRouter(prefix="/api/onchain", tags=["onchain"])
 
@@ -98,23 +105,48 @@ async def _trace_admission(request: Request) -> None:
 )
 async def trace_address(
     payload: TraceRequest,
-    _: WorkspaceContext = Depends(current_workspace),
+    http_response: Response,
+    ctx: WorkspaceContext = Depends(current_workspace),
 ):
     """Follow native-coin movement from an address, hop by hop.
 
     The address does not have to be connected — tracing stolen funds means
     walking addresses nobody in this workspace owns.
     """
+    http_response.headers["Cache-Control"] = "no-store"
+    canonical = _canonical_request(payload)
+    workspace_id = str(ctx.id)
+    started_at = datetime.now(timezone.utc)
+    expires_at = started_at + timedelta(seconds=checkpoints.TTL_SECONDS)
+    state = onchain_trace.TraceState()
+    if payload.continuation_token is not None:
+        snapshot = await _load_checkpoint(workspace_id, payload.continuation_token)
+        try:
+            saved_request = TraceRequest.model_validate(snapshot["request"])
+            state = _state_adapter.validate_python(snapshot["state"])
+            started_at = datetime.fromisoformat(snapshot["started_at"])
+            expires_at = datetime.fromisoformat(snapshot["expires_at"])
+        except (ValidationError, ValueError, KeyError, TypeError) as exc:
+            raise _checkpoint_error(checkpoints.CheckpointError("incompatible")) from exc
+        if (
+            saved_request.model_dump(exclude={"continuation_token"}) != canonical.model_dump(exclude={"continuation_token"})
+            or state.reads.get("limited")
+        ):
+            raise _checkpoint_error(checkpoints.CheckpointError("incompatible"))
+        # Reopening or continuing completed bounded work never refreshes it.
+        if not state.resumable:
+            return TraceRead.model_validate(snapshot["result"])
     try:
         result = await onchain_trace.trace(
-            payload.chain,
-            payload.address,
-            direction=payload.direction,
-            max_hops=payload.max_hops,
-            max_branches=payload.max_branches,
-            min_amount=payload.min_amount,
-            since=payload.since,
-            until=payload.until,
+            canonical.chain,
+            canonical.address,
+            direction=canonical.direction,
+            max_hops=canonical.max_hops,
+            max_branches=canonical.max_branches,
+            min_amount=canonical.min_amount,
+            since=canonical.since,
+            until=canonical.until,
+            state=state,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -138,4 +170,83 @@ async def trace_address(
             },
             headers={"Retry-After": str(retry_after)} if retry_after is not None else None,
         ) from exc
-    return TraceRead(**asdict(result), complete=result.complete)
+    response = TraceRead(
+        **asdict(result), complete=result.complete, request=canonical,
+        workspace_id=ctx.id, started_at=started_at, retrieved_at=datetime.now(timezone.utc),
+        continuation=TraceContinuationRead(
+            status="unavailable" if state.reads.get("limited") else (
+                "available" if state.resumable else "not_needed"
+            ),
+            token=checkpoints.new_token(), expires_at=expires_at,
+            reason="retention_limit" if state.reads.get("limited") else None,
+        ),
+    )
+    snapshot = {
+        "version": checkpoints.VERSION,
+        "workspace_id": workspace_id,
+        "assumptions": checkpoints.assumptions(canonical.chain),
+        "request": canonical.model_dump(mode="json", exclude={"continuation_token"}),
+        "started_at": started_at.isoformat(), "expires_at": expires_at.isoformat(),
+        "result": response.model_dump(mode="json"),
+        "state": _state_adapter.dump_python(state, mode="json"),
+    }
+    try:
+        assert response.continuation.token is not None
+        await checkpoints.save(workspace_id, response.continuation.token, snapshot)
+    except checkpoints.CheckpointError as exc:
+        response.continuation = TraceContinuationRead(status="unavailable", reason=exc.reason)
+    return response
+
+
+def _canonical_request(payload: TraceRequest) -> TraceRequest:
+    try:
+        chain = onchain_trace.resolve_chain(payload.chain)
+        address = normalize_address(chain, payload.address)
+        if not address_is_valid(chain, address):
+            raise ValueError("Invalid address for the selected chain.")
+        return payload.model_copy(update={"chain": chain.key, "address": address, "continuation_token": None})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _checkpoint_error(exc: checkpoints.CheckpointError) -> HTTPException:
+    unavailable = exc.reason == "storage_unavailable"
+    return HTTPException(
+        status_code=503 if unavailable else 409,
+        detail={
+            "code": "trace_checkpoint_unavailable" if unavailable else "trace_restart_required",
+            "reason": exc.reason,
+            "message": (
+                "Saved trace is temporarily unavailable. Keep this result or restart explicitly."
+                if unavailable else "This saved trace cannot be continued. Restart explicitly."
+            ),
+            "retry_after_seconds": None,
+        },
+    )
+
+
+async def _load_checkpoint(workspace_id: str, token: str | None) -> dict:
+    try:
+        snapshot = await checkpoints.load(workspace_id, token)
+        canonical = TraceRead.model_validate(snapshot["result"])
+        # Validate both copies before returning settings or evidence. Never
+        # trust imported download fields as a financial result or workspace.
+        if str(canonical.workspace_id) != workspace_id:
+            raise checkpoints.CheckpointError("missing_or_expired")
+        return snapshot
+    except checkpoints.CheckpointError as exc:
+        raise _checkpoint_error(exc) from exc
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise _checkpoint_error(checkpoints.CheckpointError("incompatible")) from exc
+
+
+@router.get("/trace/checkpoint", response_model=TraceRead)
+async def reopen_trace(
+    response: Response,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    token: str | None = Header(default=None, alias="X-Trace-Continuation"),
+):
+    """Read an authorized saved snapshot. This route never accesses a chain node."""
+    response.headers["Cache-Control"] = "no-store"
+    snapshot = await _load_checkpoint(str(ctx.id), token)
+    return TraceRead.model_validate(snapshot["result"])

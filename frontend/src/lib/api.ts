@@ -1486,6 +1486,12 @@ export const onchain = {
     })
     return data
   },
+  checkpoint: async (token: string, workspaceId: string): Promise<TraceResult> => {
+    const { data } = await api.get('/onchain/trace/checkpoint', {
+      headers: { 'X-Workspace-Id': workspaceId, 'X-Trace-Continuation': token },
+    })
+    return data
+  },
 }
 
 // Currencies

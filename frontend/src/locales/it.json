@@ -2577,7 +2577,7 @@
     "resultsTitle": "Transfer trail",
     "resultCounts": "Transfers: {{transfers}} · Addresses: {{addresses}}",
     "retrievedAt": "Retrieved {{time}}",
-    "copyLink": "Copy trace link",
+    "copyLink": "Copy settings link",
     "download": "Download result",
     "hopTransfers_one": "{{count}} transfer",
     "hopTransfers_other": "{{count}} transfers",
@@ -2585,7 +2585,12 @@
     "error": {
       "upstream_rate_limited": "The chain provider limited this trace. Wait before retrying.",
       "trace_admission_limited": "This server has reached its trace request limit. Wait before retrying.",
-      "history_unavailable": "Transfer history is not configured for this chain on this server."
+      "history_unavailable": "Transfer history is not configured for this chain on this server.",
+      "trace_restart_required": "This saved trace is expired, unavailable or incompatible with the request. Restart the trace to read again.",
+      "trace_checkpoint_unavailable": "Saved traces are temporarily unavailable. Keep your download and try reopening or continuing later.",
+      "trace_file_invalid": "Choose a valid Lovenest trace download with saved continuation metadata, up to 8 MB. Older or unsaved results require a new trace.",
+      "trace_file_workspace": "This saved result belongs to another workspace. Switch to its original workspace before reopening it.",
+      "trace_file_wallet": "The saved trace starts from a wallet outside this view. Adjust your filters or saved wallets before reopening it."
     },
     "deadline": "The time limit interrupted the history read. Any transfers shown are only the completed part of this trace. Try a narrower UTC date range.",
     "balanceDeadline": "Some current balances could not be read before the time limit and remain unknown. This does not change the transfer coverage shown.",
@@ -2650,8 +2655,29 @@
         "time_budget": "Time limit interrupted history reading",
         "unexpanded_window": "Another path requires a window that was not examined",
         "upstream_rate_limited": "Provider throttling interrupted history reading",
-        "coverage_unavailable": "History coverage was not measured"
-      }
+        "coverage_unavailable": "History coverage was not measured",
+        "pending_payload": "Some transaction payloads are still pending",
+        "deadline_exceeded": "The time limit interrupted the reads",
+        "retention_limit": "This trace reached its saved-data limit. Restart with narrower settings."
+      },
+      "failed_payloads": "Failed payload reads",
+      "pending_payloads": "Payload reads still pending"
+    },
+    "continue": "Continue remaining work",
+    "restart": "Restart trace",
+    "reopen": "Reopen saved result",
+    "reopening": "Reopening saved result…",
+    "reopenHint": "Choose a downloaded trace JSON file (up to 8 MB) in its original workspace. This reopens the saved snapshot without reading the chain. Select Continue remaining work to retry unfinished reads, or Restart trace for a new investigation.",
+    "retainingResult": "Reading… The last saved result remains available below.",
+    "checkpointExpired": "This saved trace can no longer be continued. Restart the trace to read again.",
+    "expiresAt": "Saved trace expires {{time}}",
+    "balanceObserved": "observed {{time}}",
+    "balanceObservationUnknown": "observation time unknown",
+    "savedBalances": "Balances are snapshots at their observation times and may be stale. Historical transfers retain their original read coverage.",
+    "continuation": {
+      "available": "Unfinished work is saved. Continue with the same settings to retry only the remaining reads.",
+      "not_needed": "No remaining retryable work for these settings. Review the coverage gaps; this does not mean all wallet history is complete.",
+      "unavailable": "This result could not be saved for continuation. Download the evidence shown; restarting will read the chain again."
     }
   },
   "accountHoldings": {

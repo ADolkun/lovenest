@@ -1628,6 +1628,8 @@ export interface TransferCoverage {
   signatures_read: number | null
   payloads_requested: number | null
   payloads_read: number | null
+  failed_payloads: number | null
+  pending_payloads: number | null
   missing_timestamps: number | null
   missing_payloads: number | null
   unsupported_payloads: number | null
@@ -1644,10 +1646,12 @@ export interface TraceNode {
   depth: number
   symbol: string
   balance: string | null
+  balance_observed_at: string | null
   /** Set when the walk stopped here rather than carrying on. */
   terminal_reason: TraceTerminalReason | null
   effective_window: TraceWindow
   coverage: TransferCoverage | null
+  window_coverages: TransferCoverage[]
   unfinished_windows: Array<TraceWindow & { reason: string }>
   stop_reasons: string[]
   branch_omitted_transfers: number
@@ -1671,6 +1675,16 @@ export interface TraceInterruption {
 }
 
 export interface TraceResult {
+  request: Omit<TraceRequest, 'continuation_token'>
+  workspace_id: string
+  started_at: string
+  retrieved_at: string
+  continuation: {
+    status: 'available' | 'not_needed' | 'unavailable'
+    token: string | null
+    expires_at: string | null
+    reason: string | null
+  }
   root: string
   direction: TraceDirection
   nodes: TraceNode[]
@@ -1684,6 +1698,7 @@ export interface TraceResult {
 }
 
 export interface TraceRequest {
+  continuation_token?: string
   chain: string
   address: string
   direction?: TraceDirection

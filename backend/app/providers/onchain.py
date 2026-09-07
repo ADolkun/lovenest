@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import time
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, AsyncIterator, Iterable, Optional
@@ -37,6 +38,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.providers.coinbase import usd_spot_prices
+from app.providers.onchain_reads import MAX_HISTORY_PAGES, ReadPending, TraceReads, interruption_code
 from app.providers.onchain_transport import (
     OnchainDeadlineExceeded as OnchainDeadlineExceeded,
     OnchainRateLimited as OnchainRateLimited,
@@ -401,6 +403,8 @@ class TransferCoverage:
     missing_timestamps: int = 0
     missing_payloads: int = 0
     unsupported_payloads: int = 0
+    failed_payloads: int = 0
+    pending_payloads: int = 0
     omitted_signatures: int | None = None
     omitted_transfers: int | None = None
     next_cursor: str | None = None
@@ -469,6 +473,9 @@ class Transfers:
     trimmed: bool = False
     unreadable: int = 0
     coverage: TransferCoverage | None = None
+    interruption: str | None = None
+    retry_after_seconds: int | None = None
+    resumable: bool = False
 
     @property
     def complete(self) -> bool:
@@ -764,6 +771,7 @@ async def transfers(
     until: Optional[datetime] = None,
     client: Optional[httpx.AsyncClient] = None,
     deadline: float | None = None,
+    read_state: dict[str, Any] | None = None,
 ) -> Transfers:
     """Native-coin transfers touching ``address``, newest first.
 
@@ -779,18 +787,88 @@ async def transfers(
     until = until.astimezone(timezone.utc) if until is not None else None
     if since is not None and until is not None and since > until:
         raise ValueError("since must be before or equal to until")
-    _check_deadline(deadline)
-    if chain.kind == "solana":
-        return await _solana_transfers(
-            chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
-        )
-    if chain.kind == "bitcoin":
-        return await _bitcoin_transfers(
-            chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
-        )
-    return await _evm_transfers(
-        chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
+    address = normalize_address(chain, address)
+    source, window = _read_identity(chain, address, limit, since, until)
+    reads = TraceReads(read_state if read_state is not None else {}, chain.key, source, window)
+    reader = {"solana": _solana_transfers, "bitcoin": _bitcoin_transfers}.get(chain.kind, _evm_transfers)
+    arguments: dict[str, Any] = dict(
+        limit=limit, since=since, until=until, client=client, deadline=deadline, reads=reads,
     )
+    error: BaseException | None = None
+    try:
+        _check_deadline(deadline)
+        page = await reader(chain, address, **arguments)
+    except (Exception, asyncio.CancelledError) as exc:
+        # The reader has drained its children. Re-run only the retained
+        # observations so a timeout cannot strand already returned evidence.
+        error = reads.error = exc
+        reads.replay = True
+        page = await reader(chain, address, **arguments)
+    reasons = page.coverage.stop_reasons if page.coverage else []
+    if reads.interruption and page.coverage:
+        page.coverage.gap(reads.interruption)
+    if reads.state.get("limited") and page.coverage:
+        page.coverage.gap("retention_limit")
+    page = Transfers(
+        items=page.items, saturated=page.saturated, trimmed=page.trimmed,
+        unreadable=page.unreadable, coverage=page.coverage,
+        interruption=reads.interruption, retry_after_seconds=reads.retry_after_seconds,
+        resumable=not reads.state.get("limited", False) and "retention_limit" not in reasons and bool(
+            reads.interruption or {"provider_page_limit", "missing_payload"}.intersection(reasons)
+            or (page.coverage and (page.coverage.failed_payloads or page.coverage.pending_payloads))
+        ),
+    )
+    reads.history["snapshot"] = json.loads(json.dumps(asdict(page), default=_read_json))
+    if isinstance(error, (asyncio.CancelledError, ProviderNotConfiguredError)):
+        raise error
+    # Preserve callers' empty-failure behavior while exposing recoverable state
+    # to the service and returning every useful successful sibling.
+    if error is not None and not page.items and read_state is None:
+        raise error
+    return page
+
+
+def _read_json(value: Any) -> str:
+    return value.isoformat() if isinstance(value, datetime) else str(value)
+
+
+def _read_identity(
+    chain: Chain, address: str, limit: int, since: datetime | None, until: datetime | None,
+) -> tuple[str, str]:
+    source = rpc_url(chain)
+    if chain.kind == "evm":
+        key = get_settings().etherscan_api_key
+        source = f"{ETHERSCAN_V2_URL}:{key}" if key else str(chain.token_index_url)
+    source = chain.key + ":" + hashlib.sha256(source.encode()).hexdigest()
+    bounds = [moment.replace(tzinfo=moment.tzinfo or timezone.utc).astimezone(timezone.utc).isoformat()
+              if moment is not None else None for moment in (since, until)]
+    return source, json.dumps([source, normalize_address(chain, address), limit, *bounds])
+
+
+def retained_transfers(
+    chain: Chain, address: str, *, limit: int, read_state: dict[str, Any],
+    since: datetime | None = None, until: datetime | None = None,
+) -> Transfers | None:
+    """Last partial page, including successes saved before deadline cancellation."""
+    _, window = _read_identity(chain, address, limit, since, until)
+    saved = read_state.get("histories", {}).get(window, {}).get("snapshot")
+    if saved is None:
+        return None
+    payload = dict(saved)
+    payload["items"] = [Transfer(
+        chain_key=item["chain_key"], reference=item["reference"], sender=item["sender"],
+        recipient=item["recipient"], amount=Decimal(item["amount"]),
+        occurred_at=datetime.fromisoformat(item["occurred_at"]),
+    ) for item in saved["items"]]
+    if saved["coverage"] is not None:
+        dates = {"requested_since", "requested_until", "fetched_at", "observed_oldest",
+                 "observed_newest", "examined_oldest", "examined_newest"}
+        coverage: dict[str, Any] = {
+            key: datetime.fromisoformat(value) if key in dates and value is not None else value
+            for key, value in saved["coverage"].items()
+        }
+        payload["coverage"] = TransferCoverage(**coverage)
+    return Transfers(**payload)
 
 
 async def _solana_transfers(
@@ -802,6 +880,7 @@ async def _solana_transfers(
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
     deadline: float | None = None,
+    reads: TraceReads | None = None,
 ) -> Transfers:
     """Walk the address's signatures, then read each transaction's balance deltas.
 
@@ -817,20 +896,34 @@ async def _solana_transfers(
         since, until, signatures_read=0, payloads_requested=0, payloads_read=0,
         omitted_signatures=0,
     )
+    if reads:
+        coverage.fetched_at = datetime.fromisoformat(reads.history["fetched_at"])
     rows: list[dict] = []
     seen: set[str] = set()
     exhausted: bool | None = False
     saturated: str | None = None
     previous_time: int | None = None
-    for page_number in range(SOLANA_HISTORY_MAX_PAGES):
-        params: dict[str, Any] = {"limit": SOLANA_SIGNATURE_PAGE}
+    page_limit = reads.page_limit("solana", SOLANA_HISTORY_MAX_PAGES) if reads else SOLANA_HISTORY_MAX_PAGES
+    for page_number in range(page_limit):
+        params: dict[str, Any] = {"limit": SOLANA_SIGNATURE_PAGE, "commitment": "finalized"}
         if coverage.next_cursor is not None:
             params["before"] = coverage.next_cursor
         try:
-            signatures = await _json_rpc(
-                chain, "getSignaturesForAddress", [address, params],
-                client=client, deadline=deadline,
-            )
+            async def read_page():
+                return await _json_rpc(
+                    chain, "getSignaturesForAddress", [address, params],
+                    client=client, deadline=deadline,
+                )
+            signatures = await reads.read(
+                f"solana:{coverage.next_cursor or ''}", read_page,
+                lambda value: isinstance(value, list) and all(
+                    isinstance(row, dict) and isinstance(row.get("signature"), str)
+                    and bool(row["signature"]) for row in value
+                ),
+            ) if reads else await read_page()
+        except ReadPending:
+            coverage.gap(reads.interruption if reads and reads.interruption else "provider_unavailable")
+            break
         except (ProviderRateLimited, OnchainDeadlineExceeded):
             raise
         except Exception:
@@ -898,6 +991,8 @@ async def _solana_transfers(
                 break  # Strict crossing preserves ties at an inclusive floor.
     else:
         coverage.gap("provider_page_limit")
+        if page_limit >= MAX_HISTORY_PAGES:
+            coverage.gap("retention_limit")
     coverage.finish(exhausted)
     if saturated:
         return Transfers(items=[], saturated=saturated, coverage=coverage)
@@ -906,38 +1001,70 @@ async def _solana_transfers(
         key=lambda row: (-row["blockTime"], row["signature"]),
     )
     wanted = _closest_to_horizon(in_window, limit, since)
+    if reads:
+        # Continue fills the original payload allowance; it does not replace
+        # successfully examined selections with a new set of transactions.
+        selected = reads.history.setdefault("selected_signatures", [])
+        selected.extend(row["signature"] for row in wanted if row["signature"] not in selected)
+        del selected[limit:]
+        wanted = [row for row in in_window if row["signature"] in selected]
     coverage.omitted_signatures = len(in_window) - len(wanted)
     if coverage.omitted_signatures:
         coverage.gap("payload_limit")
 
     async def fetch(signature: str) -> Any:
-        return await _json_rpc(
-            chain,
-            "getTransaction",
-            [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
-            client=client,
-            deadline=deadline,
-        )
+        async def read_transaction():
+            return await _json_rpc(
+                chain, "getTransaction", [signature, {
+                    "encoding": "jsonParsed", "maxSupportedTransactionVersion": 0,
+                    "commitment": "finalized",
+                }], client=client, deadline=deadline,
+            )
+        try:
+            tx = await reads.read(signature, read_transaction, _solana_payload_valid, transaction=True) if reads else await read_transaction()
+        except ReadPending:
+            return None
+        except BaseException as exc:
+            if reads:
+                reads.history["payloads"][signature] = (
+                    "pending_payload" if isinstance(exc, asyncio.CancelledError)
+                    else interruption_code(exc)
+                )
+            raise
+        if reads:
+            reads.history["payloads"][signature] = (
+                "missing_payload" if tx is None else "completed" if _solana_payload_valid(tx)
+                else "unsupported_payload"
+            )
+        return tx
 
-    _check_deadline(deadline)
+    if not reads or not reads.replay:
+        _check_deadline(deadline)
     coverage.payloads_requested = len(wanted)
-    tasks = [asyncio.create_task(fetch(row["signature"])) for row in wanted]
-    try:
-        fetched = await asyncio.gather(*tasks)
-    finally:
-        # gather does not cancel siblings when one raises. Drain them before
-        # the trace closes its HTTP client or returns a partial result.
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    fetched: list[Any] = []
+    for start in range(0, len(wanted), TX_FETCH_CONCURRENCY):
+        tasks = [asyncio.create_task(fetch(row["signature"])) for row in wanted[start:start + TX_FETCH_CONCURRENCY]]
+        try:
+            fetched.extend(await asyncio.gather(*tasks))
+        finally:
+            # Stop scheduling and drain before the shared client can close.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     found: list[Transfer] = []
     unreadable = 0
     for row, tx in zip(wanted, fetched):
         if tx is None:
-            coverage.missing_payloads += 1
-            coverage.gap("missing_payload")
+            reason = reads.history["payloads"].get(row["signature"], "pending_payload") if reads else "missing_payload"
+            if reason == "pending_payload":
+                coverage.pending_payloads += 1
+            else:
+                coverage.failed_payloads += 1
+                if reason == "missing_payload":
+                    coverage.missing_payloads += 1
+            coverage.gap(reason)
             unreadable += 1
             continue
         coverage.payloads_read = (coverage.payloads_read or 0) + 1
@@ -954,6 +1081,8 @@ async def _solana_transfers(
             # unknown must not read as an absence.
             unreadable += 1
             coverage.unsupported_payloads += 1
+            if not _solana_payload_valid(tx):
+                coverage.failed_payloads += 1
             coverage.gap("unsupported_payload")
             continue
         # Recheck the payload timestamp: a disagreement with the list must not
@@ -966,6 +1095,26 @@ async def _solana_transfers(
         trimmed=len(wanted) < len(in_window),
         unreadable=unreadable,
         coverage=coverage,
+    )
+
+
+def _solana_payload_valid(tx: Any) -> bool:
+    """A reusable transaction observation, independent of address attribution."""
+    if not isinstance(tx, dict) or _history_time(tx.get("blockTime")) is None:
+        return False
+    meta, transaction = tx.get("meta"), tx.get("transaction")
+    if not isinstance(meta, dict) or not _solana_error_is_valid(meta) or not isinstance(transaction, dict):
+        return False
+    message = transaction.get("message")
+    if not isinstance(message, dict):
+        return False
+    keys, pre, post = message.get("accountKeys"), meta.get("preBalances"), meta.get("postBalances")
+    return (
+        all(isinstance(values, list) for values in (keys, pre, post))
+        and bool(keys) and len(keys) == len(pre) == len(post)
+        and all(isinstance(key, dict) and isinstance(key.get("pubkey"), str) and key["pubkey"] for key in keys)
+        and len({key["pubkey"] for key in keys}) == len(keys)
+        and all(type(value) is int and value >= 0 for value in pre + post)
     )
 
 
@@ -1054,6 +1203,7 @@ async def _evm_transfers(
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
     deadline: float | None = None,
+    reads: TraceReads | None = None,
 ) -> Transfers:
     """Address history from an index, because EVM JSON-RPC does not have it.
 
@@ -1064,7 +1214,7 @@ async def _evm_transfers(
     first reports that drained wallet as untouched.
     """
     rows, saturated, trimmed, coverage = await _evm_history(
-        chain, address, since, client, until=until, deadline=deadline
+        chain, address, since, client, until=until, deadline=deadline, reads=reads
     )
     if saturated:
         return Transfers(items=[], saturated=saturated, coverage=coverage)
@@ -1120,6 +1270,7 @@ async def _evm_history(
     *,
     until: datetime | None = None,
     deadline: float | None = None,
+    reads: TraceReads | None = None,
 ) -> tuple[list[dict], Optional[str], bool, TransferCoverage]:
     """Both native-history lists in Etherscan's row shape, and how they fall short.
 
@@ -1141,14 +1292,31 @@ async def _evm_history(
         for action in ("txlist", "txlistinternal"):
             stream = TransferCoverage(since, until)
             streams.append(stream)
-            page = await _etherscan_page(
-                chain, address, action, api_key, client, deadline=deadline, coverage=stream
-            )
-            rows.extend(page)
-            times = [int(t.timestamp()) for r in page if (t := _history_time(r.get("timeStamp"))) is not None]
-            if len(times) == EVM_HISTORY_PAGE and _saturation(times, EVM_HISTORY_PAGE, None) == SATURATED_POOLED:
-                stream.gap("high_activity")
-                saturated = SATURATED_POOLED
+            page_limit = reads.page_limit(action, 1) if reads else 1
+            for page_number in range(1, page_limit + 1):
+                # A later page can resolve a previous page-limit/window gap.
+                stream.stop_reasons = [reason for reason in stream.stop_reasons if reason not in ("provider_page_limit", "window_not_reached")]
+                try:
+                    page = await _etherscan_page(
+                        chain, address, action, api_key, client, deadline=deadline,
+                        coverage=stream, reads=reads, page_number=page_number,
+                    )
+                except ReadPending:
+                    stream.gap(reads.interruption if reads and reads.interruption else "provider_unavailable")
+                    stream.finish(False)
+                    break
+                rows.extend(page)
+                times = [int(t.timestamp()) for r in page if (t := _history_time(r.get("timeStamp"))) is not None]
+                if len(times) == EVM_HISTORY_PAGE and _saturation(times, EVM_HISTORY_PAGE, None) == SATURATED_POOLED:
+                    stream.gap("high_activity")
+                    saturated = SATURATED_POOLED
+                    break
+                if stream.provider_exhausted or stream.since_reached:
+                    break
+            else:
+                if page_limit >= MAX_HISTORY_PAGES:
+                    stream.gap("retention_limit")
+            if saturated:
                 break
     elif not chain.token_index_url:
         raise ProviderNotConfiguredError(
@@ -1162,7 +1330,7 @@ async def _evm_history(
             stream = TransferCoverage(since, until)
             streams.append(stream)
             page, verdict, short = await _blockscout_history(
-                chain, index, address, path, since, client, deadline=deadline, coverage=stream
+                chain, index, address, path, since, client, deadline=deadline, coverage=stream, reads=reads
             )
             rows.extend(page)
             saturated = saturated or verdict
@@ -1170,6 +1338,8 @@ async def _evm_history(
             if saturated == SATURATED_POOLED:
                 break
     coverage = TransferCoverage(since, until)
+    if reads:
+        coverage.fetched_at = datetime.fromisoformat(reads.history["fetched_at"])
     for stream in streams:
         coverage.pages_read += stream.pages_read
         coverage.rows_read += stream.rows_read
@@ -1203,6 +1373,7 @@ async def _blockscout_history(
     *,
     deadline: float | None = None,
     coverage: TransferCoverage | None = None,
+    reads: TraceReads | None = None,
 ) -> tuple[list[dict], Optional[str], bool]:
     """One Blockscout list, paged, in Etherscan's row shape.
 
@@ -1228,11 +1399,22 @@ async def _blockscout_history(
     verdict: Optional[str] = None
     coverage = coverage if coverage is not None else TransferCoverage(since)
     previous_time: int | None = None
-    for page_number in range(BLOCKSCOUT_HISTORY_MAX_PAGES):
+    page_limit = reads.page_limit(path, BLOCKSCOUT_HISTORY_MAX_PAGES) if reads else BLOCKSCOUT_HISTORY_MAX_PAGES
+    for page_number in range(page_limit):
         try:
-            payload = await _get_json(
-                url, "Blockscout", client, params=params, endpoint=index, deadline=deadline
-            )
+            async def read_page():
+                return await _get_json(
+                    url, "Blockscout", client, params=params, endpoint=index, deadline=deadline
+                )
+            payload = await reads.read(
+                f"{path}:{json.dumps(params, sort_keys=True)}", read_page,
+                lambda value: isinstance(value, dict) and isinstance(value.get("items"), list)
+                and "next_page_params" in value and (value["next_page_params"] is None or isinstance(value["next_page_params"], dict)),
+            ) if reads else await read_page()
+        except ReadPending:
+            coverage.gap(reads.interruption if reads and reads.interruption else "provider_unavailable")
+            coverage.finish(False)
+            return rows, verdict, True
         except (ProviderRateLimited, OnchainDeadlineExceeded):
             raise
         except Exception:
@@ -1303,7 +1485,10 @@ async def _blockscout_history(
             coverage.finish(False)
             return rows, verdict, True
         params = next_params
+        coverage.next_cursor = json.dumps(params, sort_keys=True)
     coverage.gap("provider_page_limit")
+    if page_limit >= MAX_HISTORY_PAGES:
+        coverage.gap("retention_limit")
     coverage.finish(False)
     return rows, verdict, True
 
@@ -1341,6 +1526,16 @@ def _blockscout_row(item: Any) -> Optional[dict]:
     }
 
 
+def _etherscan_empty(payload: Any) -> bool:
+    """Recognize an explicit empty-history response for decoding and reuse."""
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return (
+        isinstance(payload, dict) and str(payload.get("status")) == "0"
+        and any(str(payload.get(key, "")).strip().lower() == "no transactions found" for key in ("message", "result"))
+        and (result is None or result == [] or result == "No transactions found")
+    )
+
+
 async def _etherscan_page(
     chain: Chain,
     address: str,
@@ -1350,6 +1545,8 @@ async def _etherscan_page(
     *,
     deadline: float | None = None,
     coverage: TransferCoverage | None = None,
+    reads: TraceReads | None = None,
+    page_number: int = 1,
 ) -> list[dict]:
     """One Etherscan list, with "no transactions found" read as an empty history.
 
@@ -1362,15 +1559,23 @@ async def _etherscan_page(
         "address": address,
         "startblock": 0,
         "endblock": 99999999,
-        "page": 1,
+        "page": page_number,
         "offset": EVM_HISTORY_PAGE,
         "sort": "desc",
         "apikey": api_key,
     }
-    payload = await _get_json(
-        ETHERSCAN_V2_URL, "Etherscan", client, params=params,
-        endpoint=f"{ETHERSCAN_V2_URL}\0{api_key}", deadline=deadline,
-    )
+    async def read_page():
+        return await _get_json(
+            ETHERSCAN_V2_URL, "Etherscan", client, params=params,
+            endpoint=f"{ETHERSCAN_V2_URL}\0{api_key}", deadline=deadline,
+        )
+    payload = await reads.read(
+        f"{action}:{page_number}", read_page,
+        lambda value: isinstance(value, dict) and (
+            str(value.get("status")) == "1" and isinstance(value.get("result"), list)
+            or _etherscan_empty(value)
+        ),
+    ) if reads else await read_page()
     result = payload.get("result") if isinstance(payload, dict) else None
     coverage = coverage if coverage is not None else TransferCoverage()
     if isinstance(payload, dict) and str(payload.get("status")) == "1" and isinstance(result, list):
@@ -1392,11 +1597,7 @@ async def _etherscan_page(
         if not coverage.provider_exhausted and not coverage.since_reached:
             coverage.gap("provider_page_limit")
         return rows
-    if (
-        isinstance(payload, dict) and str(payload.get("status")) == "0"
-        and any(str(payload.get(key, "")).strip().lower() == "no transactions found" for key in ("message", "result"))
-        and (result is None or result == [] or result == "No transactions found")
-    ):
+    if _etherscan_empty(payload):
         coverage.pages_read += 1
         coverage.finish(True)
         return []
@@ -1463,6 +1664,7 @@ async def _bitcoin_balance(
 async def _bitcoin_history(
     chain: Chain, address: str, since: Optional[datetime], client: Optional[httpx.AsyncClient],
     *, deadline: float | None = None, coverage: TransferCoverage | None = None,
+    reads: TraceReads | None = None,
 ) -> tuple[list[dict], bool]:
     """Recent transactions touching the address, and whether that was all of them.
 
@@ -1478,11 +1680,22 @@ async def _bitcoin_history(
     coverage = coverage if coverage is not None else TransferCoverage(since)
     seen_cursors: set[str] = set()
     seen_transactions: set[str] = set()
-    for _ in range(BITCOIN_HISTORY_MAX_PAGES):
+    page_limit = reads.page_limit("bitcoin", BITCOIN_HISTORY_MAX_PAGES) if reads else BITCOIN_HISTORY_MAX_PAGES
+    for _ in range(page_limit):
         path = f"/address/{address}/txs"
         if cursor:
             path = f"{path}/chain/{cursor}"
-        page = await _esplora(chain, path, client, deadline=deadline)
+        async def read_page():
+            return await _esplora(chain, path, client, deadline=deadline)
+        try:
+            page = await reads.read(
+                f"bitcoin:{cursor or ''}", read_page,
+                lambda value: isinstance(value, list) and all(isinstance(row, dict) for row in value),
+            ) if reads else await read_page()
+        except ReadPending:
+            coverage.gap(reads.interruption if reads and reads.interruption else "provider_unavailable")
+            coverage.finish(False)
+            return rows, False
         if not isinstance(page, list):
             coverage.gap("invalid_page")
             coverage.finish(None)
@@ -1519,6 +1732,7 @@ async def _bitcoin_history(
             coverage.finish(True)
             return rows, True
         cursor = str(confirmed[-1].get("txid") or "")
+        coverage.next_cursor = cursor
         if not cursor or cursor in seen_cursors:
             coverage.gap("nonadvancing_cursor")
             coverage.finish(False)
@@ -1529,6 +1743,8 @@ async def _bitcoin_history(
             coverage.finish(False)
             return rows, True
     coverage.gap("provider_page_limit")
+    if page_limit >= MAX_HISTORY_PAGES:
+        coverage.gap("retention_limit")
     coverage.finish(False)
     return rows, False
 
@@ -1614,6 +1830,7 @@ async def _bitcoin_transfers(
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
     deadline: float | None = None,
+    reads: TraceReads | None = None,
 ) -> Transfers:
     """Address history from Esplora, read as transfers rather than as UTXOs.
 
@@ -1622,8 +1839,10 @@ async def _bitcoin_transfers(
     transaction.
     """
     coverage = TransferCoverage(since, until)
+    if reads:
+        coverage.fetched_at = datetime.fromisoformat(reads.history["fetched_at"])
     rows, exhausted = await _bitcoin_history(
-        chain, address, since, client, deadline=deadline, coverage=coverage
+        chain, address, since, client, deadline=deadline, coverage=coverage, reads=reads
     )
     timestamps = [int(moment.timestamp()) for moment in map(_bitcoin_time, rows) if moment]
     # Only a history that was cut short can be saturated: one that ran out is
