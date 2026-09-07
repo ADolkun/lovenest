@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { HistoricalEvidencePanel } from '@/components/historical-evidence-panel'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type {
   TraceDirection,
@@ -295,8 +296,9 @@ function traceDateInput(value: string | null, endOfDay = false): string {
 }
 
 export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
+  const { t } = useTranslation()
   const { current } = useWorkspace()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   // The form resets on URL/filter edits; a server cooldown still applies.
   const [retryUntil, setRetryUntil] = useState(0)
   const [now, setNow] = useState(Date.now)
@@ -322,13 +324,20 @@ export function OwnedWalletActivity(props: OwnedWalletActivityProps) {
     until: traceDateInput(params.get('until'), true),
   }
   const key = JSON.stringify([current.id, initial, props.connectionIds, props.addressKeys])
-  return <WalletActivityForm key={key} {...props} workspaceId={current.id} initial={initial}
+  const history = params.get('wallet_view') === 'history'
+  return <div className="space-y-4">
+    <div className="flex flex-wrap gap-2" aria-label={t('history.view', 'Wallet activity view')}>
+      <Button variant={history ? 'outline' : 'secondary'} aria-pressed={!history} onClick={() => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('wallet_view'); return next })}>{t('history.native', 'Native investigation')}</Button>
+      <Button variant={history ? 'secondary' : 'outline'} aria-pressed={history} onClick={() => setParams((previous) => { const next = new URLSearchParams(previous); next.set('wallet_view', 'history'); return next })}>{t('history.title', 'Historical evidence')}</Button>
+    </div>
+    {history ? <HistoricalEvidencePanel key={key} {...props} workspaceId={current.id} initial={initial} /> : <WalletActivityForm key={key} {...props} workspaceId={current.id} initial={initial}
     retrySeconds={Math.max(0, Math.ceil((retryUntil - now) / 1000))}
     onRateLimited={(delay) => {
       const receivedAt = Date.now()
       setNow(receivedAt)
       setRetryUntil((previous) => Math.max(previous, receivedAt + Math.max(5, retryDelay(delay) ?? 5) * 1000))
-    }} />
+    }} />}
+  </div>
 }
 
 function WalletActivityForm({

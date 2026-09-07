@@ -124,6 +124,18 @@ function findDuplicateKeys(source: string): string[] {
 }
 
 describe('i18n locale files', () => {
+  it('ships historical evidence in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
+    const { default: i18n } = await import('@/lib/i18n')
+    const english = JSON.parse(readRaw('en')).history
+    const portuguese = JSON.parse(readRaw('pt-BR')).history
+    expect(flattenKeys(portuguese).sort()).toEqual(flattenKeys(english).sort())
+    expect(i18n.getFixedT('pt-BR')('history.collect')).toBe('Coletar evidências')
+    expect(i18n.getFixedT('pt-BR')('history.values.payload_unavailable')).toBe('dados originais indisponíveis')
+    for (const locale of LOCALES.filter((locale) => !['en', 'pt-BR'].includes(locale))) {
+      expect(i18n.getFixedT(locale)('history.collect')).toBe(english.collect)
+    }
+  })
+
   it('keeps Hindi translations and falls back to English for Lovenest-only keys', async () => {
     const { default: i18n } = await import('@/lib/i18n')
     const hindi = i18n.getFixedT('hi')
@@ -152,7 +164,11 @@ describe('i18n locale files', () => {
         const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
         // A key is covered if the locale has the key directly OR has at least one
         // i18next plural form of it (e.g. _one/_few/_many/_other for Polish).
-        const missing = [...enKeys].filter((k) => !hasKeyOrPluralForms(keys, k))
+        // #144 ships EN + PT-BR; other languages use the runtime English
+        // fallback for this namespace until its translations are supplied.
+        const missing = [...enKeys].filter((k) =>
+          !(locale !== 'pt-BR' && k.startsWith('history.')) && !hasKeyOrPluralForms(keys, k),
+        )
         expect(missing, `Keys missing in ${locale}:`).toEqual([])
       })
     }

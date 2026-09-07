@@ -1,6 +1,7 @@
 import logging
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import TypeAdapter, ValidationError
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import get_async_session
 from app.core.rate_limit import onchain_trace_rate_limit
-from app.core.workspace_context import WorkspaceContext, current_workspace
+from app.core.workspace_context import WorkspaceContext, current_workspace, current_writable_workspace
 from app.models.bank_connection import BankConnection
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
 from app.providers.onchain import (
@@ -20,6 +21,8 @@ from app.schemas.onchain import (
     ChainRead, TraceContinuationRead, TraceRead, TraceRequest, WatchedAddressRead,
 )
 from app.services import onchain_checkpoint as checkpoints, onchain_trace
+from app.schemas.onchain_history import HistoryRead, HistoryRequest, HistorySummary
+from app.services import onchain_history
 
 logger = logging.getLogger(__name__)
 _state_adapter = TypeAdapter(onchain_trace.TraceState)
@@ -43,6 +46,7 @@ async def list_chains(_: WorkspaceContext = Depends(current_workspace)):
             traceable=chain.kind != "evm"
             or has_explorer_key
             or bool(chain.token_index_url),
+            historical_evidence="solana_owned_history" if chain.key == "solana" else "unsupported",
         )
         for chain in CHAINS.values()
     ]
@@ -250,3 +254,53 @@ async def reopen_trace(
     response.headers["Cache-Control"] = "no-store"
     snapshot = await _load_checkpoint(str(ctx.id), token)
     return TraceRead.model_validate(snapshot["result"])
+
+
+@router.post("/history", response_model=HistoryRead, dependencies=[Depends(_trace_admission)])
+async def collect_owned_history(
+    payload: HistoryRequest,
+    response: Response,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Retain source evidence and progress only; collection never applies money."""
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_history.collect_history(session, ctx.id, ctx.user_id, payload)
+
+
+@router.get("/history", response_model=list[HistorySummary])
+async def list_owned_history(
+    response: Response,
+    connection_id: UUID | None = None,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_history.list_history(session, ctx.id, connection_id)
+
+
+@router.get("/history/{collection_id}", response_model=HistoryRead)
+async def reopen_owned_history(
+    collection_id: UUID,
+    response: Response,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Opening retained evidence never contacts a chain endpoint."""
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_history.read_history(session, ctx.id, collection_id)
+
+
+@router.get("/history/{collection_id}/export")
+async def export_owned_history(
+    collection_id: UUID,
+    ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Server-serialized bytes preserve RPC u64 values beyond JavaScript precision."""
+    saved = await onchain_history.read_history(session, ctx.id, collection_id)
+    return Response(
+        content=onchain_history._json_bytes(saved.model_dump(mode="json")),
+        media_type="application/json",
+        headers={"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="owned-history-evidence.json"'},
+    )

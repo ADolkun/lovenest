@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, func, true
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,10 +20,28 @@ class InvestmentObservation(Base):
     import_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("import_logs.id", ondelete="SET NULL"), index=True)
     identity_key: Mapped[str] = mapped_column(String(64))
     fingerprint: Mapped[str] = mapped_column(String(64))
+    # Producer-owned qualification; the retained source payload is immutable.
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Validated EvidenceObservationInput; amounts stay decimal strings even
     # on SQLite. Original values are not rounded to the application ledger.
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvestmentHistoryCollection(Base):
+    """Durable producer archive, independent of short-lived research checkpoints."""
+    __tablename__ = "investment_history_collections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bank_connections.id", ondelete="SET NULL"), index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("asset_groups.id", ondelete="SET NULL"))
+    revision: Mapped[str] = mapped_column(String(64))
+    request: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(JSON)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class InvestmentEvent(Base):

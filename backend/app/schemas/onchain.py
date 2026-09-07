@@ -15,6 +15,7 @@ class ChainRead(BaseModel):
     # tracing needs an Etherscan key that balances do not. The UI reads this
     # to disable the chain rather than let a trace fail on submit.
     traceable: bool
+    historical_evidence: str = "unsupported"
 
 
 class TraceRequest(BaseModel):
