@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -103,7 +103,7 @@ function CopyButton({ value, label, showLabel = false }: { value: string; label:
 }
 
 function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { mask } = usePrivacyMode()
   const address = node?.address ?? id.split(':').slice(1).join(':')
   return (
@@ -118,6 +118,9 @@ function AddressRef({ node, id }: { node: TraceNode | undefined; id: string }) {
       {node?.balance != null && (
         <span className="text-xs text-muted-foreground">
           {mask(t('trace.balance', { amount: node.balance, symbol: node.symbol }))}
+          {' · '}{node.balance_observed_at
+            ? t('trace.balanceObserved', { time: `${new Date(node.balance_observed_at).toLocaleString(i18n.resolvedLanguage ?? i18n.language, { timeZone: 'UTC' })} UTC` })
+            : t('trace.balanceObservationUnknown')}
         </span>
       )}
     </span>
@@ -163,7 +166,7 @@ function TraceCoverage({ result }: { result: TraceResult }) {
   const windowText = (window: TraceWindow) => `${window.since ? moment(window.since) : t('trace.coverage.openStart')} → ${window.until ? moment(window.until) : t('trace.coverage.openEnd')}`
   const flag = (value: boolean | null) => value === null ? unknown : t(value ? 'trace.coverage.yes' : 'trace.coverage.no')
   const reasonText = (reason: string) => t(`trace.coverage.reasons.${reason}`, { defaultValue: reason })
-  const counters = ['pages_read', 'rows_read', 'signatures_read', 'payloads_requested', 'payloads_read', 'missing_timestamps', 'missing_payloads', 'unsupported_payloads', 'omitted_signatures', 'omitted_transfers'] as const
+  const counters = ['pages_read', 'rows_read', 'signatures_read', 'payloads_requested', 'payloads_read', 'failed_payloads', 'pending_payloads', 'missing_timestamps', 'missing_payloads', 'unsupported_payloads', 'omitted_signatures', 'omitted_transfers'] as const
 
   return (
     <section aria-label={t('trace.coverage.title')} className="space-y-3">
@@ -190,20 +193,21 @@ function TraceCoverage({ result }: { result: TraceResult }) {
                   <ul className="list-disc space-y-1 pl-5">{node.unfinished_windows.map((window, index) => <li key={index} className="break-words">{windowText(window)} · {reasonText(window.reason)}</li>)}</ul>
                 </div>
               )}
-              {node.coverage ? (
-                <>
+              {(node.window_coverages.length ? node.window_coverages : node.coverage ? [node.coverage] : []).map((coverage, index) => (
+                <div key={index} className="space-y-3 border-t border-border pt-3">
                   <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 xl:grid-cols-3">
-                    <div><dt className="text-muted-foreground">{t('trace.coverage.requestedWindow')}</dt><dd className="break-words">{windowText({ since: node.coverage.requested_since, until: node.coverage.requested_until })}</dd></div>
-                    <div><dt className="text-muted-foreground">{t('trace.coverage.observed')}</dt><dd className="break-words">{moment(node.coverage.observed_oldest)} → {moment(node.coverage.observed_newest)}</dd></div>
-                    <div><dt className="text-muted-foreground">{t('trace.coverage.examined')}</dt><dd className="break-words">{moment(node.coverage.examined_oldest)} → {moment(node.coverage.examined_newest)}</dd></div>
-                    <div><dt className="text-muted-foreground">{t('trace.coverage.fetchedAt')}</dt><dd>{moment(node.coverage.fetched_at)}</dd></div>
-                    {(['since_reached', 'until_reached', 'provider_exhausted'] as const).map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd>{flag(node.coverage![key])}</dd></div>)}
-                    {counters.map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd className="tabular-nums">{node.coverage![key] ?? unknown}</dd></div>)}
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.requestedWindow')}</dt><dd className="break-words">{windowText({ since: coverage.requested_since, until: coverage.requested_until })}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.observed')}</dt><dd className="break-words">{moment(coverage.observed_oldest)} → {moment(coverage.observed_newest)}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.examined')}</dt><dd className="break-words">{moment(coverage.examined_oldest)} → {moment(coverage.examined_newest)}</dd></div>
+                    <div><dt className="text-muted-foreground">{t('trace.coverage.fetchedAt')}</dt><dd>{moment(coverage.fetched_at)}</dd></div>
+                    {(['since_reached', 'until_reached', 'provider_exhausted'] as const).map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd>{flag(coverage[key])}</dd></div>)}
+                    {counters.map((key) => <div key={key}><dt className="text-muted-foreground">{t(`trace.coverage.${key}`)}</dt><dd className="tabular-nums">{coverage[key] ?? unknown}</dd></div>)}
                   </dl>
-                  {node.coverage.stop_reasons.length > 0 && <p>{t('trace.coverage.providerStops')}: {node.coverage.stop_reasons.map(reasonText).join(' · ')}</p>}
-                  {node.coverage.next_cursor && <div className="space-y-1"><p className="font-medium">{t('trace.coverage.cursor')}</p><p className="break-all font-mono">{node.coverage.next_cursor}</p><p className="text-muted-foreground">{t('trace.coverage.cursorHint')}</p></div>}
-                </>
-              ) : <p className="text-muted-foreground">{t('trace.coverage.unavailable')}</p>}
+                  {coverage.stop_reasons.length > 0 && <p>{t('trace.coverage.providerStops')}: {coverage.stop_reasons.map(reasonText).join(' · ')}</p>}
+                  {coverage.next_cursor && <div className="space-y-1"><p className="font-medium">{t('trace.coverage.cursor')}</p><p className="break-all font-mono">{coverage.next_cursor}</p><p className="text-muted-foreground">{t('trace.coverage.cursorHint')}</p></div>}
+                </div>
+              ))}
+              {!node.coverage && !node.window_coverages.length && <p className="text-muted-foreground">{t('trace.coverage.unavailable')}</p>}
             </div>
           </details>
         ))}
@@ -215,18 +219,47 @@ function TraceCoverage({ result }: { result: TraceResult }) {
 const HOP_OPTIONS = [1, 2, 3, 4, 5, 6]
 const BRANCH_OPTIONS = [1, 2, 3, 4, 5]
 
-const TRACE_ERROR_CODES = ['upstream_rate_limited', 'trace_admission_limited', 'history_unavailable'] as const
+const TRACE_ERROR_CODES = ['upstream_rate_limited', 'trace_admission_limited', 'history_unavailable', 'trace_restart_required', 'trace_checkpoint_unavailable', 'trace_file_invalid', 'trace_file_workspace', 'trace_file_wallet'] as const
 
 function retryDelay(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
 function traceFailure(error: unknown) {
+  const localCode = error instanceof Error ? TRACE_ERROR_CODES.find((code) => code === error.message) : undefined
+  if (localCode) return { code: localCode, retry_after_seconds: null }
   const detail = (error as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail
   if (!detail || typeof detail !== 'object' || !('code' in detail)) return null
   const code = TRACE_ERROR_CODES.find((candidate) => candidate === detail.code)
   if (!code) return null
   return { code, retry_after_seconds: retryDelay('retry_after_seconds' in detail ? detail.retry_after_seconds : null) }
+}
+
+type TraceOperation = { generation: number } & (
+  | { kind: 'trace'; request: TraceRequest }
+  | { kind: 'reopen'; file: File }
+)
+
+/** A download supplies only a lookup token; never trust its embedded evidence. */
+async function savedTraceToken(file: File, workspaceId: string): Promise<string> {
+  if (file.size > 8 * 1024 * 1024) throw new Error('trace_file_invalid')
+  let saved
+  try {
+    const text = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(file)
+    })
+    saved = JSON.parse(text)
+  } catch {
+    throw new Error('trace_file_invalid')
+  }
+  if (!saved || saved.version !== 1 || typeof saved.workspace_id !== 'string') throw new Error('trace_file_invalid')
+  if (saved.workspace_id !== workspaceId) throw new Error('trace_file_workspace')
+  const token = saved.result?.continuation?.token
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{16,256}$/.test(token)) throw new Error('trace_file_invalid')
+  return token
 }
 
 export default function TracePage() {
@@ -315,6 +348,17 @@ function WalletActivityForm({
   const [minAmount, setMinAmount] = useState(initial.minAmount)
   const [since, setSince] = useState(initial.since)
   const [until, setUntil] = useState(initial.until)
+  const [saved, setSaved] = useState<TraceResult | null>(null)
+  const generation = useRef(0)
+  const [expiryNow, setExpiryNow] = useState(Date.now)
+  useEffect(() => () => { generation.current += 1 }, [])
+  const expiresAt = saved?.continuation.expires_at
+  useEffect(() => {
+    if (!expiresAt) return
+    const remaining = Date.parse(expiresAt) - Date.now()
+    const timer = window.setTimeout(() => setExpiryNow(Date.now()), Math.max(0, Math.min(remaining, 2_147_483_647)))
+    return () => window.clearTimeout(timer)
+  }, [expiresAt])
   const { mask } = usePrivacyMode()
   const formatUtc = (value: string) => `${new Date(value).toLocaleString(i18n.resolvedLanguage ?? i18n.language, { dateStyle: 'medium', timeStyle: 'medium', timeZone: 'UTC' })} UTC`
 
@@ -329,15 +373,44 @@ function WalletActivityForm({
     staleTime: 0,
   })
 
+  const chains = chainsQuery.data ?? []
+  const watched = (watchedQuery.data ?? []).filter((entry) =>
+    (connectionIds === undefined || connectionIds.includes(entry.connection_id)) &&
+    (addressKeys === undefined || addressKeys.includes(`${entry.chain}:${entry.address}`)),
+  )
   const traceMutation = useMutation({
     retry: false,
-    mutationFn: async (request: TraceRequest) => ({
-      result: await onchain.trace(request, workspaceId), request, retrieved_at: new Date().toISOString(),
-    }),
-    onSuccess: ({ result }) => {
-      if (result.interruption?.code === 'upstream_rate_limited') onRateLimited(result.interruption.retry_after_seconds)
+    mutationFn: async (operation: TraceOperation) => {
+      let result: TraceResult
+      if (operation.kind === 'reopen') {
+        const token = await savedTraceToken(operation.file, workspaceId)
+        if (operation.generation !== generation.current) return null
+        result = await onchain.checkpoint(token, workspaceId)
+      } else {
+        result = await onchain.trace(operation.request, workspaceId)
+      }
+      if (result.workspace_id !== workspaceId) throw new Error('trace_file_workspace')
+      return result
     },
-    onError: (error) => {
+    onSuccess: (result, operation) => {
+      if (!result || operation.generation !== generation.current) return
+      if (!watched.some((entry) => entry.chain === result.request.chain && entry.address === result.request.address)) throw new Error('trace_file_wallet')
+      setSaved(result)
+      if (operation.kind === 'reopen') {
+        const request = result.request
+        setSelectedKey(`${request.chain}:${request.address}`)
+        setDirection(request.direction ?? 'out')
+        setMaxHops(String(request.max_hops ?? 3))
+        setMaxBranches(String(request.max_branches ?? 3))
+        setMinAmount(request.min_amount == null ? '' : String(request.min_amount))
+        setSince(traceDateInput(request.since ?? null))
+        setUntil(traceDateInput(request.until ?? null, true))
+      }
+      // Reopening an old observation must not start a fresh provider cooldown.
+      if (operation.kind === 'trace' && result.interruption?.code === 'upstream_rate_limited') onRateLimited(result.interruption.retry_after_seconds)
+    },
+    onError: (error, operation) => {
+      if (operation.generation !== generation.current) return
       const failure = traceFailure(error)
       if (failure?.code === 'upstream_rate_limited' || failure?.code === 'trace_admission_limited') {
         onRateLimited(failure.retry_after_seconds)
@@ -345,19 +418,15 @@ function WalletActivityForm({
     },
   })
   const failure = traceFailure(traceMutation.error)
-
-  const chains = chainsQuery.data ?? []
-  const watched = (watchedQuery.data ?? []).filter((entry) =>
-    (connectionIds === undefined || connectionIds.includes(entry.connection_id)) &&
-    (addressKeys === undefined || addressKeys.includes(`${entry.chain}:${entry.address}`)),
-  )
   const selected = watched.find((entry) => `${entry.chain}:${entry.address}` === selectedKey)
   const selectedChain = chains.find((entry) => entry.key === selected?.chain)
   const invalidWindow = Boolean(since && until && Date.parse(`${since}Z`) > Date.parse(`${until}Z`))
   const invalidAmount = Boolean(minAmount.trim() && (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(minAmount.trim()) || !Number.isFinite(Number(minAmount))))
   const canSubmit = Boolean(selected && selectedChain?.traceable && !invalidWindow && !invalidAmount && !watchedQuery.isError && !chainsQuery.isError)
 
-  const result = selected && !watchedQuery.isError ? traceMutation.data?.result : undefined
+  const result = selected && !watchedQuery.isError && selected.chain === saved?.request.chain && selected.address === saved.request.address ? saved : undefined
+  const expired = Boolean(expiresAt && Date.parse(expiresAt) <= expiryNow)
+  const canContinue = Boolean(result?.continuation.status === 'available' && result.continuation.token && !expired && failure?.code !== 'trace_restart_required')
   const retryable = failure?.code === 'upstream_rate_limited' || failure?.code === 'trace_admission_limited' || result?.interruption?.code === 'upstream_rate_limited'
   const hops = useMemo(() => (result ? buildHops(result) : []), [result])
   const nodeById = useMemo(
@@ -368,7 +437,7 @@ function WalletActivityForm({
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!canSubmit || !selected || traceMutation.isPending || retrySeconds > 0) return
-    traceMutation.mutate({
+    traceMutation.mutate({ kind: 'trace', generation: ++generation.current, request: {
       chain: selected.chain,
       address: selected.address,
       direction,
@@ -377,26 +446,43 @@ function WalletActivityForm({
       ...(minAmount.trim() ? { min_amount: minAmount.trim() } : {}),
       ...(since ? { since: new Date(`${since}Z`).toISOString() } : {}),
       ...(until ? { until: new Date(`${until}Z`).toISOString() } : {}),
-    })
+    } })
+  }
+
+  const invalidate = () => {
+    generation.current += 1
+    setSaved(null)
+    traceMutation.reset()
+  }
+  const continueTrace = () => {
+    if (!canSubmit || !canContinue || !result?.continuation.token || traceMutation.isPending || retrySeconds > 0) return
+    if (expiresAt && Date.parse(expiresAt) <= Date.now()) { setExpiryNow(Date.now()); return }
+    traceMutation.mutate({ kind: 'trace', generation: ++generation.current, request: { ...result.request, continuation_token: result.continuation.token } })
   }
 
   const traceLink = new URL(location.pathname, window.location.origin)
   traceLink.search = location.search
-  for (const name of ['chain', 'address', 'direction', 'max_hops', 'max_branches', 'min_amount', 'since', 'until']) traceLink.searchParams.delete(name)
-  for (const [name, value] of Object.entries(traceMutation.data?.request ?? {})) traceLink.searchParams.set(name, String(value))
+  for (const name of ['chain', 'address', 'direction', 'max_hops', 'max_branches', 'min_amount', 'since', 'until', 'continuation_token']) traceLink.searchParams.delete(name)
+  for (const [name, value] of Object.entries(result?.request ?? {})) {
+    if (name !== 'continuation_token' && value != null) traceLink.searchParams.set(name, String(value))
+  }
 
   const download = () => {
-    if (!traceMutation.data) return
+    if (!result) return
     try {
       const snapshot = {
         source: 'Lovenest native-coin trace',
+        version: 1,
+        workspace_id: workspaceId,
         coverage: 'Bounded native-coin transfers only. Tokens, fees, swaps, bridges, exchange activity, claims and cost basis are not reconstructed. Downstream movements after funds mix cannot be attributed solely to this wallet. Keep terminal reasons and truncation with this result.',
-        ...traceMutation.data,
+        request: result.request,
+        retrieved_at: result.retrieved_at,
+        result,
       }
       const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `wallet-trace-${traceMutation.data.request.chain}-${traceMutation.data.retrieved_at.slice(0, 10)}.json`
+      anchor.download = `wallet-trace-${result.request.chain}-${result.retrieved_at.slice(0, 10)}.json`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
@@ -410,7 +496,7 @@ function WalletActivityForm({
     <div className="space-y-6">
       <Card>
         <CardContent className="p-4 sm:p-5">
-          <form onSubmit={submit} onChange={() => traceMutation.reset()} className="space-y-4">
+          <form onSubmit={submit} className="space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-1"><h2 className="text-base font-semibold">{t('trace.exploreTitle')}</h2><p className="max-w-2xl text-sm text-muted-foreground">{t('trace.intro')}</p></div>
               <Button asChild variant="outline" size="sm"><Link to="/accounts">{t('trace.manageWallets')}</Link></Button>
@@ -433,7 +519,7 @@ function WalletActivityForm({
                 <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-wallet">{t('trace.wallet')}</Label>
-                    <Select value={selected ? selectedKey : ''} onValueChange={(value) => { setSelectedKey(value); traceMutation.reset() }}>
+                    <Select value={selected ? selectedKey : ''} onValueChange={(value) => { setSelectedKey(value); invalidate() }}>
                       <SelectTrigger id="trace-wallet" className="w-full"><SelectValue placeholder={t('trace.walletPlaceholder')} /></SelectTrigger>
                       <SelectContent>
                         {watched.map((entry) => (
@@ -449,7 +535,7 @@ function WalletActivityForm({
                   </div>
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-direction">{t('trace.direction')}</Label>
-                    <Select value={direction} onValueChange={(value) => { setDirection(value as TraceDirection); traceMutation.reset() }}>
+                    <Select value={direction} onValueChange={(value) => { setDirection(value as TraceDirection); invalidate() }}>
                       <SelectTrigger id="trace-direction" className="w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="out">{t('trace.directionOut')}</SelectItem>
@@ -459,11 +545,11 @@ function WalletActivityForm({
                   </div>
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-since">{t('trace.since')}</Label>
-                    <Input id="trace-since" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={since} max={until || undefined} onChange={(event) => setSince(event.target.value)} />
+                    <Input id="trace-since" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={since} max={until || undefined} onChange={(event) => { setSince(event.target.value); invalidate() }} />
                   </div>
                   <div className="min-w-0 space-y-1.5">
                     <Label htmlFor="trace-until">{t('trace.until')}</Label>
-                    <Input id="trace-until" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={until} min={since || undefined} onChange={(event) => setUntil(event.target.value)} />
+                    <Input id="trace-until" type="datetime-local" step="any" aria-describedby="trace-window-hint" className="min-w-0" value={until} min={since || undefined} onChange={(event) => { setUntil(event.target.value); invalidate() }} />
                   </div>
                 </div>
                 <p id="trace-window-hint" className="max-w-prose text-sm text-muted-foreground">{t(direction === 'out' ? 'trace.rootWindowOut' : 'trace.rootWindowIn')}</p>
@@ -474,11 +560,11 @@ function WalletActivityForm({
                   <div className="mt-4 grid gap-4 sm:grid-cols-3">
                     <div className="min-w-0 space-y-1.5">
                       <Label htmlFor="trace-min-amount">{t('trace.minAmount')}{selectedChain ? ` (${selectedChain.symbol})` : ''}</Label>
-                      <Input id="trace-min-amount" type="number" min="0" step="any" inputMode="decimal" value={minAmount} onChange={(event) => setMinAmount(event.target.value)} placeholder={t('trace.minAmountPlaceholder')} />
+                      <Input id="trace-min-amount" type="number" min="0" step="any" inputMode="decimal" value={minAmount} onChange={(event) => { setMinAmount(event.target.value); invalidate() }} placeholder={t('trace.minAmountPlaceholder')} />
                     </div>
                     <div className="min-w-0 space-y-1.5">
                       <Label htmlFor="trace-max-hops">{t('trace.maxHops')}</Label>
-                      <Select value={maxHops} onValueChange={(value) => { setMaxHops(value); traceMutation.reset() }}>
+                      <Select value={maxHops} onValueChange={(value) => { setMaxHops(value); invalidate() }}>
                         <SelectTrigger id="trace-max-hops" className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>{HOP_OPTIONS.map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent>
                       </Select>
@@ -486,7 +572,7 @@ function WalletActivityForm({
                     </div>
                     <div className="min-w-0 space-y-1.5">
                       <Label htmlFor="trace-max-branches">{t('trace.maxBranches')}</Label>
-                      <Select value={maxBranches} onValueChange={(value) => { setMaxBranches(value); traceMutation.reset() }}>
+                      <Select value={maxBranches} onValueChange={(value) => { setMaxBranches(value); invalidate() }}>
                         <SelectTrigger id="trace-max-branches" className="w-full"><SelectValue /></SelectTrigger>
                         <SelectContent>{BRANCH_OPTIONS.map((value) => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent>
                       </Select>
@@ -495,9 +581,10 @@ function WalletActivityForm({
                   </div>
                 </details>
                 <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-                  <Button type="submit" disabled={!canSubmit || traceMutation.isPending || retrySeconds > 0}>
+                  {result?.continuation.status === 'available' && <Button type="button" onClick={continueTrace} disabled={!canSubmit || !canContinue || traceMutation.isPending || retrySeconds > 0}>{t('trace.continue')}</Button>}
+                  <Button type="submit" variant={result ? 'outline' : 'default'} disabled={!canSubmit || traceMutation.isPending || retrySeconds > 0}>
                     <Radar size={16} />
-                    {traceMutation.isPending ? t('trace.tracing') : retryable ? t('common.retry') : t('trace.submit')}
+                    {traceMutation.isPending ? t(traceMutation.variables?.kind === 'reopen' ? 'trace.reopening' : 'trace.tracing') : result || failure?.code === 'trace_restart_required' ? t('trace.restart') : retryable ? t('common.retry') : t('trace.submit')}
                   </Button>
                   {retrySeconds > 0 && <span role="status" className="text-xs text-muted-foreground">{t('trace.retryIn', { seconds: retrySeconds })}</span>}
                   <span className="text-xs text-muted-foreground">{t('trace.utcHint')}</span>
@@ -505,6 +592,15 @@ function WalletActivityForm({
               </>
             )}
           </form>
+          <div className="mt-4 space-y-2 border-t border-border pt-4">
+            <Label htmlFor="trace-reopen">{t('trace.reopen')}</Label>
+            <Input id="trace-reopen" type="file" accept="application/json,.json" className="max-w-sm" aria-describedby="trace-reopen-hint" disabled={traceMutation.isPending || !watched.length || chainsQuery.isError || watchedQuery.isError} onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) traceMutation.mutate({ kind: 'reopen', file, generation: ++generation.current })
+            }} />
+            <p id="trace-reopen-hint" className="max-w-prose text-xs text-muted-foreground">{t('trace.reopenHint')}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -520,7 +616,7 @@ function WalletActivityForm({
         </div>
       </details>
 
-      {traceMutation.isPending && (
+      {traceMutation.isPending && !result && (
         <div className="space-y-3">
           <Skeleton className="h-6 w-40" />
           <Skeleton className="h-16 w-full" />
@@ -529,7 +625,7 @@ function WalletActivityForm({
         </div>
       )}
 
-      {result && !traceMutation.isPending && (
+      {result && (
         <div className="space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
             <div className="space-y-2">
@@ -539,12 +635,19 @@ function WalletActivityForm({
                 <span className="text-sm text-muted-foreground">{t('trace.rootLabel')}</span>
                 <AddressRef node={nodeById.get(result.root)} id={result.root} />
               </div>
-              <p className="text-xs text-muted-foreground">{t('trace.resultCounts', { transfers: result.edges.length, addresses: result.nodes.length })} · {t('trace.retrievedAt', { time: formatUtc(traceMutation.data!.retrieved_at) })}</p>
+              <p className="text-xs text-muted-foreground">{t('trace.resultCounts', { transfers: result.edges.length, addresses: result.nodes.length })} · {t('trace.retrievedAt', { time: formatUtc(result.retrieved_at) })}</p>
+              <p className="max-w-prose text-xs text-muted-foreground">{t('trace.savedBalances')}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <CopyButton value={traceLink.href} label={t('trace.copyLink')} showLabel />
               <Button type="button" variant="outline" size="sm" onClick={download}><Download size={14} />{t('trace.download')}</Button>
             </div>
+          </div>
+
+          <div className="space-y-1 text-sm" aria-live="polite">
+            {traceMutation.isPending && <p>{t('trace.retainingResult')}</p>}
+            <p>{t(expired || failure?.code === 'trace_restart_required' ? 'trace.checkpointExpired' : `trace.continuation.${result.continuation.status}`)}</p>
+            {expiresAt && <p className="text-muted-foreground">{t('trace.expiresAt', { time: formatUtc(expiresAt) })}</p>}
           </div>
 
           {(result.truncated || result.interruption) && (

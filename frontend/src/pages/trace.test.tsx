@@ -8,7 +8,7 @@ import TracePage, { OwnedWalletActivity } from '@/pages/trace'
 import { renderWithProviders } from '@/test/utils'
 import type { OnChainWatchedAddress, TraceResult, TransferCoverage } from '@/types'
 
-const onchain = vi.hoisted(() => ({ chains: vi.fn(), addresses: vi.fn(), trace: vi.fn() }))
+const onchain = vi.hoisted(() => ({ chains: vi.fn(), addresses: vi.fn(), trace: vi.fn(), checkpoint: vi.fn() }))
 const workspace = vi.hoisted(() => ({ id: 'investment', modules: ['accounts', 'assets'], isLoading: false }))
 vi.mock('@/lib/api', () => ({ onchain }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: () => ({
@@ -32,17 +32,23 @@ const coverage: TransferCoverage = {
   examined_oldest: '2025-01-23T23:00:00Z', examined_newest: '2025-01-23T23:00:00Z',
   since_reached: true, until_reached: true, provider_exhausted: true,
   pages_read: 1, rows_read: 2, signatures_read: 2, payloads_requested: 2, payloads_read: 1,
+  failed_payloads: 0, pending_payloads: 0,
   missing_timestamps: 0, missing_payloads: 1, unsupported_payloads: 0,
   omitted_signatures: null, omitted_transfers: null, next_cursor: 'synthetic-page-cursor',
   stop_reasons: ['missing_payload'],
 }
 const traceResult: TraceResult = {
+  request: { chain: 'solana', address: 'wallet-one', direction: 'out', max_hops: 3, max_branches: 3 },
+  workspace_id: 'investment', started_at: '2026-09-06T11:59:30Z', retrieved_at: '2026-09-06T12:00:00Z',
+  continuation: { status: 'not_needed', token: null, expires_at: null, reason: null },
   root: 'solana:wallet-one', direction: 'out', truncated: true, complete: false,
   scope: 'native_coin', root_window: { since: null, until: null },
   nodes: [
     { id: 'solana:wallet-one', chain: 'solana', address: 'wallet-one', depth: 0, symbol: 'SOL', balance: '10', terminal_reason: null,
+      balance_observed_at: '2026-09-06T11:59:58Z', window_coverages: [],
       effective_window: { since: null, until: null }, coverage, unfinished_windows: [], stop_reasons: ['missing_payload'], branch_omitted_transfers: 0 },
     { id: 'solana:recipient', chain: 'solana', address: 'recipient', depth: 1, symbol: 'SOL', balance: null, terminal_reason: 'pooled',
+      balance_observed_at: null, window_coverages: [],
       effective_window: { since: '2025-01-23T23:00:00Z', until: null }, coverage: null, unfinished_windows: [], stop_reasons: ['high_activity'], branch_omitted_transfers: 0 },
   ],
   edges: [{ source: 'solana:wallet-one', target: 'solana:recipient', chain: 'solana', symbol: 'SOL', amount: '2', reference: 'synthetic-transfer-reference', occurred_at: '2025-01-23T23:00:00Z' }],
@@ -50,6 +56,7 @@ const traceResult: TraceResult = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  Object.values(onchain).forEach((mock) => mock.mockReset())
   workspace.id = 'investment'
   workspace.modules = ['accounts', 'assets']
   workspace.isLoading = false
@@ -58,7 +65,8 @@ beforeEach(() => {
     { key: 'ethereum', display_name: 'Ethereum', symbol: 'ETH', kind: 'evm', traceable: true },
   ])
   onchain.addresses.mockImplementation((id: string) => Promise.resolve(id === 'investment' ? [first, second] : []))
-  onchain.trace.mockResolvedValue(traceResult)
+  onchain.trace.mockImplementation((request) => Promise.resolve({ ...traceResult, request }))
+  onchain.checkpoint.mockResolvedValue(traceResult)
 })
 
 function panel(props: Parameters<typeof OwnedWalletActivity>[0] = {}) {
@@ -271,7 +279,7 @@ describe('owned wallet activity', () => {
     expect(screen.getByRole('button', { name: 'Explore transfers' })).toBeDisabled()
     expect(onchain.trace).not.toHaveBeenCalled()
   })
-  it('restores an exact incoming trace without fetching and copies a resumable link', async () => {
+  it('restores exact incoming settings without fetching and copies a settings link', async () => {
     const params = new URLSearchParams({
       tab: 'activity', activity: 'wallets', wallet: 'group-one', chain: 'solana', address: 'wallet-one',
       direction: 'in', max_hops: '5', max_branches: '2', min_amount: '0.123456789',
@@ -289,7 +297,7 @@ describe('owned wallet activity', () => {
       min_amount: '0.123456789', since: '2025-01-23T21:00:00.000Z', until: '2025-01-24T02:18:00.125Z',
     }
     await waitFor(() => expect(onchain.trace).toHaveBeenCalledWith(expected, 'investment'))
-    await user.click(await screen.findByRole('button', { name: 'Copy trace link' }))
+    await user.click(await screen.findByRole('button', { name: 'Copy settings link' }))
     const copied = new URL(await navigator.clipboard.readText())
     expect(copied.pathname).toBe('/assets')
     expect(Object.fromEntries(copied.searchParams)).toEqual({
@@ -392,7 +400,7 @@ describe('owned wallet activity', () => {
       const saved = JSON.parse(contents)
       expect(saved.request).toEqual(onchain.trace.mock.calls[0][0])
       expect(saved.result).toEqual(traceResult)
-      expect(saved.retrieved_at).toBe('2026-09-06T12:00:00.000Z')
+      expect(saved.retrieved_at).toBe(traceResult.retrieved_at)
       expect(saved.coverage).toContain('Bounded native-coin transfers only')
       expect(saved.coverage).toContain('cost basis are not reconstructed')
       expect(saved.result.nodes[1].terminal_reason).toBe('pooled')
@@ -410,6 +418,254 @@ function ChangeTraceDates() {
   const [, setParams] = useSearchParams()
   return <button onClick={() => setParams({ chain: 'solana', address: 'wallet-one', since: '2025-01-23' })}>Change trace dates</button>
 }
+
+const resumable: TraceResult = {
+  ...traceResult,
+  continuation: { status: 'available', token: 'synthetic-checkpoint-token', expires_at: '2099-01-01T00:00:00Z', reason: null },
+}
+
+function savedFile(result = resumable) {
+  return new File([JSON.stringify({ version: 1, workspace_id: result.workspace_id, result })], 'trace.json', { type: 'application/json' })
+}
+
+describe('saved trace continuation', () => {
+  it('names pending reads, deadline and retention gaps without raw provider codes', async () => {
+    onchain.trace.mockResolvedValue({ ...resumable, nodes: [{ ...resumable.nodes[0], stop_reasons: ['pending_payload', 'deadline_exceeded', 'retention_limit'] }] })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    const region = await screen.findByRole('region', { name: 'Native transfer coverage' })
+    await user.click(within(region).getByText(/Starting address · wallet-one/))
+    for (const message of ['Some transaction payloads are still pending', 'The time limit interrupted the reads', 'This trace reached its saved-data limit. Restart with narrower settings.']) {
+      expect(within(region).getByText(message)).toBeInTheDocument()
+    }
+  })
+
+  it.each(['upstream_rate_limited', 'trace_admission_limited', 'trace_checkpoint_unavailable', 'trace_restart_required'])('keeps prior evidence and download when continuing fails with %s', async (code) => {
+    onchain.trace.mockResolvedValueOnce(resumable).mockRejectedValueOnce({ response: { data: { detail: {
+      code, retry_after_seconds: 10, message: 'https://secret.invalid/private-key',
+    } } } })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue remaining work' }))
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart trace' })).toBeInTheDocument())
+    expect(onchain.trace).toHaveBeenLastCalledWith({ ...resumable.request, continuation_token: resumable.continuation.token }, 'investment')
+    expect(screen.getByTitle('synthetic-transfer-reference')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download result' })).toBeEnabled()
+    expect(screen.queryByText(/private-key/)).not.toBeInTheDocument()
+    if (code.endsWith('limited') || code === 'trace_restart_required') expect(screen.getByRole('button', { name: 'Continue remaining work' })).toBeDisabled()
+    if (code.endsWith('limited')) expect(screen.getByRole('button', { name: 'Restart trace' })).toBeDisabled()
+  })
+
+  it('continues the exact request, renders each retained window once, and restarts without a token', async () => {
+    const laterCoverage = { ...coverage, requested_since: '2025-01-20T00:00:00Z', failed_payloads: 2, pending_payloads: 3 }
+    const continued = {
+      ...resumable, retrieved_at: '2026-09-07T00:00:00Z',
+      continuation: { ...resumable.continuation, status: 'not_needed' as const, token: 'synthetic-next-checkpoint-token' },
+      nodes: [{ ...resumable.nodes[0], window_coverages: [coverage, laterCoverage] }, resumable.nodes[1]],
+      edges: [...resumable.edges, { ...resumable.edges[0], reference: 'synthetic-second-transfer' }],
+    }
+    onchain.trace.mockResolvedValueOnce(resumable).mockResolvedValueOnce(continued).mockResolvedValueOnce(traceResult)
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one&continuation_token=must-not-copy' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue remaining work' }))
+    await screen.findByTitle('synthetic-second-transfer')
+    expect(screen.getAllByTitle('synthetic-transfer-reference')).toHaveLength(1)
+    expect(screen.getByText(/No remaining retryable work for these settings/)).toBeInTheDocument()
+    expect(screen.getByText(/Native history is incomplete/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue remaining work' })).not.toBeInTheDocument()
+    const region = screen.getByRole('region', { name: 'Native transfer coverage' })
+    const root = within(region).getByText(/Starting address · wallet-one/).closest('details')!
+    await user.click(root.querySelector('summary')!)
+    expect(within(root).getAllByText('Requested provider window')).toHaveLength(2)
+    expect(within(root).getAllByText('Failed payload reads').map((label) => label.nextElementSibling?.textContent)).toEqual(['0', '2'])
+    expect(within(root).getAllByText('Payload reads still pending').map((label) => label.nextElementSibling?.textContent)).toEqual(['0', '3'])
+    await user.click(screen.getByRole('button', { name: 'Copy settings link' }))
+    expect(new URL(await navigator.clipboard.readText()).searchParams.has('continuation_token')).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Restart trace' }))
+    await waitFor(() => expect(onchain.trace).toHaveBeenCalledTimes(3))
+    expect(onchain.trace.mock.calls[2][0]).toEqual(resumable.request)
+  })
+
+  it('downloads, reloads settings, reopens the canonical snapshot, and continues only on explicit click', async () => {
+    let blob!: Blob
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL(value: Blob) { blob = value; return 'blob:trace' }
+      static revokeObjectURL() {}
+    })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    onchain.trace.mockResolvedValue(resumable)
+    onchain.checkpoint.mockResolvedValue(resumable)
+    try {
+      const firstPanel = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+      await firstPanel.user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+      await firstPanel.user.click(await screen.findByRole('button', { name: 'Download result' }))
+      const contents = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.readAsText(blob)
+      })
+      const exported = JSON.parse(contents)
+      expect(exported).toMatchObject({ version: 1, workspace_id: 'investment', request: resumable.request, retrieved_at: resumable.retrieved_at, result: resumable })
+      firstPanel.unmount()
+      const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+      await screen.findByRole('combobox', { name: 'Your wallet' })
+      expect(onchain.trace).toHaveBeenCalledOnce()
+      expect(onchain.checkpoint).not.toHaveBeenCalled()
+      // A tampered evidence body is never rendered: only server data is trusted.
+      exported.result.edges[0].reference = 'tampered-file-evidence'
+      await user.upload(screen.getByLabelText('Reopen saved result'), new File([JSON.stringify(exported)], 'saved.json', { type: 'application/json' }))
+      expect(await screen.findByTitle('synthetic-transfer-reference')).toBeInTheDocument()
+      expect(screen.queryByTitle('tampered-file-evidence')).not.toBeInTheDocument()
+      expect(onchain.checkpoint).toHaveBeenCalledWith(resumable.continuation.token, 'investment')
+      expect(onchain.trace).toHaveBeenCalledOnce()
+      expect(screen.getByText(/Balances are snapshots at their observation times/)).toBeInTheDocument()
+      expect(screen.getAllByText(/observed.*UTC/).length).toBeGreaterThan(0)
+      await user.click(screen.getByRole('button', { name: 'Continue remaining work' }))
+      await waitFor(() => expect(onchain.trace).toHaveBeenCalledTimes(2))
+    } finally {
+      click.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('restores canonical settings and does not revive an old throttle cooldown', async () => {
+    onchain.checkpoint.mockResolvedValue({
+      ...resumable, request: { ...resumable.request, direction: 'in', max_hops: 5, max_branches: 2, min_amount: '0.123456789012345678', since: '2025-01-23T13:00:00.125Z' },
+      interruption: { code: 'upstream_rate_limited', phase: 'history', retry_after_seconds: 120 },
+    })
+    const { user } = renderWithProviders(panel())
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.upload(screen.getByLabelText('Reopen saved result'), savedFile())
+    expect(await screen.findByRole('button', { name: 'Continue remaining work' })).toBeEnabled()
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('2025-01-23T13:00:00.125')
+    expect((screen.getByRole('spinbutton', { name: 'Minimum amount (SOL)' }) as HTMLInputElement).value).toBe('0.123456789012345678')
+    expect(screen.getByRole('combobox', { name: 'Maximum hops' })).toHaveTextContent('5')
+    expect(screen.getByRole('combobox', { name: 'Direction' })).toHaveTextContent('Where the funds came from')
+    expect(screen.queryByText(/Retry available in/)).not.toBeInTheDocument()
+    expect(onchain.trace).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['not json', 'Choose a valid Lovenest trace download'],
+    [JSON.stringify({ version: 2, workspace_id: 'investment' }), 'Choose a valid Lovenest trace download'],
+    [JSON.stringify({ version: 1, workspace_id: 'household', result: resumable }), 'This saved result belongs to another workspace'],
+    [JSON.stringify({ version: 1, workspace_id: 'investment', result: { continuation: { token: 'header\r\ninjection' } } }), 'Choose a valid Lovenest trace download'],
+    [JSON.stringify({ version: 1, workspace_id: 'investment', result: { continuation: { token: 'x'.repeat(257) } } }), 'Choose a valid Lovenest trace download'],
+  ])('rejects malformed or foreign file metadata without a lookup (%s)', async (contents, message) => {
+    const { user } = renderWithProviders(panel())
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.upload(screen.getByLabelText('Reopen saved result'), new File([contents], 'trace.json', { type: 'application/json' }))
+    expect(await screen.findByText(new RegExp(message))).toBeInTheDocument()
+    expect(onchain.checkpoint).not.toHaveBeenCalled()
+    expect(onchain.trace).not.toHaveBeenCalled()
+  })
+
+  it('rejects oversized files before reading or looking up their metadata', async () => {
+    const { user } = renderWithProviders(panel())
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    const file = savedFile()
+    Object.defineProperty(file, 'size', { value: 8 * 1024 * 1024 + 1 })
+    await user.upload(screen.getByLabelText('Reopen saved result'), file)
+    await screen.findByText(/Choose a valid Lovenest trace download/)
+    expect(onchain.checkpoint).not.toHaveBeenCalled()
+  })
+
+  it.each(['trace_restart_required', 'trace_checkpoint_unavailable'])('shows an explicit %s restore failure without trusting the file or restarting', async (code) => {
+    onchain.checkpoint.mockRejectedValue({ response: { data: { detail: { code } } } })
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.upload(screen.getByLabelText('Reopen saved result'), savedFile())
+    await screen.findByText(code === 'trace_restart_required' ? /This saved trace is expired/ : /Saved traces are temporarily unavailable/)
+    expect(screen.queryByTitle('synthetic-transfer-reference')).not.toBeInTheDocument()
+    expect(onchain.trace).not.toHaveBeenCalled()
+  })
+
+  it('does not display a canonical snapshot excluded by the current asset filter', async () => {
+    onchain.checkpoint.mockResolvedValue(resumable)
+    const { user } = renderWithProviders(panel({ addressKeys: ['ethereum:wallet-two'] }))
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.upload(screen.getByLabelText('Reopen saved result'), savedFile())
+    await screen.findByText(/The saved trace starts from a wallet outside this view/)
+    expect(screen.queryByTitle('synthetic-transfer-reference')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue remaining work' })).not.toBeInTheDocument()
+  })
+
+  it.each(['From (UTC)', 'Through (UTC)', 'Minimum amount (SOL)', 'Direction', 'Maximum hops', 'Branches per hop', 'Your wallet'])('invalidates continuation when %s changes', async (name) => {
+    onchain.trace.mockResolvedValue(resumable)
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await user.click(await screen.findByRole('button', { name: 'Explore transfers' }))
+    await screen.findByRole('button', { name: 'Continue remaining work' })
+    const value = { Direction: 'Where the funds came from', 'Maximum hops': '5', 'Branches per hop': '2', 'Your wallet': 'Second wallet · Ethereum wallet-two' }[name]
+    if (value) {
+      if (name === 'Maximum hops' || name === 'Branches per hop') await user.click(screen.getByText('Advanced trail settings'))
+      await user.click(screen.getByRole('combobox', { name }))
+      await user.click(screen.getByRole('option', { name: value }))
+    } else {
+      fireEvent.change(screen.getByLabelText(name), { target: { value: name.startsWith('Minimum') ? '0.1' : '2025-01-22T12:00' } })
+    }
+    expect(screen.queryByRole('button', { name: 'Continue remaining work' })).not.toBeInTheDocument()
+    expect(screen.queryByTitle('synthetic-transfer-reference')).not.toBeInTheDocument()
+    expect(onchain.trace).toHaveBeenCalledOnce()
+  })
+
+  it.each(['reopen', 'continue'] as const)('isolates a pending %s response on workspace switch', async (kind) => {
+    let resolve!: (result: TraceResult) => void
+    const pending = new Promise<TraceResult>((done) => { resolve = done })
+    onchain.trace.mockResolvedValueOnce(resumable)
+    onchain.checkpoint.mockReturnValue(pending)
+    const { user, rerender } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    if (kind === 'continue') {
+      await user.click(screen.getByRole('button', { name: 'Explore transfers' }))
+      onchain.trace.mockReturnValueOnce(pending)
+      await user.click(await screen.findByRole('button', { name: 'Continue remaining work' }))
+    } else {
+      await user.upload(screen.getByLabelText('Reopen saved result'), savedFile())
+      await waitFor(() => expect(onchain.checkpoint).toHaveBeenCalledOnce())
+    }
+    workspace.id = 'household'
+    rerender(panel())
+    await screen.findByText(/No saved wallet addresses match this view/)
+    await act(async () => resolve(resumable))
+    expect(screen.queryByTitle('synthetic-transfer-reference')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Download result' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue remaining work' })).not.toBeInTheDocument()
+  })
+
+  it('discards a delayed restore when settings change before the response arrives', async () => {
+    let resolve!: (result: TraceResult) => void
+    onchain.checkpoint.mockReturnValue(new Promise<TraceResult>((done) => { resolve = done }))
+    const { user } = renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    await user.upload(screen.getByLabelText('Reopen saved result'), savedFile())
+    await waitFor(() => expect(onchain.checkpoint).toHaveBeenCalledOnce())
+    fireEvent.change(screen.getByLabelText('From (UTC)'), { target: { value: '2025-02-01T00:00' } })
+    await act(async () => resolve(resumable))
+    expect(screen.getByLabelText('From (UTC)')).toHaveValue('2025-02-01T00:00')
+    expect(screen.queryByRole('button', { name: 'Continue remaining work' })).not.toBeInTheDocument()
+    expect(screen.queryByTitle('synthetic-transfer-reference')).not.toBeInTheDocument()
+  })
+
+  it('expires continuation without an automatic trace while retaining the result', async () => {
+    onchain.trace.mockResolvedValue({ ...resumable, continuation: { ...resumable.continuation, expires_at: new Date(Date.now() + 60_000).toISOString() } })
+    renderWithProviders(panel(), { route: '/assets?chain=solana&address=wallet-one' })
+    await screen.findByRole('combobox', { name: 'Your wallet' })
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Explore transfers' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(screen.getByRole('button', { name: 'Continue remaining work' })).toBeEnabled()
+      await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+      expect(screen.getByRole('button', { name: 'Continue remaining work' })).toBeDisabled()
+      expect(screen.getByText(/This saved trace can no longer be continued/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Download result' })).toBeEnabled()
+      expect(onchain.trace).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
 
 describe('trace interruptions and retry guidance', () => {
   const failure = (code: string, retry_after_seconds: unknown = 10) => ({
@@ -483,7 +739,7 @@ describe('trace interruptions and retry guidance', () => {
     expect(await screen.findByTitle('synthetic-transfer-reference')).toBeInTheDocument()
     expect(screen.getByText(/Only part of the trail is shown/)).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Retry available in 120s.')
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Restart trace' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Download result' })).toBeEnabled()
   })
 
