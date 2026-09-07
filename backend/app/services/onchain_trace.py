@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
 from app.providers.onchain import (
@@ -36,6 +36,7 @@ from app.providers.onchain import (
     address_is_valid,
     native_balance,
     normalize_address,
+    retained_transfers,
     session,
     transfers,
 )
@@ -87,9 +88,11 @@ class TraceNode:
     depth: int
     symbol: str
     balance: Optional[Decimal] = None
+    balance_observed_at: Optional[datetime] = None
     terminal_reason: Optional[str] = None
     effective_window: TraceWindow = field(default_factory=TraceWindow)
     coverage: Optional[TransferCoverage] = None
+    window_coverages: list[TransferCoverage] = field(default_factory=list)
     unfinished_windows: list[UnfinishedWindow] = field(default_factory=list)
     stop_reasons: list[str] = field(default_factory=list)
     branch_omitted_transfers: int = 0
@@ -129,12 +132,37 @@ class TraceResult:
         return not self.truncated
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Pending:
     address: str
     depth: int
     since: Optional[datetime]
     until: Optional[datetime]
+    done: bool = False
+    coverage: Optional[TransferCoverage] = None
+    reasons: list[str] = field(default_factory=list)
+    has_items: bool = False
+
+
+@dataclass
+class TraceState:
+    """The actual bounded frontier and completed observations, never a replay recipe."""
+
+    result: Optional[TraceResult] = None
+    work: list[_Pending] = field(default_factory=list)
+    reads: dict[str, Any] = field(default_factory=dict)
+    expanded: list[str] = field(default_factory=list)
+    selected: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
+    omitted: dict[str, list[tuple[str, str, str]]] = field(default_factory=dict)
+
+    @property
+    def resumable(self) -> bool:
+        if self.reads.get("limited"):
+            return False
+        return any(not work.done for work in self.work) or (
+            self.result is not None and self.result.interruption is not None
+            and self.result.interruption.phase == "balances"
+        )
 
 
 def resolve_chain(chain_key: str) -> Chain:
@@ -169,21 +197,13 @@ async def trace(
     min_amount: Optional[Decimal] = None,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    state: Optional[TraceState] = None,
 ) -> TraceResult:
-    """Walk the transfer graph outward from ``address``.
+    """Continue a bounded frontier, preserving selected edges and read observations.
 
-    ``since``/``until`` bound the root's own window — the transfers that
-    started the trail. Deeper hops derive their window from the transfer that
-    reached them, so a caller only has to say when the money left, not when
-    each subsequent hop happened.
-
-    A misconfigured deployment raises rather than being recorded as one
-    address that could not be read: it is true of every address the walk would
-    visit, so reporting it per node would dress a total failure up as a trail
-    that happens to end early. A throttle mid-walk is the same fact but arrives
-    with findings already in hand, so it ends the walk and marks every address
-    left unreached — discarding a trail that is real as far as it goes would
-    answer a smaller question than the one the caller asked.
+    The caller validates checkpoint compatibility and workspace access. A new
+    state starts a fresh investigation; a saved state never refetches completed
+    work or silently refreshes the history and balance observations it retains.
     """
     chain = resolve_chain(chain_key)
     if direction not in ("out", "in"):
@@ -196,149 +216,79 @@ async def trace(
     since, until = _as_utc(since), _as_utc(until)
     if since is not None and until is not None and since > until:
         raise ValueError("The end date must be on or after the start date.")
+    if min_amount is not None and (not min_amount.is_finite() or min_amount < 0):
+        raise ValueError("Minimum amount must be finite and nonnegative.")
 
-    deadline = time.monotonic() + TIME_BUDGET_SECONDS
-    root_window = TraceWindow(since, until)
-    root = TraceNode(
-        id=_node_id(chain, start), chain=chain.key, address=start, depth=0, symbol=chain.symbol,
-        effective_window=root_window,
-    )
-    result = TraceResult(root=root.id, direction=direction, nodes=[root], root_window=root_window)
-    nodes: dict[str, TraceNode] = {root.id: root}
-    queue: list[_Pending] = [_Pending(start, 0, since, until)]
-    expanded = 0
-    seen_edges: set[tuple[str, str, str]] = set()
-    current_node = root
+    state = state if state is not None else TraceState()
+    if state.result is None:
+        root_window = TraceWindow(since, until)
+        root = TraceNode(
+            id=_node_id(chain, start), chain=chain.key, address=start, depth=0,
+            symbol=chain.symbol, effective_window=root_window,
+        )
+        state.result = TraceResult(
+            root=root.id, direction=direction, nodes=[root], root_window=root_window,
+        )
+        state.work.append(_Pending(start, 0, since, until))
+    result = state.result
+    result.interruption = None
+    # Work added for a converging, already-seen address waits for explicit
+    # continuation. This preserves the original once-per-address request bound.
+    queue = [work for work in state.work if not work.done]
+    current: Optional[_Pending] = None
+    consumed = False
     phase: Literal["history", "balances"] = "history"
+    deadline = time.monotonic() + TIME_BUDGET_SECONDS
     budget = asyncio.timeout(max(0, deadline - time.monotonic()))
     try:
         async with budget, session() as client:
             while queue:
-                pending = queue.pop(0)
-                node = nodes[_node_id(chain, pending.address)]
-                current_node = node
-                if pending.depth >= hops:
-                    _mark(node, TERMINAL_MAX_HOPS)
-                    _unfinished(node, node.effective_window, "max_hops")
+                current = queue.pop(0)
+                consumed = False
+                if current.depth >= hops:
+                    current.done, current.reasons = True, ["max_hops"]
                     continue
-                if expanded >= MAX_NODES:
-                    _mark(node, TERMINAL_BUDGET)
-                    _unfinished(node, node.effective_window, "node_limit")
-                    continue
+                if current.address not in state.expanded:
+                    if len(state.expanded) >= MAX_NODES:
+                        current.done, current.reasons = True, ["node_limit"]
+                        continue
+                    state.expanded.append(current.address)
                 _check_deadline(deadline)
-                expanded += 1
-
                 try:
                     page = await transfers(
-                        chain,
-                        pending.address,
-                        limit=TRANSFERS_PER_NODE,
-                        since=pending.since,
-                        until=pending.until,
-                        client=client,
-                        deadline=deadline,
+                        chain, current.address, limit=TRANSFERS_PER_NODE,
+                        since=current.since, until=current.until,
+                        client=client, deadline=deadline, read_state=state.reads,
                     )
-                    _check_deadline(deadline)
                 except (OnchainDeadlineExceeded, ProviderNotConfiguredError, ProviderRateLimited):
                     raise
                 except Exception:
-                    logger.warning(
-                        "Trace could not read %s on %s", pending.address, chain.key, exc_info=True
+                    # Safe codes only. Provider failures must not expose URLs,
+                    # API keys, raw responses or the private address in logs.
+                    current.reasons = ["provider_unavailable"]
+                    continue
+                _consume_page(state, current, page, chain, branches, min_amount, queue)
+                consumed = True
+                _check_deadline(deadline)
+                if page.interruption in ("deadline_exceeded", "upstream_rate_limited"):
+                    if page.interruption == "upstream_rate_limited" and not _has_progress(state):
+                        raise OnchainRateLimited("Trace provider throttled", page.retry_after_seconds)
+                    result.interruption = TraceInterruption(
+                        page.interruption, "history", page.retry_after_seconds,
                     )
-                    # The reason stays a code, never the exception's text: an
-                    # upstream URL carries an API key and this field is rendered
-                    # to the user.
-                    _mark(node, TERMINAL_UNAVAILABLE)
-                    _unfinished(node, node.effective_window, "provider_unavailable")
-                    continue
+                    break
 
-                node.coverage = page.coverage
-                reasons = list(page.coverage.stop_reasons) if page.coverage else ["coverage_unavailable"]
-                if page.saturated:
-                    reasons.append("high_activity" if page.saturated == SATURATED_POOLED else "window_not_reached")
-                if page.trimmed and not {"payload_limit", "transfer_limit"}.intersection(reasons):
-                    reasons.append("transfer_limit")
-                if not page.complete and not reasons:
-                    reasons.append("coverage_unavailable")
-                for reason in reasons:
-                    _unfinished(node, node.effective_window, reason)
-
-                if page.saturated:
-                    _mark(node, page.saturated)
-                    continue
-
-                followed, node.branch_omitted_transfers = _pick(
-                    page.items, pending.address, direction, branches, min_amount
-                )
-                if node.branch_omitted_transfers:
-                    _unfinished(node, node.effective_window, "branch_limit")
-                if not followed:
-                    # Three different silences, and only one of them means the
-                    # money stopped here. Claiming that for the other two would
-                    # exonerate an address the walk simply could not see past.
-                    if node.stop_reasons:
-                        _mark(node, TERMINAL_PARTIAL)
-                    elif page.items:
-                        _mark(node, TERMINAL_NO_MATCH)
-                    else:
-                        _mark(node, TERMINAL_NO_MOVEMENT)
-                    continue
-                for transfer in followed:
-                    other = transfer.counterparty(pending.address)
-                    other_id = _node_id(chain, other)
-                    key = (transfer.reference, transfer.sender, transfer.recipient)
-                    if key not in seen_edges:
-                        seen_edges.add(key)
-                        result.edges.append(
-                            TraceEdge(
-                                source=_node_id(chain, transfer.sender),
-                                target=_node_id(chain, transfer.recipient),
-                                chain=chain.key,
-                                symbol=chain.symbol,
-                                amount=transfer.amount,
-                                reference=transfer.reference,
-                                occurred_at=transfer.occurred_at,
-                            )
-                        )
-                    child_window = TraceWindow(
-                        since=transfer.occurred_at if direction == "out" else None,
-                        until=None if direction == "out" else transfer.occurred_at,
-                    )
-                    if other_id in nodes:
-                        # ponytail: expand each address once; retain skipped ranges
-                        # until a bounded resume workflow can revisit them.
-                        if not _contains(nodes[other_id].effective_window, child_window):
-                            _unfinished(nodes[other_id], child_window, "unexpanded_window")
+            if result.interruption is None:
+                phase = "balances"
+                for node in result.nodes:
+                    if node.balance_observed_at is not None:
                         continue
-                    child = TraceNode(
-                        id=other_id,
-                        chain=chain.key,
-                        address=other,
-                        depth=pending.depth + 1,
-                        symbol=chain.symbol,
-                        effective_window=child_window,
-                    )
-                    nodes[other_id] = child
-                    result.nodes.append(child)
-                    queue.append(
-                        _Pending(
-                            address=other,
-                            depth=pending.depth + 1,
-                            # The hop inherits the transfer's instant as its own
-                            # horizon — see ADR 0010.
-                            since=child_window.since,
-                            until=child_window.until,
-                        )
-                    )
-
-            # Balances are optional current context. Transfer evidence gets the
-            # budget first, and no balance is accepted after the deadline.
-            phase = "balances"
-            for node in result.nodes:
-                _check_deadline(deadline)
-                balance = await _balance_or_none(chain, node.address, client, deadline=deadline)
-                _check_deadline(deadline)
-                node.balance = balance
+                    _check_deadline(deadline)
+                    balance = await _balance_or_none(chain, node.address, client, deadline=deadline)
+                    _check_deadline(deadline)
+                    node.balance = balance
+                    if balance is not None:
+                        node.balance_observed_at = datetime.now(timezone.utc)
     except OnchainDeadlineExceeded:
         result.interruption = TraceInterruption("deadline_exceeded", phase)
     except TimeoutError:
@@ -346,7 +296,7 @@ async def trace(
             raise
         result.interruption = TraceInterruption("deadline_exceeded", phase)
     except ProviderRateLimited as exc:
-        if phase == "history" and not result.edges:
+        if phase == "history" and not _has_progress(state):
             raise
         result.interruption = TraceInterruption(
             "upstream_rate_limited", phase,
@@ -354,25 +304,164 @@ async def trace(
         )
 
     if result.interruption and phase == "history":
-        reason = (
-            TERMINAL_BUDGET if result.interruption.code == "deadline_exceeded"
-            else TERMINAL_RATE_LIMITED
-        )
-        _mark(current_node, reason)
-        gap = "time_budget" if result.interruption.code == "deadline_exceeded" else "upstream_rate_limited"
-        _unfinished(current_node, current_node.effective_window, gap)
-        for waiting in queue:
-            if waiting.depth < hops:
-                waiting_node = nodes[_node_id(chain, waiting.address)]
-                _mark(waiting_node, reason)
-                _unfinished(waiting_node, waiting_node.effective_window, gap)
-
-    for node in result.nodes:
-        if node.terminal_reason is None and node.depth >= hops:
-            _mark(node, TERMINAL_MAX_HOPS)
-            _unfinished(node, node.effective_window, "max_hops")
-    result.truncated = any(node.stop_reasons or node.unfinished_windows for node in result.nodes)
+        # The timeout has exited and the provider drained cancelled tasks. Read
+        # only already-retained evidence here; never issue another RPC.
+        if current is not None and not consumed:
+            page = retained_transfers(
+                chain, current.address, limit=TRANSFERS_PER_NODE,
+                since=current.since, until=current.until, read_state=state.reads,
+            )
+            if page is not None:
+                _consume_page(state, current, page, chain, branches, min_amount, queue)
+        reason = ("time_budget" if result.interruption.code == "deadline_exceeded"
+                  else "upstream_rate_limited")
+        if current is not None:
+            current.done = False
+            if reason not in current.reasons:
+                current.reasons.append(reason)
+        for work in queue:
+            if not work.done and work.depth < hops and reason not in work.reasons:
+                work.reasons.append(reason)
+    _summarize(state, chain, hops)
     return result
+
+
+def _has_progress(state: TraceState) -> bool:
+    return bool(state.result and state.result.edges) or any(
+        work.coverage is not None and (
+            work.coverage.pages_read or work.coverage.payloads_read
+        ) for work in state.work
+    )
+
+
+def _consume_page(state, work, page, chain, branches, min_amount, queue) -> None:
+    result = state.result
+    assert result is not None
+    nodes = {node.id: node for node in result.nodes}
+    node = nodes[_node_id(chain, work.address)]
+    work.coverage = page.coverage
+    work.has_items = bool(page.items)
+    work.done = not page.resumable
+    work.reasons = list(page.coverage.stop_reasons) if page.coverage else ["coverage_unavailable"]
+    if page.saturated:
+        reason = "high_activity" if page.saturated == SATURATED_POOLED else "window_not_reached"
+        if reason not in work.reasons:
+            work.reasons.append(reason)
+        return
+    if page.trimmed and not {"payload_limit", "transfer_limit"}.intersection(work.reasons):
+        work.reasons.append("transfer_limit")
+    if not page.complete and not work.reasons:
+        work.reasons.append("coverage_unavailable")
+
+    candidates, _ = _pick(page.items, work.address, result.direction, len(page.items), min_amount)
+    chosen = state.selected.setdefault(node.id, [])
+    seen_edges = {(edge.reference, edge.source, edge.target) for edge in result.edges}
+    omitted = state.omitted.setdefault(node.id, [])
+    for transfer in candidates:
+        key = (transfer.reference, transfer.sender, transfer.recipient)
+        if key not in chosen:
+            if len(chosen) >= branches:
+                if key not in omitted:
+                    omitted.append(key)
+                continue
+            chosen.append(key)
+        edge_key = (transfer.reference, _node_id(chain, transfer.sender), _node_id(chain, transfer.recipient))
+        if edge_key not in seen_edges:
+            seen_edges.add(edge_key)
+            result.edges.append(TraceEdge(
+                source=edge_key[1], target=edge_key[2], chain=chain.key, symbol=chain.symbol,
+                amount=transfer.amount, reference=transfer.reference, occurred_at=transfer.occurred_at,
+            ))
+        other = transfer.counterparty(work.address)
+        other_id = _node_id(chain, other)
+        window = TraceWindow(
+            transfer.occurred_at if result.direction == "out" else None,
+            None if result.direction == "out" else transfer.occurred_at,
+        )
+        depth = work.depth + 1
+        existing = other_id in nodes
+        if not existing:
+            child = TraceNode(
+                id=other_id, chain=chain.key, address=other, depth=depth,
+                symbol=chain.symbol, effective_window=window,
+            )
+            nodes[other_id] = child
+            result.nodes.append(child)
+        else:
+            nodes[other_id].depth = min(nodes[other_id].depth, depth)
+        # Address-only dedup would lose a wider inherited horizon. A shallower
+        # arrival also has more hop budget; it is separate bounded work.
+        if any(
+            prior.address == other and prior.depth <= depth
+            and _contains(TraceWindow(prior.since, prior.until), window)
+            for prior in state.work
+        ):
+            continue
+        pending = _Pending(other, depth, window.since, window.until)
+        if existing:
+            pending.reasons = ["unexpanded_window"]
+        state.work.append(pending)
+        if not existing:
+            queue.append(pending)
+    # Each replayed observation has the same candidates. Do not count a
+    # repeated omission again or free an already selected branch slot.
+    node.branch_omitted_transfers = len(omitted)
+    if omitted:
+        work.reasons.append("branch_limit")
+
+
+def _summarize(state: TraceState, chain: Chain, hops: int) -> None:
+    result = state.result
+    assert result is not None
+    for node in result.nodes:
+        node.stop_reasons = []
+        node.unfinished_windows = []
+        node.window_coverages = []
+        work_items = [work for work in state.work if work.address == node.address]
+        for work in work_items:
+            if work.depth >= hops:
+                work.done = True
+                work.reasons = [reason for reason in work.reasons
+                                if reason not in {"max_hops", "unexpanded_window"}]
+                # A recovered shorter path can finish this capped obligation.
+                # Retain its observations and every unrelated gap.
+                if not any(
+                    prior.depth < hops and prior.done
+                    and prior.coverage is not None and prior.coverage.complete
+                    and _contains(TraceWindow(prior.since, prior.until),
+                                  TraceWindow(work.since, work.until))
+                    for prior in work_items
+                ):
+                    work.reasons.append("max_hops")
+            if work.coverage is not None:
+                node.window_coverages.append(work.coverage)
+            for reason in work.reasons:
+                _unfinished(node, TraceWindow(work.since, work.until), reason)
+        node.coverage = node.window_coverages[0] if node.window_coverages else None
+        if node.stop_reasons:
+            reasons = node.stop_reasons
+            node.terminal_reason = (
+                TERMINAL_POOLED if "high_activity" in reasons else
+                TERMINAL_RATE_LIMITED if "upstream_rate_limited" in reasons else
+                TERMINAL_BUDGET if {"time_budget", "node_limit"}.intersection(reasons) else
+                TERMINAL_MAX_HOPS if reasons == ["max_hops"] else
+                TERMINAL_UNAVAILABLE if "provider_unavailable" in reasons else
+                TERMINAL_PARTIAL
+            )
+            if state.selected.get(node.id) and not {
+                "high_activity", "upstream_rate_limited", "time_budget", "node_limit", "max_hops",
+            }.intersection(reasons):
+                node.terminal_reason = None
+        elif state.selected.get(node.id):
+            node.terminal_reason = None
+        else:
+            # Zero selected branches is only a no-movement claim if the
+            # provider examined a complete empty window.
+            node.terminal_reason = (
+                TERMINAL_NO_MATCH if any(work.has_items for work in work_items)
+                else TERMINAL_NO_MOVEMENT
+            )
+    result.truncated = any(node.stop_reasons or node.unfinished_windows for node in result.nodes)
 
 
 def _pick(

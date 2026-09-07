@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 
 class ChainRead(BaseModel):
@@ -26,6 +26,7 @@ class TraceRequest(BaseModel):
     min_amount: Optional[Decimal] = Field(default=None, ge=0)
     since: Optional[datetime] = None
     until: Optional[datetime] = None
+    continuation_token: Optional[str] = Field(default=None, max_length=256)
 
     @field_validator("since", "until")
     @classmethod
@@ -71,6 +72,8 @@ class TransferCoverageRead(BaseModel):
     payloads_read: Optional[int] = Field(default=None, ge=0)
     missing_timestamps: Optional[int] = Field(default=None, ge=0)
     missing_payloads: Optional[int] = Field(default=None, ge=0)
+    failed_payloads: Optional[int] = Field(default=None, ge=0)
+    pending_payloads: Optional[int] = Field(default=None, ge=0)
     unsupported_payloads: Optional[int] = Field(default=None, ge=0)
     omitted_signatures: Optional[int] = Field(default=None, ge=0)
     omitted_transfers: Optional[int] = Field(default=None, ge=0)
@@ -85,9 +88,11 @@ class TraceNodeRead(BaseModel):
     depth: int
     symbol: str
     balance: Optional[Decimal] = None
+    balance_observed_at: Optional[datetime] = None
     terminal_reason: Optional[str] = None
     effective_window: TraceWindowRead = Field(default_factory=TraceWindowRead)
     coverage: Optional[TransferCoverageRead] = None
+    window_coverages: list[TransferCoverageRead] = Field(default_factory=list)
     unfinished_windows: list[UnfinishedWindowRead] = Field(default_factory=list)
     stop_reasons: list[str] = Field(default_factory=list)
     branch_omitted_transfers: int = Field(default=0, ge=0)
@@ -109,6 +114,14 @@ class TraceInterruptionRead(BaseModel):
     retry_after_seconds: Optional[int] = Field(default=None, ge=0)
 
 
+class TraceContinuationRead(BaseModel):
+    # Availability of remaining work is independent of history completeness.
+    status: Literal["available", "not_needed", "unavailable"] = "not_needed"
+    token: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    reason: Optional[str] = None
+
+
 class TraceRead(BaseModel):
     root: str
     direction: str
@@ -121,6 +134,17 @@ class TraceRead(BaseModel):
     scope: Literal["native_coin"] = "native_coin"
     root_window: TraceWindowRead = Field(default_factory=TraceWindowRead)
     complete: bool
+    request: Optional[TraceRequest] = None
+    workspace_id: Optional[uuid.UUID] = None
+    started_at: Optional[datetime] = None
+    retrieved_at: Optional[datetime] = None
+    continuation: TraceContinuationRead = Field(default_factory=TraceContinuationRead)
+
+    @field_serializer("request")
+    def serialize_request(self, request: Optional[TraceRequest]) -> Optional[dict]:
+        if request is None:
+            return None
+        return request.model_dump(exclude={"continuation_token"}, exclude_none=True)
 
 
 class WatchedAddressRead(BaseModel):
