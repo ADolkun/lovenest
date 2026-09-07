@@ -337,8 +337,10 @@ export default function PositionsTab({
   ).map((holding) => holding.id))
   const incompletePositions = view.positions.filter((position) => position.legs.some((leg) => unpricedIds.has(leg.assetId)))
   const hasUnpricedPositions = incompletePositions.length > 0
+  const hasUnknownCash = view.unknownCashWalletIds.length > 0
+  const hasIncompleteBalance = hasUnpricedPositions || hasUnknownCash
   const hasKnownValue = view.positions.some((position) => position.legs.some((leg) => !unpricedIds.has(leg.assetId))) || view.liquidCash.length > 0
-  const summaryValue = hasUnpricedPositions && !hasKnownValue ? null : view.total
+  const summaryValue = hasIncompleteBalance && !hasKnownValue ? null : view.total
 
   // Income the wallets in view received, however it was paid. Kept apart from
   // the per-holding column because it is the answer to a different question:
@@ -407,14 +409,6 @@ export default function PositionsTab({
   // Still listed, just under their own heading — this is the only place the
   // user can see what was classified as cash and put it back.
   const cashEquivalents = view.positions.filter((p) => p.isCashEquivalent && (!p.isDust || incompletePositions.includes(p)))
-
-  if (portfolio.positions.length === 0) {
-    return (
-      <div className="rounded-xl border border-border bg-card shadow-sm px-4 py-10 text-center">
-        <p className="text-sm text-muted-foreground">{t('assets.posNoPositions')}</p>
-      </div>
-    )
-  }
 
   function renderDonut({ dim, title, data }: Donut) {
     const selectedKey = !walletContent && filter?.dim === dim ? filter.key : null
@@ -721,23 +715,26 @@ export default function PositionsTab({
           <div className="col-span-2 sm:col-span-1">
             <dt className="text-sm text-muted-foreground">{t('assets.positionsAndCash')}{activeFilterLabel && ` · ${activeFilterLabel}`}</dt>
             <dd className="mt-1 text-2xl font-semibold tabular-nums">{money(summaryValue)}</dd>
-            {hasUnpricedPositions && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownHoldingsValue')}</p>}
+            {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
           </div>
           <div>
             <dt className="text-sm text-muted-foreground">{t('assets.posInvestedTotal')}</dt>
             <dd className="mt-1 text-lg font-semibold tabular-nums">{money(incompletePositions.some((position) => !position.isCashEquivalent) && view.investedTotal === 0 ? null : view.investedTotal)}</dd>
+            {incompletePositions.some((position) => !position.isCashEquivalent) && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownHoldingsValue')}</p>}
           </div>
           <div>
             <dt className="text-sm text-muted-foreground">{t('assets.cashAndEquivalents')}</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(hasUnpricedPositions && view.cashEquivalentTotal + view.liquidCashTotal === 0 ? null : view.cashEquivalentTotal + view.liquidCashTotal)}</dd>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(hasIncompleteBalance && view.cashEquivalentTotal + view.liquidCashTotal === 0 ? null : view.cashEquivalentTotal + view.liquidCashTotal)}</dd>
+            {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
           </div>
         </dl>
+        {hasUnknownCash && <p role="status" className="mt-4 text-sm text-muted-foreground">{t('assets.unknownCashHint', 'Some wallet cash balances are unavailable. Balance and cash totals include known values only.')}</p>}
         {walletIncome && <p className="mt-4 text-sm text-muted-foreground">{t('assets.posWalletIncome')} <span className="ml-2 font-medium tabular-nums text-foreground">{money(walletIncome.total)}</span></p>}
         <details className="mt-4 border-t border-border pt-3">
           <summary className="w-fit cursor-pointer rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{t('assets.balanceDetails')}</summary>
           <div className="mt-2">
-            {view.cashEquivalentTotal > 0 && renderTotalRow(t('assets.posCashEquivalents'), view.cashEquivalentTotal, t('assets.posCashEquivalentHint'), hasUnpricedPositions ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total))}
-            {view.liquidCashTotal > 0 && renderTotalRow(t('assets.posLiquidCash'), view.liquidCashTotal, t('assets.posLiquidCashHint'), hasUnpricedPositions ? undefined : shareOfTotal(view.liquidCashTotal, view.total))}
+            {view.cashEquivalentTotal > 0 && renderTotalRow(t('assets.posCashEquivalents'), view.cashEquivalentTotal, incompletePositions.some((position) => position.isCashEquivalent) ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posCashEquivalentHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total))}
+            {view.liquidCashTotal > 0 && renderTotalRow(t('assets.posLiquidCash'), view.liquidCashTotal, hasUnknownCash ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posLiquidCashHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.liquidCashTotal, view.total))}
             {view.dustTotal > 0 && !hasUnpricedPositions && renderTotalRow(t('assets.posDust'), view.dustTotal, t('assets.posDustHint'))}
             {walletIncome && (
               <div className="flex items-baseline justify-between gap-4 py-3 border-t border-border">
@@ -763,7 +760,7 @@ export default function PositionsTab({
           </div>
         </details>
       </section>
-      <section aria-label={t('assets.allocationBreakdown')} className="space-y-4">
+      {portfolio.positions.length > 0 && <section aria-label={t('assets.allocationBreakdown')} className="space-y-4">
         <h2 className="text-base font-semibold">{t('assets.allocationBreakdown')}</h2>
         <p className="text-sm text-muted-foreground">{t('assets.allocationScopeHint', 'Allocation covers invested ticker holdings. Cash and other assets are listed separately.')}</p>
         {unpricedIds.size > 0 && <p role="status" className="text-sm text-muted-foreground">{t('assets.unpricedPositionsHint')}</p>}
@@ -772,9 +769,9 @@ export default function PositionsTab({
             {donuts.map((donut) => <div key={donut.dim} className="min-w-0">{renderDonut(donut)}</div>)}
           </div>
         )}
-      </section>
+      </section>}
       {children}
-      {walletContent ?? (
+      {walletContent ?? (portfolio.positions.length > 0 &&
         <section className="space-y-3" aria-label={t('assets.posRanking')}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">{t('assets.posRanking')}</h2>

@@ -1161,6 +1161,7 @@ export default function AssetsPage() {
   )
 
   const hasTickerHoldings = activeAssets.some((asset) => asset.ticker?.trim())
+  const hasPortfolioBalance = hasTickerHoldings || (!assetsError && sortedWallets.some((wallet) => wallet.account_balance != null))
   const holdingsControls = (
     <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -1242,7 +1243,7 @@ export default function AssetsPage() {
             </div>
           ) : (
             <>
-              {hasTickerHoldings ? (
+              {hasPortfolioBalance ? (
                 <PositionsTab
                   key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
                   holdings={assetsList ?? []}
@@ -1285,7 +1286,7 @@ export default function AssetsPage() {
               )}
             </>
           )}
-          {!isLoading && !assetsError && activeAssets.length === 0 && soldAssets.length === 0 && (
+          {!isLoading && !assetsError && !hasPortfolioBalance && activeAssets.length === 0 && soldAssets.length === 0 && (
             <div className="py-10 text-center">
               <Package className="mx-auto mb-3 size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">{t('assets.noAssets')}</p>

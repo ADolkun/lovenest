@@ -94,6 +94,8 @@ export interface Portfolio {
   /** Settled uninvested cash, per wallet whose account reported a balance. */
   liquidCash: WalletCash[]
   liquidCashTotal: number
+  /** Cash cannot be derived for these wallets; totals include known values only. */
+  unknownCashWalletIds: string[]
   dustTotal: number
   byAssetClass: AllocationSlice[]
   byAccountType: AllocationSlice[]
@@ -325,7 +327,8 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
     })
   }
 
-  const liquidCash: WalletCash[] = [...liquidCashPerWallet(assets, wallets)].map(
+  const cashPerWallet = liquidCashPerWallet(assets, wallets)
+  const liquidCash: WalletCash[] = [...cashPerWallet].map(
     ([walletId, amount]) => ({
       walletId,
       accountType: walletsById.get(walletId)?.account_type ?? null,
@@ -366,6 +369,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
     wallets,
     ...totals,
     liquidCash,
+    unknownCashWalletIds: wallets.filter((wallet) => !cashPerWallet.has(wallet.id)).map((wallet) => wallet.id),
     byAssetClass: allocate(byAssetClass, totals.investedTotal),
     byAccountType: allocate(byAccountType, totals.investedTotal),
     byWallet: allocate(byWallet, totals.investedTotal),
@@ -423,5 +427,6 @@ export function filterPortfolio(portfolio: Portfolio, filter: AllocationFilter):
     wallets: walletsInView,
     ...summarise(positions, liquidCash),
     liquidCash,
+    unknownCashWalletIds: portfolio.unknownCashWalletIds.filter((walletId) => inView.has(walletId)),
   }
 }

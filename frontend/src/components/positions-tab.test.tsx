@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.spyOn(assets, 'taxLots').mockResolvedValue({ no_wallet: true } as TaxLots)
 })
 
-const positions = (holdings: Asset[]) => <PositionsTab holdings={holdings} wallets={[]} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
+const positions = (holdings: Asset[], wallets: AssetGroup[] = []) => <PositionsTab holdings={holdings} wallets={wallets} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
 
 it('keeps compact value and gain readable, with the remaining position details on expansion', async () => {
   const { user } = renderWithProviders(positions([known]))
@@ -85,4 +85,59 @@ it('keeps one scoped balance above allocation, with cash details and income outs
   await user.click(within(screen.getByRole('region', { name: 'Allocation by asset class' })).getByRole('button', { name: /Stock/ }))
   expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(['$125.50', '$125.00', '$0.00'])
   expect(within(summary).queryByText('Income received (12m)')).not.toBeInTheDocument()
+})
+
+it.each([
+  ['unpriced manual asset', 1000, true, 0, ['$125.00', '$125.00', '—']],
+  ['missing account balance', null, false, 0, ['$125.00', '$125.00', '—']],
+  ['known equivalent and unpriced manual asset', 1000, true, 25, ['$150.00', '$125.00', '$25.00']],
+] as const)('labels incomplete balance and cash without hiding priced allocation: %s', (_name, balance, unpricedManual, equivalent, expected) => {
+  const wallet = { id: 'wallet', name: 'Brokerage', account_balance: balance } as AssetGroup
+  const held = { ...known, group_id: wallet.id }
+  const holdings = [held]
+  if (unpricedManual) holdings.push({ ...unknown, ticker: null, group_id: wallet.id })
+  if (equivalent) holdings.push({ ...held, id: 'cash', ticker: 'CASH', type: 'cash_equivalent', current_value: equivalent, current_value_primary: equivalent })
+  renderWithProviders(positions(holdings, [wallet]))
+
+  const summary = screen.getByRole('region', { name: 'Balance overview' })
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(expected)
+  expect(within(summary).getAllByText('Known subtotal')).toHaveLength(2)
+  expect(within(summary).getByRole('status')).toHaveTextContent('Some wallet cash balances are unavailable')
+  expect(screen.getByRole('region', { name: 'Allocation by asset class' })).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Allocation by account' })).toBeInTheDocument()
+})
+
+it('marks positive partial cash and clears its uncertainty when narrowing to a complete wallet or asset class', async () => {
+  const partial = { id: 'partial', name: 'Partial account', account_balance: 1000 } as AssetGroup
+  const complete = { id: 'complete', name: 'Complete account', account_balance: 575 } as AssetGroup
+  const { user } = renderWithProviders(positions([
+    { ...known, group_id: partial.id },
+    { ...unknown, ticker: null, group_id: partial.id },
+    { ...known, id: 'second', ticker: 'SECOND', group_id: complete.id, current_value: 75, current_value_primary: 75 },
+  ], [partial, complete]))
+  const summary = screen.getByRole('region', { name: 'Balance overview' })
+  const values = () => within(summary).getAllByRole('definition').map((element) => element.textContent)
+  expect(values()).toEqual(['$700.00', '$200.00', '$500.00'])
+  expect(within(summary.querySelector('dl')!).getAllByText('Known subtotal')).toHaveLength(2)
+  await user.click(within(summary).getByText('Balance details'))
+  expect(within(summary).getAllByText('Known subtotal')).toHaveLength(3)
+  expect(within(summary).queryByText(/%/)).not.toBeInTheDocument()
+
+  await user.click(within(screen.getByRole('region', { name: 'Allocation by account' })).getByRole('button', { name: /Complete account/ }))
+  expect(values()).toEqual(['$575.00', '$75.00', '$500.00'])
+  expect(within(summary).queryByRole('status')).not.toBeInTheDocument()
+  expect(within(summary).queryByText('Known subtotal')).not.toBeInTheDocument()
+  await user.click(within(screen.getByRole('region', { name: 'Allocation by asset class' })).getByRole('button', { name: /Stock/ }))
+  expect(values()).toEqual(['$200.00', '$200.00', '$0.00'])
+  expect(within(summary).queryByRole('status')).not.toBeInTheDocument()
+})
+
+it.each([500, 0, null])('keeps cash-only balances distinct from unavailable cash: %s', (balance) => {
+  renderWithProviders(positions([], [{ id: 'wallet', account_balance: balance } as AssetGroup]))
+  const summary = screen.getByRole('region', { name: 'Balance overview' })
+  const cash = balance === null ? '—' : `$${balance.toFixed(2)}`
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual([cash, '$0.00', cash])
+  expect(within(summary).queryByRole('status') !== null).toBe(balance === null)
+  expect(screen.queryByRole('region', { name: 'Allocation breakdown' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Positions by weight' })).not.toBeInTheDocument()
 })

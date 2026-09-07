@@ -142,3 +142,52 @@ it('keeps native wallet and activity selectors connected to their scoped views',
   expect(screen.getByText('Outside trade')).toBeInTheDocument()
   expect(screen.queryByText('Archived trade')).not.toBeInTheDocument()
 })
+
+it.each([500, 0])('shows a cash-only wallet balance through the selector, both groupings, and direct account links: %s', async (balance) => {
+  const stock = { ...held, ticker: 'STOCK', type: 'stock', units: 2, gain_loss: 25, gain_loss_primary: 25 }
+  vi.spyOn(assets, 'list').mockResolvedValue([stock])
+  vi.spyOn(assets, 'income').mockResolvedValue({ holdings: {}, wallets: {} })
+  vi.mocked(assetGroups.list).mockResolvedValue([
+    { ...wallets[0], account_balance: 125 },
+    { ...wallets[1], account_balance: balance, current_value: 0, current_value_primary: 0, asset_count: 0 },
+  ])
+  const { user, unmount } = renderWithProviders(<AssetsPage />)
+  await screen.findByRole('region', { name: 'Balance overview' })
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Wallet' }), 'wallet-b')
+  const expected = [`$${balance.toFixed(2)}`, '$0.00', `$${balance.toFixed(2)}`]
+  const summary = screen.getByRole('region', { name: 'Balance overview' })
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(expected)
+  expect(screen.queryByRole('region', { name: 'Allocation breakdown' })).not.toBeInTheDocument()
+  expect(screen.queryByText(t('assets.noAssets'))).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'By wallet' }))
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(expected)
+  expect(screen.getByRole('button', { name: /Wallet B/ })).toBeInTheDocument()
+  unmount()
+
+  renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-b' })
+  const linkedSummary = await screen.findByRole('region', { name: 'Balance overview' })
+  expect(within(linkedSummary).getAllByRole('definition').map((element) => element.textContent)).toEqual(expected)
+})
+
+it('does not treat a failed holdings request as an empty cash-only wallet', async () => {
+  vi.mocked(assets.list).mockRejectedValue(new Error('Holdings unavailable'))
+  vi.mocked(assetGroups.list).mockResolvedValue([{ ...wallets[0], account_balance: 1000 }])
+  renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a' })
+  expect(await screen.findByText(t('assets.loadError'))).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Balance overview' })).not.toBeInTheDocument()
+})
+
+it.each([125, null])('keeps manual assets outside the cash balance and visible in both groupings: %s', async (value) => {
+  vi.mocked(assets.list).mockResolvedValue([{ ...held, current_value: value, current_value_primary: value }])
+  vi.spyOn(assets, 'income').mockResolvedValue({ holdings: {}, wallets: {} })
+  vi.mocked(assetGroups.list).mockResolvedValue([{ ...wallets[0], account_balance: 500 }])
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a&view=assets' })
+  const summary = await screen.findByRole('region', { name: 'Balance overview' })
+  const cash = value === null ? '—' : '$375.00'
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual([cash, '$0.00', cash])
+  expect(within(summary).queryByRole('status') !== null).toBe(value === null)
+  expect(screen.getByRole('button', { name: 'Private fund' })).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'By wallet' }))
+  expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual([cash, '$0.00', cash])
+  expect(screen.getByRole('button', { name: 'Private fund' })).toBeInTheDocument()
+})
