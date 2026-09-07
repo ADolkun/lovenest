@@ -420,13 +420,16 @@ class TransferCoverage:
 
     def finish(self, exhausted: bool | None) -> None:
         self.provider_exhausted = exhausted
+        # Malformed or reordered history cannot prove a continuous boundary
+        # from its timestamp extrema; explicit source exhaustion is separate.
+        ordered = not {"invalid_row", "invalid_page", "missing_timestamp"}.intersection(self.stop_reasons)
         if self.requested_since is not None:
             self.since_reached = exhausted is True or (
-                self.observed_oldest is not None and self.observed_oldest < self.requested_since
+                ordered and self.observed_oldest is not None and self.observed_oldest < self.requested_since
             )
         if self.requested_until is not None:
             self.until_reached = exhausted is True or (
-                self.observed_oldest is not None and self.observed_oldest <= self.requested_until
+                ordered and self.observed_oldest is not None and self.observed_oldest <= self.requested_until
             )
         if self.since_reached is False or self.until_reached is False:
             self.gap("window_not_reached")
@@ -885,6 +888,8 @@ async def _solana_transfers(
             coverage.next_cursor = None
             break
         if len(page_times) == len(signatures) and not invalid_row and not coverage.stop_reasons:
+            if since is not None and max(page_times) < since.timestamp():
+                break  # Activity wholly before the window cannot discard its evidence.
             if _saturation(page_times, SOLANA_SIGNATURE_PAGE, None) == SATURATED_POOLED:
                 saturated = SATURATED_POOLED
                 coverage.gap("high_activity")
@@ -1222,6 +1227,7 @@ async def _blockscout_history(
     params: Optional[dict] = None
     verdict: Optional[str] = None
     coverage = coverage if coverage is not None else TransferCoverage(since)
+    previous_time: int | None = None
     for page_number in range(BLOCKSCOUT_HISTORY_MAX_PAGES):
         try:
             payload = await _get_json(
@@ -1256,11 +1262,17 @@ async def _blockscout_history(
             page.append(row)
             moment = _history_time(row["timeStamp"])
             if moment is not None:
+                if previous_time is not None and row["timeStamp"] > previous_time:
+                    coverage.gap("invalid_row")
+                previous_time = row["timeStamp"]
                 coverage.observe(moment)
         rows.extend(page)
         # Only pooled ends the paging. Unpageable says the window is further
         # back than this page reached, and paging is the remedy for that.
-        verdict = _saturation([row["timeStamp"] for row in page], BLOCKSCOUT_PAGE, None)
+        verdict = (
+            _saturation([row["timeStamp"] for row in page], BLOCKSCOUT_PAGE, None)
+            if not coverage.stop_reasons else None
+        )
         if verdict == SATURATED_POOLED:
             coverage.gap("high_activity")
             coverage.finish(False)
@@ -1277,7 +1289,10 @@ async def _blockscout_history(
             coverage.gap("invalid_page")
             coverage.finish(None)
             return rows, verdict, True
-        if since is not None and page and min(r["timeStamp"] for r in page) < since.timestamp():
+        if (
+            since is not None and page and not coverage.stop_reasons
+            and min(r["timeStamp"] for r in page) < since.timestamp()
+        ):
             coverage.finish(False)
             return rows, verdict, False
         # A null in the cursor is Blockscout saying there is no value for that

@@ -72,6 +72,27 @@ async def test_crossing_floor_is_complete_without_claiming_provider_exhaustion()
     assert len(calls) == 3
 
 
+async def test_dense_solana_page_before_floor_keeps_the_inclusive_payment():
+    first = [_sig("new", JAN23 + 4 * DAY), _sig("newer", JAN23 + 2 * DAY), _sig("payment", JAN23)]
+    older = [_sig(f"old-{i}", JAN23 - i - 1) for i in range(3)]
+    result, calls = await _solana([first, older], _payloads(first), since=AT, until=AT)
+    assert result.complete and result.saturated is None
+    assert [t.reference for t in result.items] == ["payment"]
+    assert result.coverage.pages_read == 2 and result.coverage.since_reached is True
+    assert result.coverage.provider_exhausted is False and result.coverage.next_cursor == "old-2"
+    assert [params[0] for method, params, _ in calls if method == "getTransaction"] == ["payment"]
+
+
+@pytest.mark.parametrize("newest", [0, 1])
+async def test_dense_solana_page_touching_floor_keeps_activity_stop(newest):
+    first = [_sig(f"new-{i}", JAN23 + (6 - 2 * i) * DAY) for i in range(3)]
+    dense = [_sig(f"dense-{i}", JAN23 + newest - i) for i in range(3)]
+    result, calls = await _solana([first, dense], since=AT)
+    assert not result.complete and result.saturated == onchain.SATURATED_POOLED
+    assert result.coverage.stop_reasons == ["high_activity"]
+    assert all(method == "getSignaturesForAddress" for method, _, _ in calls)
+
+
 async def test_open_window_requires_exhaustion_after_a_full_page():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     result, calls = await _solana([rows, []], _payloads(rows))
@@ -230,6 +251,62 @@ async def test_blockscout_decoded_transfer_limit_has_transfer_units():
     assert result.coverage is not None
     assert result.coverage.omitted_transfers == 1 and result.coverage.omitted_signatures is None
     assert not result.complete and "transfer_limit" in result.coverage.stop_reasons
+
+
+@pytest.mark.parametrize("offsets", [[[-2, 2, 0], [1]], [[2, 0], [1, -2]]])
+@pytest.mark.parametrize("exhausted", [False, True])
+async def test_blockscout_disorder_keeps_later_evidence_without_false_boundary(offsets, exhausted):
+    pages = [
+        {"items": [
+            _blockscout_item(sender=EVM, recipient="synthetic-other", value="100",
+                             at=JAN23 + days * DAY, hash=f"page-{p}-row-{i}")
+            for i, days in enumerate(page)
+        ], "next_page_params": None if p == 1 and exhausted else {"block_number": 2 - p}}
+        for p, page in enumerate(offsets)
+    ]
+    get = AsyncMock(side_effect=[*pages, {"items": [], "next_page_params": None}])
+    with _settings(), patch.object(onchain, "_get_json", get):
+        result = await onchain.transfers(BASE, EVM, limit=25, since=AT, until=AT + timedelta(days=3))
+    assert result.coverage is not None
+    assert get.call_count == 3 and result.coverage.pages_read == 3
+    assert [call.args[0].rsplit("/", 1)[-1] for call in get.call_args_list] == [
+        "transactions", "transactions", "internal-transactions",
+    ]
+    assert {t.reference for t in result.items} == {
+        f"page-{p}-row-{i}" for p, page in enumerate(offsets) for i, days in enumerate(page) if days >= 0
+    }
+    assert not result.complete and "invalid_row" in result.coverage.stop_reasons
+    assert result.coverage.provider_exhausted is exhausted
+    assert result.coverage.since_reached is result.coverage.until_reached is exhausted
+    assert result.coverage.observed_oldest == AT - timedelta(days=2)
+    if not exhausted:
+        assert {"provider_page_limit", "window_not_reached"} <= set(result.coverage.stop_reasons)
+
+
+@pytest.mark.parametrize("second,following,complete", [
+    ([0, -2], None, True),
+    ([0, -2], {"block_number": 1}, True),
+    ([0], {"block_number": 1}, False),
+])
+async def test_blockscout_inclusive_ties_need_strict_crossing_or_exhaustion(second, following, complete):
+    pages = [
+        {"items": [
+            _blockscout_item(sender=EVM, recipient="synthetic-other", value="100",
+                             at=JAN23 + days * DAY, hash=f"page-{p}-row-{i}")
+            for i, days in enumerate(page)
+        ], "next_page_params": {"block_number": 2} if p == 0 else following}
+        for p, page in enumerate([[2, 0], second])
+    ]
+    get = AsyncMock(side_effect=[*pages, {"items": [], "next_page_params": None}])
+    with _settings(), patch.object(onchain, "_get_json", get):
+        result = await onchain.transfers(BASE, EVM, limit=25, since=AT, until=AT)
+    assert result.coverage is not None
+    assert get.call_count == 3
+    assert {t.reference for t in result.items} == {"page-0-row-1", "page-1-row-0"}
+    assert result.complete is complete and result.coverage.since_reached is complete
+    assert result.coverage.provider_exhausted is (following is None)
+    assert result.coverage.until_reached is True
+    assert "invalid_row" not in result.coverage.stop_reasons
 
 
 async def test_bitcoin_malformed_page_is_not_exhausted():
