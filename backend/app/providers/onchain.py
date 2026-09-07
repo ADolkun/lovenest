@@ -26,6 +26,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +37,11 @@ import httpx
 
 from app.core.config import get_settings
 from app.providers.coinbase import usd_spot_prices
+from app.providers.onchain_transport import (
+    OnchainDeadlineExceeded as OnchainDeadlineExceeded,
+    OnchainRateLimited as OnchainRateLimited,
+    request_json,
+)
 from app.providers.base import (
     AccountData,
     BankProvider,
@@ -57,10 +63,8 @@ ONCHAIN_HTTP_TIMEOUT = 30.0
 # rides out a shared node's throttle, it does not queue behind a real outage.
 RPC_RETRY_ATTEMPTS = 3
 RPC_RETRY_BACKOFF_SECONDS = 1.5
-# How many transaction reads may be in flight at once. Solana gives a
-# transfer's amount only inside the transaction, so a page of history is a
-# request per row; serialising them makes a walk take minutes, and firing all
-# of them at once gets a shared node to 429 the whole deployment.
+# Aggregate requests per endpoint across traces, holdings, API and Celery
+# processes. Redis applies this budget; it is not a semaphore per trace.
 TX_FETCH_CONCURRENCY = 5
 MAX_WATCHED_ADDRESSES = 25
 # Both history sources page newest-first. Asking for a big page is how an
@@ -553,56 +557,67 @@ async def session() -> AsyncIterator[httpx.AsyncClient]:
         yield client
 
 
-def _raise_for_status(resp: httpx.Response, label: str) -> None:
-    """Fail without quoting the request.
+def _check_deadline(deadline: float | None) -> None:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise OnchainDeadlineExceeded("On-chain read deadline exceeded")
 
-    ``httpx``'s own status error stringifies the full URL, and these URLs carry
-    credentials: Etherscan takes its key as a query parameter, and paid Solana
-    RPC providers put one in the path or query. That string would reach an API
-    response and a log line, so it is never allowed to form. The chain and the
-    status code are all a caller can act on anyway.
-    """
-    if not resp.is_success:
-        raise RuntimeError(f"{label} returned HTTP {resp.status_code}")
+
+async def _request_json(
+    method: str,
+    url: str,
+    label: str,
+    client: httpx.AsyncClient | None,
+    *,
+    endpoint: str,
+    deadline: float | None = None,
+    json_body: dict | None = None,
+    params: dict | None = None,
+    rpc: bool = False,
+) -> Any:
+    _check_deadline(deadline)
+    if client is None:
+        async with _client() as own:
+            return await _request_json(
+                method, url, label, own, endpoint=endpoint, deadline=deadline,
+                json_body=json_body, params=params, rpc=rpc,
+            )
+    return await request_json(
+        client, method, url, endpoint=endpoint, label=label, deadline=deadline,
+        attempts=RPC_RETRY_ATTEMPTS, backoff=RPC_RETRY_BACKOFF_SECONDS,
+        timeout=ONCHAIN_HTTP_TIMEOUT, concurrency=TX_FETCH_CONCURRENCY,
+        json_body=json_body, params=params, rpc=rpc,
+    )
 
 
 async def _json_rpc(
-    chain: Chain, method: str, params: list[Any], *, client: Optional[httpx.AsyncClient] = None
+    chain: Chain, method: str, params: list[Any], *, client: Optional[httpx.AsyncClient] = None,
+    deadline: float | None = None,
 ) -> Any:
     """One JSON-RPC call, with a node's failure modes mapped to ours."""
     body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-    for attempt in range(RPC_RETRY_ATTEMPTS):
-        if client is not None:
-            resp = await client.post(rpc_url(chain), json=body)
-        else:
-            async with _client() as own:
-                resp = await own.post(rpc_url(chain), json=body)
-        if resp.status_code != 429:
-            break
-        if attempt == RPC_RETRY_ATTEMPTS - 1:
-            raise ProviderRateLimited(f"{chain.display_name} RPC rate-limited the request")
-        await asyncio.sleep(RPC_RETRY_BACKOFF_SECONDS * (attempt + 1))
-    _raise_for_status(resp, f"{chain.display_name} RPC")
-    try:
-        payload = resp.json()
-    except ValueError as exc:
-        raise RuntimeError(f"{chain.display_name} RPC returned a non-JSON response") from exc
-    if isinstance(payload, dict) and payload.get("error"):
-        raise RuntimeError(f"{chain.display_name} RPC error on {method}")
+    endpoint = rpc_url(chain)
+    payload = await _request_json(
+        "POST", endpoint, f"{chain.display_name} RPC", client,
+        endpoint=endpoint, deadline=deadline, json_body=body, rpc=True,
+    )
     return payload.get("result") if isinstance(payload, dict) else None
 
 
 async def native_balance(
-    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None
+    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient] = None,
+    deadline: float | None = None,
 ) -> Optional[Decimal]:
     """Native-coin balance in whole coins, or None when the node won't say."""
+    _check_deadline(deadline)
     if chain.kind == "bitcoin":
-        return await _bitcoin_balance(chain, address, client=client)
+        return await _bitcoin_balance(chain, address, client=client, deadline=deadline)
     if chain.kind == "solana":
-        result = await _json_rpc(chain, "getBalance", [address], client=client)
+        result = await _json_rpc(chain, "getBalance", [address], client=client, deadline=deadline)
         raw = result.get("value") if isinstance(result, dict) else None
     else:
-        raw = await _json_rpc(chain, "eth_getBalance", [address, "latest"], client=client)
+        raw = await _json_rpc(
+            chain, "eth_getBalance", [address, "latest"], client=client, deadline=deadline
+        )
     return _scale(raw, chain.decimals) if raw is not None else None
 
 
@@ -659,6 +674,7 @@ async def transfers(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
     client: Optional[httpx.AsyncClient] = None,
+    deadline: float | None = None,
 ) -> Transfers:
     """Native-coin transfers touching ``address``, newest first.
 
@@ -668,16 +684,17 @@ async def transfers(
     will not walk past one has no use for it, and fetching it anyway costs a
     request per transaction for an answer already known to be discarded.
     """
+    _check_deadline(deadline)
     if chain.kind == "solana":
         return await _solana_transfers(
-            chain, address, limit=limit, since=since, until=until, client=client
+            chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
         )
     if chain.kind == "bitcoin":
         return await _bitcoin_transfers(
-            chain, address, limit=limit, since=since, until=until, client=client
+            chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
         )
     return await _evm_transfers(
-        chain, address, limit=limit, since=since, until=until, client=client
+        chain, address, limit=limit, since=since, until=until, client=client, deadline=deadline
     )
 
 
@@ -689,12 +706,13 @@ async def _solana_transfers(
     since: Optional[datetime],
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
+    deadline: float | None = None,
 ) -> Transfers:
     """Walk the address's signatures, then read each transaction's balance deltas.
 
     The amount of a Solana transfer is not in the signature list — only in the
     transaction — so this is unavoidably one request per transaction, which is
-    why they go out concurrently under a small semaphore.
+    why they go out concurrently under the shared endpoint budget.
 
     Amounts come from pre/post balance deltas rather than from parsed
     ``system.transfer`` instructions, because a drainer's sweep is often a
@@ -705,6 +723,7 @@ async def _solana_transfers(
         "getSignaturesForAddress",
         [address, {"limit": SOLANA_SIGNATURE_PAGE}],
         client=client,
+        deadline=deadline,
     )
     rows = [row for row in signatures or [] if isinstance(row, dict)]
     saturated = _saturation(
@@ -722,18 +741,26 @@ async def _solana_transfers(
     ]
     wanted = _closest_to_horizon(in_window, limit, since)
 
-    gate = asyncio.Semaphore(TX_FETCH_CONCURRENCY)
-
     async def fetch(signature: str) -> Any:
-        async with gate:
-            return await _json_rpc(
-                chain,
-                "getTransaction",
-                [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
-                client=client,
-            )
+        return await _json_rpc(
+            chain,
+            "getTransaction",
+            [signature, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+            client=client,
+            deadline=deadline,
+        )
 
-    fetched = await asyncio.gather(*(fetch(row["signature"]) for row in wanted))
+    _check_deadline(deadline)
+    tasks = [asyncio.create_task(fetch(row["signature"])) for row in wanted]
+    try:
+        fetched = await asyncio.gather(*tasks)
+    finally:
+        # gather does not cancel siblings when one raises. Drain them before
+        # the trace closes its HTTP client or returns a partial result.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     found: list[Transfer] = []
     unreadable = 0
@@ -821,6 +848,7 @@ async def _evm_transfers(
     since: Optional[datetime],
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
+    deadline: float | None = None,
 ) -> Transfers:
     """Address history from an index, because EVM JSON-RPC does not have it.
 
@@ -830,7 +858,7 @@ async def _evm_transfers(
     value is zero, and the sweep happens inside the contract. Reading only the
     first reports that drained wallet as untouched.
     """
-    rows, saturated, trimmed = await _evm_history(chain, address, since, client)
+    rows, saturated, trimmed = await _evm_history(chain, address, since, client, deadline=deadline)
     if saturated:
         return Transfers(items=[], saturated=saturated)
 
@@ -869,6 +897,8 @@ async def _evm_history(
     address: str,
     since: Optional[datetime],
     client: Optional[httpx.AsyncClient],
+    *,
+    deadline: float | None = None,
 ) -> tuple[list[dict], Optional[str], bool]:
     """Both native-history lists in Etherscan's row shape, and how they fall short.
 
@@ -886,7 +916,7 @@ async def _evm_history(
     saturated: Optional[str] = None
     if api_key:
         for action in ("txlist", "txlistinternal"):
-            page = await _etherscan_page(chain, address, action, api_key, client)
+            page = await _etherscan_page(chain, address, action, api_key, client, deadline=deadline)
             rows.extend(page)
             saturated = saturated or _saturation(
                 [int(r["timeStamp"]) for r in page if r.get("timeStamp")], EVM_HISTORY_PAGE, since
@@ -902,7 +932,7 @@ async def _evm_history(
     index = chain.token_index_url.rstrip("/")
     for path in ("transactions", "internal-transactions"):
         page, verdict, short = await _blockscout_history(
-            chain, index, address, path, since, client
+            chain, index, address, path, since, client, deadline=deadline
         )
         rows.extend(page)
         saturated = saturated or verdict
@@ -922,6 +952,8 @@ async def _blockscout_history(
     path: str,
     since: Optional[datetime],
     client: Optional[httpx.AsyncClient],
+    *,
+    deadline: float | None = None,
 ) -> tuple[list[dict], Optional[str], bool]:
     """One Blockscout list, paged, in Etherscan's row shape.
 
@@ -947,8 +979,10 @@ async def _blockscout_history(
     verdict: Optional[str] = None
     for page_number in range(BLOCKSCOUT_HISTORY_MAX_PAGES):
         try:
-            payload = await _get_json(url, "Blockscout", client, params=params)
-        except ProviderRateLimited:
+            payload = await _get_json(
+                url, "Blockscout", client, params=params, endpoint=index, deadline=deadline
+            )
+        except (ProviderRateLimited, OnchainDeadlineExceeded):
             raise
         except Exception:
             if page_number == 0:
@@ -1010,12 +1044,12 @@ async def _etherscan_page(
     action: str,
     api_key: str,
     client: Optional[httpx.AsyncClient],
+    *,
+    deadline: float | None = None,
 ) -> list[dict]:
     """One Etherscan list, with "no transactions found" read as an empty history.
 
-    Etherscan's own 429 is not retried the way a public JSON-RPC node's is:
-    its limit is a per-key quota rather than a momentary burst, so waiting a
-    second and asking again spends the same quota to be refused again.
+    The API key shares a cooldown across both actions and all EVM chains.
     """
     params = {
         "chainid": chain.explorer_chain_id,
@@ -1029,18 +1063,10 @@ async def _etherscan_page(
         "sort": "desc",
         "apikey": api_key,
     }
-    if client is not None:
-        resp = await client.get(ETHERSCAN_V2_URL, params=params)
-    else:
-        async with _client() as own:
-            resp = await own.get(ETHERSCAN_V2_URL, params=params)
-    if resp.status_code == 429:
-        raise ProviderRateLimited("Etherscan rate-limited the request")
-    _raise_for_status(resp, "Etherscan")
-    try:
-        payload = resp.json() if resp.content else {}
-    except ValueError as exc:
-        raise RuntimeError("Etherscan returned a non-JSON response") from exc
+    payload = await _get_json(
+        ETHERSCAN_V2_URL, "Etherscan", client, params=params,
+        endpoint=f"{ETHERSCAN_V2_URL}\0{api_key}", deadline=deadline,
+    )
     result = payload.get("result") if isinstance(payload, dict) else None
     if isinstance(result, list):
         return [row for row in result if isinstance(row, dict)]
@@ -1055,32 +1081,25 @@ async def _get_json(
     client: Optional[httpx.AsyncClient],
     *,
     params: Optional[dict] = None,
+    endpoint: str | None = None,
+    deadline: float | None = None,
 ) -> Any:
     """One GET against a public index, retried through a momentary throttle.
 
-    Shared by every keyless index this module reads. The URL never reaches the
-    caller for the reason `_raise_for_status` gives.
+    The source base, not its per-address path/query, defines the shared limit.
     """
-    for attempt in range(RPC_RETRY_ATTEMPTS):
-        if client is not None:
-            resp = await client.get(url, params=params)
-        else:
-            async with _client() as own:
-                resp = await own.get(url, params=params)
-        if resp.status_code != 429:
-            break
-        if attempt == RPC_RETRY_ATTEMPTS - 1:
-            raise ProviderRateLimited(f"{label} rate-limited the request")
-        await asyncio.sleep(RPC_RETRY_BACKOFF_SECONDS * (attempt + 1))
-    _raise_for_status(resp, label)
-    try:
-        return resp.json()
-    except ValueError as exc:
-        raise RuntimeError(f"{label} returned a non-JSON response") from exc
+    return await _request_json(
+        "GET", url, label, client, endpoint=endpoint or url, deadline=deadline, params=params
+    )
 
 
-async def _esplora(chain: Chain, path: str, client: Optional[httpx.AsyncClient]) -> Any:
-    return await _get_json(f"{rpc_url(chain).rstrip('/')}{path}", "Bitcoin indexer", client)
+async def _esplora(
+    chain: Chain, path: str, client: Optional[httpx.AsyncClient], *, deadline: float | None = None
+) -> Any:
+    endpoint = rpc_url(chain).rstrip("/")
+    return await _get_json(
+        f"{endpoint}{path}", "Bitcoin indexer", client, endpoint=endpoint, deadline=deadline
+    )
 
 
 def _sats(raw: Any) -> int:
@@ -1091,7 +1110,8 @@ def _sats(raw: Any) -> int:
 
 
 async def _bitcoin_balance(
-    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient]
+    chain: Chain, address: str, *, client: Optional[httpx.AsyncClient],
+    deadline: float | None = None,
 ) -> Optional[Decimal]:
     """Sum the address's unspent outputs, confirmed and pending alike.
 
@@ -1101,7 +1121,7 @@ async def _bitcoin_balance(
     but not confirmed is money already gone, and reporting it as still held
     would overstate net worth for as long as the block takes.
     """
-    payload = await _esplora(chain, f"/address/{address}", client)
+    payload = await _esplora(chain, f"/address/{address}", client, deadline=deadline)
     if not isinstance(payload, dict):
         return None
     total = 0
@@ -1113,7 +1133,8 @@ async def _bitcoin_balance(
 
 
 async def _bitcoin_history(
-    chain: Chain, address: str, since: Optional[datetime], client: Optional[httpx.AsyncClient]
+    chain: Chain, address: str, since: Optional[datetime], client: Optional[httpx.AsyncClient],
+    *, deadline: float | None = None,
 ) -> tuple[list[dict], bool]:
     """Recent transactions touching the address, and whether that was all of them.
 
@@ -1130,7 +1151,7 @@ async def _bitcoin_history(
         path = f"/address/{address}/txs"
         if cursor:
             path = f"{path}/chain/{cursor}"
-        page = await _esplora(chain, path, client)
+        page = await _esplora(chain, path, client, deadline=deadline)
         page = [tx for tx in page if isinstance(tx, dict)] if isinstance(page, list) else []
         if not page:
             return rows, True
@@ -1231,6 +1252,7 @@ async def _bitcoin_transfers(
     since: Optional[datetime],
     until: Optional[datetime],
     client: Optional[httpx.AsyncClient],
+    deadline: float | None = None,
 ) -> Transfers:
     """Address history from Esplora, read as transfers rather than as UTXOs.
 
@@ -1238,7 +1260,7 @@ async def _bitcoin_transfers(
     its own inputs and outputs — so this costs a request per *page*, not per
     transaction.
     """
-    rows, exhausted = await _bitcoin_history(chain, address, since, client)
+    rows, exhausted = await _bitcoin_history(chain, address, since, client, deadline=deadline)
     timestamps = [int(moment.timestamp()) for moment in map(_bitcoin_time, rows) if moment]
     # Only a history that was cut short can be saturated: one that ran out is
     # the whole story, however fast it was written.
@@ -1358,7 +1380,8 @@ async def _jupiter_tokens(
     for start in range(0, len(mints), JUPITER_QUERY_BATCH):
         batch = mints[start : start + JUPITER_QUERY_BATCH]
         payload = await _get_json(
-            JUPITER_TOKEN_URL, "Jupiter", client, params={"query": ",".join(batch)}
+            JUPITER_TOKEN_URL, "Jupiter", client, params={"query": ",".join(batch)},
+            endpoint=JUPITER_TOKEN_URL,
         )
         for row in payload if isinstance(payload, list) else []:
             if not isinstance(row, dict):
@@ -1398,6 +1421,7 @@ async def _evm_token_holdings(
         f"{chain.token_index_url.rstrip('/')}/api/v2/addresses/{address}/token-balances",
         "Blockscout",
         client,
+        endpoint=chain.token_index_url.rstrip("/"),
     )
     found: list[TokenHolding] = []
     for row in payload if isinstance(payload, list) else []:

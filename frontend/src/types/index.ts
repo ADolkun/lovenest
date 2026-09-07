@@ -1624,6 +1624,12 @@ export interface TraceEdge {
   occurred_at: string
 }
 
+export interface TraceInterruption {
+  code: 'deadline_exceeded' | 'upstream_rate_limited'
+  phase: 'history' | 'balances'
+  retry_after_seconds: number | null
+}
+
 export interface TraceResult {
   root: string
   direction: TraceDirection
@@ -1632,6 +1638,7 @@ export interface TraceResult {
   /** True when the node budget ran out before the walk did, so this is a
    *  prefix of the trail rather than all of it. */
   truncated: boolean
+  interruption?: TraceInterruption | null
 }
 
 export interface TraceRequest {

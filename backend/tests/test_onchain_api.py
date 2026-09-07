@@ -174,7 +174,7 @@ async def test_a_missing_explorer_key_is_reported_as_unconfigured_not_as_no_acti
             json={"chain": "base", "address": "0x" + "ab" * 20},
         )
     assert response.status_code == 503
-    assert "ETHERSCAN_API_KEY" in response.json()["detail"]
+    assert response.json()["detail"]["code"] == "history_unavailable"
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,8 @@ async def test_a_throttled_node_surfaces_as_429_with_the_fix_named(
             json={"chain": "solana", "address": A},
         )
     assert response.status_code == 429
-    assert "ONCHAIN_RPC_URLS" in response.json()["detail"]
+    assert response.json()["detail"]["code"] == "upstream_rate_limited"
+    assert "retrying" in response.json()["detail"]["message"]
 
 
 @pytest.mark.parametrize(
@@ -321,3 +322,79 @@ async def test_tracing_requires_a_session(client: AsyncClient):
         "/api/onchain/trace", json={"chain": "solana", "address": A}
     )
     assert response.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_upstream_retry_guidance_is_structured_and_never_quotes_the_provider(
+    client: AsyncClient, auth_headers,
+):
+    from app.providers.onchain import OnchainRateLimited
+
+    with _traces(OnchainRateLimited("https://synthetic.invalid/secret-sentinel raw-sentinel", 10)):
+        response = await client.post(
+            "/api/onchain/trace", headers=auth_headers, json={"chain": "solana", "address": A}
+        )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "10"
+    assert response.json()["detail"]["code"] == "upstream_rate_limited"
+    assert response.json()["detail"]["retry_after_seconds"] == 10
+    assert "sentinel" not in response.text
+    assert "synthetic.invalid" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_deployment_admission_is_distinct_and_does_not_start_a_trace(
+    client: AsyncClient, auth_headers, _mock_redis,
+):
+    from unittest.mock import AsyncMock
+
+    _mock_redis.pipeline().execute.return_value = [0, 10, True, True]
+    walk = AsyncMock()
+    with patch.object(onchain_trace, "trace", walk):
+        response = await client.post(
+            "/api/onchain/trace", headers=auth_headers, json={"chain": "solana", "address": A}
+        )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+    assert response.json()["detail"]["code"] == "trace_admission_limited"
+    walk.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_configuration_does_not_echo_raw_exception_text(
+    client: AsyncClient, auth_headers,
+):
+    with _traces(ProviderNotConfiguredError("https://synthetic.invalid/secret-sentinel")):
+        response = await client.post(
+            "/api/onchain/trace", headers=auth_headers, json={"chain": "solana", "address": A}
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "history_unavailable"
+    assert "sentinel" not in response.text
+
+
+@pytest.mark.parametrize("phase", ["history", "balances"])
+@pytest.mark.asyncio
+async def test_budget_response_identifies_whether_history_or_only_balance_context_stopped(
+    client: AsyncClient, auth_headers, phase,
+):
+    result = onchain_trace.TraceResult(
+        root=f"solana:{A}", direction="out",
+        nodes=[onchain_trace.TraceNode(
+            id=f"solana:{A}", chain="solana", address=A, depth=0, symbol="SOL",
+            terminal_reason="budget" if phase == "history" else "no_movement",
+        )],
+        truncated=phase == "history",
+        interruption=onchain_trace.TraceInterruption("deadline_exceeded", phase),
+    )
+    with _traces(result):
+        response = await client.post(
+            "/api/onchain/trace", headers=auth_headers, json={"chain": "solana", "address": A}
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["interruption"] == {
+        "code": "deadline_exceeded", "phase": phase, "retry_after_seconds": None,
+    }
+    assert body["truncated"] is (phase == "history")
+    assert body["nodes"][0]["balance"] is None

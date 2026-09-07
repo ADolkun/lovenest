@@ -1317,7 +1317,6 @@ export default function AssetsPage() {
           </div>
           {activityView === 'wallets' && walletActivityEnabled ? (
             <OwnedWalletActivity
-              key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
               addressKeys={scopedWalletActivity ? (assetsList ?? []).filter((asset) => asset.source === 'onchain' && asset.external_id).map((asset) => asset.external_id!.split(':').slice(0, 2).join(':')) : undefined}
             />
           ) : activityView === 'contributions' ? (
