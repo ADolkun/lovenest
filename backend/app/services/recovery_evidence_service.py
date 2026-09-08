@@ -97,26 +97,70 @@ def _application(state, row, role):
     return RecoveryApplication(leg_id=row.leg_id, status='unsupported' if reasons else 'unapplied', reason_codes=reasons)
 
 
-def _read_entry(state, row):
-    observation = evidence._input(_get(state, 'observations', row.observation_id))
-    reasons = []
+def _current_reviews(state):
+    superseded = {row.supersedes_id for row in state['recovery_reviews'].values() if row.supersedes_id}
+    return [row for row in state['recovery_reviews'].values() if row.id not in superseded]
+
+
+def _annotation_facts(state, row, seen=None):
+    # Corrections qualify the overlay only; retained source facts remain immutable.
+    facts = {key: value for key, value in row.payload.items() if key != 'key'}
+    current = _current_reviews(state)
+    active_ids = {review.id for review in current}
+    for field in ('round_key', 'round_asset_key'):
+        corrections = [review for review in current if review.anchor_entry_id == row.id
+                       and review.payload['kind'] == 'correction' and review.payload.get('field') == field]
+        if corrections and all(review.payload.get('proposed_value') and not _review_blockers(state, review, active_ids, seen)
+                               for review in corrections):
+            values = {review.payload['proposed_value'] for review in corrections}
+            if len(values) == 1:
+                facts[field] = values.pop()
+    return facts
+
+
+def _receipt_keys(state, row):
+    # Reuse the shared writer's exact physical identity and reviewed canonical aliases.
+    legs = [state['legs'][row.leg_id], *state['application_legs'].get(row.leg_id, [])]
+    return {movements._key(state, leg.id) for leg in legs}
+
+
+def _annotation_reasons(state, row, seen=None):
+    facts = _annotation_facts(state, row, seen)
     peers = [peer for peer in state['recovery_entries'].values() if peer.entry_key == row.entry_key]
-    if len({peer.fingerprint for peer in peers}) > 1:
+    reasons = []
+    if any(_annotation_facts(state, peer, seen) != facts for peer in peers):
         reasons.append('recovery_annotation_conflict')
+    if row.payload['role'] == 'receiving_receipt':
+        keys = _receipt_keys(state, row)
+        peers = [peer for peer in state['recovery_entries'].values() if peer.payload['role'] == 'receiving_receipt'
+                 and keys & _receipt_keys(state, peer)]
+        rounds = {tuple(_annotation_facts(state, peer, seen).get(field) for field in ('case_key', 'round_key', 'round_asset_key'))
+                  for peer in peers}
+        if len(rounds) > 1:
+            reasons.append('receipt_round_conflict')
+    return reasons
+
+
+def _read_entry(state, row, seen=None):
+    observation = evidence._input(_get(state, 'observations', row.observation_id))
+    reasons = _annotation_reasons(state, row, seen)
+    facts = _annotation_facts(state, row, seen)
     if not state['observations'][row.observation_id].is_current:
         reasons.append('source_unqualified')
     if str(row.observation_id) in state['conflicting_observations']:
         reasons.append('source_version_conflict')
     if row.payload['role'] in {'recovery_notice', 'receiving_receipt'}:
-        if not row.payload.get('round_key'):
+        if not facts.get('round_key'):
             reasons.append('round_identity_missing')
-        if not row.payload.get('round_asset_key'):
+        if not facts.get('round_asset_key'):
             reasons.append('round_asset_identity_missing')
     if row.payload['role'] == 'recovery_notice':
-        superseded = {review.supersedes_id for review in state['recovery_reviews'].values() if review.supersedes_id}
-        receipt_links = [review for review in state['recovery_reviews'].values() if review.id not in superseded
-                         and review.anchor_entry_id == row.id and review.payload.get('relation_kind') == 'notice_receipt'
-                         and review.payload.get('target_entry_id') and review.payload.get('relation_state') == 'confirmed']
+        current = _current_reviews(state)
+        active_ids = {review.id for review in current}
+        receipt_links = [review for review in current if review.anchor_entry_id == row.id
+                         and review.payload.get('relation_kind') == 'notice_receipt'
+                         and review.payload.get('target_entry_id') and review.payload.get('relation_state') == 'confirmed'
+                         and not _review_blockers(state, review, active_ids, seen)]
         if not receipt_links:
             reasons.append('receipt_missing')
     source_group = state['groups'].get(state['observations'][row.observation_id].group_id)
@@ -134,7 +178,7 @@ def _review_blockers(state, review, active_ids, seen=None):
     blockers = list(data.missing_evidence) + [f'conflicting:{field}' for field in data.conflicting_fields]
     if data.relation_state == 'confirmed' or data.assertion_status == 'supported':
         try:
-            _validate_review(state, review.group_id, data.model_copy(update={'supersedes_id': None}))
+            _validate_review(state, review.group_id, data.model_copy(update={'supersedes_id': None}), seen)
         except HTTPException as exc:
             blockers.extend(['current_review_unqualified', str(exc.detail)])
     if data.kind != 'allocation':
@@ -142,21 +186,31 @@ def _review_blockers(state, review, active_ids, seen=None):
             blockers.append(f'relation_{data.relation_state}')
         elif data.kind != 'relation' and data.assertion_status != 'supported':
             blockers.append(f'assertion_{data.assertion_status}')
-    elif not data.required_entry_ids or not data.required_review_ids:
-        blockers.append('model_required_inputs_and_assumptions_missing')
+    else:
+        if data.assertion_status != 'modeled':
+            blockers.append(f'assertion_{data.assertion_status}')
+        if not data.required_entry_ids or not data.required_review_ids:
+            blockers.append('model_required_inputs_and_assumptions_missing')
+    required_review_ids = set(data.required_review_ids)
     if data.kind == 'allocation':
+        # Clients may add dependencies, but cannot omit current controls on inputs.
+        # Other allocation outputs are not input assertions and must not self-depend.
+        input_ids = {str(identifier) for identifier in [data.entry_id, *data.required_entry_ids]}
+        required_review_ids.update(row.id for row in state['recovery_reviews'].values() if row.id in active_ids
+                                   and row.payload['kind'] != 'allocation'
+                                   and (str(row.anchor_entry_id) in input_ids or row.payload.get('target_entry_id') in input_ids))
         anchor = state['recovery_entries'][data.entry_id]
         case_entries = [row for row in state['recovery_entries'].values() if row.payload['case_key'] == anchor.payload['case_key']
                         and row.payload['role'] in {'recovery_notice', 'receiving_receipt', 'equity_statement'}]
         required = [state['recovery_entries'][identifier] for identifier in data.required_entry_ids if identifier in state['recovery_entries']]
-        required_rounds = {(row.payload.get('round_key'), row.payload.get('round_asset_key')) for row in required}
+        required_rounds = {tuple(_annotation_facts(state, row, seen).get(field) for field in ('round_key', 'round_asset_key')) for row in required}
         for row in case_entries:
-            round_identity = row.payload.get('round_key'), row.payload.get('round_asset_key')
+            round_identity = tuple(_annotation_facts(state, row, seen).get(field) for field in ('round_key', 'round_asset_key'))
             if not all(round_identity):
                 blockers.append('model_round_identity_missing')
             elif round_identity not in required_rounds:
                 blockers.append('model_round_input_missing')
-        assumptions = [state['recovery_reviews'][identifier] for identifier in data.required_review_ids if identifier in state['recovery_reviews']]
+        assumptions = [state['recovery_reviews'][identifier] for identifier in required_review_ids if identifier in state['recovery_reviews']]
         if not any(row.payload.get('assertion_kind') == 'accounting_assumption' for row in assumptions):
             blockers.append('controlling_accounting_assumption_missing')
         for row in required:
@@ -184,13 +238,13 @@ def _review_blockers(state, review, active_ids, seen=None):
         if row is None:
             blockers.append('required_entry_missing')
             continue
-        item = _read_entry(state, row)
+        item = _read_entry(state, row, seen)
         blockers.extend(item.missing_evidence + item.reason_codes)
         if item.reported_state != 'confirmed':
             blockers.append('required_entry_unresolved')
         if item.role == 'tax_workpaper':
             blockers.append('workpaper_is_modeled')
-    for identifier in data.required_review_ids:
+    for identifier in required_review_ids:
         required = state['recovery_reviews'].get(identifier)
         if required is None or identifier not in active_ids:
             blockers.append('required_review_missing_or_superseded')
@@ -328,7 +382,7 @@ async def retain_recovery(session, workspace_id, user_id, data):
         raise
 
 
-def _validate_review(state, group_id, data):
+def _validate_review(state, group_id, data, seen=None):
     if data.assertion_kind == 'filing_assertion' and data.assertion_status == 'supported':
         raise HTTPException(422, 'filed_record_unverified: recovery evidence cannot verify a filing assertion')
     entry = _get(state, 'recovery_entries', data.entry_id)
@@ -344,6 +398,11 @@ def _validate_review(state, group_id, data):
             raise HTTPException(422, 'Conflicting or superseded source evidence cannot support this review')
         if data.relation_state == 'confirmed' and any(row.payload['reported_state'] in {'conflict', 'missing'} for row in (entry, target) if row):
             raise HTTPException(422, 'The related source facts remain missing or disputed')
+        if data.relation_state == 'confirmed':
+            reasons = {reason for row in (entry, target) if row for reason in _annotation_reasons(state, row, seen)}
+            reasons.update(reason for row in (entry, target) if row for reason in row.payload.get('missing_evidence', []))
+            if reasons:
+                raise HTTPException(422, 'Related recovery evidence is unresolved: ' + ', '.join(sorted(reasons)))
     for identifier in data.required_entry_ids:
         _get(state, 'recovery_entries', identifier)
     for identifier in data.required_review_ids:
@@ -429,8 +488,11 @@ def _validate_review(state, group_id, data):
             if not source.is_current or not (source.payload.get('event_date') or source.payload.get('event_at')):
                 raise HTTPException(422, 'Source date/qualification is unresolved')
         if data.relation_kind == 'notice_receipt':
-            if entry.payload.get('round_key') != target.payload.get('round_key') or not entry.payload.get('round_key'):
+            left, right = _annotation_facts(state, entry, seen), _annotation_facts(state, target, seen)
+            if left.get('round_key') != right.get('round_key') or not left.get('round_key'):
                 raise HTTPException(422, 'Notice and receipt require the same explicit round')
+            if left.get('round_asset_key') != right.get('round_asset_key') or not left.get('round_asset_key'):
+                raise HTTPException(422, 'Notice and receipt require the same explicit round asset')
             if state['observations'][target.observation_id].payload.get('settlement_status') != 'settled':
                 raise HTTPException(422, 'Receipt settlement remains unresolved')
 

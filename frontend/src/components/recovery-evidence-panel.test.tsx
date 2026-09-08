@@ -57,6 +57,28 @@ async function openReview(role = 'allowed claim') {
 }
 
 describe('recovery evidence user controls', () => {
+  it('keeps acquisition basis on manual sources and uses separate assertions for retained-source corrections', async () => {
+    const source = observation('retained-source')
+    source.source_kind = 'primary_activity'; source.legs[0].direction = 'out'; source.legs[0].classification = 'sell'
+    api.sources.mockResolvedValue({ target: { workspace_id: 'workspace-a', group_id: 'wallet-a' }, observations: [source] })
+    const { user } = await manual('disposition')
+    await user.type(screen.getByLabelText('Reported acquisition basis'), '123.456789')
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalledTimes(1))
+    expect(api.preview.mock.calls[0][2][0].observation.legs[0].acquisition_basis).toBe('123.456789')
+    await user.selectOptions(screen.getByLabelText('Source to use'), 'retained-source')
+    expect(screen.queryByLabelText('Reported acquisition basis')).not.toBeInTheDocument()
+    expect(screen.getByText(/Record acquisition-basis corrections as a separate review assertion/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Reported sale proceeds'), '50')
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalledTimes(2))
+    const attached = api.preview.mock.calls[1][2][0]
+    expect(attached).toMatchObject({ observation_id: 'retained-source', observation: null, leg_key: 'asset-1', details: { proceeds: '50' } })
+    expect(JSON.stringify(attached)).not.toContain('123.456789')
+    expect(source.legs[0].acquisition_basis).toBeNull()
+    expect(api.review).not.toHaveBeenCalled()
+  })
+
   it('distinguishes two rounds and three asset records from four observations and keeps unknown facts visible', async () => {
     const { user } = await open()
     await user.click(screen.getByText('allowed claim', { selector: 'strong' }))

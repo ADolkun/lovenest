@@ -179,3 +179,167 @@ async def test_workpaper_cannot_verify_a_filing_assertion(session, test_workspac
         await service.review_recovery(session, test_workspace.id, test_user.id, RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=[supported]))
     assert error.value.status_code == 422
     assert 'filed_record_unverified' in error.value.detail
+
+
+async def review(session, workspace, user, wallet, *decisions):
+    package = await service.list_recovery(session, workspace.id, wallet.id)
+    request = RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=list(decisions))
+    return await service.review_recovery(session, workspace.id, user.id, request)
+
+
+def assertion(key, row, **changes):
+    return RecoveryReviewInput(key=key, kind='assertion', entry_id=row.id, source_locator='synthetic/review',
+                               reason='Synthetic provenance review', **changes)
+
+
+async def modeled_inputs(session, workspace, user, wallet):
+    item = entry('valued-equity', 'equity_statement')
+    item.observation.legs[0].valuation_amount = Decimal('80')
+    package = await retain(session, workspace, user, wallet, [item])
+    row = package.entries[0]
+    assumption = assertion('assumption', row, assertion_kind='accounting_assumption', assertion_status='supported',
+                           supporting_observation_ids=[row.observation_id], proposed_value='USD source valuation review')
+    package = await review(session, workspace, user, wallet, assumption)
+    model = RecoveryReviewInput(key='model', kind='allocation', entry_id=row.id, assertion_status='modeled',
+                                source_locator='synthetic/model', reason='Review preview only', value='80', currency='USD',
+                                required_entry_ids=[row.id], required_review_ids=[package.reviews[0].id])
+    return row, model
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', ['conflict', 'missing', 'unverified', 'modeled'])
+async def test_model_own_status_qualifies_readiness_and_replay(session, test_workspace, test_user, wallet, status):
+    _, model = await modeled_inputs(session, test_workspace, test_user, wallet)
+    model.assertion_status = status
+    package = await review(session, test_workspace, test_user, wallet, model)
+    result = next(row for row in package.reviews if row.key == 'model')
+    assert result.ready_for_review == (status == 'modeled')
+    if status != 'modeled':
+        assert f'assertion_{status}' in result.blockers
+        resolved = model.model_copy(update={'key': 'resolved-model', 'assertion_status': 'modeled', 'supersedes_id': result.id})
+        package = await review(session, test_workspace, test_user, wallet, resolved)
+        assert next(row for row in package.reviews if row.key == 'resolved-model').ready_for_review
+        assert not next(row for row in package.reviews if row.key == 'model').is_current
+    replay = await review(session, test_workspace, test_user, wallet, model)
+    assert replay.revision == package.revision
+    assert await session.scalar(select(func.count()).select_from(AssetTransaction)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind,status', [('account_mapping', 'conflict'), ('lot_mapping', 'missing'), ('accounting_assumption', 'unverified')])
+async def test_omitted_input_controls_block_until_supported_supersession(session, test_workspace, test_user, wallet, kind, status):
+    row, model = await modeled_inputs(session, test_workspace, test_user, wallet)
+    disputed = assertion('disputed', row, assertion_kind=kind, assertion_status=status, conflicting_fields=['source_mapping'])
+    package = await review(session, test_workspace, test_user, wallet, disputed, model)
+    current = next(item for item in package.reviews if item.key == 'model')
+    assert not current.ready_for_review
+    assert 'conflicting:source_mapping' in current.blockers
+    old = next(item for item in package.reviews if item.key == 'disputed')
+    assert old.id not in model.required_review_ids
+    resolved = disputed.model_copy(update={'key': 'resolved', 'assertion_status': 'supported', 'conflicting_fields': [],
+                                           'supersedes_id': old.id, 'supporting_observation_ids': [row.observation_id]})
+    package = await review(session, test_workspace, test_user, wallet, resolved)
+    assert next(item for item in package.reviews if item.key == 'model').ready_for_review
+    assert not next(item for item in package.reviews if item.key == 'disputed').is_current
+    replay = await review(session, test_workspace, test_user, wallet, disputed, resolved, model)
+    assert replay.revision == package.revision
+    exported = json.loads(service.export_recovery(replay, 'json', {}))['package']
+    assert next(item for item in exported['reviews'] if item['key'] == 'disputed')['assertion_status'] == status
+    assert next(item for item in exported['reviews'] if item['key'] == 'model')['ready_for_review']
+    assert await session.scalar(select(func.count()).select_from(AssetTransaction)) == 0
+
+
+@pytest.mark.asyncio
+async def test_models_exclude_other_outputs_and_unrelated_controls_but_detect_explicit_cycles(session, test_workspace, test_user, wallet):
+    row, model = await modeled_inputs(session, test_workspace, test_user, wallet)
+    package = await retain(session, test_workspace, test_user, wallet, [entry('unrelated', 'platform_ledger')])
+    unrelated = next(item for item in package.entries if item.key == 'unrelated')
+    conflict = assertion('unrelated-conflict', unrelated, assertion_kind='account_mapping', assertion_status='conflict')
+    other = model.model_copy(update={'key': 'other-output', 'assertion_status': 'unverified'})
+    package = await review(session, test_workspace, test_user, wallet, conflict, other, model)
+    assert next(item for item in package.reviews if item.key == 'model').ready_for_review
+    state = await service._load(session, test_workspace.id, wallet.id)
+    models = {item.review_key: item for item in state['recovery_reviews'].values() if item.payload['kind'] == 'allocation'}
+    active = {item.id for item in service._current_reviews(state)}
+    current = models['model']
+    current.payload = {**current.payload, 'required_review_ids': [str(current.id)]}
+    assert 'model_dependency_cycle' in service._review_blockers(state, current, active)
+    current.payload = {**current.payload, 'required_review_ids': [str(models['other-output'].id)]}
+    models['other-output'].payload = {**models['other-output'].payload, 'required_review_ids': [str(current.id)]}
+    assert 'model_dependency_cycle' in service._review_blockers(state, current, active)
+    await session.rollback()  # Deliberately cyclic synthetic state is never persisted.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('alias_kind', ['same_observation', 'physical_identity', 'canonical_link'])
+async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_resolution(session, test_workspace, test_user, wallet, alias_kind):
+    from app.models.investment_evidence import InvestmentObservationLink
+
+    receipt = entry('receipt', 'receiving_receipt')
+    receipt.observation.legs[0].classification = 'transfer'
+    if alias_kind == 'physical_identity':
+        receipt.observation.legs[0] = receipt.observation.legs[0].model_copy(update={
+            'chain': 'ethereum', 'token_address': 'native', 'transaction_ref': 'synthetic-receipt', 'leg_ref': '0',
+            'source_address': 'synthetic-source', 'destination_address': 'synthetic-destination', 'quantity_role': 'principal',
+        })
+    original = [entry('notice'), entry('repeated-notice'), entry('second-round').model_copy(update={'round_key': 'second'}), receipt]
+    package = await retain(session, test_workspace, test_user, wallet, original)
+    rows = {row.key: row for row in package.entries}
+    received = rows['receipt']
+
+    def link(key, notice, target):
+        return RecoveryReviewInput(key=key, kind='relation', entry_id=notice.id, target_entry_id=target.id,
+                                    relation_kind='notice_receipt', relation_state='confirmed',
+                                    source_locator='synthetic/notice-receipt', reason='Reviewed source account and timing',
+                                    supporting_observation_ids=[received.observation_id], account_mapping_evidence='Synthetic account review',
+                                    timing_evidence='Source dates agree')
+
+    links = [link('first-link', rows['notice'], received), link('repeated-link', rows['repeated-notice'], received)]
+    package = await review(session, test_workspace, test_user, wallet, *links)
+    assert all(row.ready_for_review for row in package.reviews)
+    assert all('receipt_missing' not in row.reason_codes for row in package.entries if row.key in {'notice', 'repeated-notice'})
+    if alias_kind == 'same_observation':
+        alias = receipt.model_copy(update={'key': 'alias', 'observation': None, 'observation_id': received.observation_id, 'round_key': 'second'})
+    else:
+        source = receipt.observation.model_copy(update={'reference': 'alias-source', 'source_local_id': 'alias-source', 'source': 'api'})
+        alias = receipt.model_copy(update={'key': 'alias', 'observation': source, 'round_key': 'second'})
+    package = await retain(session, test_workspace, test_user, wallet, [alias])
+    annotated = next(row for row in package.entries if row.key == 'alias')
+    if alias_kind == 'canonical_link':
+        session.add(InvestmentObservationLink(workspace_id=test_workspace.id, observation_id=annotated.observation_id,
+                    source_leg_key=annotated.leg_key, leg_id=received.application.leg_id, role='corroborates',
+                    reason='Synthetic reviewed source alias', reviewed_by=test_user.id))
+        await session.commit()
+        package = await service.list_recovery(session, test_workspace.id, wallet.id)
+    assert all(not row.ready_for_review and 'current_review_unqualified' in row.blockers for row in package.reviews)
+    assert all('receipt_missing' in row.reason_codes for row in package.entries if row.role == 'recovery_notice')
+    assert 'receipt_round_conflict' in next(row for row in package.entries if row.key == 'receipt').reason_codes
+    conflicting_link = link('second-link', rows['second-round'], annotated)
+    with pytest.raises(HTTPException) as error:
+        await review(session, test_workspace, test_user, wallet, conflicting_link)
+    assert error.value.status_code == 422
+    assert 'receipt_round_conflict' in error.value.detail
+    for entity in (wallet, test_workspace, test_user):
+        await session.refresh(entity)
+    candidate = conflicting_link.model_copy(update={'relation_state': 'candidate'})
+    correction = RecoveryReviewInput(key='round-dispute', kind='correction', entry_id=annotated.id,
+                                     field='round_key', proposed_value='first', assertion_status='conflict',
+                                     source_locator='synthetic/round-review', reason='Conflicting annotation requires support')
+    package = await review(session, test_workspace, test_user, wallet, candidate, correction)
+    old = next(row for row in package.reviews if row.key == 'round-dispute')
+    supported = correction.model_copy(update={'key': 'round-resolved', 'assertion_status': 'supported', 'supersedes_id': old.id,
+                                              'supporting_observation_ids': [received.observation_id]})
+    package = await review(session, test_workspace, test_user, wallet, supported)
+    assert all(row.ready_for_review for row in package.reviews if row.key in {'first-link', 'repeated-link'})
+    assert not next(row for row in package.reviews if row.key == 'second-link').ready_for_review
+    assert 'receipt_missing' in next(row for row in package.entries if row.key == 'second-round').reason_codes
+    assert next(row for row in package.entries if row.key == 'alias').round_key == 'second'  # Original annotation retained.
+    assert not next(row for row in package.reviews if row.key == 'round-dispute').is_current
+    alias_link = link('supported-alias-link', rows['repeated-notice'], annotated)
+    package = await review(session, test_workspace, test_user, wallet, alias_link)
+    assert next(row for row in package.reviews if row.key == 'supported-alias-link').ready_for_review
+    repeated = await retain(session, test_workspace, test_user, wallet, [alias, *original])
+    assert repeated.revision == package.revision
+    replay = await review(session, test_workspace, test_user, wallet, *links, candidate, correction, supported, alias_link)
+    assert replay.revision == package.revision
+    assert await session.scalar(select(func.count()).select_from(AssetTransaction)) == 0
