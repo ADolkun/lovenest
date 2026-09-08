@@ -241,7 +241,11 @@ async def test_reportable_gain_endpoint_excludes_tax_advantaged(
     assert r.status_code == 200
     assert r.json() == {
         "reportable_gain": 0.0,
+        "known_reportable_gain": 0.0,
+        "basis_complete": True,
         "non_reportable_gain": 40.0,
+        "known_non_reportable_gain": 40.0,
+        "non_reportable_basis_complete": True,
         "start": None,
         "end": None,
     }

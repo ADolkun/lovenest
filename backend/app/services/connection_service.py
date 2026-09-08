@@ -389,6 +389,8 @@ async def _sync_holdings(
     # Scopes the provider read nothing for this run. Their assets are held
     # back from the archive sweep below — silence about a position is not a
     # report that it closed.
+    from app.services.owned_transfer_service import lock_workspace
+    await lock_workspace(session, connection.workspace_id)
     unreadable: list[str] = []
     try:
         provider = provider or get_provider(connection.provider)
@@ -947,6 +949,8 @@ async def _sync_trades(
     endpoint that errors should cost the user a cost basis, not the balances
     that synced fine a moment ago.
     """
+    from app.services.owned_transfer_service import lock_workspace
+    await lock_workspace(session, connection.workspace_id)
     try:
         provider = get_provider(connection.provider)
         activity = await provider.get_investment_activity(credentials)
@@ -1081,6 +1085,8 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     kind and round at the eighteenth decimal, so a complete history routinely
     reproduces a balance to within a rounding error rather than exactly.
     """
+    from app.services.owned_transfer_service import prepare_replay
+    await prepare_replay(session, asset.workspace_id, if_movements=True)
     rows = await session.execute(
         select(AssetTransaction).where(AssetTransaction.asset_id == asset.id)
     )
@@ -1102,7 +1108,11 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     reported = asset.units
     if reported is None:
         return True
-    replayed = asset_transaction_service._recompute(txs, asset_type=asset.type)["units"]
+    position = asset_transaction_service._recompute(txs, asset_type=asset.type)
+    if not position.get("settlement_complete", True):
+        asset.average_price = asset.purchase_price = asset.realized_gain = None
+        return False
+    replayed = position["units"]
     reported = Decimal(str(reported))
     tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE
     if abs(replayed - reported) <= tolerance:
@@ -3218,6 +3228,8 @@ async def delete_connection(
     )
     if not connection:
         return False
+    from app.services.owned_transfer_service import guard_scope_mutation
+    await guard_scope_mutation(session, workspace_id, connection_ids={connection_id})
 
     # Archive synced investment assets rather than deleting them: the user
     # may still want to see their historical AssetValue trend, and if they

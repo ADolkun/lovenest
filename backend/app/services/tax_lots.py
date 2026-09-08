@@ -104,6 +104,8 @@ def build_lots(
     Returns open `lots` oldest-first, the long/short split of the open quantity
     and cost, and one record per `sale`.
     """
+    if any(tx.kind in {"move_in", "move_out", "fee"} for tx in transactions):
+        return _movement_lots(transactions, as_of)
     multiplier = multiplier_for(asset_type)
     allow_short = is_option(asset_type)
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or _EPOCH))
@@ -206,6 +208,8 @@ def _split_to_cents(total: Decimal, long_part: Decimal) -> tuple[float, float]:
 
 
 def _serialise(position: dict) -> dict:
+    if "basis_complete" in position:
+        return _exact_serialise(position)
     realised_long, realised_short = _split_to_cents(
         sum((sale["gain"] for sale in position["sales"]), Decimal("0")),
         position["realised_long"],
@@ -259,6 +263,50 @@ _EMPTY = {
 }
 
 
+def _exact_serialise(value):
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_exact_serialise(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _exact_serialise(item) for key, item in value.items()}
+    return value
+
+
+def _movement_lots(transactions, as_of):
+    from app.services.movement_replay import replay
+    pos = replay(transactions)
+
+    def view(lot, on):
+        acquired = date.fromisoformat(lot["acquired"]) if lot.get("acquired") else None
+        quantity, cost = lot["quantity"], lot["acquisition_cost"]
+        return {**lot, "acquired": acquired, "cost": cost, "unit_price": cost / quantity if cost is not None and quantity else None,
+                "holding_days": max(0, (on - acquired).days) if acquired else None, "written": False,
+                "long_term": is_long_term(acquired, on) if acquired else None,
+                "days_until_long_term": days_until_long_term(acquired, on) if acquired else None,
+                "basis_complete": cost is not None}
+    lots = [view(lot, as_of) for lot in sorted(pos["lots"], key=lambda lot: (lot.get("acquired") or "", lot["lot_id"]))]
+    sales = []
+    for sale in pos["sales"]:
+        pieces = [view(lot, sale["date"]) for lot in sale["lots"]]
+        long_qty = sum((lot["quantity"] for lot in pieces if lot["long_term"] is True), Decimal(0))
+        short_qty = sum((lot["quantity"] for lot in pieces if lot["long_term"] is False), Decimal(0))
+        period_known = long_qty + short_qty == sale["quantity"]
+        long_gain = sale["gain"] * long_qty / sale["quantity"] if sale["gain"] is not None and period_known and sale["quantity"] else None
+        sales.append({**sale, "lots": pieces, "long_quantity": long_qty, "short_quantity": short_qty,
+                      "long_gain": long_gain, "short_gain": sale["gain"] - long_gain if long_gain is not None else None})
+    return {"as_of": as_of, "lots": lots, "sales": sales,
+            "long_quantity": sum((lot["quantity"] for lot in lots if lot["long_term"] is True), Decimal(0)),
+            "short_quantity": sum((lot["quantity"] for lot in lots if lot["long_term"] is False), Decimal(0)),
+            "long_cost": sum((lot["cost"] for lot in lots if lot["long_term"] is True and lot["cost"] is not None), Decimal(0)),
+            "short_cost": sum((lot["cost"] for lot in lots if lot["long_term"] is False and lot["cost"] is not None), Decimal(0)),
+            "realised_long": sum((s["long_gain"] for s in sales if s["long_gain"] is not None), Decimal(0)) if all(s["long_gain"] is not None for s in sales) else None,
+            "realised_short": sum((s["short_gain"] for s in sales if s["short_gain"] is not None), Decimal(0)) if all(s["short_gain"] is not None for s in sales) else None,
+            **{key: pos[key] for key in ("known_basis_quantity", "unknown_basis_quantity", "known_acquisition_cost", "basis_complete", "settlement_complete", "unknown_disposition_quantity", "missing_links")}}
+
+
 async def asset_tax_lots(
     session: AsyncSession,
     asset_id: uuid.UUID,
@@ -280,6 +328,8 @@ async def asset_tax_lots(
     treatment to gate on, so it falls into the same silent branch as a
     Tax-Advantaged one while meaning something else entirely.
     """
+    from app.services.owned_transfer_service import prepare_replay
+    await prepare_replay(session, workspace_id, if_movements=True)
     row = (
         await session.execute(
             select(Asset, AssetGroup.tax_treatment)

@@ -13,6 +13,11 @@
 
 export type NumberFormat = 'auto' | 'comma_dot' | 'dot_comma' | 'space_comma'
 
+/** Display exact source decimals without padding; never round or parse as Number. */
+export function formatExactDecimal(value: string): string {
+  return /^[+-]?0+(?:\.0*)?(?:e[+-]?\d+)?$/i.test(value) ? '0' : value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')
+}
+
 /** Admin date-format setting. 'auto' derives the order from the number format. */
 export type DateFormat = 'auto' | 'dmy' | 'mdy' | 'ymd'
 

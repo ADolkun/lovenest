@@ -304,10 +304,20 @@ def _reportable_gain(auth):
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=auth), timeout=5) as response:
             data = json.load(response)
-        return {
-            "reportable_gain": float(data.get("reportable_gain") or 0.0),
-            "non_reportable_gain": float(data.get("non_reportable_gain") or 0.0),
+        result = {
+            key: float(data[key]) if data.get(key) is not None else None
+            for key in ("reportable_gain", "non_reportable_gain")
         }
+        for key in ("known_reportable_gain", "known_non_reportable_gain", "basis_complete", "non_reportable_basis_complete"):
+            if key in data:
+                result[key] = data[key]
+        if result["reportable_gain"] is None or data.get("basis_complete") is False:
+            result["reportable_gain"] = None
+            result["gain_error"] = "original acquisition evidence is incomplete; a known subtotal is not a complete reportable gain"
+        if result["non_reportable_gain"] is None or data.get("non_reportable_basis_complete") is False:
+            result["non_reportable_gain"] = None
+            result["non_reportable_gain_error"] = "excluded gains have incomplete acquisition evidence"
+        return result
     except (OSError, ValueError) as exc:
         # OSError covers URLError and the bare TimeoutError a read timeout
         # raises: a slow backend must degrade to a hint, not 500 the whole form.

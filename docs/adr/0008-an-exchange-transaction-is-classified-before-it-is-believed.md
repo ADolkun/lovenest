@@ -17,6 +17,22 @@ unlinking do not change applied economics. The balance and tax-character
 boundaries below remain in force, and retained observations do not establish
 complete basis, external funding, or ownership of an unmatched transfer.
 
+Issue #133 adds reviewed movement application to the same asset ledger. A
+confirmed owned transfer uses retained, settled movement legs, explicit common
+beneficial ownership and recorded acquisition-fragment selections. Principal
+leaves once and arrives once without a buy or sale gain. Original acquisition
+lineage and weighted-average performance cost remain separate (ADR 0003), and
+unknown cost/date is never filled from transfer-time market value. Fee units
+have their own payer, asset and application identity; tax treatment remains
+unresolved.
+
+Collection, source corroboration and ordinary sync do not confirm transfers.
+Reviewed quantity-only movements and reported-scam annotations do not infer
+income, a disposal, common ownership or loss deductibility. Reversal is atomic
+and refuses dependent activity rather than silently reallocating it. Provider
+snapshots retain their independent authority when replay or basis is incomplete.
+See [the reviewed-transfer contract](../owned-transfers.md).
+
 Ticket #69 mapped `buy`, `sell` and `advanced_trade_fill` and left every other
 type Coinbase reports on the floor, which is why a wallet fed by a transfer or
 a staking payout replayed short of its balance and stayed a Snapshot. #70
@@ -66,12 +82,11 @@ without the mapping ever having to know they were one order.
 
 ## Unrecorded is a decision, not a gap
 
-A transfer between the user's own wallets carries its basis with it and states
-no acquisition price, so recording one would invent a lot that never existed —
-the error the crypto importer avoids for the same reason
-(`asset_import_service._TRANSFER_WORDS`). The consequence is accepted: the
-wallet replays short, `_ledger_reconciles` leaves it a Snapshot, and the
-missing basis arrives from #67's one-time import or not at all.
+An unreviewed transfer states no acquisition price, so recording it as a buy
+would invent a lot that never existed — the error the crypto importer avoids
+for the same reason (`asset_import_service._TRANSFER_WORDS`). An incomplete
+replay leaves provider quantities intact. Only #133's explicit reviewed movement
+flow can carry supported lineage; a provider's transfer label cannot establish it.
 
 Most of the class is not a transfer in that sense, though, and the rest of it
 is here for three other reasons:

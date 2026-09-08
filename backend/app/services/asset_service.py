@@ -207,7 +207,7 @@ def build_market_value_series(
     """Rebuild a market-priced holding's value series from the ledger.
 
     value(date) = quantity_held_on(date) × price(date), where quantity is the
-    cumulative buys − sells up to that date (from the ledger) and price is the
+    cumulative buys and receipts minus sales, sends and fee units, and price is the
     most recent stored per-share price. This keeps the chart consistent with the
     ledger even when past trades are entered after the fact. Falls back to the
     trade's own price on dates that predate any recorded market price (backdated
@@ -234,7 +234,7 @@ def build_market_value_series(
     tx_delta: dict[date, Decimal] = {}
     tx_price: dict[date, Decimal] = {}
     for d, kind, q, p in sorted(txs, key=lambda t: t[0]):
-        tx_delta[d] = tx_delta.get(d, Decimal("0")) + (q if kind == "buy" else -q)
+        tx_delta[d] = tx_delta.get(d, Decimal("0")) + (q if kind in {"buy", "move_in"} else -q)
         if p is not None:
             tx_price[d] = p
 
@@ -265,9 +265,30 @@ def build_market_value_series(
             out.append((d, float(amount)))  # stored point with no per-share price
         elif last_price is not None:
             out.append((d, float(last_price * held)))
-        else:
+        elif held == 0:
             out.append((d, float(amount)))
     return out
+
+
+async def _movement_history_fallbacks(session: AsyncSession, assets: list[Asset]) -> set[uuid.UUID]:
+    """Keep stored values when reviewed movement quantities are unqualified."""
+    from app.services import movement_replay
+    from app.services.owned_transfer_service import prepare_replay
+
+    if not assets:
+        return set()
+    state = await prepare_replay(session, assets[0].workspace_id, if_movements=True)
+    if state is None:
+        return set()
+    fallback = set()
+    for asset in assets:
+        txs = [tx for tx in state["transactions"].values() if tx.asset_id == asset.id]
+        if not any(tx.movement for tx in txs):
+            continue
+        pos = movement_replay.replay(txs)
+        if not pos["settlement_complete"] or (asset.connection_id and pos["units"] != asset.units):
+            fallback.add(asset.id)
+    return fallback
 
 
 async def _load_asset_native_values(
@@ -315,10 +336,11 @@ async def _load_asset_native_values(
                 (d, kind, Decimal(str(qty)), Decimal(str(price)) if price is not None else None)
             )
 
+    movement_fallbacks = await _movement_history_fallbacks(session, assets)
     values_map: dict[str, list[tuple[date, float]]] = {}
     for asset in assets:
         aid = str(asset.id)
-        if asset.valuation_method == "market_price":
+        if asset.valuation_method == "market_price" and asset.id not in movement_fallbacks:
             values_map[aid] = build_market_value_series(raw[aid], txs_by_aid.get(aid, []))
         else:
             values_map[aid] = [(d, float(amt)) for d, amt, _ in raw[aid]]
@@ -393,7 +415,8 @@ async def get_assets(
         latest = await _get_latest_value(session, asset.id)
         count = await _get_value_count(session, asset.id)
         reads.append(_asset_to_read(asset, latest, count, tx_counts.get(asset.id, 0)))
-    return reads
+    from app.services.owned_transfer_service import qualify_asset_reads
+    return await qualify_asset_reads(session, workspace_id, reads)
 
 
 async def get_asset(
@@ -413,7 +436,8 @@ async def get_asset(
         .select_from(AssetTransaction)
         .where(AssetTransaction.asset_id == asset.id)
     )
-    return _asset_to_read(asset, latest, count, tx_count or 0)
+    from app.services.owned_transfer_service import qualify_asset_reads
+    return (await qualify_asset_reads(session, workspace_id, [_asset_to_read(asset, latest, count, tx_count or 0)]))[0]
 
 
 async def _reject_resolvable_ticker(
@@ -682,6 +706,9 @@ async def update_asset(
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.keys() & {"type", "currency", "units", "purchase_date", "purchase_price", "group_id", "ticker", "ticker_exchange", "sell_date", "sell_price"}:
+        from app.services.owned_transfer_service import guard_asset_mutation
+        await guard_asset_mutation(session, workspace_id, {asset_id})
     # Prevent changing valuation_method on existing assets
     update_data.pop("valuation_method", None)
     if "ticker" in update_data and asset.valuation_method != "market_price":
@@ -762,6 +789,8 @@ async def delete_asset(
     asset = result.scalar_one_or_none()
     if not asset:
         return False
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, {asset_id})
     await session.delete(asset)
     await session.commit()
     return True
@@ -869,7 +898,7 @@ async def get_asset_value_trend(
         )
     ).all()
 
-    if asset.valuation_method == "market_price":
+    if asset.valuation_method == "market_price" and asset.id not in await _movement_history_fallbacks(session, [asset]):
         txs = (
             await session.execute(
                 select(

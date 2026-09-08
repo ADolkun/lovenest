@@ -25,6 +25,17 @@ export interface EvidenceLeg {
   transaction_ref: string | null
   leg_ref: string | null
   execution_id: string | null
+  token_program?: string | null
+  source_address?: string | null
+  destination_address?: string | null
+  source_owner?: string | null
+  destination_owner?: string | null
+  raw_units?: string | null
+  decimals?: number | null
+  quantity_role?: string | null
+  fee_payer?: string | null
+  fee_semantics?: 'separate' | 'none' | 'included' | 'unknown'
+  derivation?: Record<string, string>
 }
 
 export type EvidenceSourceKind = 'primary_activity' | 'balance_snapshot' | 'remaining_lots' | 'tax_workpaper' | 'recovery_notice'

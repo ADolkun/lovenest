@@ -43,8 +43,17 @@ async def test_concurrent_apply_is_once_and_decimal_roundtrip_is_exact(pg_contex
         async with sessions() as session:
             return await service.confirm_evidence(session, workspace_id, user_id, group_id, [decision], saved.evidence.revision, allow_unpriced=True)
 
-    results = await asyncio.gather(confirm(), confirm())
-    assert sorted(result.imported for result in results) == [0, 1]
+    results = await asyncio.wait_for(asyncio.gather(confirm(), confirm(), return_exceptions=True), timeout=10)
+    assert any(not isinstance(result, BaseException) for result in results), results
+    completed = []
+    for result in results:
+        if isinstance(result, BaseException):
+            assert isinstance(result, HTTPException)
+            assert isinstance(result.detail, dict)
+            assert result.status_code == 409 and result.detail["code"] == "investment_busy"
+            result = await confirm()
+        completed.append(result)
+    assert sorted(result.imported for result in completed) == [0, 1]
     async with sessions() as session:
         rows = list(await session.scalars(select(AssetTransaction)))
         assert len(rows) == 1

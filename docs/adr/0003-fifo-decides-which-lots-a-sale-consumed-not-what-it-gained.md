@@ -32,3 +32,15 @@ Basis remains the one shown against the position.
 Specific-identification is not offered. When it is, it belongs here as a
 per-sale choice of Lots — the Lots this derives are exactly what such a choice
 would pick from — and the same reconciliation question returns with it.
+
+Issue #133 adds explicit acquisition-fragment selection for reviewed movements,
+without choosing a tax election for sales. Selected fragments carry original
+cost and date; performance accounting separately carries proportional source
+weighted-average cost. Buying one unit at 10 and another at 30, then selling
+one, leaves performance cost 20 and original remaining lot cost 30. Moving that
+unit carries both figures with their distinct meanings and realizes no gain.
+
+An unknown-basis portion keeps the whole performance average and dependent gain
+unknown. Supported acquisition subtotals remain available; a missing acquisition
+date remains an unknown holding period. Neither transfer selection nor the FIFO
+period display makes a filing-ready tax result.

@@ -3,7 +3,7 @@ from datetime import date as _date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, JSON, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,7 +37,9 @@ class AssetTransaction(Base):
     # report carries sixteen decimals, and a meme-coin lot runs to twelve
     # digits before the point. Six decimals rounded a satoshi to nothing.
     quantity: Mapped[Decimal] = mapped_column(Numeric(precision=38, scale=18))
-    price: Mapped[Decimal] = mapped_column(Numeric(precision=38, scale=18))  # per-share, asset currency
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=38, scale=18), nullable=True)
+    # Recorded movement decisions are replay inputs, never synthetic purchase prices.
+    movement: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     fee: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=Decimal("0"))
     date: Mapped[_date] = mapped_column(Date, index=True)
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual, import, pluggy

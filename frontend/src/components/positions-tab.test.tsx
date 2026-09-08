@@ -17,6 +17,32 @@ beforeEach(() => {
 
 const positions = (holdings: Asset[], wallets: AssetGroup[] = []) => <PositionsTab holdings={holdings} wallets={wallets} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
 
+it('shows nullable transferred lot dates and costs beside a supported zero in the holding currency without fabricating gains', async () => {
+  vi.mocked(assets.taxLots).mockResolvedValue({
+    asset_id: 'known', ticker: 'KNOWN', tax_character: true, snapshot: false, no_wallet: false, as_of: '2026-01-01',
+    lots: [
+      { lot_id: 'unknown-lineage', acquired: null, quantity: '1.000000000000000001', unit_price: null, cost: null, holding_days: null, long_term: null, days_until_long_term: null, lineage: ['transfer-a'], missing_links: ['acquisition_missing'] },
+      { lot_id: 'explicit-zero', acquired: '2024-01-01', quantity: '1', unit_price: '0', cost: '0', holding_days: 731, long_term: true, days_until_long_term: 0 },
+    ],
+    long_quantity: '1', short_quantity: '0', long_cost: '0', short_cost: '0', sales: [{ date: '2025-01-01', quantity: '1', gain: null, long_quantity: '0', short_quantity: '0', long_gain: null, short_gain: null }], realised_long: null, realised_short: null,
+    basis_complete: false, settlement_complete: false, known_acquisition_cost: '0', unknown_basis_quantity: '1.000000000000000001', unknown_disposition_quantity: '1', missing_links: ['transfer_evidence_invalidated'],
+  })
+  const { user } = renderWithProviders(positions([{ ...known, currency: 'EUR' }]))
+  await user.click(screen.getByRole('button', { name: /^KNOWN/ }))
+  const unknownDate = await screen.findByText('Acquisition date unknown')
+  const lot = within(unknownDate.parentElement!)
+  expect(lot.getByText('Holding period unknown')).toBeInTheDocument()
+  expect(lot.getAllByText('Unknown')).toHaveLength(2)
+  expect(lot.getByText('1.000000000000000001')).toBeInTheDocument()
+  expect(lot.queryByText(/^Short/)).not.toBeInTheDocument()
+  expect(screen.getAllByText('0 EUR').length).toBeGreaterThan(0)
+  expect(screen.getByText('Long-term Unknown')).toBeInTheDocument()
+  expect(screen.getByText('Short-term Unknown')).toBeInTheDocument()
+  expect(screen.getByText('Movement settlement unresolved')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Open transfer' })).toHaveAttribute('href', expect.stringContaining('transfer=transfer-a'))
+  expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument()
+})
+
 it('keeps compact value and gain readable, with the remaining position details on expansion', async () => {
   const { user } = renderWithProviders(positions([known]))
   const row = screen.getByRole('button', { name: /^KNOWN/ })

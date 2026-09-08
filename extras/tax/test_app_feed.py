@@ -17,6 +17,20 @@ def _urlopen_returning(payload):
 
 
 class ReportableGainFeedTest(unittest.TestCase):
+    def test_unknown_totals_retain_known_subtotals_without_becoming_zero(self):
+        with mock.patch("urllib.request.urlopen", _urlopen_returning({
+            "reportable_gain": None, "non_reportable_gain": None,
+            "known_reportable_gain": 12.5, "known_non_reportable_gain": 0,
+            "basis_complete": False, "non_reportable_basis_complete": False,
+        })):
+            result = app._reportable_gain(AUTH)
+        self.assertIsNone(result["reportable_gain"])
+        self.assertIsNone(result["non_reportable_gain"])
+        self.assertEqual(result["known_reportable_gain"], 12.5)
+        self.assertEqual(result["known_non_reportable_gain"], 0)
+        self.assertIn("gain_error", result)
+        self.assertIn("non_reportable_gain_error", result)
+
     def test_asks_the_gated_backend_endpoint_for_the_ytd_window(self):
         """The gate lives in the backend, so this app must not compute gains
         itself — it may only read the endpoint that applies the allowlist."""

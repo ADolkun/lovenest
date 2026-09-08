@@ -169,6 +169,8 @@ def parse_observations_csv(
     candidates["cost_basis"] = ("cost basis", "cost basis remaining", "total cost", "basis", "book cost")
     for field, names in _EXTRA_COLUMNS.items():
         candidates[field] = candidates.get(field, ()) + names
+    for field in ("token_program", "source_address", "destination_address", "source_owner", "destination_owner", "raw_units", "decimals", "quantity_role", "fee_payer", "fee_semantics"):
+        candidates[field] = (field, field.replace("_", " "))
     normalized = {_normalize_header(header): header for header in headers}
     mapping = dict(column_mapping or {})
     if mapping.keys() - candidates.keys():
@@ -299,6 +301,16 @@ def parse_observations_csv(
                     transaction_ref=cell(row, "transaction_ref") or None,
                     leg_ref=cell(row, "leg_ref") or None,
                     execution_id=cell(row, "execution_id") or None,
+                    token_program=cell(row, "token_program") or None,
+                    source_address=cell(row, "source_address") or None,
+                    destination_address=cell(row, "destination_address") or None,
+                    source_owner=cell(row, "source_owner") or None,
+                    destination_owner=cell(row, "destination_owner") or None,
+                    raw_units=cell(row, "raw_units") or None,
+                    decimals=cell(row, "decimals") or None,
+                    quantity_role=cell(row, "quantity_role") or None,
+                    fee_payer=cell(row, "fee_payer") or None,
+                    fee_semantics=cell(row, "fee_semantics") or "unknown",
                 )],
             ))
         except ValidationError as exc:

@@ -84,6 +84,9 @@ def _ref(observation: EvidenceObservationInput, key: str) -> EvidenceSourceRef:
 
 
 async def _scope(session, workspace_id, group_id, connection_id=None, *, lock=False):
+    if lock:
+        from app.services.owned_transfer_service import lock_workspace
+        await lock_workspace(session, workspace_id)
     group = await session.scalar(select(AssetGroup).where(
         AssetGroup.id == group_id, AssetGroup.workspace_id == workspace_id,
     ))
@@ -150,7 +153,7 @@ def _legacy(tx, asset):
         coverage=["original_source_precision_unavailable"],
         legs=[EvidenceLegInput(
             key="ledger", asset_symbol=asset.ticker, asset_id=asset.id,
-            direction="in" if tx.kind == "buy" else "out", classification=tx.kind,
+            direction="in" if tx.kind in {"buy", "move_in"} else "out", classification=tx.kind,
             quantity=tx.quantity, unit_price=tx.price, fee=tx.fee,
             valuation_currency=asset.currency, fee_currency=asset.currency,
             execution_currency=asset.currency, unit_price_origin="reported",
@@ -214,6 +217,12 @@ def _source_families(inputs, identities):
             if not compatible:
                 conflicting.add(source.reference)
     return families, conflicting
+
+
+def _canonical_application_legs(family_key, leg_families, legs, related):
+    """Resolve the actual writer, including compatible aliases and reversed links."""
+    application_families = {family_key, *(leg_families[link.leg_id] for link in related)}
+    return [part for part in legs if leg_families[part.id] in application_families]
 
 
 def _comparison_fields(left, item, right, other):
@@ -384,6 +393,12 @@ async def preview_evidence(
                     raise HTTPException(422, "Asset identity contradicts the selected holding")
     families, conflicting_sources = _source_families(inputs, identities)
     leg_families = {leg.id: (families[str(leg.observation_id)], leg.source_leg_key) for leg in legs}
+    from app.models.owned_transfer import InvestmentMovementApplication
+    from app.services.owned_transfer_service import physical_movement_key
+    movement_legs = (await session.scalars(select(InvestmentLeg).join(
+        InvestmentMovementApplication, InvestmentMovementApplication.leg_id == InvestmentLeg.id,
+    ).where(InvestmentMovementApplication.workspace_id == workspace_id))).all()
+    movement_keys = {physical_movement_key(leg.payload) for leg in movement_legs} - {None}
     asset_by_id = {a.id: a for a in assets}
     represented = {(str(link.observation_id), link.source_leg_key) for link in links}
     pool = []
@@ -406,8 +421,7 @@ async def preview_evidence(
             peer_legs = [part for part in legs if leg_families[part.id] == family_key]
             related = [link for link in links if (families[str(link.observation_id)], link.source_leg_key) == family_key]
             active = [link for link in related if link.reversed_at is None and str(link.observation_id) == observation.reference]
-            application_families = {family_key, *(leg_families[link.leg_id] for link in related)}
-            application_legs = [part for part in legs if leg_families[part.id] in application_families]
+            application_legs = _canonical_application_legs(family_key, leg_families, legs, related)
             application = any(part.applied_at for part in application_legs)
             application_reversed = any(part.applied_at and part.asset_transaction_id is None for part in application_legs)
             matches = [asset for asset in assets if asset.id == item.asset_id] if item.asset_id else [asset for asset in assets if asset.ticker and item.asset_symbol and asset.ticker.upper() == item.asset_symbol.upper()]
@@ -453,6 +467,9 @@ async def preview_evidence(
             price = _price(observation, item, opening_boundary, asset)
             applicable = observation.source_kind == "primary_activity" and item.classification in {"buy", "sell", "income"}
             applicable |= bool(opening_boundary and observation.source_kind in {"remaining_lots", "tax_workpaper"})
+            movement_owned = physical_movement_key(item.model_dump(mode="json")) in movement_keys
+            if applicable and movement_owned:
+                conflicts.append("canonical_movement_application")
             if observation.source_kind != "primary_activity":
                 reasons.append("secondary_evidence")
             if conflicts:
@@ -492,6 +509,9 @@ async def preview_evidence(
                 reasons.append("fee_assumption_required")
             match = "linked" if active else "conflicting" if conflicts else "candidate" if candidates or ambiguous_draft or grouping else "unmatched"
             status = "already_applied" if application else "not_applicable" if not applicable else "blocked" if conflicts or candidates or ambiguous_draft or price is None or not fee_supported else "eligible"
+            if applicable and movement_owned:
+                status = "blocked"
+                reasons.append("canonical_movement_application")
             if related and not application:
                 status = "blocked"
                 reasons.append("canonical_application_required")
@@ -877,6 +897,9 @@ async def _apply(session, workspace_id, user_id, group, row, item, decision, *, 
         raise HTTPException(422, "Source asset identity does not establish the selected holding")
     if asset and asset.currency != item.execution_currency:
         raise HTTPException(422, "Valuation currency differs from the holding currency")
+    if asset:
+        from app.services.owned_transfer_service import guard_asset_mutation
+        await guard_asset_mutation(session, workspace_id, {asset.id}, before_date=observation.event_date)
     price = _price(observation, item, opening_boundary, asset)
     if price is None or observation.event_date is None:
         raise HTTPException(422, "Supported value and acquisition date are required")
@@ -1040,6 +1063,8 @@ async def undo_evidence_import(session, workspace_id, log):
         AssetTransaction.workspace_id == workspace_id, AssetTransaction.import_id == log.id,
     ))).all())
     assets = {tx.asset_id: await session.get(Asset, tx.asset_id) for tx in transactions}
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, set(assets), transaction_ids={tx.id for tx in transactions})
     for group_id in sorted({asset.group_id for asset in assets.values() if asset and asset.group_id}, key=str):
         await _scope(session, workspace_id, group_id, lock=True)
     removable = []

@@ -71,11 +71,11 @@ def project_observations(archive, collection_id):
                 continue
             source_owned = leg.get("source_owner") == owner or leg.get("source") == owner
             destination_owned = leg.get("destination_owner") == owner or leg.get("destination") == owner
-            if source_owned == destination_owned:
+            roles = {"network_fee", "fee", "token_fee", "token_transfer_fee", "withheld_fee"}
+            if source_owned == destination_owned and leg.get("role") not in roles:
                 continue  # Internal account rearrangement is retained in the archive, not an owned quantity change.
             asset = leg["asset"]
             native = bool(asset.get("native"))
-            roles = {"network_fee", "fee", "token_fee", "token_transfer_fee", "withheld_fee"}
             quantity = None if leg.get("interpretation") == "unresolved" else leg.get("quantity")
             try:
                 EvidenceLegInput.exact_decimal(quantity)
@@ -89,10 +89,18 @@ def project_observations(archive, collection_id):
                 token_address="native" if native else asset.get("mint"),
                 provider_asset_id=":".join(str(part or "") for part in _asset_key(asset)),
                 asset_symbol="SOL" if native else None,
-                direction="out" if source_owned else "in",
+                direction="out" if source_owned else "in" if destination_owned else "unknown",
                 quantity=quantity,
                 classification="unknown" if leg.get("interpretation") == "unresolved" else "fee" if leg.get("role") in roles else "transfer",
                 transaction_ref=transaction["signature"], leg_ref=leg["key"],
+                token_program=asset.get("token_program"),
+                source_address=leg.get("source"), destination_address=leg.get("destination"),
+                source_owner=leg.get("source_owner"), destination_owner=leg.get("destination_owner"),
+                raw_units=leg.get("raw_units"), decimals=leg.get("decimals"),
+                quantity_role=("network_fee" if leg.get("role") == "network_fee" else "token_transfer_fee" if leg.get("role") in roles else "principal" if leg.get("role") == "principal" else "unknown"),
+                fee_payer=leg.get("source") if leg.get("role") in roles else None,
+                fee_semantics="separate" if any(part.get("role") == "network_fee" for part in version.get("legs", [])) else "unknown",
+                derivation={key: str(value) for key, value in leg.get("derivation", {}).items() if value is not None},
             ))
         for offset in range(0, len(legs), 100):
             segment = offset // 100

@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import PositionsTab from '@/components/positions-tab'
 import ContributionsTab from '@/components/contributions-tab'
 import { OwnedWalletActivity } from '@/pages/trace'
+import { OwnedTransfersPanel } from '@/components/owned-transfers-panel'
 import { readAssetView, transactionsForHoldings } from '@/lib/asset-view'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -69,7 +70,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { getAssetProfit } from '@/lib/asset-profit'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatExactDecimal } from '@/lib/format'
 
 // Renders a logo image when one is available, falling back to the asset's
 // type-based Lucide icon on missing URL or broken image. Uses the type's
@@ -1312,10 +1313,13 @@ export default function AssetsPage() {
               className="max-w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
               <option value="trades">{t('assets.activityTrades')}</option>
               <option value="contributions">{t('assets.activityContributions')}</option>
+              <option value="transfers">{t('ownedTransfers.title', 'Movements and owned transfers')}</option>
               {walletActivityEnabled && <option value="wallets">{t('assets.activityWallets')}</option>}
             </NativeSelect>
           </div>
-          {activityView === 'wallets' && walletActivityEnabled ? (
+          {activityView === 'transfers' && current ? (
+            <OwnedTransfersPanel key={`${current.id}:${selectedWalletId ?? ''}:${JSON.stringify(activeWalletIds)}`} workspaceId={current.id} wallets={sortedWallets} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} />
+          ) : activityView === 'wallets' && walletActivityEnabled ? (
             <OwnedWalletActivity
               addressKeys={scopedWalletActivity ? (assetsList ?? []).filter((asset) => asset.source === 'onchain' && asset.external_id).map((asset) => asset.external_id!.split(':').slice(0, 2).join(':')) : undefined}
             />
@@ -2369,8 +2373,9 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
                         </p>
                         <div style={{ fontVariantNumeric: 'tabular-nums' }}>{mask(formatCurrency(pt.amount ?? 0, currency, loc))}</div>
                         {pt.trades?.map((tx) => (
-                          <div key={tx.id} style={{ marginTop: 3, fontSize: 11, fontWeight: 500, color: tx.kind === 'buy' ? '#10B981' : '#F43F5E' }}>
-                            {tx.kind === 'buy' ? t('assets.txBuy') : t('assets.txSell')} {mask(`${tx.quantity}`)} × {mask(formatCurrency(tx.price, currency, loc))}
+                          <div key={tx.id} style={{ marginTop: 3, fontSize: 11, fontWeight: 500 }}>
+                            {tx.kind === 'buy' ? t('assets.txBuy') : tx.kind === 'sell' ? t('assets.txSell') : t(`ownedTransfers.kind.${tx.kind}`, tx.kind === 'move_in' ? 'Transfer in' : tx.kind === 'move_out' ? 'Transfer out' : 'Fee units')} {mask(formatExactDecimal(tx.quantity_exact ?? String(tx.quantity)))}
+                            {(tx.kind === 'buy' || tx.kind === 'sell') && <> × {tx.price == null ? t('evidence.unknown', 'Unknown') : mask(formatCurrency(tx.price, currency, loc))}</>}
                           </div>
                         ))}
                       </div>
@@ -2625,11 +2630,12 @@ function AssetTransactionsTab({
   }
 
   function openEdit(tx: AssetTransaction) {
+    if (tx.kind !== 'buy' && tx.kind !== 'sell') return
     setEditingTx(tx)
     setFormKind(tx.kind)
     setFormHolding(tx.asset_id)
     setFormQuantity(`${tx.quantity}`)
-    setFormPrice(`${tx.price}`)
+    setFormPrice(tx.price == null ? '' : `${tx.price}`)
     setFormFee(tx.fee ? `${tx.fee}` : '')
     setFormDate(tx.date)
     setDialogOpen(true)
@@ -2716,7 +2722,8 @@ function AssetTransactionsTab({
       ) : (
         <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
           {visibleTransactions.map((tx) => {
-            const total = tx.quantity * tx.price
+            const isTrade = tx.kind === 'buy' || tx.kind === 'sell'
+            const total = isTrade && tx.price != null ? tx.quantity * tx.price : null
             const cur = tx.currency ?? 'USD'
             // A provider wrote this row and will write it again next sync, so
             // editing or deleting it only looks like it worked.
@@ -2725,9 +2732,9 @@ function AssetTransactionsTab({
               <div key={tx.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
                 <Badge
                   variant="outline"
-                  className={`text-[10px] px-1.5 py-0 shrink-0 ${tx.kind === 'buy' ? 'text-emerald-600 border-emerald-200' : 'text-rose-600 border-rose-200'}`}
+                  className={`text-[10px] px-1.5 py-0 shrink-0 ${tx.kind === 'buy' ? 'text-emerald-600 border-emerald-200' : tx.kind === 'sell' ? 'text-rose-600 border-rose-200' : ''}`}
                 >
-                  {tx.kind === 'buy' ? t('assets.txBuy') : t('assets.txSell')}
+                  {tx.kind === 'buy' ? t('assets.txBuy') : tx.kind === 'sell' ? t('assets.txSell') : t(`ownedTransfers.kind.${tx.kind}`, tx.kind === 'move_in' ? 'Transfer in' : tx.kind === 'move_out' ? 'Transfer out' : 'Fee units')}
                 </Badge>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">
@@ -2735,12 +2742,13 @@ function AssetTransactionsTab({
                   </p>
                   <p className="text-[11px] text-muted-foreground tabular-nums">
                     {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)} ·{' '}
-                    {mask(`${tx.quantity}`)} × {mask(formatCurrency(tx.price, cur, locale))}
+                    {mask(formatExactDecimal(tx.quantity_exact ?? String(tx.quantity)))}{isTrade && <> × {tx.price == null ? t('evidence.unknown', 'Unknown') : mask(formatCurrency(tx.price, cur, locale))}</>}
                   </p>
+                  {!isTrade && (tx.transfer_id || tx.source_leg_id) && <Link className="inline-flex min-h-11 items-center text-xs underline underline-offset-4" to={`/assets?${new URLSearchParams({ tab: 'activity', activity: 'transfers', ...(tx.transfer_id ? { transfer: tx.transfer_id } : { movement: tx.source_leg_id! }) })}`}>{t('ownedTransfers.reviewMovement', 'Review movement and ownership')}</Link>}
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-sm font-semibold tabular-nums text-foreground">
-                    {mask(formatCurrency(total, cur, locale))}
+                    {total == null ? (isTrade ? t('evidence.unknown', 'Unknown') : t('ownedTransfers.noSale', 'No sale gain')) : mask(formatCurrency(total, cur, locale))}
                   </p>
                   {tx.fee > 0 && (
                     <p className="text-[10px] text-muted-foreground tabular-nums">
@@ -2748,7 +2756,7 @@ function AssetTransactionsTab({
                     </p>
                   )}
                 </div>
-                {canWrite && (
+                {canWrite && isTrade && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => { if (!isSyncedTx) openEdit(tx) }}
@@ -2972,22 +2980,25 @@ function HoldingLedger({
         <p className="text-xs text-muted-foreground py-2">{t('assets.noLedgerYet')}</p>
       ) : (
         <div className="rounded-lg border border-border overflow-hidden divide-y divide-border bg-card">
-          {(txs ?? []).map((tx) => (
+          {(txs ?? []).map((tx) => {
+            const isTrade = tx.kind === 'buy' || tx.kind === 'sell'
+            return (
             <div key={tx.id} className="flex items-center gap-3 px-3 py-2">
               <Badge
                 variant="outline"
-                className={`text-[9px] px-1 py-0 shrink-0 ${tx.kind === 'buy' ? 'text-emerald-600 border-emerald-200' : 'text-rose-600 border-rose-200'}`}
+                className={`text-[9px] px-1 py-0 shrink-0 ${tx.kind === 'buy' ? 'text-emerald-600 border-emerald-200' : tx.kind === 'sell' ? 'text-rose-600 border-rose-200' : ''}`}
               >
-                {tx.kind === 'buy' ? t('assets.txBuy') : t('assets.txSell')}
+                {tx.kind === 'buy' ? t('assets.txBuy') : tx.kind === 'sell' ? t('assets.txSell') : t(`ownedTransfers.kind.${tx.kind}`, tx.kind === 'move_in' ? 'Transfer in' : tx.kind === 'move_out' ? 'Transfer out' : 'Fee units')}
               </Badge>
-              <span className="text-[11px] text-muted-foreground tabular-nums flex-1">
+              <span className="min-w-0 text-[11px] text-muted-foreground tabular-nums flex-1">
                 {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)} ·{' '}
-                {mask(`${tx.quantity}`)} × {mask(formatCurrency(tx.price, asset.currency, locale))}
+                {mask(formatExactDecimal(tx.quantity_exact ?? String(tx.quantity)))}{isTrade && <> × {tx.price == null ? t('evidence.unknown', 'Unknown') : mask(formatCurrency(tx.price, asset.currency, locale))}</>}
+                {!isTrade && (tx.transfer_id || tx.source_leg_id) && <Link className="flex min-h-11 items-center text-xs underline underline-offset-4" to={`/assets?${new URLSearchParams({ tab: 'activity', activity: 'transfers', ...(tx.transfer_id ? { transfer: tx.transfer_id } : { movement: tx.source_leg_id! }), ...(asset.group_id ? { wallet: asset.group_id } : {}) })}`}>{t('ownedTransfers.reviewMovement', 'Review movement and ownership')}</Link>}
               </span>
               <span className="text-xs font-semibold tabular-nums text-foreground">
-                {mask(formatCurrency(tx.quantity * tx.price, asset.currency, locale))}
+                {isTrade ? (tx.price == null ? t('evidence.unknown', 'Unknown') : mask(formatCurrency(tx.quantity * tx.price, asset.currency, locale))) : t('ownedTransfers.noSale', 'No sale gain')}
               </span>
-              {canWrite && (
+              {canWrite && isTrade && (
                 <button
                   onClick={() => deleteMutation.mutate(tx.id)}
                   disabled={deleteMutation.isPending}
@@ -2998,7 +3009,7 @@ function HoldingLedger({
                 </button>
               )}
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>
