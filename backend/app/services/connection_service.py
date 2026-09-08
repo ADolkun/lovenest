@@ -290,10 +290,12 @@ def _record_seen_accounts(
 def _record_balance_observation(
     connection: BankConnection, accounts: list[AccountData], provider: BankProvider,
     *, persisted_account_ids: Optional[set[str]] = None,
+    account_types: Optional[dict[str, str]] = None,
 ) -> set[str]:
     """Only paired account/holdings persistence can heal an incomplete total."""
     updated = dict(connection.settings or {})
     unavailable = set(updated.get("unavailable_account_balance_ids") or [])
+    unavailable_currencies = set(updated.get("unavailable_account_currency_ids") or [])
     snapshots = dict(updated.get("account_balance_observations") or {})
     allowed = allowlist_ids(connection.settings)
     observation = getattr(provider, "holdings_observation", None)
@@ -309,28 +311,51 @@ def _record_balance_observation(
         isinstance(observation, dict) and observation.get("complete") is False
     )
     for account in accounts:
-        if account.balance is None or incomplete:
+        metadata = account.balance_metadata or {}
+        previous = snapshots.get(account.external_id) or {}
+        recovered_validity = persisted_account_ids is not None and account.balance is not None and metadata.get("value_available") is True and (
+            previous.get("value_available") is False
+            or (previous.get("currency_available") is False and metadata.get("currency_available") is True)
+        )
+        if account.balance is None or metadata.get("value_available") is False or incomplete:
             unavailable.add(account.external_id)
-        elif persisted_account_ids and account.external_id in persisted_account_ids:
+        elif recovered_validity:
             unavailable.discard(account.external_id)
-            metadata = account.balance_metadata
+        paired = (
+            account.balance is not None and not incomplete
+            and persisted_account_ids and account.external_id in persisted_account_ids
+        )
+        if paired:
+            if metadata.get("value_available") is not False:
+                unavailable.discard(account.external_id)
             if isinstance(account_observation, dict) and account_observation.get("complete") is True:
                 metadata = {
                     "observed_at": account_observation.get("observed_at"),
                     "observation_basis": "collection", "coverage": "complete",
                 }
-            # Replace on successful paired persistence only. A failed/partial
-            # retry retains the timestamp that belongs to the retained amount.
+        if allowed is not None and account.external_id not in allowed:
+            continue
+        # Currency validity belongs to the current account read even if a
+        # changed amount makes the retained T0 snapshot inapplicable.
+        if persisted_account_ids is not None and account.balance is not None:
+            if metadata.get("currency_available") is False:
+                unavailable_currencies.add(account.external_id)
+            elif metadata.get("currency_available") is True:
+                unavailable_currencies.discard(account.external_id)
+        if paired or recovered_validity or (not previous and metadata):
+            # Even the first account-only read carries validity facts. Bind
+            # them to the stored sign convention, including user card overrides.
+            amount = _simplefin_to_internal_balance(
+                connection.provider, (account_types or {}).get(account.external_id, account.type),
+                account.balance,
+            ) if account.balance is not None else None
             snapshots[account.external_id] = {
-                **(metadata or {}), "amount": str(account.balance.quantize(Decimal("0.01"))),
+                **metadata, "amount": str(amount.quantize(Decimal("0.01"))) if amount is not None else None,
                 "currency": account.currency,
             }
-        elif (
-            persisted_account_ids is not None and account.external_id in snapshots
-            and (allowed is None or account.external_id in allowed)
-        ):
+        if not paired and account.external_id in snapshots:
             # Account writes can succeed before a holdings read fails or is
-            # disabled. They do not verify the retained holding inventory.
+            # disabled. Preserve a retained T0 value/time; T1 cannot verify it.
             snapshots[account.external_id] = {
                 **snapshots[account.external_id], "holdings_complete": False,
                 "holdings_refresh_status": "unconfirmed",
@@ -339,6 +364,10 @@ def _record_balance_observation(
         updated["unavailable_account_balance_ids"] = sorted(unavailable)
     else:
         updated.pop("unavailable_account_balance_ids", None)
+    if unavailable_currencies:
+        updated["unavailable_account_currency_ids"] = sorted(unavailable_currencies)
+    else:
+        updated.pop("unavailable_account_currency_ids", None)
     if isinstance(observation, dict):
         updated["holdings_observation"] = dict(observation)
         if changed:
@@ -1875,6 +1904,7 @@ async def handle_oauth_callback(
         connection, connection_data.accounts, provider,
         persisted_account_ids={a.external_id for a in created_accounts if a.external_id}
         if holdings_persisted else set(),
+        account_types={a.external_id: a.type for a in created_accounts if a.external_id},
     )
     for account in created_accounts:
         if account.external_id not in unavailable:
@@ -3140,6 +3170,7 @@ async def sync_connection(
             connection, provider_accounts, provider,
             persisted_account_ids={a.external_id for a in synced_account_rows if a.external_id}
             if holdings_persisted else set(),
+            account_types={a.external_id: a.type for a in synced_account_rows if a.external_id},
         )
         incomplete_balances = any(a.external_id in unavailable for a in accounts_data)
         for account in synced_account_rows:

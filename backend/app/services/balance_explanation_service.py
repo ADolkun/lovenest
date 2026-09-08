@@ -59,8 +59,12 @@ def _reconcile(detail: BalanceExplanation, scope_matches: bool) -> None:
         return
     if not scope_matches:
         reasons.append("account_scope_mismatch")
-    if detail.currency != detail.holdings_currency:
-        reasons.append("currency_mismatch")
+    if not detail.currency:
+        reasons.append("currency_unknown")
+    elif detail.currency != detail.holdings_currency:
+        reasons.append("currency_mismatch" if any(
+            h.currency and h.currency != detail.currency for h in detail.holdings
+        ) else "currency_unknown")
     if detail.observed_at is None or detail.observation_basis != "source" or any(
         h.observed_at is None or h.observation_basis not in {"source", "quote"}
         for h in detail.holdings
@@ -69,7 +73,8 @@ def _reconcile(detail: BalanceExplanation, scope_matches: bool) -> None:
     elif any(h.observed_at != detail.observed_at for h in detail.holdings):
         reasons.append("observation_time_mismatch")
     if (
-        not scope_matches or detail.currency != detail.holdings_currency
+        not scope_matches or not detail.currency or not detail.holdings_currency
+        or detail.currency != detail.holdings_currency
         or detail.coverage != "complete" or detail.holdings_coverage != "complete"
         or detail.refresh_status != "active" or detail.amount is None
         or detail.holdings_value is None
@@ -156,7 +161,7 @@ async def explain_balance(
             if snapshot.get("value_available") is False:
                 detail.amount = None
                 detail.reason_codes.append("account_balance_unavailable")
-            if snapshot.get("currency_available") is False:
+            if snapshot.get("currency_available") is False or account.external_id in settings.get("unavailable_account_currency_ids", []):
                 detail.currency = None
                 detail.reason_codes.append("currency_unknown")
             count = snapshot.get("omitted_count")

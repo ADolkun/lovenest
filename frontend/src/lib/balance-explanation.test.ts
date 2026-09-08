@@ -64,3 +64,21 @@ it('uses same-currency native values when the converted field is absent, never f
   expect(valueInCurrency({ current_value: 70, current_value_primary: null, currency: 'EUR' }, 'USD')).toBeNull()
   expect(valueInCurrency({ current_value: 70, current_value_primary: 0, currency: 'USD' }, 'USD')).toBe(0)
 })
+
+it.each([null, 'EUR'])('withholds explicit missing or different source currency: %s', (currency) => {
+  const invalid = { ...account, balance_explanation: { ...account.balance_explanation!, currency } }
+  expect(accountBalance(invalid, 'workspace')).toBeNull()
+  expect(accountAggregate([invalid], 'USD', 'workspace')).toEqual({ amount: null, incomplete: true })
+  expect(accountAggregate([account, invalid], 'USD', 'workspace')).toEqual({ amount: 120, incomplete: true })
+})
+
+it('rejects changed quote age, quantity, native currency and value without rejecting supported zero', () => {
+  const quoted = { ...asset, last_price_at: '2026-01-01T00:00:00Z' }
+  const snapshot = { ...wallet, balance_explanation: { ...wallet.balance_explanation!, holdings: wallet.balance_explanation!.holdings.map((holding) => ({ ...holding, observation_basis: 'quote' })) } }
+  expect(buildPortfolio([quoted], [snapshot], 'USD').liquidCashTotal).toBe(50)
+  for (const changed of [{ ...quoted, last_price_at: '2026-01-02T00:00:00Z' }, { ...quoted, units: 8 }, { ...quoted, currency: 'EUR' }, { ...quoted, current_value: 80 }]) {
+    expect(buildPortfolio([changed], [snapshot], 'USD').unknownCashWalletIds).toEqual(['wallet-a'])
+  }
+  const zero = { ...quoted, current_value: 0, current_value_primary: 0 }
+  expect(buildPortfolio([zero], [reportedWallet({ ...wallet, account_balance: 0 }, [zero])], 'USD').unknownCashWalletIds).toEqual([])
+})

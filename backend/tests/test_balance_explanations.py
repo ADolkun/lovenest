@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -377,4 +377,154 @@ async def test_unknown_source_currency_is_not_the_provider_fallback(
     await session.commit()
     [read] = await account_service.get_accounts(session, test_workspace.id)
     assert read["balance_explanation"].currency is None
+    assert "currency_unknown" in read["balance_explanation"].reason_codes
+    assert "currency_mismatch" not in read["balance_explanation"].reason_codes
     assert read["balance_explanation"].residual_cash is None
+
+
+@pytest.mark.parametrize('sync_assets', [False, True])
+@pytest.mark.parametrize('source_balance,expected_amount', [(None, None), ('', None), ('invalid', None), ('0', 0), ('120', 120)])
+async def test_real_sync_invalid_balance_without_successful_holdings(session, test_user, test_workspace, sync_assets, source_balance, expected_amount):
+    from app.services.connection_service import sync_connection
+    account, _, connection, _ = await _portfolio(session, test_user, test_workspace, values=())
+    connection.credentials = {'synthetic': 'credential'}
+    connection.settings = {'sync_assets': sync_assets}
+    await session.commit()
+    _, [data] = SimpleFinProvider._parse_accounts({'accounts': [{
+        'id': account.external_id, 'balance': source_balance, 'currency': 'BRL', 'holdings': [],
+    }]})
+    provider = SimpleFinProvider()
+    provider.refresh_credentials = AsyncMock(return_value={'synthetic': 'credential'})
+    provider.get_institution_logo = AsyncMock(return_value=None)
+    provider.get_accounts = AsyncMock(return_value=[data])
+    provider.get_transactions = AsyncMock(return_value=[])
+    provider.get_holdings = AsyncMock(side_effect=RuntimeError('Synthetic holdings failure'))
+    provider.get_trades = AsyncMock(return_value=[])
+    saved_account_id, saved_workspace_id = account.id, test_workspace.id
+    with patch('app.services.connection_service.get_provider', return_value=provider):
+        await sync_connection(session, connection.id, test_workspace.id, test_user.id)
+    [read] = await account_service.get_accounts(session, saved_workspace_id, account_id=saved_account_id)
+    detail = read['balance_explanation']
+    assert detail.amount == expected_amount
+    assert detail.residual_cash is None
+
+
+@pytest.mark.parametrize('source_balance', ['-120', '120', '0'])
+async def test_real_simplefin_card_observation_binding(session, test_user, test_workspace, source_balance):
+    from app.services.connection_service import sync_connection
+    account, _, connection, _ = await _portfolio(session, test_user, test_workspace, values=())
+    account.type = 'credit_card'
+    connection.credentials = {'synthetic': 'credential'}
+    connection.settings = {'sync_assets': True}
+    await session.commit()
+    _, [data] = SimpleFinProvider._parse_accounts({'accounts': [{
+        'id': account.external_id, 'balance': source_balance, 'currency': 'BRL',
+        'holdings': [], 'balance-date': int(T0.timestamp()),
+    }]})
+    provider = SimpleFinProvider()
+    provider.refresh_credentials = AsyncMock(return_value={'synthetic': 'credential'})
+    provider.get_institution_logo = AsyncMock(return_value=None)
+    provider.get_accounts = AsyncMock(return_value=[data])
+    provider.get_transactions = AsyncMock(return_value=[])
+    provider.get_holdings = AsyncMock(return_value=[])
+    provider.get_trades = AsyncMock(return_value=[])
+    with patch('app.services.connection_service.get_provider', return_value=provider):
+        await sync_connection(session, connection.id, test_workspace.id, test_user.id)
+    [read] = await account_service.get_accounts(session, test_workspace.id, account_id=account.id)
+    detail = read['balance_explanation']
+    assert detail.amount == float(source_balance)
+    assert detail.observed_at == T0
+    assert 'account_observation_changed' not in detail.reason_codes
+
+
+@pytest.mark.parametrize('sync_assets', [False, True])
+@pytest.mark.parametrize('recovered_balance', ['0', '120'])
+async def test_account_validity_recovers_without_confirming_holdings(
+    session, test_user, test_workspace, sync_assets, recovered_balance,
+):
+    from app.services.connection_service import sync_connection
+    account, _, connection, _ = await _portfolio(session, test_user, test_workspace, values=())
+    connection.credentials = {'synthetic': 'credential'}
+    connection.settings = {'sync_assets': sync_assets}
+    await session.commit()
+    account_id, external_id = account.id, account.external_id
+    connection_id, workspace_id, user_id = connection.id, test_workspace.id, test_user.id
+    provider = SimpleFinProvider()
+    provider.refresh_credentials = AsyncMock(return_value={'synthetic': 'credential'})
+    provider.get_institution_logo = AsyncMock(return_value=None)
+    provider.get_transactions = AsyncMock(return_value=[])
+    provider.get_holdings = AsyncMock(side_effect=RuntimeError('Synthetic holdings failure'))
+    provider.get_trades = AsyncMock(return_value=[])
+    with patch('app.services.connection_service.get_provider', return_value=provider):
+        for balance, moment, expected in [(None, T0, None), (recovered_balance, T0 + timedelta(days=1), float(recovered_balance))]:
+            _, [data] = SimpleFinProvider._parse_accounts({'accounts': [{
+                'id': external_id, 'balance': balance, 'currency': 'BRL',
+                'holdings': [], 'balance-date': int(moment.timestamp()),
+            }]})
+            provider.get_accounts = AsyncMock(return_value=[data])
+            await sync_connection(session, connection_id, workspace_id, user_id)
+            [read] = await account_service.get_accounts(session, workspace_id, account_id=account_id)
+            detail = read['balance_explanation']
+            assert detail.amount == expected
+            assert detail.observed_at == moment
+            assert detail.residual_cash is None
+            assert 'holdings_refresh_unconfirmed' in detail.reason_codes
+            if expected is not None:
+                assert 'account_balance_unavailable' not in detail.reason_codes
+
+
+@pytest.mark.parametrize('balance', ['120', '130'])
+async def test_rejected_current_currency_survives_retained_snapshot_binding(
+    session, test_user, test_workspace, balance,
+):
+    from app.services.connection_service import sync_connection
+    account, _, connection, _ = await _portfolio(session, test_user, test_workspace, values=())
+    connection.credentials = {'synthetic': 'credential'}
+    original = connection.settings['account_balance_observations'][account.external_id]
+    connection.settings = {**connection.settings, 'sync_assets': False}
+    account.currency = 'USD'
+    connection.settings = {**connection.settings, 'account_balance_observations': {
+        account.external_id: {**original, 'currency': 'USD'},
+    }}
+    await session.commit()
+    account_id, external_id = account.id, account.external_id
+    connection_id, workspace_id, user_id = connection.id, test_workspace.id, test_user.id
+    provider = SimpleFinProvider()
+    provider.refresh_credentials = AsyncMock(return_value={'synthetic': 'credential'})
+    provider.get_institution_logo = AsyncMock(return_value=None)
+    provider.get_transactions = AsyncMock(return_value=[])
+    with patch('app.services.connection_service.get_provider', return_value=provider):
+        for currency in ('invalid', 'USD'):
+            _, [data] = SimpleFinProvider._parse_accounts({'accounts': [{
+                'id': external_id, 'balance': balance, 'currency': currency,
+                'holdings': [], 'balance-date': int((T0 + timedelta(days=1)).timestamp()),
+            }]})
+            provider.get_accounts = AsyncMock(return_value=[data])
+            await sync_connection(session, connection_id, workspace_id, user_id)
+            [read] = await account_service.get_accounts(session, workspace_id, account_id=account_id)
+            detail = read['balance_explanation']
+            assert detail.amount == float(balance)
+            assert detail.currency == (None if currency == 'invalid' else 'USD')
+            assert ('currency_unknown' in detail.reason_codes) == (currency == 'invalid')
+            assert detail.residual_cash is None
+            if balance == '120':
+                assert detail.observed_at == T0
+
+
+async def test_asset_api_clocks_match_explanation_instants(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    _, group, _, holdings = await _portfolio(session, test_user, test_workspace)
+    holdings[0].last_price_at = T0.replace(tzinfo=None)
+    recorded = await session.scalar(select(AssetValue).where(AssetValue.asset_id == holdings[1].id))
+    assert recorded is not None
+    recorded.recorded_at = T0.replace(tzinfo=None)
+    await session.commit()
+    response = await client.get('/api/assets', headers=auth_headers)
+    assert response.status_code == 200
+    by_id = {item['id']: item for item in response.json()}
+    assert datetime.fromisoformat(by_id[str(holdings[0].id)]['last_price_at']) == T0
+    assert datetime.fromisoformat(by_id[str(holdings[1].id)]['value_updated_at']) == T0
+    read = await asset_group_service.get_group(session, group.id, test_workspace.id, test_user.id)
+    assert read is not None and read.balance_explanation is not None
+    assert read.balance_explanation.holdings[0].observed_at == T0

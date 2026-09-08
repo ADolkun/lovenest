@@ -1,4 +1,4 @@
-import type { Account, AssetGroup } from '@/types'
+import type { Account, Asset, AssetGroup } from '@/types'
 import type { BalanceExplanation, BalanceHolding } from '@/types/balance-explanation'
 
 export function knownAmount(value: unknown): number | null {
@@ -21,8 +21,10 @@ export function scopedExplanation(subject: Account | AssetGroup, workspaceId?: s
 
 export function accountBalance(account: Account, workspaceId?: string): number | null {
   const detail = scopedExplanation(account, workspaceId)
-  // A present but wrong-scope response must never fall back to its headline.
-  return account.balance_explanation ? knownAmount(detail?.amount) : knownAmount(account.current_balance)
+  // Explicit source facts cannot fall back to a legacy scope or currency.
+  return account.balance_explanation
+    ? detail?.currency && detail.currency === account.currency ? knownAmount(detail.amount) : null
+    : knownAmount(account.current_balance)
 }
 
 export function accountBasis(account: Account, workspaceId?: string): BalanceExplanation['basis'] {
@@ -49,6 +51,17 @@ export function walletCash(wallet: AssetGroup, currency?: string): number | null
   if (!detail || !currency || detail.holdings_currency !== currency || detail.currency !== currency || detail.association !== 'resolved' || detail.basis !== 'reported_account_total' || detail.coverage !== 'complete' || detail.refresh_status !== 'active' || detail.holdings_coverage !== 'complete' || !['residual_derived', 'matched', 'difference'].includes(detail.reconciliation)) return null
   const cash = knownAmount(detail.residual_cash)
   return cash === null ? null : Math.max(0, cash)
+}
+
+/** Compare the actual contributors before applying a retained snapshot to a current view. */
+export function holdingsMatchSnapshot(expected: BalanceHolding[], holdings: Asset[]): boolean {
+  return expected.length === holdings.length && expected.every((item) => holdings.some((asset) =>
+    asset.id === item.asset_id && asset.group_id === item.wallet_id && asset.currency === item.currency &&
+    knownAmount(asset.current_value) === knownAmount(item.value) &&
+    knownAmount(asset.units) === knownAmount(item.quantity) &&
+    (item.observation_basis !== 'quote' || Date.parse(asset.last_price_at ?? '') === Date.parse(item.observed_at ?? '')) &&
+    (item.observation_basis !== 'recorded' || Date.parse(asset.value_updated_at ?? '') === Date.parse(item.observed_at ?? '')),
+  ))
 }
 
 export function holdingComponents(holdings: BalanceHolding[]) {

@@ -1,5 +1,5 @@
 import uuid
-from datetime import date as _date, datetime
+from datetime import date as _date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -120,6 +120,12 @@ class AssetRead(BaseModel):
     transaction_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("last_price_at", "value_updated_at")
+    @classmethod
+    def database_observation_clock(cls, value: Optional[datetime]) -> Optional[datetime]:
+        # These are persisted UTC clocks, unlike unverified provider timestamps.
+        return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
 
 
 class AssetTransactionCreate(BaseModel):

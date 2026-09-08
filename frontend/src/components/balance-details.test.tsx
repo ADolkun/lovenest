@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
-import { AccountBalanceBasis, BalanceDetails } from './balance-details'
+import { AccountBalanceAmount, AccountBalanceBasis, BalanceDetails } from './balance-details'
 import PositionsTab from './positions-tab'
 import { assets } from '@/lib/api'
 import { renderWithProviders } from '@/test/utils'
@@ -37,15 +37,20 @@ it('shows the same source basis and explanation from account and wallet entrypoi
 })
 
 it('names missing holdings while retaining quantity and original observation age after failure', async () => {
-  const broken = { ...wallet, balance_explanation: { ...wallet.balance_explanation!, observed_at: null, refresh_status: 'error', refresh_observed_at: '2026-01-02T00:00:00Z', reason_codes: ['refresh_failed', 'missing_holding_value'], residual_cash: null, reconciliation: 'not_comparable' as const, holdings: [{ ...wallet.balance_explanation!.holdings[0], value: null }] } }
+  const observedAt = '2026-01-01T00:00:00Z'
+  const refreshedAt = '2026-01-02T00:00:00Z'
+  const broken = { ...wallet, balance_explanation: { ...wallet.balance_explanation!, observed_at: observedAt, refresh_status: 'error', refresh_observed_at: refreshedAt, reason_codes: ['refresh_failed', 'missing_holding_value'], residual_cash: null, reconciliation: 'not_comparable' as const, holdings: [{ ...wallet.balance_explanation!.holdings[0], value: null, observed_at: null }] } }
   const { user } = renderWithProviders(<BalanceDetails workspaceId="workspace" wallets={[broken]} holdingsError />)
   await user.click(screen.getByRole('button', { name: 'Balance details: Wallet A' }))
   expect(screen.getByRole('alert')).toHaveTextContent('holdings request failed')
   expect(screen.getByText('Example fund')).toBeInTheDocument()
   expect(screen.getByText('Quantity: 7')).toBeInTheDocument()
-  expect(screen.getAllByText('Unknown age').length).toBeGreaterThan(0)
+  expect(screen.getByText('Example fund').closest('li')).toHaveTextContent('Observed at: Unknown age')
   expect(screen.getByText('Quote or valuation unavailable')).toBeInTheDocument()
-  expect(screen.getByText(/1\/1\/2026/)).toBeInTheDocument()
+  const observation = screen.getByText('Observed at', { selector: 'dt' }).parentElement!
+  expect(within(observation).getByRole('definition').textContent).toBe(new Date(observedAt).toLocaleString('en-US'))
+  const refresh = screen.getByText('Latest refresh', { selector: 'dt' }).parentElement!
+  expect(within(refresh).getAllByRole('definition').map((item) => item.textContent)).toEqual(['Refresh failed', new Date(refreshedAt).toLocaleString('en-US')])
   expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
 })
 
@@ -96,4 +101,33 @@ it('routes viewers to connection status and editors to existing settings without
   rerender(<BalanceDetails account={connected} canWrite />)
   await user.click(screen.getByRole('button', { name: 'Balance details: Account A' }))
   expect(screen.getByRole('link', { name: 'Review connection' })).toHaveAttribute('href', '/accounts?review=connection-a')
+})
+
+it.each([
+  { current_value: 80, current_value_primary: 80, last_price_at: '2026-01-02T00:00:00Z' },
+  { current_value: 70, current_value_primary: 70, last_price_at: '2026-01-02T00:00:00Z' },
+])('qualifies a successful changed holdings response independently of the retained source snapshot: %s', async (change) => {
+  const original = { ...holding, last_price_at: '2026-01-01T00:00:00Z' }
+  const source = reportedWallet(wallet, [original])
+  source.balance_explanation!.holdings[0].observation_basis = 'quote'
+  const { user } = renderWithProviders(<BalanceDetails workspaceId="workspace" wallets={[source]} holdings={[{ ...original, ...change }]} />)
+  await user.click(screen.getByRole('button', { name: 'Balance details: Wallet A' }))
+  const dialog = within(screen.getByRole('dialog'))
+  expect(dialog.getByRole('status')).toHaveTextContent('current holdings differ from the retained source snapshot')
+  expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
+  expect(dialog.queryByText(/\$50\.00/)).not.toBeInTheDocument()
+  expect(dialog.queryByText('Complete for the stated scope')).not.toBeInTheDocument()
+  expect(dialog.getByText('Successful refresh')).toBeInTheDocument()
+  const row = dialog.getByText('Example fund').closest('li')!
+  expect(row).toHaveTextContent(`$${change.current_value.toFixed(2)}`)
+  expect(row).toHaveTextContent(new Date(change.last_price_at).toLocaleString('en-US'))
+})
+
+
+it.each([null, 'EUR'])('marks a rejected headline currency unavailable and incomplete: %s', (currency) => {
+  const invalid = { ...account, balance_explanation: { ...account.balance_explanation!, currency } }
+  renderWithProviders(<><span><AccountBalanceAmount account={invalid} /></span><AccountBalanceBasis account={invalid} /></>)
+  expect(screen.getByText('Unavailable')).toBeInTheDocument()
+  expect(screen.getByText('Partial or unverified coverage')).toBeInTheDocument()
+  expect(screen.queryByText('$120.00')).not.toBeInTheDocument()
 })

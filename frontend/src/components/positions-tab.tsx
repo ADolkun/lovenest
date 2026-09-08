@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
@@ -37,7 +37,6 @@ interface PositionsTabProps {
   onOpenHolding: (assetId: string) => void
   children?: ReactNode
   walletContent?: ReactNode
-  onShowPositions?: () => void
 }
 
 const ACCOUNT_TYPE_KEYS: Record<string, string> = {
@@ -299,11 +298,27 @@ export default function PositionsTab({
   onOpenHolding,
   children,
   walletContent,
-  onShowPositions,
 }: PositionsTabProps) {
   const { t } = useTranslation()
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
-  const [filter, setFilter] = useState<AllocationFilter | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const allocation = searchParams.get('allocation')
+  const allocationKey = searchParams.get('allocationKey')
+  const filter = useMemo<AllocationFilter | null>(() => allocationKey && (allocation === 'class' || allocation === 'wallet' || allocation === 'accountType')
+    ? { dim: allocation, key: allocationKey } : null, [allocation, allocationKey])
+  const setFilter = (nextFilter: AllocationFilter | null) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'portfolio')
+    next.set('view', 'assets')
+    if (nextFilter) {
+      next.set('allocation', nextFilter.dim)
+      next.set('allocationKey', nextFilter.key)
+    } else {
+      next.delete('allocation')
+      next.delete('allocationKey')
+    }
+    setSearchParams(next, { replace: true })
+  }
 
   const walletsById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets])
   const portfolio = useMemo(() => buildPortfolio(holdings, wallets.map((wallet) => holdingsError || (workspaceId && wallet.balance_explanation?.workspace_id !== workspaceId) ? { ...wallet, balance_explanation: null } : wallet), currency), [holdings, wallets, currency, holdingsError, workspaceId])
@@ -342,6 +357,10 @@ export default function PositionsTab({
     () => (filter && !walletContent ? filterPortfolio(portfolio, filter) : portfolio),
     [filter, portfolio, walletContent],
   )
+  const selectedHoldingIds = view.positions.flatMap((position) => position.legs.map((leg) => leg.assetId))
+  const detailHoldings = filter && !walletContent
+    ? holdings.filter((holding) => view.wallets.some((wallet) => wallet.id === holding.group_id) || selectedHoldingIds.includes(holding.id))
+    : holdings
   // Match buildPortfolio's scope: a separately listed manual asset cannot
   // make a fully priced ticker allocation incomplete.
   const unpricedIds = new Set(holdings.filter((holding) =>
@@ -411,8 +430,7 @@ export default function PositionsTab({
 
   const toggleFilter = (dim: AllocationDim, key: string) => {
     setExpandedTicker(null)
-    onShowPositions?.()
-    setFilter((current) => (!walletContent && current?.dim === dim && current.key === key ? null : { dim, key }))
+    setFilter(!walletContent && filter?.dim === dim && filter.key === key ? null : { dim, key })
   }
 
   // The ranking answers "where is my concentration risk", so what allocation
@@ -741,7 +759,7 @@ export default function PositionsTab({
             {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
           </div>
         </dl>
-        <BalanceDetails canWrite={canWrite} workspaceId={workspaceId} wallets={view.wallets} holdings={holdings} holdingIds={filter?.dim === 'class' ? view.positions.flatMap((position) => position.legs.map((leg) => leg.assetId)) : undefined} holdingsError={holdingsError} canOpenAccounts={canOpenAccounts} />
+        <BalanceDetails canWrite={canWrite} workspaceId={workspaceId} wallets={view.wallets.map((wallet) => walletsById.get(wallet.id) ?? wallet)} holdings={detailHoldings} holdingIds={filter?.dim === 'class' && !walletContent ? selectedHoldingIds : undefined} holdingsError={holdingsError} canOpenAccounts={canOpenAccounts} />
         {hasUnknownCash && <p role="status" className="mt-4 text-sm text-muted-foreground">{t('assets.unknownCashHint', 'Some wallet cash balances are unavailable. Balance and cash totals include known values only.')}</p>}
         {walletIncome && <p className="mt-4 text-sm text-muted-foreground">{t('assets.posWalletIncome')} <span className="ml-2 font-medium tabular-nums text-foreground">{money(walletIncome.total)}</span></p>}
         <details className="mt-4 border-t border-border pt-3">

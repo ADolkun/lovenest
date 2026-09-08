@@ -44,7 +44,10 @@ export function AccountHoldingsSummary({ account, wallets, size = 'default' }: {
   const queryClient = useQueryClient()
   const unlink = useMutation({
     mutationFn: (id: string) => assetGroups.update(id, { account_id: null }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['asset-groups'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
     onError: (error) => toast.error(extractApiError(error, t('common.error'))),
   })
   const linked = wallets.filter((wallet) => wallet.account_id === account.id)
@@ -84,6 +87,7 @@ function WalletLinkRow({ wallet, accounts }: { wallet: AssetGroup; accounts: Acc
     mutationFn: () => assetGroups.update(wallet.id, { account_id: accountId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success(t('accountHoldings.linked'))
     },
     onError: (error) => toast.error(extractApiError(error, t('common.error'))),

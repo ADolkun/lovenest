@@ -1,5 +1,5 @@
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
-import { walletCash } from '@/lib/balance-explanation'
+import { holdingsMatchSnapshot, walletCash } from '@/lib/balance-explanation'
 
 // CONTEXT.md: a Cash Equivalent behaves as Liquid Cash, so it is never an
 // invested position. The classification is the user's, stored on `Asset.type`;
@@ -146,8 +146,7 @@ function liquidCashPerWallet(assets: Asset[], wallets: AssetGroup[], currency?: 
     if (amount === null) continue
     const holdings = assets.filter((asset) => asset.group_id === wallet.id && !asset.is_archived && !asset.sell_date)
     if (holdings.some((asset) => !hasValue(asset))) continue
-    const expected = wallet.balance_explanation!.holdings
-    if (expected.length !== holdings.length || expected.some((item) => !holdings.some((asset) => asset.id === item.asset_id && Number(asset.current_value ?? asset.current_value_primary) === item.value))) continue
+    if (!holdingsMatchSnapshot(wallet.balance_explanation!.holdings, holdings)) continue
     cash.set(wallet.id, amount)
   }
   return cash

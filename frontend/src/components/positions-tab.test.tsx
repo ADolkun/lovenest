@@ -8,7 +8,7 @@ import type { Asset, AssetGroup, TaxLots, WashSaleExposure } from '@/types'
 
 vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }) }))
 
-const known = { id: 'known', ticker: 'KNOWN', name: 'Known fund', type: 'stock', units: 2, current_value: 125, current_value_primary: 125, gain_loss: 25, gain_loss_primary: 25, group_id: null, sell_date: null, is_archived: false } as Asset
+const known = { id: 'known', ticker: 'KNOWN', name: 'Known fund', type: 'stock', currency: 'USD', units: 2, current_value: 125, current_value_primary: 125, gain_loss: 25, gain_loss_primary: 25, group_id: null, sell_date: null, is_archived: false } as Asset
 const unknown = { ...known, id: 'unknown', ticker: 'UNKNOWN', name: 'Unpriced fund', current_value: null, current_value_primary: null, gain_loss: null, gain_loss_primary: null }
 
 beforeEach(() => {

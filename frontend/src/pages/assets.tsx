@@ -15,6 +15,7 @@ import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { summariesByWallet } from '@/lib/contributions'
 import { CASH_EQUIVALENT_TYPE } from '@/lib/positions'
 import {
@@ -364,10 +365,9 @@ export default function AssetsPage() {
   // combined with the dialog-close re-render was sometimes leaving the
   // asset list showing pre-edit data until the user manually reloaded.
   function refetchAssetViews() {
+    invalidateFinancialQueries(queryClient)
     queryClient.refetchQueries({ queryKey: ['assets'] })
-    queryClient.refetchQueries({ queryKey: ['asset-groups'] })
     queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
-    queryClient.refetchQueries({ queryKey: ['dashboard'] })
   }
 
   const createMutation = useMutation({
@@ -469,8 +469,7 @@ export default function AssetsPage() {
     mutationFn: (id: string) => assetGroups.delete(id),
     onSuccess: () => {
       // Deleting a wallet un-groups its assets (backend sets group_id=null).
-      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
-      queryClient.refetchQueries({ queryKey: ['assets'] })
+      refetchAssetViews()
       setDeletingWalletId(null)
       toast.success(t('assets.walletDeleted'))
     },
@@ -481,8 +480,7 @@ export default function AssetsPage() {
     mutationFn: ({ id, groupId }: { id: string; groupId: string | null }) =>
       assets.update(id, { group_id: groupId } as Partial<Asset>),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ['assets'] })
-      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
+      refetchAssetViews()
       setMovingAsset(null)
       toast.success(t('assets.moved'))
     },
@@ -928,7 +926,7 @@ export default function AssetsPage() {
           isMarketPriced ? (
             <>
               {/* Value-evolution chart on top, then the buy/sell ledger. */}
-              <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant="chart" />
+              <AssetDetail onChanged={refetchAssetViews} assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant="chart" />
               <HoldingLedger
                 asset={asset}
                 locale={locale}
@@ -940,7 +938,7 @@ export default function AssetsPage() {
               />
             </>
           ) : (
-            <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant={isProviderOwned ? 'chart-alone' : 'full'} />
+            <AssetDetail onChanged={refetchAssetViews} assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant={isProviderOwned ? 'chart-alone' : 'full'} />
           )
         )}
       </div>
@@ -1272,7 +1270,6 @@ export default function AssetsPage() {
                     setView({ view: 'wallets', wallet: holding?.group_id ?? null, holding: id })
                   }}
                   walletContent={portfolioView === 'wallets' ? walletHoldings : undefined}
-                  onShowPositions={() => setView({ view: 'assets' })}
                 >
                   {holdingsControls}
                 </PositionsTab>
@@ -2195,11 +2192,12 @@ function renderAssetTradeDot(props: {
   )
 }
 
-function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite, variant = 'full' }: {
+function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purchasePrice, purchaseDate, valuationMethod, canWrite, onChanged, variant = 'full' }: {
   assetId: string; currency: string; locale: string; dateLocale: string
   purchasePrice: number | null; purchaseDate: string | null
   valuationMethod: string
   canWrite: boolean
+  onChanged: () => void
   /**
    * How much of the panel this is:
    *   `full`        — chart, manual value form and value history.
@@ -2290,12 +2288,9 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
     mutationFn: ({ assetId: id, ...data }: { assetId: string; amount: number; date: string }) =>
       assets.addValue(id, data),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ['assets'] })
-      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
+      onChanged()
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
-      queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
-      queryClient.refetchQueries({ queryKey: ['dashboard'] })
       setValueAmount('')
       toast.success(t('assets.valueAdded'))
     },
@@ -2305,12 +2300,9 @@ function AssetDetail({ assetId, currency, locale: loc, dateLocale: dateLoc, purc
   const deleteValueMutation = useMutation({
     mutationFn: (valueId: string) => assets.deleteValue(valueId),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ['assets'] })
-      queryClient.refetchQueries({ queryKey: ['asset-groups'] })
+      onChanged()
       queryClient.refetchQueries({ queryKey: ['asset-values', assetId] })
       queryClient.refetchQueries({ queryKey: ['asset-trend', assetId] })
-      queryClient.refetchQueries({ queryKey: ['portfolio-trend'] })
-      queryClient.refetchQueries({ queryKey: ['dashboard'] })
       toast.success(t('assets.valueDeleted'))
     },
     onError: (e) => toast.error(assetErrorMessage(e, t('common.error'))),
