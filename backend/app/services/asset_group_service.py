@@ -13,6 +13,7 @@ from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue, latest_value_first
 from app.models.bank_connection import BankConnection
+from app.models.investment_evidence import InvestmentHistoryCollection
 from app.models.user import User
 from app.schemas.asset_group import (
     AssetGroupCreate,
@@ -343,7 +344,7 @@ async def _primary_currency_for(session: AsyncSession, user_id: uuid.UUID) -> st
 
 
 async def get_groups(
-    session: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID, *, include_empty: bool = False
 ) -> list[AssetGroupRead]:
     result = await session.execute(
         select(AssetGroup)
@@ -354,6 +355,15 @@ async def get_groups(
     if not groups:
         return []
     primary = await _primary_currency_for(session, user_id)
+    watched = {}
+    if include_empty:
+        # Retained requests carry the producer's exact wallet/connection mapping.
+        # This is a saved research input, not a beneficial-ownership conclusion.
+        for group_id, connection_id, request in (await session.execute(select(
+            InvestmentHistoryCollection.group_id, InvestmentHistoryCollection.connection_id, InvestmentHistoryCollection.request,
+        ).where(InvestmentHistoryCollection.workspace_id == workspace_id))).all():
+            if request.get("chain") and request.get("address"):
+                watched.setdefault((group_id, connection_id), set()).add(f"{request['chain']}:{request['address']}")
     reads = []
     for g in groups:
         count, cv, cvp, ccy, unvalued = await _rollup(session, g, primary)
@@ -361,7 +371,7 @@ async def get_groups(
         # visible even when empty, but hide empty synced wallets (connected or
         # orphaned) to avoid duplicate provider placeholders like
         # "MeuPluggy 4 · 0 items" after reconnects/migrations.
-        if g.source != "manual" and count == 0:
+        if not include_empty and g.source != "manual" and count == 0:
             continue
         institution = await _institution_name_for(session, g)
         account_type, balance, account_id = await _account_type_and_balance_for(session, g, primary)
@@ -369,6 +379,7 @@ async def get_groups(
             g, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
             balance_explanation=await _balance_explanation_for_group(session, g),
         ))
+        reads[-1].watched_address_keys = sorted(watched.get((g.id, g.connection_id), []))
     return reads
 
 

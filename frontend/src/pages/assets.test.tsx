@@ -4,9 +4,11 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import AssetsPage from './assets'
 import { renderWithProviders, t } from '@/test/utils'
 import { assets, assetGroups, contributions, currencies, onchain } from '@/lib/api'
+import { timeline } from '@/lib/timeline-api'
+import type { TimelineRead } from '@/types/timeline'
 import type { Asset, AssetGroup, AssetTransaction } from '@/types'
 
-const scope = vi.hoisted(() => ({ activeWalletIds: null as string[] | null, onchainEnabled: false, canWrite: false }))
+const scope = vi.hoisted(() => ({ activeWalletIds: null as string[] | null, activeCollectionId: null as string | null, onchainEnabled: false, canWrite: false }))
 vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }) }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: () => ({ current: { id: 'workspace', name: 'Investments' }, canWrite: scope.canWrite, hasModule: () => true }) }))
 vi.mock('@/contexts/collection-filter-context', () => ({ useCollectionFilter: () => scope }))
@@ -39,6 +41,7 @@ it('renders movement and fee quantities without trade price math or ordinary edi
 beforeEach(() => {
   vi.restoreAllMocks()
   scope.activeWalletIds = null
+  scope.activeCollectionId = null
   scope.onchainEnabled = false
   scope.canWrite = false
   vi.spyOn(assets, 'list').mockImplementation(async (archived) => archived ? [held, retired, outside] : [held, outside])
@@ -46,12 +49,73 @@ beforeEach(() => {
   vi.spyOn(assets, 'values').mockResolvedValue([])
   vi.spyOn(assets, 'valueTrend').mockResolvedValue([])
   vi.spyOn(assetGroups, 'list').mockResolvedValue(wallets)
+  vi.spyOn(timeline, 'wallets').mockResolvedValue(wallets)
   vi.spyOn(contributions, 'summary').mockResolvedValue([])
   vi.spyOn(currencies, 'list').mockResolvedValue([])
   vi.spyOn(assets, 'allTransactions').mockResolvedValue([
     { id: 'visible', asset_id: 'retired', asset_name: 'Archived trade', kind: 'buy', quantity: 1, price: 10, fee: 0, currency: 'USD', date: '2026-01-01', source: 'manual' },
     { id: 'hidden', asset_id: 'outside', asset_name: 'Outside trade', kind: 'buy', quantity: 1, price: 20, fee: 0, currency: 'USD', date: '2026-01-01', source: 'manual' },
   ] as AssetTransaction[])
+})
+
+it('opens holding evidence in its collection and keeps the canonical coin when switching to all wallets', async () => {
+  scope.activeWalletIds = ['wallet-a', 'wallet-b']
+  scope.activeCollectionId = 'collection-a'
+  const response: TimelineRead = { workspace_id: 'workspace', revision: 'revision-a', events: [], assets: [{ canonical_asset_key: 'chain-a:program-a:coin-a', asset_symbol: 'COIN', chain: 'chain-a', token_address: 'coin-a', token_program: 'program-a', identity_status: 'canonical', asset_ids: ['held', 'retired'] }], coverage: [], total: 0, limit: 25, offset: 0, has_more: false, all_available_records_loaded: true, history_complete: false, errors: [] }
+  vi.spyOn(timeline, 'list').mockResolvedValue(response)
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a&holding=held' })
+  await user.click(await screen.findByRole('button', { name: 'View evidence timeline' }))
+  expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+  await waitFor(() => expect(timeline.list).toHaveBeenCalledWith('workspace', expect.objectContaining({ collection_id: 'collection-a', group_id: 'wallet-a', canonical_asset_key: 'chain-a:program-a:coin-a' }), expect.any(AbortSignal)))
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Wallet' }), '')
+  await waitFor(() => expect(timeline.list).toHaveBeenLastCalledWith('workspace', { collection_id: 'collection-a', canonical_asset_key: 'chain-a:program-a:coin-a', limit: 25, offset: 0 }, expect.any(AbortSignal)))
+  expect(screen.getByRole('combobox', { name: 'Coin / canonical asset' })).toHaveValue('chain-a:program-a:coin-a')
+})
+
+it('opens wallet history without requiring a current holding', async () => {
+  vi.spyOn(assets, 'list').mockResolvedValue([])
+  vi.spyOn(timeline, 'list').mockResolvedValue({ workspace_id: 'workspace', revision: 'revision-a', events: [], assets: [], coverage: [], total: 0, limit: 25, offset: 0, has_more: false, all_available_records_loaded: true, history_complete: false, errors: [] })
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a&view=wallets' })
+  await user.click(await screen.findByRole('button', { name: 'Wallet timeline' }))
+  await screen.findByText(/No events match this available scope/)
+  expect(timeline.list).toHaveBeenCalledWith('workspace', { group_id: 'wallet-a', limit: 25, offset: 0 }, expect.any(AbortSignal))
+})
+
+it('keeps a synced archive-only wallet in the timeline selector even when the portfolio omits it', async () => {
+  const historical = { ...wallets[0], id: 'archived-wallet', name: 'Historical provider wallet', source: 'onchain' }
+  vi.spyOn(assets, 'list').mockResolvedValue([])
+  vi.mocked(assetGroups.list).mockResolvedValue([wallets[0]])
+  vi.mocked(timeline.wallets).mockResolvedValue([wallets[0], historical])
+  vi.spyOn(timeline, 'list').mockResolvedValue({ workspace_id: 'workspace', revision: 'revision-a', events: [], assets: [], coverage: [], total: 0, limit: 25, offset: 0, has_more: false, all_available_records_loaded: true, history_complete: false, errors: [] })
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?tab=activity&activity=timeline' })
+  await screen.findByRole('option', { name: 'Historical provider wallet' })
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Wallet' }), 'archived-wallet')
+  await waitFor(() => expect(timeline.list).toHaveBeenLastCalledWith('workspace', { group_id: 'archived-wallet', limit: 25, offset: 0 }, expect.any(AbortSignal)))
+  expect(timeline.wallets).toHaveBeenCalledWith('workspace', expect.any(AbortSignal))
+  expect(screen.getByRole('combobox', { name: 'Wallet' })).toHaveValue('archived-wallet')
+})
+
+it('opens native inputs for an archive-only wallet through its persisted watched-address mapping', async () => {
+  scope.onchainEnabled = true
+  const historical = { ...wallets[0], id: 'archived-wallet', name: 'Historical provider wallet', source: 'onchain', watched_address_keys: ['solana:synthetic-owned'] }
+  vi.spyOn(assets, 'list').mockResolvedValue([])
+  vi.mocked(assetGroups.list).mockResolvedValue([])
+  vi.mocked(timeline.wallets).mockResolvedValue([historical])
+  vi.spyOn(onchain, 'chains').mockResolvedValue([{ key: 'solana', display_name: 'Solana', symbol: 'SOL', kind: 'solana', traceable: true }])
+  vi.spyOn(onchain, 'addresses').mockResolvedValue([
+    { chain: 'solana', address: 'synthetic-owned', label: 'Retained wallet address', connection_id: 'connection-a', connection_name: 'Archived connection' },
+    { chain: 'solana', address: 'outside-wallet', label: 'Unrelated saved address', connection_id: 'connection-a', connection_name: 'Same connection' },
+  ])
+  const trace = vi.spyOn(onchain, 'trace')
+  const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?tab=activity&activity=wallets&wallet=archived-wallet&chain=solana&address=synthetic-owned&since=2025-02-03T00%3A00%3A00Z' })
+  await screen.findByRole('option', { name: 'Historical provider wallet' })
+  expect(await screen.findByRole('button', { name: 'Explore transfers' })).toBeEnabled()
+  const picker = screen.getByRole('combobox', { name: 'Your wallet' })
+  expect(picker).toHaveTextContent('Archived connection · Retained wallet address')
+  await user.click(picker)
+  expect(await screen.findByRole('option', { name: 'Archived connection · Retained wallet address' })).toBeInTheDocument()
+  expect(screen.queryByRole('option', { name: /Unrelated saved address/ })).not.toBeInTheDocument()
+  expect(trace).not.toHaveBeenCalled()
 })
 
 it.each(['/assets', '/assets?wallet=wallet-a'])('retains expanded holding details, history, and management in %s', async (route) => {

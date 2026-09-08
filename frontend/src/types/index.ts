@@ -1045,6 +1045,8 @@ export type TaxTreatment = 'taxable' | 'roth' | 'traditional' | 'hsa' | 'other'
 
 export interface AssetGroup {
   balance_explanation?: BalanceExplanation | null
+  /** Persisted wallet/address association, not a beneficial-ownership assertion. */
+  watched_address_keys?: string[]
   id: string
   user_id: string
   name: string
