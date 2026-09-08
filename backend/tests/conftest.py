@@ -15,6 +15,10 @@ os.environ.setdefault("AGENTS_ENABLED", "true")
 os.environ.setdefault("ONCHAIN_ENABLED", "true")
 os.environ.setdefault("AGENTS_MCP_JWT_SECRET", "test-secret-not-for-production")
 os.environ.setdefault("AGENTS_BUILTIN_MCP_URL", "http://test-mcp:8765/mcp")
+# Tests use synthetic credentials, never local deployment secrets. Explicit
+# Settings(_secrets_dir=...) tests still exercise secret-file loading.
+os.environ["SECRET_KEY"] = "synthetic-test-signing-key-not-for-production"
+os.environ["CREDENTIALS_DIRECTORY"] = ""
 # Keep OIDC tests deterministic when a developer has local OIDC values in .env
 # or exported in the shell. Individual OIDC tests enable it via the settings
 # fixture below.

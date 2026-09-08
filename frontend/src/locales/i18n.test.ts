@@ -146,6 +146,7 @@ function findDuplicateKeys(source: string): string[] {
 describe('i18n locale files', () => {
   it('ships owned transfers in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
     const { default: i18n } = await import('@/lib/i18n')
+    await i18n.loadLanguages(LOCALES)
     const english = JSON.parse(readRaw('en'))
     const portuguese = JSON.parse(readRaw('pt-BR'))
     expect(flattenKeys(portuguese.ownedTransfers).sort()).toEqual(flattenKeys(english.ownedTransfers).sort())
@@ -167,6 +168,7 @@ describe('i18n locale files', () => {
 
   it('ships historical evidence in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
     const { default: i18n } = await import('@/lib/i18n')
+    await i18n.loadLanguages(LOCALES)
     const english = JSON.parse(readRaw('en')).history
     const portuguese = JSON.parse(readRaw('pt-BR')).history
     expect(flattenKeys(portuguese).sort()).toEqual(flattenKeys(english).sort())
@@ -179,6 +181,7 @@ describe('i18n locale files', () => {
 
   it('keeps Hindi translations and falls back to English for Lovenest-only keys', async () => {
     const { default: i18n } = await import('@/lib/i18n')
+    await i18n.loadLanguages('hi')
     const hindi = i18n.getFixedT('hi')
 
     expect(hindi('nav.assets')).toBe(JSON.parse(readRaw('hi')).nav.assets)
