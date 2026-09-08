@@ -56,6 +56,8 @@ from app.services.fx_rate_service import convert
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
+from app.api.owned_transfers import router as owned_transfers_router  # noqa: E402
+router.include_router(owned_transfers_router)
 
 
 # ----------------------------------------------------------------------------

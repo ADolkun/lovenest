@@ -1,12 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { assets as assetsApi } from '@/lib/api'
 import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatExactDecimal } from '@/lib/format'
 import {
   buildPortfolio,
   filterPortfolio,
@@ -177,12 +178,12 @@ function TaxLotsPanel({
   mask: (value: string) => string
 }) {
   const { t } = useTranslation()
-  const { data, isError } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey: ['asset-tax-lots', assetId],
     queryFn: () => assetsApi.taxLots(assetId),
   })
 
-  const money = (value: number) => mask(formatCurrency(value, currency, locale))
+  const money = (value: number | string | null) => value == null ? t('evidence.unknown', 'Unknown') : mask(typeof value === 'string' ? `${formatExactDecimal(value)} ${currency}` : formatCurrency(value, currency, locale))
   const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale)
   const hint = (text: string) => (
     <div className="px-3 py-2 bg-background/60 border-t border-border">
@@ -190,7 +191,7 @@ function TaxLotsPanel({
     </div>
   )
 
-  if (!data) return hint(isError ? t('common.error') : t('common.loading'))
+  if (!data) return <div>{hint(isError ? t('common.error') : t('common.loading'))}{isError && <button className="min-h-11 px-3 text-sm underline underline-offset-4" onClick={() => { void refetch() }}>{t('common.retry', 'Retry')}</button>}</div>
   // Checked before tax character, which is also false here: no wallet means no
   // treatment to read, so the answer is missing rather than "not reportable".
   if (data.no_wallet) return hint(t('assets.lotsNoWallet'))
@@ -200,13 +201,16 @@ function TaxLotsPanel({
   if (data.snapshot) return hint(t('assets.lotsSnapshot'))
   if (data.lots.length === 0 && data.sales.length === 0) return hint(t('assets.lotsNone'))
 
-  const character = (long: boolean) => (long ? t('assets.lotsLong') : t('assets.lotsShort'))
+  const character = (long: boolean | null) => long == null ? t('ownedTransfers.periodUnknown', 'Holding period unknown') : long ? t('assets.lotsLong') : t('assets.lotsShort')
 
   return (
     <div className="px-3 py-2 bg-background/60 border-t border-border">
       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
         {t('assets.lotsTitle')}
       </p>
+      {data.basis_complete === false && <p role="status" className="mt-2 text-sm text-muted-foreground">{t('ownedTransfers.partialLots', 'Acquisition basis is incomplete. Known cost subtotal')}: {money(data.known_acquisition_cost ?? null)} · {t('ownedTransfers.unknownUnits', 'Units with unknown basis')}: {data.unknown_basis_quantity == null ? t('evidence.unknown', 'Unknown') : mask(data.unknown_basis_quantity)}</p>}
+      {data.settlement_complete === false && <p role="status" className="mt-2 text-sm text-warning-foreground">{t('ownedTransfers.principalUnknown', 'Movement settlement unresolved')}</p>}
+      {!!data.missing_links?.length && <ul className="mt-2 list-inside list-disc text-sm text-warning-foreground">{data.missing_links.map((reason) => <li key={reason}>{t(`ownedTransfers.reasons.${reason}`, reason.replaceAll('_', ' '))}</li>)}</ul>}
       {data.lots.length > 0 && (
         <>
           <div
@@ -224,23 +228,23 @@ function TaxLotsPanel({
           </div>
           {data.lots.map((lot, i) => (
             <div
-              key={`${lot.acquired}-${i}`}
+              key={lot.lot_id ?? `${lot.acquired}-${i}`}
               className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
               style={{ gridTemplateColumns: LOTS_GRID }}
             >
-              <div className="text-foreground">{day(lot.acquired)}</div>
+              <div className="min-w-0 text-foreground">{lot.acquired == null ? t('ownedTransfers.unknownDate', 'Acquisition date unknown') : day(lot.acquired)}{lot.lineage?.map((id) => <Link key={id} className="mt-1 block break-all py-1 text-xs underline underline-offset-4" to={`/assets?${new URLSearchParams({ tab: 'activity', activity: 'transfers', transfer: id })}`}>{t('ownedTransfers.openHop', 'Open transfer')}</Link>)}{!!lot.missing_links?.length && <span className="mt-1 block text-xs text-warning-foreground">{lot.missing_links.map((reason) => t(`ownedTransfers.reasons.${reason}`, reason.replaceAll('_', ' '))).join(' · ')}</span>}</div>
               <div className="text-right tabular-nums text-muted-foreground">{mask(`${lot.quantity}`)}</div>
               <div className="text-right tabular-nums text-muted-foreground">{money(lot.unit_price)}</div>
               <div className="text-right tabular-nums text-muted-foreground">{money(lot.cost)}</div>
               <div className="text-right">
                 <Badge
                   variant="outline"
-                  className={`text-[9px] px-1 py-0 ${lot.long_term ? 'text-emerald-600' : 'text-warning-foreground'}`}
+                  className={`text-[9px] px-1 py-0 ${lot.long_term == null ? 'text-muted-foreground' : lot.long_term ? 'text-emerald-600' : 'text-warning-foreground'}`}
                 >
                   {character(lot.long_term)}
                 </Badge>
                 <span className="block text-[10px] text-muted-foreground tabular-nums">
-                  {lot.long_term
+                  {lot.holding_days == null || lot.days_until_long_term == null ? null : lot.long_term
                     ? t('assets.lotsHeldDays', { count: lot.holding_days })
                     : t('assets.lotsLongIn', { count: lot.days_until_long_term })}
                 </span>
@@ -248,6 +252,7 @@ function TaxLotsPanel({
             </div>
           ))}
           <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2 text-[11px] text-muted-foreground">
+            {data.basis_complete === false && <span>{t('ownedTransfers.knownPeriodSubtotals', 'Known holding-period subtotals')}</span>}
             <span>
               {t('assets.lotsLong')}: <span className="tabular-nums">{mask(`${data.long_quantity}`)}</span> ·{' '}
               {money(data.long_cost)}
@@ -262,12 +267,13 @@ function TaxLotsPanel({
       {data.sales.length > 0 && (
         <div className="mt-2 pt-2 border-t border-border/50 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
           <span className="text-muted-foreground">{t('assets.lotsRealised')}:</span>
-          <span className={gainClass(data.realised_long)}>
+          <span className={data.realised_long == null ? 'text-muted-foreground' : String(data.realised_long).startsWith('-') ? 'text-rose-600' : 'text-emerald-600'}>
             {t('assets.lotsLong')} {money(data.realised_long)}
           </span>
-          <span className={gainClass(data.realised_short)}>
+          <span className={data.realised_short == null ? 'text-muted-foreground' : String(data.realised_short).startsWith('-') ? 'text-rose-600' : 'text-emerald-600'}>
             {t('assets.lotsShort')} {money(data.realised_short)}
           </span>
+          {data.unknown_disposition_quantity != null && <span>{t('ownedTransfers.unknownDisposed', 'Disposition quantity with unknown gain')}: {mask(data.unknown_disposition_quantity)}</span>}
         </div>
       )}
     </div>
@@ -585,7 +591,7 @@ export default function PositionsTab({
             <WashSaleWarning assetId={leg.assetId} dateLocale={dateLocale} />
             <TaxLotsPanel
               assetId={leg.assetId}
-              currency={currency}
+              currency={holdings.find((holding) => holding.id === leg.assetId)?.currency ?? currency}
               locale={locale}
               dateLocale={dateLocale}
               mask={mask}

@@ -85,6 +85,33 @@ def test_build_market_value_series_backdated_trades_predating_prices():
     assert len(out) == 4  # a point per trade date plus the stored value
 
 
+def test_build_market_value_series_conserves_owned_transfers_and_fees():
+    """Both chart callers use movement units even when acquisition price is null."""
+    acquired, sent, returned = date(2025, 1, 1), date(2025, 2, 3), date(2025, 2, 4)
+    rows: list[ValueRecord] = [(acquired, Decimal("990"), Decimal("99"))]
+    source: list[TxRecord] = [
+        (acquired, "buy", Decimal("10"), Decimal("20")),
+        (sent, "move_out", Decimal("3"), None),
+        (sent, "fee", Decimal("0.02"), None),
+        (returned, "move_in", Decimal("1"), None),
+    ]
+    destination: list[TxRecord] = [
+        (sent, "move_in", Decimal("3"), None),
+        (returned, "move_out", Decimal("1"), None),
+    ]
+    source_values = dict(build_market_value_series(rows, source))
+    destination_values = dict(build_market_value_series(rows, destination))
+    assert source_values == {acquired: 990.0, sent: 691.02, returned: 790.02}
+    assert destination_values == {acquired: 0.0, sent: 297.0, returned: 198.0}
+    for when in (sent, returned):
+        assert source_values[when] + destination_values[when] == pytest.approx(988.02)
+    receipt: list[TxRecord] = [(sent, "move_in", Decimal("3"), None)]
+    assert build_market_value_series([], receipt) == []
+    assert build_market_value_series([(returned, Decimal("297"), Decimal("99"))], receipt) == [(returned, 297.0)]
+    assert build_market_value_series([(sent, Decimal("0"), None)], receipt) == [(sent, 0.0)]
+    assert build_market_value_series([(sent, Decimal("0"), Decimal("0"))], receipt) == [(sent, 0.0)]
+
+
 def test_build_market_value_series_no_ledger_keeps_amounts():
     """A holding with no transactions must not be zeroed — keep stored amounts."""
     rows: list[ValueRecord] = [

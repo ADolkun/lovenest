@@ -425,6 +425,8 @@ async def update_group(
     if not group:
         return None
     if "account_id" in data.model_fields_set:
+        from app.services.owned_transfer_service import guard_scope_mutation
+        await guard_scope_mutation(session, workspace_id, group_ids={group_id})
         await _validate_account_link(session, group, data.account_id)
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(group, key, value)
@@ -446,6 +448,8 @@ async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id:
     group = result.scalar_one_or_none()
     if not group:
         return False
+    from app.services.owned_transfer_service import guard_scope_mutation
+    await guard_scope_mutation(session, workspace_id, group_ids={group_id})
     await session.delete(group)
     await session.commit()
     return True

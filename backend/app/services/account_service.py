@@ -620,6 +620,8 @@ async def delete_account(session: AsyncSession, account_id: uuid.UUID, workspace
     account = await get_account(session, account_id, workspace_id)
     if not account:
         return False
+    from app.services.owned_transfer_service import guard_scope_mutation
+    await guard_scope_mutation(session, workspace_id, account_ids={account_id})
 
     # Only allow deleting manual accounts
     if account.connection_id is not None:

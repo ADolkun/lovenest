@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { extractApiError } from './api-errors'
+import { assetErrorMessage } from './api'
 
 const legacyFallback = 'An unexpected error occurred'
+
+it('shows structured asset conflicts and preserves legacy error fallbacks', () => {
+  expect(assetErrorMessage({ response: { status: 409, data: { detail: { code: 'dependent_activity', message: 'Reverse the dependent transfer first.' } } } }, 'Could not save')).toBe('Reverse the dependent transfer first.')
+  expect(assetErrorMessage({ response: { data: { detail: 'Asset missing' } } }, 'Could not save')).toBe('Asset missing')
+  expect(assetErrorMessage({ response: { status: 503, data: { detail: {} } } }, 'Could not save')).toBe('Could not save (503)')
+})
 
 function apiError(detail: unknown): unknown {
   return { response: { data: { detail } } }

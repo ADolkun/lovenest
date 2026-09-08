@@ -1307,6 +1307,60 @@ export const assets = {
   },
 }
 
+// Reviewed owned movements use retained evidence and never start collection.
+export const ownedTransfers = {
+  index: async (workspaceId: string, signal?: AbortSignal): Promise<import('@/types/owned-transfers').TransferIndex> => {
+    const { data } = await api.get('/assets/evidence/transfers', { headers: { 'X-Workspace-Id': workspaceId }, signal })
+    return data
+  },
+  lots: async (workspaceId: string, assetId: string, beforeLegId: string, signal?: AbortSignal): Promise<import('@/types/owned-transfers').TransferLots> => {
+    const { data } = await api.get('/assets/evidence/transfers/lots', { headers: { 'X-Workspace-Id': workspaceId }, params: { asset_id: assetId, before_leg_id: beforeLegId }, signal })
+    return data
+  },
+  createOwnership: async (workspaceId: string, request: import('@/types/owned-transfers').OwnershipCreate): Promise<import('@/types/owned-transfers').OwnershipRead> => {
+    const { data } = await api.post('/assets/evidence/ownership', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  revokeOwnership: async (workspaceId: string, id: string, revision: string): Promise<import('@/types/owned-transfers').OwnershipRead> => {
+    const { data } = await api.delete(`/assets/evidence/ownership/${encodeURIComponent(id)}`, { headers: { 'X-Workspace-Id': workspaceId }, params: { expected_revision: revision } })
+    return data
+  },
+  preview: async (workspaceId: string, request: import('@/types/owned-transfers').TransferRequest): Promise<import('@/types/owned-transfers').TransferPreview> => {
+    const { data } = await api.post('/assets/evidence/transfers/preview', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  confirm: async (workspaceId: string, request: import('@/types/owned-transfers').TransferRequest & { expected_revision: string }): Promise<import('@/types/owned-transfers').TransferRead> => {
+    const { data } = await api.post('/assets/evidence/transfers', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  detail: async (workspaceId: string, id: string, signal?: AbortSignal): Promise<import('@/types/owned-transfers').TransferRead> => {
+    const { data } = await api.get(`/assets/evidence/transfers/${encodeURIComponent(id)}`, { headers: { 'X-Workspace-Id': workspaceId }, signal })
+    return data
+  },
+  reverse: async (workspaceId: string, id: string, revision: string): Promise<import('@/types/owned-transfers').TransferRead> => {
+    const { data } = await api.delete(`/assets/evidence/transfers/${encodeURIComponent(id)}`, { headers: { 'X-Workspace-Id': workspaceId }, params: { expected_revision: revision } })
+    return data
+  },
+  previewMovement: async (workspaceId: string, request: import('@/types/owned-transfers').MovementRequest): Promise<import('@/types/owned-transfers').MovementPreview> => {
+    const { data } = await api.post('/assets/evidence/movements/preview', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  applyMovement: async (workspaceId: string, request: import('@/types/owned-transfers').MovementRequest & { expected_revision: string }): Promise<import('@/types/owned-transfers').MovementApplication> => {
+    const { data } = await api.post('/assets/evidence/movements', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  reverseMovement: async (workspaceId: string, id: string, revision: string): Promise<import('@/types/owned-transfers').MovementApplication> => {
+    const { data } = await api.delete(`/assets/evidence/movements/${encodeURIComponent(id)}`, { headers: { 'X-Workspace-Id': workspaceId }, params: { expected_revision: revision } })
+    return data
+  },
+  annotate: async (workspaceId: string, request: import('@/types/owned-transfers').IncidentCreate, id?: string): Promise<import('@/types/owned-transfers').IncidentRead> => {
+    const path = '/assets/evidence/incidents'
+    const options = { headers: { 'X-Workspace-Id': workspaceId } }
+    const { data } = id ? await api.put(`${path}/${encodeURIComponent(id)}`, request, options) : await api.post(path, request, options)
+    return data
+  },
+}
+
 // Asset Groups ("wallets")
 export const assetGroups = {
   list: async (): Promise<AssetGroup[]> => {
@@ -1335,6 +1389,7 @@ export function assetErrorMessage(e: unknown, fallback: string): string {
   const resp = (e as { response?: { data?: { detail?: unknown }; status?: number } })?.response
   const detail = resp?.data?.detail
   if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string' && detail.message.trim()) return detail.message
   return resp?.status ? `${fallback} (${resp.status})` : fallback
 }
 

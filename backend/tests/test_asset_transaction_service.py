@@ -28,6 +28,20 @@ from app.services import asset_transaction_service
 from app.services.asset_transaction_service import _recompute
 
 
+async def test_explicit_null_trade_price_is_rejected_before_mutating_row(session, test_workspace, market_asset):
+    from fastapi import HTTPException
+    await asset_transaction_service.add_transaction(session, market_asset.id, test_workspace.id,
+        AssetTransactionCreate(kind="buy", quantity=Decimal("1"), price=Decimal("20"), date=date(2025, 1, 1)))
+    tx = await session.scalar(select(AssetTransaction).where(AssetTransaction.asset_id == market_asset.id))
+    with pytest.raises(HTTPException) as caught:
+        await asset_transaction_service.update_transaction(session, tx.id, test_workspace.id, AssetTransactionUpdate(price=None))
+    assert caught.value.status_code == 422
+    assert tx.price == Decimal("20")
+    await session.commit()
+    await session.refresh(tx)
+    assert tx.price == Decimal("20")
+
+
 # ---------------------------------------------------------------------------
 # Pure algorithm: _recompute (no DB)
 # ---------------------------------------------------------------------------

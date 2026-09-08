@@ -899,6 +899,7 @@ async def import_orders(
     tickers = [o.ticker for o in ordered]
 
     holdings = await _existing_holdings(session, workspace_id, group_id, tickers)
+    from app.services.owned_transfer_service import guard_asset_mutation
     seen, with_ledger = await _already_imported(session, [a.id for a in holdings.values()])
 
     elsewhere = await _holdings_in_other_wallets(session, workspace_id, group_id, tickers)
@@ -992,6 +993,8 @@ async def import_orders(
         accepted.append(order)
 
     warnings.extend(_reconciliation_warnings(accepted, holdings, with_ledger, reported, units))
+    if accepted:
+        await guard_asset_mutation(session, workspace_id, {holdings[order.ticker].id for order in accepted if order.ticker in holdings}, before_date=min(order.date for order in accepted))
     unpriced = sorted({
         o.ticker for o in accepted
         if o.ticker not in holdings and not resolvable.get(o.ticker, False)
@@ -1201,6 +1204,8 @@ async def undo_import(
     )
     rows = list(result.scalars().all())
     asset_ids = {row.asset_id for row in rows}
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, asset_ids, transaction_ids={row.id for row in rows})
 
     for row in rows:
         await session.delete(row)

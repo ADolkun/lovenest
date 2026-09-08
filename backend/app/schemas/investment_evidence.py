@@ -35,6 +35,17 @@ class EvidenceLegInput(BaseModel):
     transaction_ref: str | None = Field(None, max_length=255)
     leg_ref: str | None = Field(None, max_length=255)
     execution_id: str | None = Field(None, max_length=255)
+    token_program: str | None = Field(None, max_length=255)
+    source_address: str | None = Field(None, max_length=255)
+    destination_address: str | None = Field(None, max_length=255)
+    source_owner: str | None = Field(None, max_length=255)
+    destination_owner: str | None = Field(None, max_length=255)
+    raw_units: str | None = Field(None, pattern=r"^[0-9]{1,128}$")
+    decimals: int | None = Field(None, ge=0, le=255)
+    quantity_role: Literal["principal", "network_fee", "withdrawal_fee", "intermediary_fee", "token_transfer_fee", "balance_delta", "unknown"] | None = None
+    fee_payer: str | None = Field(None, max_length=255)
+    fee_semantics: Literal["separate", "none", "included", "unknown"] = "unknown"
+    derivation: dict[str, str] = Field(default_factory=dict, max_length=10)
 
     @field_validator(
         "quantity", "unit_price", "subtotal", "total", "fee",
