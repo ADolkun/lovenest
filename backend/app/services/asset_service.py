@@ -470,7 +470,7 @@ async def _reject_resolvable_ticker(
     if quote is None:
         return
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail=(
             f"{ticker.upper()} resolves to a quoted security "
             f"({quote.name or quote.symbol}), so a hand-valued holding cannot "
@@ -498,12 +498,12 @@ async def create_asset(
     if data.valuation_method == "market_price":
         if not data.ticker:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="ticker is required for market_price assets",
             )
         if data.units is None or data.units <= 0:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="units (quantity) must be > 0 for market_price assets",
             )
         provider = market_provider or get_market_price_provider()

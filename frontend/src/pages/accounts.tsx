@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { getAccountTypeConfig } from '@/lib/account-type-config'
+import { useMemo, useState } from 'react'
 import { formatAccountMask, getAccountLabel, getAccountName } from '@/lib/account-utils'
 import { getConnectionName } from '@/lib/connection-utils'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -24,7 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Account, BankConnection } from '@/types'
 import { RefreshCw, TriangleAlert, Unlink, Settings } from 'lucide-react'
-import { AccountIcon, ConnectionLogo, getAccountTypeConfig } from '@/components/account-icon'
+import { AccountIcon, ConnectionLogo } from '@/components/account-icon'
 import { AccountPageActions } from '@/components/account-page-actions'
 import { AccountRowActions } from '@/components/account-row-actions'
 import { AccountHoldingsSummary, UnlinkedWallets } from '@/components/account-holdings'
@@ -792,7 +793,9 @@ function AccountDialog({
   const [statementCloseDay, setStatementCloseDay] = useState(account?.statement_close_day?.toString() ?? '')
   const [paymentDueDay, setPaymentDueDay] = useState(account?.payment_due_day?.toString() ?? '')
 
-  useEffect(() => {
+  const [formSource, setFormSource] = useState<{ account: typeof account } | null>(null)
+  if (!formSource || formSource.account !== account) {
+    setFormSource({ account })
     setName(account?.name ?? '')
     setDisplayName(account?.display_name ?? '')
     setType(account?.type ?? 'checking')
@@ -802,7 +805,7 @@ function AccountDialog({
     setCreditLimit(account?.credit_limit?.toString() ?? '')
     setStatementCloseDay(account?.statement_close_day?.toString() ?? '')
     setPaymentDueDay(account?.payment_due_day?.toString() ?? '')
-  }, [account])
+  }
 
   return (
     <Dialog open={open} onOpenChange={onClose}>

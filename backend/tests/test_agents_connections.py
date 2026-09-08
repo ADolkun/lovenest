@@ -13,7 +13,6 @@ from app.agents.services.crypto import decrypt, encrypt
 from app.models.user import User
 
 
-pytestmark = pytest.mark.asyncio
 
 
 # --- Encryption ------------------------------------------------------------

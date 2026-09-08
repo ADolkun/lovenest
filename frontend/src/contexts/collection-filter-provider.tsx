@@ -1,21 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { collections as collectionsApi } from '@/lib/api'
 import { useWorkspace } from '@/contexts/workspace-context'
-import type { Collection } from '@/types'
 
-type CollectionFilterValue = {
-  collections: Collection[]
-  activeCollectionId: string | null
-  activeCollection: Collection | null
-  setActiveCollectionId: (id: string | null) => void
-  // null = all accounts (no filter); otherwise the active collection's account ids.
-  activeAccountIds: string[] | null
-  // null = no filter; otherwise the active collection's wallet (asset_group) ids.
-  activeWalletIds: string[] | null
-}
-
-const CollectionFilterContext = createContext<CollectionFilterValue | null>(null)
+import { CollectionFilterContext } from '@/contexts/collection-filter-context'
+import type { CollectionFilterValue } from '@/contexts/collection-filter-context'
 const STORAGE_PREFIX = 'securo.activeCollection.'
 
 export function CollectionFilterProvider({ children }: { children: ReactNode }) {
@@ -50,13 +39,13 @@ export function CollectionFilterProvider({ children }: { children: ReactNode }) 
     [collections, activeCollectionId],
   )
 
-  // If the active collection was deleted elsewhere, fall back to "all".
+  // Drop a deleted collection before rendering children with stale filters.
+  if (activeCollectionId && collections.length > 0 && !activeCollection) {
+    setActiveId(null)
+  }
   useEffect(() => {
-    if (activeCollectionId && collections.length > 0 && !activeCollection) {
-      setActiveCollectionId(null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCollectionId, collections, activeCollection])
+    if (wsId && activeCollectionId === null) localStorage.removeItem(STORAGE_PREFIX + wsId)
+  }, [wsId, activeCollectionId])
 
   const value: CollectionFilterValue = {
     collections,
@@ -70,12 +59,4 @@ export function CollectionFilterProvider({ children }: { children: ReactNode }) 
   return (
     <CollectionFilterContext.Provider value={value}>{children}</CollectionFilterContext.Provider>
   )
-}
-
-export function useCollectionFilter(): CollectionFilterValue {
-  const ctx = useContext(CollectionFilterContext)
-  if (!ctx) {
-    throw new Error('useCollectionFilter must be used within a CollectionFilterProvider')
-  }
-  return ctx
 }

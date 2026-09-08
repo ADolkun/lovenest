@@ -32,7 +32,6 @@ from app.agents.providers.openai import (
 )
 
 
-pytestmark = pytest.mark.asyncio
 
 
 def test_registry_lists_all_four_providers():

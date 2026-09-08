@@ -898,7 +898,7 @@ async def import_orders(
     # choose. The commit is the fail-closed edge.
     if group_id is None and not dry_run:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A wallet is required: orders imported without one have no tax treatment, so they would produce no tax lots.",
         )
 

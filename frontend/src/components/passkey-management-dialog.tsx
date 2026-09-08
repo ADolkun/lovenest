@@ -34,32 +34,33 @@ const FAILURE_KEYS: Record<PasskeyFailure, string> = {
   unknown: 'auth.passkeyRegisterError',
 }
 
-export function PasskeyManagementDialog({ open, onClose }: PasskeyManagementDialogProps) {
+export function PasskeyManagementDialog(props: PasskeyManagementDialogProps) {
+  return props.open ? <PasskeyManagementSession {...props} /> : null
+}
+
+function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProps) {
   const { t } = useTranslation()
   const [passkeys, setPasskeys] = useState<Passkey[]>([])
   const [name, setName] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const blocker = passkeyBlocker()
 
-  const loadPasskeys = useCallback(async () => {
-    setLoading(true)
-    setLoadFailed(false)
-    try {
-      setPasskeys(await auth.listPasskeys())
-    } catch {
-      setLoadFailed(true)
-    } finally {
-      setLoading(false)
-    }
+  const loadPasskeys = useCallback((signal?: AbortSignal) => {
+    return auth.listPasskeys()
+      .then((result) => { if (!signal?.aborted) setPasskeys(result) })
+      .catch(() => { if (!signal?.aborted) setLoadFailed(true) })
+      .finally(() => { if (!signal?.aborted) setLoading(false) })
   }, [])
 
   useEffect(() => {
-    if (open) void loadPasskeys()
-  }, [open, loadPasskeys])
+    const controller = new AbortController()
+    void loadPasskeys(controller.signal)
+    return () => controller.abort()
+  }, [loadPasskeys])
 
   const formatDate = (value: string | null) => {
     if (!value) return t('auth.passkeyNeverUsed')
@@ -145,7 +146,7 @@ export function PasskeyManagementDialog({ open, onClose }: PasskeyManagementDial
             ) : loadFailed ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-3">
                 <p className="text-sm text-destructive">{t('auth.passkeyLoadError')}</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => void loadPasskeys()}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setLoadFailed(false); void loadPasskeys() }}>
                   {t('common.retry')}
                 </Button>
               </div>
