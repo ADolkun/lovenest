@@ -234,7 +234,7 @@ def _archive_leg(part, source, owner, state):
               "token_program": identity.get("token_program"), "asset_symbol": identity.get("symbol"),
               "direction": "out" if source_owned and not destination_owned else "in" if destination_owned and not source_owned else "unknown",
               "classification": "fee" if fee else "unknown" if part.get("interpretation") == "unresolved" else "transfer",
-              "quantity": part.get("quantity"), "raw_units": part.get("raw_units"), "decimals": part.get("decimals"),
+              "quantity": None if part.get("interpretation") == "unresolved" else part.get("quantity"), "raw_units": part.get("raw_units"), "decimals": part.get("decimals"),
               "quantity_role": role if role in {"network_fee", "withdrawal_fee", "intermediary_fee", "token_transfer_fee", "principal", "balance_delta"} else "unknown",
               "source_address": part.get("source"), "destination_address": part.get("destination"),
               "source_owner": part.get("source_owner"), "destination_owner": part.get("destination_owner"),
@@ -242,6 +242,8 @@ def _archive_leg(part, source, owner, state):
               "transaction_ref": source.source_local_id, "leg_ref": part["key"],
               "derivation": {key: str(value) for key, value in part.get("derivation", {}).items() if value is not None}}
     reasons = []
+    if not source_owned and not destination_owned and role in {"principal", "utxo_input", "utxo_output", "issuance"}:
+        reasons.append("external_endpoints")
     try:
         EvidenceLegInput.exact_decimal(values["quantity"])
     except ValueError:
@@ -253,10 +255,11 @@ def _archive_leg(part, source, owner, state):
         values["asset_symbol"] = asset.asset_symbol = CHAINS[identity["chain"]].symbol
     result = TimelineLeg(**values, leg_id=f"{source.source_id}:{part['key']}", canonical_asset_key=asset.canonical_asset_key,
                          group_id=source.account.group_id, source_ids=[source.source_id],
-                         settlement_status=part.get("settlement", source.settlement_status) if source.is_current else "unknown",
+                         settlement_status=(part.get("settlement", "settled") if source.settlement_status == "settled" else source.settlement_status) if source.is_current else "unknown",
                          execution_status=source.provider_status, interpretation=part.get("interpretation"),
-                         non_additive=bool(part.get("non_additive")) or source_owned == destination_owned,
-                         is_current=source.is_current, reason_codes=reasons)
+                         non_additive=bool(part.get("non_additive")) or source_owned == destination_owned or (source.provider_status in {"failed", "error", "unknown"} and not fee),
+                         is_current=source.is_current, reason_codes=reasons,
+                         **{key: part.get(key) for key in ("sender_debit_raw_units", "receiver_credit_raw_units", "withheld_fee_raw_units")})
     return result, asset
 
 
@@ -386,7 +389,7 @@ async def _project(session, workspace_id):
     archive: dict[str, Any]
     for row in archives:
         try:
-            peers = [(peer.id, peer.payload) for peer in archives if peer.id != row.id and peer.connection_id == row.connection_id and peer.payload.get("owner") == row.payload.get("owner")]
+            peers = [(peer.id, peer.payload) for peer in archives if peer.id != row.id]
             archive = history.qualify_archive(row.payload, peers)
         except (KeyError, TypeError, ValueError):
             archive = {**row.payload, "coverage": {"interpretation": "unavailable", "settlement": "unknown"}, "gaps": [*row.payload.get("gaps", []), "archive_qualification_unavailable"]}
@@ -421,6 +424,7 @@ async def _project(session, workspace_id):
                 if not version.get("legs"):
                     event.reason_codes.append("no_decoded_legs")
                 if source.is_current:
+                    event.mechanics.extend(version.get("relationships", []))
                     mechanics = {relation.get("kind") for relation in version.get("relationships", [])}
                     if len(mechanics) == 1:
                         event.kind = next(iter(mechanics))
@@ -703,6 +707,9 @@ async def get_timeline_event(session, workspace_id, event_id, *, group_id=None, 
 
 
 async def get_timeline_source(session, workspace_id, source_id, *, group_id=None, collection_id=None, event_id=None):
+    if source_id.startswith("research:"):
+        from app.services.onchain_investigation import read_research_source
+        return await read_research_source(session, workspace_id, source_id, group_id=group_id, collection_id=collection_id, event_id=event_id)
     state, events, sources, details, _, _, aliases, _ = await _project(session, workspace_id)
     groups = await _selected_groups(session, state, workspace_id, group_id, collection_id)
     source = sources.get(source_id)

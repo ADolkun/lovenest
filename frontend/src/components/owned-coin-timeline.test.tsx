@@ -7,6 +7,8 @@ import { onchain } from '@/lib/api'
 import { renderWithProviders } from '@/test/utils'
 import type { TimelineAsset, TimelineCoverage, TimelineEvent, TimelineLeg, TimelineRead, TimelineSource, TimelineSourceDetail, TimelineTime } from '@/types/timeline'
 
+vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: () => ({ canWrite: true }) }))
+
 vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }) }))
 
 const day: TimelineTime = { event_date: '2025-02-03', event_at: null, event_time_raw: '2025-02-03', timezone: null, time_precision: 'date', ordering: 'within_day_unknown' }
@@ -274,4 +276,114 @@ it('preserves every rapid filter edit before the router commits its next render'
     collection_id: 'collection-a', group_id: 'wallet-b', limit: 25, offset: 0,
     since: '2031-04-05T00:00:00Z', until: '2031-04-06T23:59:59.999999Z',
   }, expect.any(AbortSignal)))
+})
+
+function trail() {
+  return {
+    workspace_id: 'workspace-a', request: { event_id: 'event-a', leg_id: 'leg-a', direction: 'out' as const, max_hops: 3, max_branches: 3, minimums: {} },
+    collection_id: 'retained-a', revision: 'revision-a', events: [event()], history_complete: false as const,
+    steps: [{ event_id: 'event-a', leg_id: 'leg-a', asset_key: asset.canonical_asset_key, depth: 0, via: 'selected', effective_window: { since: null, until: null } }],
+    frontier: [{ key: 'frontier-a', event_id: 'event-a', leg_id: 'leg-a', chain: 'solana', address: 'external-synthetic', asset_key: asset.canonical_asset_key, direction: 'out' as const, since: null, until: null, depth: 1 }],
+    boundaries: [{ code: 'external_ownership_and_allocation_unknown' }],
+  }
+}
+
+it('previews only on submit and explicitly continues a selected scoped frontier while preserving errors', async () => {
+  const preview = vi.spyOn(onchain, 'previewInvestigation').mockResolvedValue(trail())
+  const continuation = vi.spyOn(onchain, 'continueInvestigation').mockRejectedValueOnce(new Error('synthetic unavailable')).mockResolvedValue({ ...trail(), revision: 'revision-b' })
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  const panel = within(await screen.findByRole('region', { name: 'Follow evidence' }))
+  expect(preview).not.toHaveBeenCalled()
+  expect(continuation).not.toHaveBeenCalled()
+  await user.click(panel.getByRole('button', { name: 'Preview saved trail' }))
+  await panel.findByText(/external ownership and allocation unknown/)
+  expect(preview).toHaveBeenCalledWith(trail().request, 'workspace-a')
+  expect(continuation).not.toHaveBeenCalled()
+  await user.click(panel.getByRole('button', { name: 'Collect selected continuation' }))
+  await panel.findByText(/This investigation request could not finish/)
+  expect(panel.getByText('solana · external-synthetic · TOKEN-X')).toBeInTheDocument()
+  expect(continuation).toHaveBeenCalledWith({ ...trail().request, collection_id: 'retained-a', expected_revision: 'revision-a', frontier_key: 'frontier-a' }, 'workspace-a')
+  await user.click(panel.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(continuation).toHaveBeenCalledTimes(2))
+  expect(panel.queryByText(/This investigation request could not finish/)).not.toBeInTheDocument()
+})
+
+it('keeps exact per-asset minimums and inclusive backward bounds, and reuses event detail with Back navigation', async () => {
+  const preview = vi.spyOn(onchain, 'previewInvestigation').mockResolvedValue(trail())
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a&canonical_asset_key=chain-a%3Aprogram-a%3Atoken-x' })
+  const panel = within(await screen.findByRole('region', { name: 'Follow evidence' }))
+  await user.selectOptions(panel.getByLabelText('Follow direction'), 'in')
+  await user.click(panel.getByText('Investigation bounds'))
+  await user.type(panel.getByLabelText('Minimum quantity in the starting asset'), '9007199254740993.123456789')
+  fireEvent.change(panel.getByLabelText('Trail from (UTC)'), { target: { value: '2025-01-01T00:00:00.001' } })
+  fireEvent.change(panel.getByLabelText('Trail through (UTC)'), { target: { value: '2025-02-04T23:59:59.999' } })
+  await user.click(panel.getByRole('button', { name: 'Preview saved trail' }))
+  await panel.findByText(/external ownership and allocation unknown/)
+  expect(preview).toHaveBeenCalledWith({ ...trail().request, direction: 'in', since: '2025-01-01T00:00:00.001Z', until: '2025-02-04T23:59:59.999Z', minimums: { [asset.canonical_asset_key]: '9007199254740993.123456789' } }, 'workspace-a')
+  await user.click(panel.getByRole('button', { name: 'Inspect event and all legs' }))
+  expect(panel.getByRole('region', { name: 'Movement and fee legs' })).toHaveTextContent('0.000000000000000001')
+  expect(panel.getByRole('region', { name: 'Acquisition evidence' })).toHaveTextContent('Unknown')
+  await user.click(panel.getAllByRole('button', { name: 'Open source · Exchange A export' })[0])
+  await waitFor(() => expect(timeline.source).toHaveBeenLastCalledWith('workspace-a', 'source-a', {}, expect.any(AbortSignal)))
+  // Browser chrome can navigate Back while Radix makes the background inert.
+  fireEvent.click(screen.getByText('Browser Back'))
+  expect(panel.queryByRole('button', { name: 'Back to trail' })).not.toBeInTheDocument()
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+})
+
+it('discards a delayed investigation result after switching workspace', async () => {
+  let finish!: (value: ReturnType<typeof trail>) => void
+  vi.spyOn(onchain, 'previewInvestigation').mockReturnValue(new Promise((resolve) => { finish = resolve }))
+  const { user, rerender } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  await user.click(await screen.findByRole('button', { name: 'Preview saved trail' }))
+  vi.mocked(timeline.list).mockResolvedValue(list({ workspace_id: 'foreign', events: [] }))
+  vi.mocked(timeline.event).mockRejectedValue(new Error('not available'))
+  rerender(<View workspaceId="foreign" groupId={null} collectionId={null} />)
+  await act(async () => finish(trail()))
+  expect(screen.queryByText(/external-synthetic/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Collect selected continuation' })).not.toBeInTheDocument()
+})
+
+it('masks investigation endpoint and asset references and keeps no-collection preview read-only', async () => {
+  localStorage.setItem('privacyMode', 'true')
+  vi.spyOn(onchain, 'previewInvestigation').mockResolvedValue({ ...trail(), collection_id: undefined, revision: undefined })
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  await user.click(await screen.findByRole('button', { name: 'Preview saved trail' }))
+  const panel = await screen.findByRole('region', { name: 'Follow evidence' })
+  await within(panel).findByText(/external ownership and allocation unknown/)
+  expect(panel).not.toHaveTextContent('external-synthetic')
+  expect(panel).not.toHaveTextContent(asset.canonical_asset_key)
+  expect(within(panel).getByRole('button', { name: 'Collect selected continuation' })).toBeDisabled()
+})
+
+it('opens retained bridge evidence without collection and reviews only a complete eligible pair', async () => {
+  const candidate = { source_event_id: 'event-a', source_leg_id: 'leg-a', destination_event_id: 'event-b', destination_leg_id: 'leg-b', source_id: 'source-a', destination_source_id: 'source-b', protocol: 'synthetic-bridge', message_id: 'synthetic-message', status: 'eligible' as const, reason_codes: [], collection_id: 'retained-a', revision: 'revision-a', source_summary: { chain: 'ethereum', quantity: '10', fee: '0', transaction_ref: 'synthetic-send' }, destination_summary: { chain: 'base', quantity: '10', fee: '0', transaction_ref: 'synthetic-receipt' } }
+  const candidates = vi.spyOn(onchain, 'bridgeCandidates').mockResolvedValue([candidate, { ...candidate, destination_leg_id: 'pending-leg', status: 'unresolved', reason_codes: ['destination_execution_unsettled'] }])
+  const review = vi.spyOn(onchain, 'reviewBridge').mockResolvedValue({ ...candidate, status: 'confirmed', revision: 'revision-b' })
+  const preview = vi.spyOn(onchain, 'previewInvestigation')
+  const continuation = vi.spyOn(onchain, 'continueInvestigation')
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  const panel = within(await screen.findByRole('region', { name: 'Bridge endpoint review' }))
+  expect(candidates).not.toHaveBeenCalled()
+  await user.click(panel.getByRole('button', { name: 'Bridge endpoint review' }))
+  await panel.findByText('destination execution unsettled')
+  expect(panel.getAllByText('synthetic-send')).toHaveLength(2)
+  expect(panel.getAllByText('synthetic-receipt')).toHaveLength(2)
+  const buttons = panel.getAllByRole('button', { name: 'Confirm reviewed bridge endpoints' })
+  expect(buttons[1]).toBeDisabled()
+  await user.click(buttons[0])
+  await panel.findByText(/Reviewed relationship saved/)
+  expect(review).toHaveBeenCalledWith({ collection_id: 'retained-a', expected_revision: 'revision-a', source_event_id: 'event-a', source_leg_id: 'leg-a', destination_event_id: 'event-b', destination_leg_id: 'leg-b', source_id: 'source-a', destination_source_id: 'source-b', reviewed: true }, 'workspace-a')
+  expect(preview).not.toHaveBeenCalled()
+  expect(continuation).not.toHaveBeenCalled()
+})
+
+
+it.each(['supported', 'unresolved'])('shows separate Token-2022 atomic facts with %s quantity interpretation', async (interpretation) => {
+  vi.mocked(timeline.event).mockResolvedValue(event({ legs: [{ ...leg, quantity: interpretation === 'supported' ? '9.9' : null, interpretation, sender_debit_raw_units: '10000000', receiver_credit_raw_units: '9900000', withheld_fee_raw_units: '100000' }] }))
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  const details = within(await screen.findByRole('dialog'))
+  await user.click(await details.findByText('Endpoints, exact units and derivation'))
+  for (const [label, amount] of [['Sender debit (atomic units)', '10000000'], ['Recipient credit (atomic units)', '9900000'], ['Withheld fee (atomic units)', '100000']]) expect(details.getByText(label).nextElementSibling).toHaveTextContent(amount)
+  if (interpretation === 'unresolved') expect(details.getByRole('heading', { level: 4, name: /transfer/ })).toHaveTextContent('Unknown')
 })

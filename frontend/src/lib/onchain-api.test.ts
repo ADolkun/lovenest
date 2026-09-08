@@ -62,3 +62,19 @@ it('filters saved histories locally without putting private addresses in request
   })
   expect(await onchain.histories('investment', 'connection-A', 'owner-A')).toEqual([summaries[0]])
 })
+
+it('binds preview and selected continuation to the originating workspace without private URLs or decimal loss', async () => {
+  const seen: Array<{ url?: string; workspace: unknown; data: string }> = []
+  api.defaults.adapter = vi.fn<AxiosAdapter>(async (config) => {
+    seen.push({ url: config.url, workspace: config.headers.get('X-Workspace-Id'), data: config.data })
+    return { data: {}, status: 200, statusText: 'OK', headers: {}, config }
+  })
+  const request = { event_id: 'synthetic-event', leg_id: 'synthetic-leg', direction: 'out' as const, max_hops: 6, max_branches: 5, minimums: { 'chain:token': '9007199254740993.000000001' } }
+  const pending = [onchain.previewInvestigation(request, 'investment'), onchain.continueInvestigation({ ...request, collection_id: 'saved-evidence', expected_revision: 'revision-a', frontier_key: 'selected-frontier' }, 'investment')]
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, 'household')
+  await Promise.all(pending)
+  expect(seen.map((entry) => entry.workspace)).toEqual(['investment', 'investment'])
+  expect(seen.map((entry) => entry.url)).toEqual(['/onchain/investigation/preview', '/onchain/investigation/continue'])
+  expect(JSON.parse(seen[0].data)).toEqual(request)
+  expect(JSON.parse(seen[1].data)).toMatchObject({ expected_revision: 'revision-a', frontier_key: 'selected-frontier' })
+})

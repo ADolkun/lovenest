@@ -194,10 +194,10 @@ def _movement_reasons(state, leg_id):
         scope = observation.connection_id, source.get("source_account_id")
         if scope not in state["archive_qualification"]:
             matching = [row for row in state["archives"].values() if row.connection_id == observation.connection_id
-                        and f"solana:{row.request.get('address')}" == source.get("source_account_id")]
+                        and f"{row.request.get('chain', 'solana')}:{row.request.get('address')}" == source.get("source_account_id")]
             current = []
             for row in matching:
-                qualified = qualify_archive(row.payload, [(peer.id, peer.payload) for peer in matching if peer.id != row.id])
+                qualified = qualify_archive(row.payload, [(peer.id, peer.payload) for peer in state["archives"].values() if peer.id != row.id])
                 current.extend(project_observations(qualified, row.id))
             state["archive_qualification"][scope] = current
         current = state["archive_qualification"][scope]

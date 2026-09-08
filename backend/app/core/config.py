@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # tracing needs it: EVM JSON-RPC serves balances but has no call that
     # lists an address's transactions.
     etherscan_api_key: str = ""
+    # Server-only JSON by chain: Base rollup_rpc_url, operator_fee_forks with
+    # sourced [from_timestamp, until_timestamp) formulas, and standard_tokens
+    # keyed by contract with sourced block bounds, SHA256 code_hash,
+    # semantics=standard_erc20 and non_proxy=true. Empty means unknown evidence.
+    evm_history_policies: Annotated[dict[str, dict], NoDecode] = {}
 
     # Frontend
     frontend_url: str = "http://localhost:5173"
@@ -164,6 +169,45 @@ class Settings(BaseSettings):
         # deployment that never touched this setting.
         if isinstance(value, str):
             return json.loads(value) if value.strip() else {}
+        return value
+
+    @field_validator("evm_history_policies", mode="before")
+    @classmethod
+    def _parse_evm_history_policies(cls, value: object) -> object:
+        from urllib.parse import urlsplit
+
+        if isinstance(value, str):
+            value = json.loads(value) if value.strip() else {}
+        if not isinstance(value, dict) or set(value) - {"ethereum", "base", "polygon"}:
+            raise ValueError("EVM history policies require supported chain keys")
+        for policy in value.values():
+            if not isinstance(policy, dict) or set(policy) - {"rollup_rpc_url", "operator_fee_forks", "standard_tokens"}:
+                raise ValueError("Invalid EVM history policy fields")
+            endpoint = policy.get("rollup_rpc_url")
+            if endpoint is not None and (not isinstance(endpoint, str) or urlsplit(endpoint).scheme not in ("http", "https") or not urlsplit(endpoint).hostname):
+                raise ValueError("Invalid EVM history rollup endpoint")
+            forks = policy.get("operator_fee_forks", [])
+            if not isinstance(forks, list) or len(forks) > 32:
+                raise ValueError("Invalid EVM fee policy intervals")
+            for fork in forks:
+                if (not isinstance(fork, dict) or not isinstance(fork.get("source"), str) or not fork["source"]
+                    or fork.get("formula") not in ("pre_isthmus", "isthmus", "jovian")
+                    or type(fork.get("from_timestamp")) is not int or fork["from_timestamp"] < 0
+                    or (fork.get("until_timestamp") is not None and (type(fork["until_timestamp"]) is not int or fork["until_timestamp"] <= fork["from_timestamp"]))):
+                    raise ValueError("Invalid EVM fee policy interval")
+            tokens = policy.get("standard_tokens", {})
+            if not isinstance(tokens, dict) or len(tokens) > 128:
+                raise ValueError("Invalid EVM standard token policy")
+            for contract, token in tokens.items():
+                if (not isinstance(contract, str) or len(contract) != 42 or not contract.startswith("0x")
+                    or any(character not in "0123456789abcdef" for character in contract[2:])
+                    or not isinstance(token, dict) or token.get("semantics") != "standard_erc20" or token.get("non_proxy") is not True
+                    or not isinstance(token.get("source"), str) or not token["source"]
+                    or type(token.get("from_block")) is not int or type(token.get("to_block")) is not int
+                    or not 0 <= token["from_block"] <= token["to_block"]
+                    or not isinstance(token.get("code_hash"), str) or len(token["code_hash"]) != 64
+                    or any(character not in "0123456789abcdef" for character in token["code_hash"])):
+                    raise ValueError("Invalid reviewed EVM standard token policy")
         return value
 
     @model_validator(mode="after")

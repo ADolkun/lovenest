@@ -1593,7 +1593,7 @@ export interface InvoiceFacets {
   }
 }
 
-export type OnChainKind = 'solana' | 'evm'
+export type OnChainKind = 'solana' | 'evm' | 'bitcoin'
 
 export interface OnChainChain {
   key: string
@@ -1604,6 +1604,8 @@ export interface OnChainChain {
    *  Balances still read; a trace would fail on submit, so the picker
    *  disables the option instead of letting the user find out. */
   traceable: boolean
+  historical_evidence?: string
+  capabilities?: Record<string, string>
 }
 
 /** An address already connected through the `onchain` provider, offered as a
@@ -1623,7 +1625,9 @@ export interface HistoryRequest {
   address: string
   since?: string
   until?: string
-  supplied_accounts?: { address: string; owner: string; reviewed: true }[]
+  start_block?: number
+  end_block?: number
+  supplied_accounts?: { address?: string; scriptpubkey?: string; owner: string; reviewed: true }[]
   collection_id?: string
   expected_revision?: string
   reobserve?: boolean
@@ -1633,6 +1637,7 @@ export interface HistoryAsset {
   chain: string
   native?: boolean
   mint?: string | null
+  contract?: string | null
   token_program?: string | null
 }
 
@@ -1670,18 +1675,22 @@ export interface HistoryEvidence {
   decoder_version: string
   chain: string
   owner: string
-  requested: { since: string | null; until: string | null; commitment: string }
-  anchor: { slot?: number | null; blockhash?: string | null; commitment?: string } | null
-  inventory: Record<string, { address: string; kind: string; discoveries: unknown[]; ownership: unknown[] }>
+  requested: { since: string | null; until: string | null; commitment: string; start_block?: number; end_block?: number | null }
+  anchor: { slot?: number | null; height?: number | null; number?: number | null; block_number?: number | null; blockhash?: string | null; commitment?: string; finalized?: { number?: string | number }; l1_corroborated?: boolean } | null
+  inventory: Record<string, { address: string | null; scriptpubkey?: string | null; kind: string; discoveries?: unknown[]; ownership: unknown[] }>
   streams: Record<string, {
-    cursor: string | null
+    address?: string | null
+    scriptpubkey?: string | null
+    kind?: string
+    cursor: string | number | Record<string, unknown> | null
     pages_examined: number
     exhausted: boolean
     stop_reason: string | null
     oldest_at: string | null
     newest_at: string | null
     unknown_timestamps: number
-    payload_gaps: string[]
+    payload_gaps?: string[]
+    gaps?: string[]
   }>
   transactions: Record<string, {
     signature: string
@@ -1694,17 +1703,18 @@ export interface HistoryEvidence {
   reconciliation?: {
     account: string
     asset: HistoryAsset | string
-    opening: string | null
-    settled_change: string | null
-    closing: string | null
+    opening?: string | null
+    settled_change?: string | null
+    known_settled_change?: string | null
+    closing?: string | null
     discrepancy: string | null
     status: string
     reasons: string[]
     missing_coverage?: string[]
     scope?: string
     requested_interval_status?: string
-    opening_snapshot?: { slot?: number | null; time?: string | null; position?: string }
-    closing_snapshot?: { slot?: number | null; time?: string | null; position?: string }
+    opening_snapshot?: { slot?: number | null; block_number?: number; block_hash?: string; time?: string | null; position?: string } | null
+    closing_snapshot?: { slot?: number | null; block_number?: number; block_hash?: string; time?: string | null; position?: string } | null
   }[]
   limits: Record<string, unknown>
   gaps: string[]

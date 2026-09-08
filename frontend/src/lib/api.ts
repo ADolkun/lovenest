@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { BridgeCandidate, BridgeReviewRequest, InvestigationContinueRequest, InvestigationRead, InvestigationRequest } from '@/types/investigation'
 import type { NumberFormat, DateFormat } from '@/lib/format'
 import type {
   User,
@@ -1524,6 +1525,22 @@ export const reports = {
 
 // On-chain address tracing
 export const onchain = {
+  bridgeCandidates: async (eventId: string, workspaceId: string, signal?: AbortSignal): Promise<BridgeCandidate[]> => {
+    const { data } = await api.get('/onchain/investigation/bridge-candidates', { params: { event_id: eventId }, headers: { 'X-Workspace-Id': workspaceId }, signal })
+    return data
+  },
+  reviewBridge: async (payload: BridgeReviewRequest, workspaceId: string): Promise<BridgeCandidate> => {
+    const { data } = await api.post('/onchain/investigation/bridge', payload, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  previewInvestigation: async (payload: InvestigationRequest, workspaceId: string): Promise<InvestigationRead> => {
+    const { data } = await api.post('/onchain/investigation/preview', payload, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
+  continueInvestigation: async (payload: InvestigationContinueRequest, workspaceId: string): Promise<InvestigationRead> => {
+    const { data } = await api.post('/onchain/investigation/continue', payload, { headers: { 'X-Workspace-Id': workspaceId } })
+    return data
+  },
   collectHistory: async (payload: HistoryRequest, workspaceId: string): Promise<HistoryCollection> => {
     const { data } = await api.post('/onchain/history', payload, { headers: { 'X-Workspace-Id': workspaceId } })
     return data

@@ -4,7 +4,7 @@ import { HistoricalEvidencePanel } from '@/components/historical-evidence-panel'
 import { renderWithProviders } from '@/test/utils'
 import type { HistoryCollection } from '@/types'
 
-const api = vi.hoisted(() => ({ addresses: vi.fn(), histories: vi.fn(), collectHistory: vi.fn(), history: vi.fn(), exportHistory: vi.fn() }))
+const api = vi.hoisted(() => ({ chains: vi.fn(), addresses: vi.fn(), histories: vi.fn(), collectHistory: vi.fn(), history: vi.fn(), exportHistory: vi.fn() }))
 const workspace = vi.hoisted(() => ({ canWrite: true }))
 vi.mock('@/lib/api', () => ({ onchain: api }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: () => workspace }))
@@ -38,6 +38,7 @@ beforeEach(() => {
     { connection_id: 'connection-one', connection_name: 'Owned wallet', chain: 'solana', address: 'owner-A', label: 'Wallet A' },
     { connection_id: 'connection-two', connection_name: 'EVM wallet', chain: 'ethereum', address: 'owner-E', label: 'Wallet E' },
   ])
+  api.chains.mockResolvedValue([{ key: 'solana', kind: 'solana', historical_evidence: 'solana_owned_history' }, { key: 'ethereum', kind: 'evm', historical_evidence: 'evm_owned_history' }])
   api.histories.mockResolvedValue([])
   api.collectHistory.mockResolvedValue(result)
   api.history.mockResolvedValue(result)
@@ -138,7 +139,7 @@ it('suppresses late collections and downloads after a workspace switch', async (
   expect(api.exportHistory).not.toHaveBeenCalled()
 })
 
-it('requires review for supplied historical accounts and keeps EVM collection unsupported', async () => {
+it('requires reviewed inventory and resets collection state when selecting EVM', async () => {
   const { user } = renderWithProviders(panel())
   await screen.findByRole('combobox', { name: 'Evidence wallet' })
   await user.click(screen.getByRole('checkbox', { name: /I own the selected wallet/ }))
@@ -150,7 +151,8 @@ it('requires review for supplied historical accounts and keeps EVM collection un
   await screen.findByRole('region', { name: 'Historical evidence results' })
   expect(api.collectHistory.mock.calls[0][0].supplied_accounts).toEqual([{ address: 'closed-A', owner: 'owner-A', reviewed: true }, { address: 'closed-B', owner: 'owner-A', reviewed: true }])
   await user.selectOptions(screen.getByLabelText('Evidence wallet'), 'connection-two:ethereum:owner-E')
-  expect(screen.getByText(/EVM and Bitcoin history collection is unsupported/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Start block (optional)')).toBeInTheDocument()
+  expect(screen.queryByLabelText(/Historical token-account addresses/)).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Collect evidence' })).toBeDisabled()
   expect(screen.queryByRole('region', { name: 'Historical evidence results' })).not.toBeInTheDocument()
 })
@@ -240,4 +242,69 @@ it.each(['complete', 'partial'])('distinguishes %s empty retrieval from a filter
   const { user } = renderWithProviders(panel())
   await collect(user)
   expect(screen.getByText(retrieval === 'complete' ? /No transactions were returned for the declared address streams/ : /No transactions have been retained yet/)).toBeInTheDocument()
+})
+
+it.each(['ethereum', 'base', 'polygon', 'bitcoin'])('collects %s only when advertised, preserves block zero and reviewed scripts', async (chain) => {
+  api.addresses.mockResolvedValue([{ connection_id: 'connection-one', connection_name: 'Synthetic', chain, address: 'owned-synthetic', label: 'Declared wallet' }])
+  api.chains.mockResolvedValue([{ key: chain, kind: chain === 'bitcoin' ? 'bitcoin' : 'evm', historical_evidence: `${chain === 'bitcoin' ? 'bitcoin' : 'evm'}_owned_history` }])
+  const { user } = renderWithProviders(<HistoricalEvidencePanel workspaceId="investment" initial={{ selectedKey: `${chain}:owned-synthetic`, since: '', until: '' }} />)
+  await user.click(await screen.findByRole('checkbox', { name: /I own the selected wallet/ }))
+  if (chain === 'bitcoin') {
+    await user.click(screen.getByText('Reviewed owned addresses and scripts'))
+    await user.type(screen.getByLabelText('Owned addresses or script:hex values (spaces or commas)'), 'script:0014abcd')
+    expect(screen.getByRole('button', { name: 'Collect evidence' })).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /I reviewed ownership of these additional/ }))
+  } else {
+    await user.type(screen.getByLabelText('Start block (optional)'), '2')
+    await user.type(screen.getByLabelText('End block (optional)'), '1')
+    expect(screen.getByRole('button', { name: 'Collect evidence' })).toBeDisabled()
+    await user.clear(screen.getByLabelText('Start block (optional)'))
+    await user.type(screen.getByLabelText('Start block (optional)'), '0')
+  }
+  await user.click(screen.getByRole('button', { name: 'Collect evidence' }))
+  await screen.findByRole('region', { name: 'Historical evidence results' })
+  expect(api.collectHistory).toHaveBeenCalledWith({ connection_id: 'connection-one', chain, address: 'owned-synthetic', ownership_confirmed: true, ...(chain === 'bitcoin' ? { supplied_accounts: [{ scriptpubkey: '0014abcd', owner: 'owned-synthetic', reviewed: true }] } : { start_block: 0, end_block: 1 }) }, 'investment')
+})
+
+it('keeps collection disabled after capability failure, with a working retry', async () => {
+  api.chains.mockRejectedValueOnce(new Error('synthetic unavailable'))
+  const { user } = renderWithProviders(panel())
+  await screen.findByText(/Source capabilities could not be loaded/)
+  await user.click(screen.getByRole('checkbox', { name: /I own the selected wallet/ }))
+  expect(screen.getByRole('button', { name: 'Collect evidence' })).toBeDisabled()
+  await user.click(screen.getByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Collect evidence' })).toBeEnabled())
+  expect(api.collectHistory).not.toHaveBeenCalled()
+})
+
+// Exact UI-facing fields from synthetic Bitcoin and Base producer exports.
+it('renders the actual bitcoin producer inventory, streams and quantity bounds', async () => {
+  const producer = {"chain":"bitcoin","owner":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","requested":{"commitment":"six_active_chain_confirmations","research":false,"since":null,"until":null},"anchor":{"active":true,"block_time":"2027-01-15T08:01:40+00:00","blockhash":"block-100","commitment":"six_active_chain_confirmations","height":100},"inventory":{"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo":{"address":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","kind":"owner","ownership":[{"owner":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","period":"declared_scope","source":"workspace_connection_ownership_assertion"}]}},"streams":{"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo:confirmed":{"address":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","cursor":"browser-bitcoin-send","exhausted":true,"kind":"confirmed","newest_at":"2027-01-15T08:00:00+00:00","oldest_at":"2027-01-15T08:00:00+00:00","pages_examined":1,"scriptpubkey":null,"stop_reason":"provider_exhausted","unknown_timestamps":0},"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo:mempool":{"address":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","cursor":null,"exhausted":true,"kind":"mempool","newest_at":null,"oldest_at":null,"pages_examined":1,"scriptpubkey":null,"stop_reason":"provider_exhausted","unknown_timestamps":0}},"reconciliation":[{"account":"1HVWR7uTpgYqdSb6tJyebb3JpfEiixSXCo","asset":{"chain":"bitcoin","mint":null,"native":true,"token_program":null},"closing_quantity":null,"discrepancy":null,"expected_closing_quantity":null,"known_settled_change":"-0.00000610","known_settled_change_raw_units":"-610","opening_quantity":null,"reasons":["opening_quantity_unknown","closing_quantity_unknown","requested_boundary_snapshots_unavailable","historical_inventory_unresolved","basis_unknown"],"requested_interval_status":"unresolved","scope":"declared_addresses_and_scripts","status":"unresolved"}]}
+  api.collectHistory.mockResolvedValue({ ...result, evidence: { ...result.evidence, ...producer, transactions: {} } })
+  const { user } = renderWithProviders(panel())
+  const region = await collect(user)
+  await user.click(within(region).getByText(/Account inventory and retrieval/))
+  await user.click(within(region).getByText('Collection limits and settlement anchor'))
+  expect(region).not.toHaveTextContent('This account has not been searched.')
+  expect(within(region).getAllByText('Pages examined: 1 · Provider exhausted: Yes')).toHaveLength(2)
+  expect(region).toHaveTextContent('Known settled subtotal: -0.00000610')
+  expect(region).toHaveTextContent('Unknown + (Unknown) = Unknown')
+})
+
+it('renders the actual base producer inventory, streams and quantity bounds', async () => {
+  const producer = {"chain":"base","owner":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requested":{"commitment":"finalized","end_block":10,"research":false,"since":null,"start_block":9,"until":null},"anchor":{"commitment":"finalized","finalized":{"number":"0x14"},"hash":"0x00000000000000000000000000000000000000000000000000000000000003fc","l1_corroborated":true,"number":20},"inventory":{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":{"address":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","discoveries":[{"source":"workspace_connection_ownership_assertion"}],"kind":"owner","ownership":[]}},"streams":{"internal":{"cursor":{},"exhausted":true,"gaps":[],"kind":"internal","newest_at":"2027-01-15T08:00:10+00:00","oldest_at":"2027-01-15T08:00:10+00:00","pages_examined":1,"payload_gaps":[],"stop_reason":"provider_exhausted","unknown_timestamps":0},"logs_in":{"cursor":{},"exhausted":true,"gaps":[],"kind":"logs_in","newest_at":null,"oldest_at":null,"pages_examined":1,"payload_gaps":[],"stop_reason":"provider_exhausted","unknown_timestamps":0},"logs_out":{"cursor":{},"exhausted":true,"gaps":[],"kind":"logs_out","newest_at":null,"oldest_at":null,"pages_examined":1,"payload_gaps":[],"stop_reason":"provider_exhausted","unknown_timestamps":0},"ordinary":{"cursor":{},"exhausted":true,"gaps":[],"kind":"ordinary","newest_at":"2027-01-15T08:00:10+00:00","oldest_at":"2027-01-15T08:00:10+00:00","pages_examined":1,"payload_gaps":[],"stop_reason":"provider_exhausted","unknown_timestamps":0}},"reconciliation":[{"account":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","asset":{"chain":"base","contract":null,"mint":null,"native":true,"network_id":8453,"symbol":"ETH","token_program":null},"closing":null,"closing_snapshot":null,"decimals":18,"discrepancy":null,"expected_closing":null,"known_subtotal_raw_units":"-6000021000000021092","opening":null,"opening_snapshot":null,"reasons":["basis_unknown","closing_quantity_unknown","opening_quantity_unknown","requested_boundary_snapshots_unavailable"],"requested_interval_status":"unresolved","scope":"observed_block_boundaries","settled_change":"-6.000021000000021092","status":"unknown"},{"account":"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","asset":{"chain":"base","contract":"0xcccccccccccccccccccccccccccccccccccccccc","mint":"0xcccccccccccccccccccccccccccccccccccccccc","native":false,"network_id":8453,"symbol":null,"token_program":null},"closing":"999999997.000000","closing_snapshot":{"block_hash":"0x00000000000000000000000000000000000000000000000000000000000003f2","block_number":10,"position":"end_of_block"},"decimals":6,"discrepancy":"0.000000","expected_closing":"999999997.000000","known_subtotal_raw_units":"-3000000","opening":"1000000000.000000","opening_snapshot":{"block_hash":"0x00000000000000000000000000000000000000000000000000000000000003f1","block_number":9,"position":"end_of_block"},"reasons":["basis_unknown","requested_boundary_snapshots_unavailable"],"requested_interval_status":"unresolved","scope":"observed_block_boundaries","settled_change":"-3.000000","status":"matched"}]}
+  api.collectHistory.mockResolvedValue({ ...result, evidence: { ...result.evidence, ...producer, transactions: {} } })
+  const { user } = renderWithProviders(panel())
+  const region = await collect(user)
+  await user.click(within(region).getByText(/Account inventory and retrieval/))
+  await user.click(within(region).getByText('Collection limits and settlement anchor'))
+  expect(region).not.toHaveTextContent('This account has not been searched.')
+  expect(within(region).getAllByText('Pages examined: 1 · Provider exhausted: Yes')).toHaveLength(4)
+  expect(region).toHaveTextContent('Requested blocks: 9 → 10')
+  expect(within(region).getByText('Pinned reference block or slot').nextElementSibling).toHaveTextContent('20')
+  expect(within(region).getByText('Reported finalized block').nextElementSibling).toHaveTextContent('20')
+  expect(within(region).getByText('L1 finality corroborated').nextElementSibling).toHaveTextContent('Yes')
+  expect(region).toHaveTextContent('Snapshot bounds: Block / slot 9')
+  expect(region).toHaveTextContent('→ Block / slot 10')
+  expect(region).toHaveTextContent('1000000000.000000 + (-3.000000) = 999999997.000000')
 })
