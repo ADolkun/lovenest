@@ -3200,5 +3200,95 @@
       "fee_payer": "Pagador das taxas",
       "fee_semantics": "Composição das taxas"
     }
+  },
+  "balanceExplanation": {
+    "title": "Detalhes do saldo",
+    "open": "Detalhes do saldo: {{name}}",
+    "currentView": "visualização atual",
+    "description": "Entenda a origem, o escopo e a data de cada valor. Valores em moedas diferentes são apresentados separadamente.",
+    "unavailable": "Indisponível",
+    "ageUnknown": "Data desconhecida",
+    "selectedHoldings": "Posições selecionadas",
+    "holdingsRequestFailed": "A consulta das posições falhou. Os valores preservados podem estar desatualizados; esta resposta não permite verificar o caixa.",
+    "filteredHoldings": "Esta seleção inclui apenas as posições selecionadas. Totais de contas e caixa de carteiras estão fora deste escopo.",
+    "noWallets": "Nenhuma carteira está incluída nesta visualização.",
+    "metadataUnknown": "Os metadados da fonte estão indisponíveis. Não é possível verificar o caixa, a cobertura ou a data de observação.",
+    "observedAt": "Observado em",
+    "collectedAt": "Coletado em",
+    "valueDate": "Data do valor",
+    "refresh": "Última atualização",
+    "coverage": "Cobertura da fonte",
+    "lastSync": "Última sincronização bem-sucedida (não é a observação do valor)",
+    "difference": "Total da conta menos as posições incluídas",
+    "components": "Componentes incluídos",
+    "excluded": "Listado separadamente; excluído de posições e caixa",
+    "holdings": "Posições e datas das avaliações",
+    "quantity": "Quantidade",
+    "missingValue": "Cotação ou avaliação indisponível",
+    "openHolding": "Abrir detalhes do valor",
+    "openAccount": "Abrir conta",
+    "openConnection": "Revisar conexão",
+    "reviewAssociation": "Revisar associação da conta",
+    "omitted": "{{count}} componentes não puderam ser lidos ou foram omitidos.",
+    "accountAggregate": "Agregado das contas",
+    "aggregatePartial": "Subtotal conhecido · somente valores das contas",
+    "aggregateHint": "Somente valores das contas. Moedas estrangeiras sem conversão verificada são excluídas.",
+    "basis": {
+      "reported_account_total": "Total informado da conta",
+      "connector_calculated_subtotal": "Subtotal calculado pelo conector",
+      "cash_ledger": "Registro de caixa",
+      "unknown": "Saldo da conta · origem indisponível"
+    },
+    "component": {
+      "positions": "Posições com ticker",
+      "dust": "Saldos residuais pequenos",
+      "cash_equivalents": "Equivalentes de caixa",
+      "non_ticker_assets": "Ativos sem ticker",
+      "liquid_cash": "Caixa líquido derivado"
+    },
+    "refreshState": {
+      "active": "Atualização bem-sucedida",
+      "sync_error": "Atualização parcial ou com falha",
+      "error": "Falha na atualização",
+      "expired": "Conexão expirada",
+      "unknown": "Estado da atualização desconhecido",
+      "partial": "Atualização parcial",
+      "failed": "Falha na atualização"
+    },
+    "coverageState": {
+      "complete": "Completa para o escopo informado",
+      "partial": "Cobertura parcial",
+      "unknown": "Cobertura desconhecida"
+    },
+    "reconciliation": {
+      "matched": "O caixa é o restante não negativo do total desta conta após as posições incluídas. Este cálculo não confirma o saldo de forma independente.",
+      "difference": "As posições excedem o total comparável da conta. Revise o escopo incluído e as datas de observação; o caixa derivado tem limite mínimo de zero.",
+      "not_comparable": "Estes valores não podem ser conciliados: identidade, escopo, moeda ou data de observação são incompatíveis ou desconhecidos.",
+      "shared_derivation": "O subtotal da conta foi calculado a partir das posições. A concordância com essas posições não constitui conciliação independente.",
+      "separate_cash_ledger": "O registro de caixa manual é separado das posições. Vincular a conta não autoriza subtrair as posições deste registro.",
+      "residual_derived": "O caixa é o restante não negativo do total desta conta após as posições incluídas. Este cálculo não confirma o saldo de forma independente."
+    },
+    "reason": {
+      "no_account_association": "Não há uma associação de conta elegível e inequívoca. O caixa não pode ser derivado; revise a associação existente.",
+      "separate_cash_ledger": "O registro de caixa e as posições são intencionalmente separados. Uma sincronização não combina seus significados.",
+      "missing_holding_value": "Algumas posições não têm cotação ou avaliação. Seu valor desconhecido não pode ser tratado como caixa.",
+      "account_balance_unavailable": "O saldo da conta está indisponível; nenhum saldo de caixa pode ser inferido.",
+      "shared_derivation": "O valor da conta e o das posições têm a mesma origem de cálculo.",
+      "coverage_unknown": "A fonte não estabeleceu se todos os componentes foram incluídos.",
+      "partial_refresh": "A última atualização tem cobertura incompleta. Os valores anteriores preservam suas datas originais.",
+      "refresh_failed": "A última atualização falhou. Revise a conexão antes de confiar nos valores preservados.",
+      "observation_time_unknown": "Falta uma data de observação da fonte; carregar a página recentemente não torna o valor atual.",
+      "observation_time_mismatch": "As observações da conta e das posições se referem a momentos diferentes.",
+      "currency_mismatch": "As moedas diferem e não há conversão compatível verificada. Nenhuma diferença é calculada.",
+      "account_scope_mismatch": "A conta abrange um conjunto diferente ou ambíguo de carteiras. Seu restante não é atribuído a esta carteira.",
+      "balance_difference": "As posições incluídas excedem o total comparável da conta; nenhum ajuste negativo de caixa é aplicado.",
+      "connector_omissions": "Alguns componentes foram omitidos do subtotal calculado pelo conector.",
+      "metadata_unknown": "A fonte não forneceu metadados suficientes para explicar este valor por completo.",
+      "unknown": "A fonte informa uma condição de saldo não resolvida. Revise a conta e as posições incluídas."
+    },
+    "portfolioBreakdown": "Composição da carteira",
+    "coverageIncomplete": "Cobertura parcial ou não verificada",
+    "recordedAt": "Valor registrado em",
+    "quoteAt": "Cotação observada em"
   }
 }

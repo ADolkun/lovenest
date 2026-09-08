@@ -1,3 +1,5 @@
+import { AccountBalanceAmount, AccountBalanceBasis } from '@/components/balance-details'
+import { accountAggregate, accountBalance } from '@/lib/balance-explanation'
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -105,7 +107,7 @@ export function AppLayout() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
   const { agentsEnabled } = useFeatureFlags()
-  const { hasModule, isLoading: workspaceLoading, canWrite } = useWorkspace()
+  const { current, hasModule, isLoading: workspaceLoading, canWrite } = useWorkspace()
   // The chat is offered only to members who can write. Sending a message
   // reaches a tool set that persists — `propose_create_transaction` and its
   // siblings — so the backend refuses it for a read-only role. Showing the
@@ -189,9 +191,8 @@ export function AppLayout() {
   const visibleAccounts = activeAccountIds
     ? allAccounts.filter((a) => activeAccountIds.includes(a.id))
     : allAccounts
-  const totalBalance = visibleAccounts.reduce((sum, a) => {
-    return sum + Number(a.balance_primary ?? a.current_balance)
-  }, 0)
+  const aggregate = accountAggregate(visibleAccounts, userCurrency, current?.id)
+  const totalBalance = aggregate.amount
   const versionA11yLabel = t('app.versionAriaLabel', { version: APP_VERSION })
 
   return (
@@ -440,13 +441,13 @@ export function AppLayout() {
                 className="flex items-center justify-between w-full px-3 py-2 hover:text-sidebar-foreground transition-colors"
               >
                 <span className="text-[11px] uppercase tracking-[0.12em] font-semibold text-sidebar-muted">
-                  {t('accounts.title')}
+                  {t('balanceExplanation.accountAggregate')}
                 </span>
                 <div className="flex items-center gap-2">
                   <span
-                    className={`tabular-nums font-medium text-xs ${totalBalance < 0 ? 'text-rose-400' : 'text-sidebar-muted'}`}
+                    className={`tabular-nums font-medium text-xs ${(totalBalance ?? 0) < 0 ? 'text-rose-400' : 'text-sidebar-muted'}`}
                   >
-                    {mask(formatCurrency(totalBalance, userCurrency, locale))}
+                    {totalBalance === null ? t('balanceExplanation.unavailable') : mask(formatCurrency(totalBalance, userCurrency, locale))}
                   </span>
                   <ChevronRight
                     size={12}
@@ -457,28 +458,29 @@ export function AppLayout() {
                   />
                 </div>
               </button>
+              <p className="px-3 pb-1 text-[10px] text-sidebar-muted" title={t('balanceExplanation.aggregateHint')}>{t(aggregate.incomplete ? 'balanceExplanation.aggregatePartial' : 'balanceExplanation.aggregateHint')}</p>
               {accountsExpanded && (
                 <div className="mt-1 space-y-0.5">
                   {[...visibleAccounts].sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
-                    const balance = Number(acc.current_balance) || 0
+                    const balance = accountBalance(acc, current?.id)
                     const typeKey = acc.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())
 
                     return (
                       <Link
                         key={acc.id}
-                        to={`/accounts/${acc.id}`}
+                        to={`/accounts/${acc.id}${acc.type === 'investment' ? '?balance=1' : ''}`}
                         onClick={() => setSidebarOpen(false)}
                         className="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
                       >
                         <div className="truncate min-w-0">
                           <span className="block truncate font-medium" title={getAccountName(acc)}>{getAccountName(acc)}</span>
                           <span className="block text-[10px] text-sidebar-muted/60">
-                            {t(`accounts.type${typeKey}`)}
+                            {acc.type === 'investment' ? <AccountBalanceBasis account={acc} workspaceId={current?.id} /> : t(`accounts.type${typeKey}`)}
                           </span>
                         </div>
                         <div className="text-right shrink-0 ml-2">
-                          <span className={`block tabular-nums font-medium text-xs ${balance < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
-                            {mask(formatCurrency(balance, acc.currency, locale))}
+                          <span className={`block tabular-nums font-medium text-xs ${(balance ?? 0) < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
+                            <AccountBalanceAmount account={acc} workspaceId={current?.id} />
                           </span>
                         </div>
                       </Link>

@@ -1,3 +1,5 @@
+import { valueInCurrency } from '@/lib/balance-explanation'
+import { BalanceDetails } from '@/components/balance-details'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -200,6 +202,7 @@ export default function AssetsPage() {
   const activityView = activity === 'wallets' && !walletActivityEnabled ? 'trades' : activity
   const setView = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams)
+    if ('wallet' in changes && !('holding' in changes)) next.delete('holding')
     // Normalize legacy tab names before applying a view/filter change.
     next.set('tab', activeTab)
     next.set('view', portfolioView)
@@ -208,7 +211,7 @@ export default function AssetsPage() {
       if (value === null) next.delete(key)
       else next.set(key, value)
     }
-    setSearchParams(next, { replace: true })
+    setSearchParams(next)
   }
   // Holding id for the lightweight "add transaction to this holding" dialog,
   // opened from the holdings table ("+ add buys") and the inline ledger.
@@ -218,7 +221,8 @@ export default function AssetsPage() {
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [pendingGrowthSave, setPendingGrowthSave] = useState<Record<string, unknown> | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const expandedId = searchParams.get('holding')
+  const setExpandedId = (id: string | null) => setView({ holding: id })
 
   // Wallet (AssetGroup) dialog state
   const [walletDialogOpen, setWalletDialogOpen] = useState(false)
@@ -1035,9 +1039,9 @@ export default function AssetsPage() {
     const isSynced = wallet.source !== 'manual'
     // Use the visible, currently valued holdings. A stale snapshot is not a
     // fallback for a real zero; missing valuations remain an explicit subtotal.
-    const priced = walletAssets.filter((asset) => asset.current_value_primary != null)
-    const total = priced.reduce((sum, asset) => sum + Number(asset.current_value_primary), 0)
-    const partial = priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0
+    const priced = walletAssets.filter((asset) => valueInCurrency(asset, userCurrency) !== null)
+    const total = priced.reduce((sum, asset) => sum + valueInCurrency(asset, userCurrency)!, 0)
+    const partial = assetsError || priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0
 
     // Only show the institution as a subtitle when it's actually
     // additional information — if the user hasn't renamed the wallet,
@@ -1097,11 +1101,12 @@ export default function AssetsPage() {
           )}
           <div className="text-right shrink-0">
             <span className="text-sm font-semibold tabular-nums text-foreground">
-              {priced.length > 0 || walletAssets.length === 0 ? mask(formatCurrency(total, userCurrency, locale)) : '—'}
+              {priced.length > 0 || (!assetsError && walletAssets.length === 0) ? mask(formatCurrency(total, userCurrency, locale)) : '—'}
             </span>
             <span className="block text-[10px] text-muted-foreground">
               {t(partial ? 'assets.knownHoldingsValue' : 'assets.holdingsValue')}
             </span>
+            <BalanceDetails canWrite={canWrite} wallets={[wallet]} holdings={walletAssets} workspaceId={current?.id} holdingsError={assetsError} canOpenAccounts={hasModule('accounts')} />
           </div>
           {canWrite && (
             <>
@@ -1251,6 +1256,9 @@ export default function AssetsPage() {
                 <PositionsTab
                   key={`${current?.id}:${selectedWalletId ?? ''}:${activeWalletIds?.join(',') ?? ''}`}
                   holdings={assetsList ?? []}
+                  workspaceId={current?.id}
+                  holdingsError={assetsError}
+                  canOpenAccounts={hasModule('accounts')}
                   wallets={sortedWallets}
                   currency={userCurrency}
                   locale={locale}
@@ -1260,9 +1268,8 @@ export default function AssetsPage() {
                   onClassify={(id, type) => updateMutation.mutate({ id, type })}
                   onOpenHolding={(id) => {
                     const holding = assetsList?.find((asset) => asset.id === id)
-                    setExpandedId(id)
                     setCollapsedWallets(new Set(sortedWallets.filter((wallet) => wallet.id !== holding?.group_id).map((wallet) => wallet.id)))
-                    setView({ view: 'wallets', wallet: holding?.group_id ?? null })
+                    setView({ view: 'wallets', wallet: holding?.group_id ?? null, holding: id })
                   }}
                   walletContent={portfolioView === 'wallets' ? walletHoldings : undefined}
                   onShowPositions={() => setView({ view: 'assets' })}

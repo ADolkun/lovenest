@@ -1,3 +1,5 @@
+import type { BalanceExplanation } from './balance-explanation'
+
 export interface User {
   id: string
   email: string
@@ -168,6 +170,7 @@ export interface ProviderAccount {
 }
 
 export interface Account {
+  balance_explanation?: BalanceExplanation | null
   id: string
   user_id: string
   connection_id: string | null
@@ -1041,6 +1044,7 @@ export interface MarketSymbolQuote {
 export type TaxTreatment = 'taxable' | 'roth' | 'traditional' | 'hsa' | 'other'
 
 export interface AssetGroup {
+  balance_explanation?: BalanceExplanation | null
   id: string
   user_id: string
   name: string

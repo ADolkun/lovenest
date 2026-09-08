@@ -3,6 +3,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.balance_explanation import BalanceExplanation
+
 # Roth, traditional and HSA are the tax-advantaged treatments; `other` covers
 # accounts whose character is neither (e.g. a foreign or trust account).
 TaxTreatment = Literal["taxable", "roth", "traditional", "hsa", "other"]
@@ -36,6 +38,7 @@ class AssetGroupUpdate(BaseModel):
 
 
 class AssetGroupRead(AssetGroupBase):
+    balance_explanation: BalanceExplanation | None = None
     id: uuid.UUID
     user_id: uuid.UUID
     source: str = "manual"

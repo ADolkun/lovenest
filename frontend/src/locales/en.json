@@ -3199,5 +3199,95 @@
       "fee_payer": "Fee payer",
       "fee_semantics": "Fee semantics"
     }
+  },
+  "balanceExplanation": {
+    "title": "Balance details",
+    "open": "Balance details: {{name}}",
+    "currentView": "current view",
+    "description": "Understand the source, scope and age of each value. Amounts in different currencies are shown separately.",
+    "unavailable": "Unavailable",
+    "ageUnknown": "Unknown age",
+    "selectedHoldings": "Selected holdings",
+    "holdingsRequestFailed": "The holdings request failed. Retained values may be out of date; cash cannot be verified from this response.",
+    "filteredHoldings": "This selection includes only the selected holdings. Account totals and wallet cash are outside this scope.",
+    "noWallets": "No wallets are included in this view.",
+    "metadataUnknown": "Source metadata is unavailable. Cash, coverage and observation age cannot be verified.",
+    "observedAt": "Observed at",
+    "collectedAt": "Collected at",
+    "valueDate": "Value date",
+    "refresh": "Latest refresh",
+    "coverage": "Source coverage",
+    "lastSync": "Last successful sync (not the value observation)",
+    "difference": "Account total minus included holdings",
+    "components": "Included components",
+    "excluded": "Listed separately; excluded from positions and cash",
+    "holdings": "Holdings and valuation age",
+    "quantity": "Quantity",
+    "missingValue": "Quote or valuation unavailable",
+    "openHolding": "Open value details",
+    "openAccount": "Open account",
+    "openConnection": "Review connection",
+    "reviewAssociation": "Review account association",
+    "omitted": "{{count}} contributors could not be read or were omitted.",
+    "accountAggregate": "Account aggregate",
+    "aggregatePartial": "Known subtotal · account values only",
+    "aggregateHint": "Account values only. Foreign currencies without a verified conversion are excluded.",
+    "basis": {
+      "reported_account_total": "Reported account total",
+      "connector_calculated_subtotal": "Connector-calculated subtotal",
+      "cash_ledger": "Cash ledger",
+      "unknown": "Account balance · basis unavailable"
+    },
+    "component": {
+      "positions": "Ticker positions",
+      "dust": "Dust",
+      "cash_equivalents": "Cash equivalents",
+      "non_ticker_assets": "Non-ticker assets",
+      "liquid_cash": "Derived liquid cash"
+    },
+    "refreshState": {
+      "active": "Successful refresh",
+      "sync_error": "Partial or failed refresh",
+      "error": "Refresh failed",
+      "expired": "Connection expired",
+      "unknown": "Refresh state unknown",
+      "partial": "Partial refresh",
+      "failed": "Refresh failed"
+    },
+    "coverageState": {
+      "complete": "Complete for the stated scope",
+      "partial": "Partial coverage",
+      "unknown": "Coverage unknown"
+    },
+    "reconciliation": {
+      "matched": "Cash is the nonnegative residual of this account total after the included holdings. This calculation is not independent confirmation of the balance.",
+      "difference": "Holdings exceed the comparable account total. Review the included scope and observation times; derived cash is floored at zero.",
+      "not_comparable": "These values cannot be reconciled: identity, scope, currency or observation time is not compatible or not known.",
+      "shared_derivation": "The account subtotal was calculated from holdings. Agreement with those holdings is not independent reconciliation.",
+      "separate_cash_ledger": "The manual cash ledger is separate from holdings. Linking the account does not authorize subtracting holdings from this ledger.",
+      "residual_derived": "Cash is the nonnegative residual of this account total after the included holdings. This calculation is not independent confirmation of the balance."
+    },
+    "reason": {
+      "no_account_association": "No eligible, unambiguous account association is available. Cash cannot be derived; review the existing account association.",
+      "separate_cash_ledger": "Cash ledger and holdings are intentionally separate. A sync will not combine their meanings.",
+      "missing_holding_value": "Some holdings have no quote or valuation. Their unknown value cannot be treated as cash.",
+      "account_balance_unavailable": "The account balance is unavailable; no cash balance can be inferred.",
+      "shared_derivation": "The account amount shares its derivation with the holdings.",
+      "coverage_unknown": "The source has not established whether all contributors were included.",
+      "partial_refresh": "The latest refresh has incomplete coverage. Earlier successful values retain their original age.",
+      "refresh_failed": "The latest refresh failed. Review the connection before relying on retained values.",
+      "observation_time_unknown": "A source observation time is missing; a recent page load does not make the value fresh.",
+      "observation_time_mismatch": "Account and holding observations refer to different times.",
+      "currency_mismatch": "Currencies differ without a verified compatible conversion. No difference is calculated.",
+      "account_scope_mismatch": "The account covers a different or ambiguous set of wallets. Its residual is not allocated to this wallet.",
+      "balance_difference": "Included holdings exceed the comparable account total; no negative cash adjustment is applied.",
+      "connector_omissions": "Some contributors were omitted from the connector-calculated subtotal.",
+      "metadata_unknown": "The source has not supplied enough metadata to explain this value completely.",
+      "unknown": "The source reports an unresolved balance condition. Review the account and its included holdings."
+    },
+    "portfolioBreakdown": "Portfolio breakdown",
+    "coverageIncomplete": "Partial or unverified coverage",
+    "recordedAt": "Value recorded at",
+    "quoteAt": "Quote observed at"
   }
 }

@@ -1,3 +1,4 @@
+import { AccountBalanceAmount, AccountBalanceBasis, BalanceDetails } from '@/components/balance-details'
 import { getAccountTypeConfig } from '@/lib/account-type-config'
 import { useMemo, useState } from 'react'
 import { formatAccountMask, getAccountLabel, getAccountName } from '@/lib/account-utils'
@@ -89,7 +90,7 @@ export default function AccountsPage() {
   const dateLocale = useDateLocale()
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
-  const { canWrite, hasModule } = useWorkspace()
+  const { canWrite, hasModule, current } = useWorkspace()
   const { onchainEnabled } = useFeatureFlags()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
@@ -330,8 +331,9 @@ export default function AccountsPage() {
                         <div>
                           {(acc.type === 'investment' || hasManualHoldings) && <p className="mb-1 text-xs font-medium text-muted-foreground">{t('accountHoldings.cashLedger')}</p>}
                           <p className={`font-semibold tabular-nums ${hasManualHoldings ? 'text-sm text-muted-foreground' : 'text-base text-foreground'} ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : ''}`}>
-                            {mask(formatCurrency(bal, acc.currency, locale))}
+                            <AccountBalanceAmount account={acc} workspaceId={current?.id} />
                           </p>
+                          {(acc.type === 'investment' || acc.balance_explanation) && <BalanceDetails canWrite={canWrite} account={acc} workspaceId={current?.id} canOpenAssets={hasModule('assets')} />}
                           {isCC && acc.available_credit != null ? (
                             <p className="text-[10px] text-muted-foreground tabular-nums">
                               {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
@@ -376,7 +378,7 @@ export default function AccountsPage() {
                 const syncPending = syncMutation.isPending && syncMutation.variables === conn.id
                 const pendingAccounts = conn.pending_account_count
                 return (
-                  <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
+                  <div key={conn.id} id={`connection-${conn.id}`} className="scroll-mt-6 bg-card rounded-xl border border-border shadow-sm">
                     {/* Connection header */}
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
                       <div className="flex min-w-0 items-center gap-3">
@@ -501,11 +503,12 @@ export default function AccountsPage() {
                               </Link>
                               <div className="col-span-2 row-start-2 flex flex-wrap items-start gap-x-6 gap-y-3 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:justify-end sm:text-right">
                                 <div>
-                                  {acc.type === 'investment' && <p className="mb-1 text-xs font-medium text-muted-foreground">{t('accountHoldings.providerBalance')}</p>}
+                                  {acc.type === 'investment' && <p className="mb-1 text-xs font-medium text-muted-foreground"><AccountBalanceBasis account={acc} workspaceId={current?.id} /></p>}
                                   <p className={`text-base font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                                    {mask(formatCurrency(bal, acc.currency, locale))}
+                                    <AccountBalanceAmount account={acc} workspaceId={current?.id} />
                                   </p>
-                                  {isCC && acc.available_credit != null ? (
+                                  {(acc.type === 'investment' || acc.balance_explanation) && <BalanceDetails canWrite={canWrite} account={acc} workspaceId={current?.id} canOpenAssets={hasModule('assets')} />}
+                          {isCC && acc.available_credit != null ? (
                                     <p className="text-[10px] text-muted-foreground tabular-nums">
                                       {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
                                     </p>
@@ -719,7 +722,7 @@ export default function AccountsPage() {
 
       {/* Connection Settings Dialog */}
       <ConnectionSettingsDialog
-        open={!!openSettingsConnection}
+        open={canWrite && !!openSettingsConnection}
         onClose={closeSettingsDialog}
         onReconnect={() => {
           const connection = openSettingsConnection

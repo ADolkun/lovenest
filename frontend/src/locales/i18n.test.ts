@@ -13,7 +13,7 @@ const LOCALES = readdirSync(LOCALES_DIR)
 // remove a locale once its downstream strings have translations.
 const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'hi', 'ja', 'sk'])
 
-// #133 ships EN + PT-BR. Other locales use English for these shared labels,
+// #146 balance explanations and #133 ship EN + PT-BR. Other locales use English for these shared labels,
 // while existing common/evidence keys still require translations.
 const OWNED_TRANSFER_SHARED_KEYS = [
   'common.all',
@@ -144,6 +144,20 @@ function findDuplicateKeys(source: string): string[] {
 }
 
 describe('i18n locale files', () => {
+  it('ships balance explanations in English and Portuguese with verified English fallback elsewhere', async () => {
+    const { default: i18n } = await import('@/lib/i18n')
+    await i18n.loadLanguages(LOCALES)
+    const english = JSON.parse(readRaw('en')).balanceExplanation
+    const portuguese = JSON.parse(readRaw('pt-BR')).balanceExplanation
+    expect(flattenKeys(portuguese).sort()).toEqual(flattenKeys(english).sort())
+    expect(i18n.getFixedT('pt-BR')('balanceExplanation.title')).toBe('Detalhes do saldo')
+    for (const locale of LOCALES.filter((locale) => !['en', 'pt-BR'].includes(locale))) {
+      for (const [key, value] of flattenValues(english, 'balanceExplanation')) {
+        expect(i18n.getFixedT(locale)(key)).toBe(value)
+      }
+    }
+  })
+
   it('ships owned transfers in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
     const { default: i18n } = await import('@/lib/i18n')
     await i18n.loadLanguages(LOCALES)
@@ -211,7 +225,7 @@ describe('i18n locale files', () => {
         // #133 and #144 ship EN + PT-BR; other languages use the runtime
         // English fallback only for these namespaces and exact shared keys.
         const missing = [...enKeys].filter((k) =>
-          !(locale !== 'pt-BR' && (k.startsWith('history.') || k.startsWith('ownedTransfers.') || OWNED_TRANSFER_SHARED_KEYS.includes(k))) && !hasKeyOrPluralForms(keys, k),
+          !(locale !== 'pt-BR' && (k.startsWith('history.') || k.startsWith('ownedTransfers.') || k.startsWith('balanceExplanation.') || OWNED_TRANSFER_SHARED_KEYS.includes(k))) && !hasKeyOrPluralForms(keys, k),
         )
         expect(missing, `Keys missing in ${locale}:`).toEqual([])
       })

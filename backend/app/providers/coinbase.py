@@ -581,6 +581,8 @@ class CoinbaseProvider(BankProvider):
         crypto = [raw for raw in identified if not self._is_fiat(raw)]
         if crypto:
             prices = await self._usd_prices()
+            positions = self._crypto_positions(crypto, prices)
+            omitted = len(crypto) - len(positions)
             accounts.append(
                 AccountData(
                     external_id=self._portfolio_id(identified),
@@ -589,13 +591,21 @@ class CoinbaseProvider(BankProvider):
                     balance=sum(
                         (
                             quantity * price
-                            for _, _, quantity, price in self._crypto_positions(crypto, prices)
+                            for _, _, quantity, price in positions
                             if price is not None
                         ),
                         Decimal("0"),
                     ),
                     currency="USD",
                     has_holdings=True,
+                    balance_metadata={
+                        "value_available": bool(positions),
+                        "coverage": "partial" if omitted else "unknown",
+                        "omitted_count": omitted,
+                        # Account pagination and quote timestamps are not
+                        # supplied by this connector's current contract.
+                        "holdings_count": len(positions),
+                    },
                 )
             )
         for raw in identified:

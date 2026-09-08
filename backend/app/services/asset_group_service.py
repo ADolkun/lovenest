@@ -22,6 +22,7 @@ from app.schemas.asset_group import (
 )
 from app.services.fx_rate_service import convert
 from app.services.asset_valuation import current_value_amount
+from app.schemas.balance_explanation import BalanceExplanation
 
 
 async def ensure_group_in_workspace(
@@ -66,6 +67,7 @@ def _group_to_read(
     account_balance: Optional[Decimal] = None,
     account_id: Optional[uuid.UUID] = None,
     unvalued_count: int = 0,
+    balance_explanation: BalanceExplanation | None = None,
 ) -> AssetGroupRead:
     return AssetGroupRead(
         id=group.id,
@@ -93,6 +95,26 @@ def _group_to_read(
             None if account_balance is None else float(account_balance.quantize(Decimal("0.01")))
         ),
         currency=currency,
+        balance_explanation=balance_explanation,
+    )
+
+
+async def _balance_explanation_for_group(session: AsyncSession, group: AssetGroup) -> BalanceExplanation:
+    from app.services.account_service import get_accounts
+    from app.services.balance_explanation_service import explain_balance
+
+    account = await _account_for_group(session, group)
+    connection_id = account.connection_id if account is not None else group.connection_id
+    connection = await session.get(BankConnection, connection_id) if connection_id else None
+    cash_balance = None
+    if account is not None and account.connection_id is None:
+        rows = await get_accounts(
+            session, group.workspace_id, include_closed=True, account_id=account.id,
+        )
+        cash_balance = rows[0]["current_balance"] if rows else None
+    return await explain_balance(
+        session, group.workspace_id, account=account, connection=connection,
+        current_balance=cash_balance, group=group,
     )
 
 
@@ -344,7 +366,8 @@ async def get_groups(
         institution = await _institution_name_for(session, g)
         account_type, balance, account_id = await _account_type_and_balance_for(session, g, primary)
         reads.append(_group_to_read(
-            g, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+            g, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
+            balance_explanation=await _balance_explanation_for_group(session, g),
         ))
     return reads
 
@@ -366,7 +389,8 @@ async def get_group(
     institution = await _institution_name_for(session, group)
     account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(
-        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
+        balance_explanation=await _balance_explanation_for_group(session, group),
     )
 
 
@@ -408,6 +432,7 @@ async def create_group(
     return _group_to_read(
         group, 0, Decimal("0"), Decimal("0"),
         account_id=data.account_id, account_type="investment" if data.account_id else None,
+        balance_explanation=await _balance_explanation_for_group(session, group),
     )
 
 
@@ -437,7 +462,8 @@ async def update_group(
     institution = await _institution_name_for(session, group)
     account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(
-        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued
+        group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
+        balance_explanation=await _balance_explanation_for_group(session, group),
     )
 
 

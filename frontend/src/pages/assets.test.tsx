@@ -1,3 +1,4 @@
+import { reportedWallet } from '@/test/balance-fixtures'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import AssetsPage from './assets'
@@ -129,7 +130,7 @@ it('opens account wallet links, uses current holdings instead of stale rollups, 
   expect(screen.queryByText('$9,000.00')).not.toBeInTheDocument()
   expect(screen.getByText('Holdings value')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'Clear wallet filter' }))
-  expect(await screen.findByRole('button', { name: /Wallet B/ })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /^Wallet B/ })).toBeInTheDocument()
 })
 
 it('keeps archived trades within the selected collection on a legacy Activity link', async () => {
@@ -140,7 +141,7 @@ it('keeps archived trades within the selected collection on a legacy Activity li
   expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
   await user.click(screen.getByRole('tab', { name: 'Portfolio' }))
   await user.click(screen.getByRole('button', { name: 'By wallet' }))
-  await waitFor(() => expect(screen.getByRole('button', { name: /Wallet A/ })).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByRole('button', { name: /^Wallet A/ })).toBeInTheDocument())
   expect(screen.queryByText('Wallet B')).not.toBeInTheDocument()
 })
 
@@ -160,16 +161,16 @@ it('keeps allocation above holdings across groupings and routes chart selections
   expect(screen.queryByRole('button', { name: /^SMALL/ })).not.toBeInTheDocument()
 
   const accountChart = screen.getByRole('region', { name: t('assets.posAllocationByAccount') })
-  await user.click(within(accountChart).getByRole('button', { name: /Wallet A/ }))
+  await user.click(within(accountChart).getByRole('button', { name: /^Wallet A/ }))
   expect(screen.getByRole('button', { name: /^STOCK/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^COIN/ })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'By wallet' }))
   expect(screen.getByRole('region', { name: t('assets.allocationBreakdown') })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: t('assets.posRanking') })).not.toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: /Wallet B/, expanded: false }))
+  await user.click(screen.getByRole('button', { name: /^Wallet B/, expanded: false }))
   expect(screen.getByRole('button', { name: 'SMALL' })).toBeInTheDocument()
 
-  await user.click(within(accountChart).getByRole('button', { name: /Wallet B/ }))
+  await user.click(within(accountChart).getByRole('button', { name: /^Wallet B/ }))
   expect(screen.getByRole('button', { name: 'By asset' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByRole('button', { name: /^COIN/ })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^STOCK/ })).not.toBeInTheDocument()
@@ -200,8 +201,8 @@ it.each([500, 0])('shows a cash-only wallet balance through the selector, both g
   vi.spyOn(assets, 'list').mockResolvedValue([stock])
   vi.spyOn(assets, 'income').mockResolvedValue({ holdings: {}, wallets: {} })
   vi.mocked(assetGroups.list).mockResolvedValue([
-    { ...wallets[0], account_balance: 125 },
-    { ...wallets[1], account_balance: balance, current_value: 0, current_value_primary: 0, asset_count: 0 },
+    reportedWallet({ ...wallets[0], account_balance: 125 }, [stock]),
+    reportedWallet({ ...wallets[1], account_balance: balance, current_value: 0, current_value_primary: 0, asset_count: 0 }),
   ])
   const { user, unmount } = renderWithProviders(<AssetsPage />)
   await screen.findByRole('region', { name: 'Balance overview' })
@@ -213,7 +214,7 @@ it.each([500, 0])('shows a cash-only wallet balance through the selector, both g
   expect(screen.queryByText(t('assets.noAssets'))).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: 'By wallet' }))
   expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(expected)
-  expect(screen.getByRole('button', { name: /Wallet B/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^Wallet B/ })).toBeInTheDocument()
   unmount()
 
   renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-b' })
@@ -232,7 +233,7 @@ it('does not treat a failed holdings request as an empty cash-only wallet', asyn
 it.each([125, null])('keeps manual assets outside the cash balance and visible in both groupings: %s', async (value) => {
   vi.mocked(assets.list).mockResolvedValue([{ ...held, current_value: value, current_value_primary: value }])
   vi.spyOn(assets, 'income').mockResolvedValue({ holdings: {}, wallets: {} })
-  vi.mocked(assetGroups.list).mockResolvedValue([{ ...wallets[0], account_balance: 500 }])
+  vi.mocked(assetGroups.list).mockResolvedValue([reportedWallet({ ...wallets[0], account_balance: 500 }, [{ ...held, current_value: value, current_value_primary: value }])])
   const { user } = renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a&view=assets' })
   const summary = await screen.findByRole('region', { name: 'Balance overview' })
   const cash = value === null ? '—' : '$375.00'
@@ -242,4 +243,14 @@ it.each([125, null])('keeps manual assets outside the cash balance and visible i
   await user.click(screen.getByRole('button', { name: 'By wallet' }))
   expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual([cash, '$0.00', cash])
   expect(screen.getByRole('button', { name: 'Private fund' })).toBeInTheDocument()
+})
+
+it('keeps the wallet header complete for native same-currency values without a converted field', async () => {
+  vi.mocked(assets.list).mockResolvedValue([{ ...held, current_value: 70, current_value_primary: null }])
+  renderWithProviders(<AssetsPage />, { route: '/assets?wallet=wallet-a&view=wallets&holding=held' })
+  const header = await screen.findByRole('button', { name: /^Wallet A/ })
+  const section = within(header.parentElement!)
+  expect(section.getByText('$70.00')).toBeInTheDocument()
+  expect(section.getByText('Holdings value')).toBeInTheDocument()
+  expect(section.queryByText('Known holdings subtotal')).not.toBeInTheDocument()
 })

@@ -294,6 +294,8 @@ def _record_balance_observation(
     """Only paired account/holdings persistence can heal an incomplete total."""
     updated = dict(connection.settings or {})
     unavailable = set(updated.get("unavailable_account_balance_ids") or [])
+    snapshots = dict(updated.get("account_balance_observations") or {})
+    allowed = allowlist_ids(connection.settings)
     observation = getattr(provider, "holdings_observation", None)
     account_observation = getattr(provider, "account_holdings_observation", None)
     changed = (
@@ -311,6 +313,28 @@ def _record_balance_observation(
             unavailable.add(account.external_id)
         elif persisted_account_ids and account.external_id in persisted_account_ids:
             unavailable.discard(account.external_id)
+            metadata = account.balance_metadata
+            if isinstance(account_observation, dict) and account_observation.get("complete") is True:
+                metadata = {
+                    "observed_at": account_observation.get("observed_at"),
+                    "observation_basis": "collection", "coverage": "complete",
+                }
+            # Replace on successful paired persistence only. A failed/partial
+            # retry retains the timestamp that belongs to the retained amount.
+            snapshots[account.external_id] = {
+                **(metadata or {}), "amount": str(account.balance.quantize(Decimal("0.01"))),
+                "currency": account.currency,
+            }
+        elif (
+            persisted_account_ids is not None and account.external_id in snapshots
+            and (allowed is None or account.external_id in allowed)
+        ):
+            # Account writes can succeed before a holdings read fails or is
+            # disabled. They do not verify the retained holding inventory.
+            snapshots[account.external_id] = {
+                **snapshots[account.external_id], "holdings_complete": False,
+                "holdings_refresh_status": "unconfirmed",
+            }
     if unavailable:
         updated["unavailable_account_balance_ids"] = sorted(unavailable)
     else:
@@ -319,6 +343,8 @@ def _record_balance_observation(
         updated["holdings_observation"] = dict(observation)
         if changed:
             updated["holdings_observation"]["account_balance_reason"] = "account_observation_changed"
+    if snapshots:
+        updated["account_balance_observations"] = snapshots
     connection.settings = updated
     return unavailable
 

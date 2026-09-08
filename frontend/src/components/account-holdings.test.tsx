@@ -69,6 +69,6 @@ describe('account holdings', () => {
     workspace.mockReturnValue({ current: { id: 'investment' }, canWrite: false })
     renderWithProviders(<AccountHoldingsSummary account={{ ...account, type: 'checking', is_closed: true }} wallets={[{ ...wallet, account_id: account.id }]} size="large" />)
     expect(screen.getByRole('link', { name: 'Holdings: $125.00' })).toHaveAttribute('href', '/assets?wallet=wallet-a')
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Balance details: Exchange' })).toBeInTheDocument()
   })
 })

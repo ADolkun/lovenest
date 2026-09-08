@@ -139,6 +139,8 @@ class AccountData:
     institution_external_id: Optional[str] = None
     institution_name: Optional[str] = None
     institution_logo_url: Optional[str] = None
+    # Source facts only. Retrieval/sync time is not a balance observation time.
+    balance_metadata: Optional[dict] = None
 
 
 @dataclass

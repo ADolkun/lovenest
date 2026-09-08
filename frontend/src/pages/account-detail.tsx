@@ -1,6 +1,7 @@
+import { AccountBalanceAmount, AccountBalanceBasis, BalanceDetails } from '@/components/balance-details'
 import { useState, useMemo } from 'react'
 import { getAccountName } from '@/lib/account-utils'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useLocation, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -290,10 +291,11 @@ type TxWithBalance = Transaction & { runningBalance: number }
 
 export default function AccountDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
   const { t, i18n } = useTranslation()
   const { mask, privacyMode, MASK } = usePrivacyMode()
   const { user } = useAuth()
-  const { canWrite, hasModule } = useWorkspace()
+  const { canWrite, hasModule, current } = useWorkspace()
   const walletsQuery = useQuery({
     queryKey: ['asset-groups'],
     queryFn: assetGroups.list,
@@ -998,7 +1000,7 @@ export default function AccountDetailPage() {
                     <p className="mt-2 text-sm text-muted-foreground">{t('accountHoldings.noneLinked', 'No holdings are linked to this account.')}</p>
                   </>
                 )}
-                <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">{t(account.connection_id ? 'accountHoldings.providerHint' : 'accountHoldings.cashHint')}</p>
+                <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">{t(account.connection_id ? 'balanceExplanation.description' : 'accountHoldings.cashHint')}</p>
               </div>
               <Button asChild variant="outline" size="sm" className="self-start"><Link to={linkedWallets.length > 0 ? `/assets?wallet=${encodeURIComponent(linkedWallets[0].id)}` : '/assets'}>{t('accountHoldings.openPortfolio')}</Link></Button>
             </div>
@@ -1310,11 +1312,12 @@ export default function AccountDetailPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
           <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">
-              {t(showHoldings ? account.connection_id ? 'accountHoldings.providerBalance' : 'accountHoldings.cashLedger' : 'accounts.currentBalance')}
+              {(showHoldings || account.type === 'investment') ? <AccountBalanceBasis account={account} workspaceId={current?.id} /> : t('accounts.currentBalance')}
             </p>
             <p className={`text-[length:clamp(0.7rem,3.5vw,1.25rem)] sm:text-2xl font-bold tabular-nums ${(summary?.current_balance ?? 0) < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
-              {mask(formatCurrency(totalBalance, displayCurrency, locale))}
+              {(showHoldings || account.type === 'investment') ? <AccountBalanceAmount account={account} workspaceId={current?.id} /> : mask(formatCurrency(totalBalance, displayCurrency, locale))}
             </p>
+            {(showHoldings || account.type === 'investment') && <BalanceDetails canWrite={canWrite} key={`${current?.id}:${account.id}:${location.key}`} account={account} workspaceId={current?.id} canOpenAssets={hasModule('assets')} autoOpen={new URLSearchParams(location.search).get('balance') === '1'} />}
           </div>
           <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4 overflow-hidden">
             <p className="text-[10px] sm:text-xs font-medium text-muted-foreground mb-1 truncate">

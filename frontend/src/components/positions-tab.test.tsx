@@ -1,9 +1,12 @@
+import { reportedWallet } from '@/test/balance-fixtures'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import PositionsTab from './positions-tab'
 import { renderWithProviders } from '@/test/utils'
 import { assets } from '@/lib/api'
 import type { Asset, AssetGroup, TaxLots, WashSaleExposure } from '@/types'
+
+vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }) }))
 
 const known = { id: 'known', ticker: 'KNOWN', name: 'Known fund', type: 'stock', units: 2, current_value: 125, current_value_primary: 125, gain_loss: 25, gain_loss_primary: 25, group_id: null, sell_date: null, is_archived: false } as Asset
 const unknown = { ...known, id: 'unknown', ticker: 'UNKNOWN', name: 'Unpriced fund', current_value: null, current_value_primary: null, gain_loss: null, gain_loss_primary: null }
@@ -15,7 +18,7 @@ beforeEach(() => {
   vi.spyOn(assets, 'taxLots').mockResolvedValue({ no_wallet: true } as TaxLots)
 })
 
-const positions = (holdings: Asset[], wallets: AssetGroup[] = []) => <PositionsTab holdings={holdings} wallets={wallets} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
+const positions = (holdings: Asset[], wallets: AssetGroup[] = []) => <PositionsTab holdings={holdings} wallets={wallets.map((wallet) => reportedWallet(wallet, holdings))} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
 
 it('shows nullable transferred lot dates and costs beside a supported zero in the holding currency without fabricating gains', async () => {
   vi.mocked(assets.taxLots).mockResolvedValue({
@@ -94,15 +97,15 @@ it('keeps one scoped balance above allocation, with cash details and income outs
   const dust = { ...held, id: 'dust', ticker: 'SMALL', current_value: 0.5, current_value_primary: 0.5 }
   const manual = { ...held, id: 'manual', ticker: null, current_value: 50, current_value_primary: 50 }
   vi.mocked(assets.income).mockResolvedValue({ holdings: {}, wallets: { wallet: { total: 12, payouts: 12, cadence: 'monthly', run_rate: 15.6, last_date: null, last_amount: null, currency: 'USD' } } })
-  const { user } = renderWithProviders(<PositionsTab holdings={[held, cash, dust, manual]} wallets={[wallet]} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />)
+  const { user } = renderWithProviders(<PositionsTab holdings={[held, cash, dust, manual]} wallets={[reportedWallet(wallet, [held, cash, dust, manual])]} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />)
   const summary = screen.getByRole('region', { name: 'Balance overview' })
   expect(within(summary).getAllByRole('definition').map((element) => element.textContent)).toEqual(['$250.00', '$125.00', '$124.50'])
   const allocation = screen.getByRole('region', { name: 'Allocation breakdown' })
   expect(summary.compareDocumentPosition(allocation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(await within(summary).findByText('$12.00', { selector: 'p span' })).toBeInTheDocument()
-  const disclosure = within(summary).getByText('Balance details').closest('details')!
+  const disclosure = within(summary).getByText('Portfolio breakdown').closest('details')!
   expect(disclosure).not.toHaveAttribute('open')
-  await user.click(within(summary).getByText('Balance details'))
+  await user.click(within(summary).getByText('Portfolio breakdown'))
   expect(disclosure).toHaveAttribute('open')
   expect(within(disclosure).getByText('$25.00')).toBeInTheDocument()
   expect(within(disclosure).getByText('$99.50')).toBeInTheDocument()
@@ -145,7 +148,7 @@ it('marks positive partial cash and clears its uncertainty when narrowing to a c
   const values = () => within(summary).getAllByRole('definition').map((element) => element.textContent)
   expect(values()).toEqual(['$700.00', '$200.00', '$500.00'])
   expect(within(summary.querySelector('dl')!).getAllByText('Known subtotal')).toHaveLength(2)
-  await user.click(within(summary).getByText('Balance details'))
+  await user.click(within(summary).getByText('Portfolio breakdown'))
   expect(within(summary).getAllByText('Known subtotal')).toHaveLength(3)
   expect(within(summary).queryByText(/%/)).not.toBeInTheDocument()
 
