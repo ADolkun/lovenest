@@ -5,6 +5,7 @@ import PositionsTab from '@/components/positions-tab'
 import ContributionsTab from '@/components/contributions-tab'
 import { OwnedWalletActivity } from '@/pages/trace'
 import { OwnedTransfersPanel } from '@/components/owned-transfers-panel'
+import { RecoveryEvidencePanel } from '@/components/recovery-evidence-panel'
 import { readAssetView, transactionsForHoldings } from '@/lib/asset-view'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -1314,10 +1315,13 @@ export default function AssetsPage() {
               <option value="trades">{t('assets.activityTrades')}</option>
               <option value="contributions">{t('assets.activityContributions')}</option>
               <option value="transfers">{t('ownedTransfers.title', 'Movements and owned transfers')}</option>
+              <option value="recovery">{t('recovery.title', 'Recovery evidence')}</option>
               {walletActivityEnabled && <option value="wallets">{t('assets.activityWallets')}</option>}
             </NativeSelect>
           </div>
-          {activityView === 'transfers' && current ? (
+          {activityView === 'recovery' && current ? (
+            <RecoveryEvidencePanel key={`${current.id}:${selectedWalletId ?? ''}:${JSON.stringify(activeWalletIds)}`} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} />
+          ) : activityView === 'transfers' && current ? (
             <OwnedTransfersPanel key={`${current.id}:${selectedWalletId ?? ''}:${JSON.stringify(activeWalletIds)}`} workspaceId={current.id} wallets={sortedWallets} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} />
           ) : activityView === 'wallets' && walletActivityEnabled ? (
             <OwnedWalletActivity

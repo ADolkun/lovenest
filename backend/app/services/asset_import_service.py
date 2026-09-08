@@ -331,6 +331,9 @@ def _classify_kind(word: str) -> Optional[str]:
     ours. `assignment` is the opposite: a word we model well enough to know
     that guessing at it would be worse than refusing the file.
     """
+    # A recovery label is a source-role question even when the row states a value.
+    if {'claim', 'distribution'} & set(word.split()):
+        return 'recovery'
     if word in _ASSIGNMENT_WORDS:
         return 'assignment'
     if word in _EXPIRE_WORDS:
@@ -658,6 +661,10 @@ def parse_orders_csv(
             price = _price_for(cell(row, 'price'), cell(row, 'cost_basis'), quantity)
         if price is None or price < 0:
             errors.append(AssetImportRowError(row=index, reason='invalid_price', ticker=ticker))
+            continue
+
+        if meaning == 'recovery':
+            errors.append(AssetImportRowError(row=index, reason='recovery_evidence_required', ticker=ticker, detail=cell(row, 'kind')))
             continue
 
         external_id = cell(row, 'external_id') or None

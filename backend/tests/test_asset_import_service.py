@@ -713,7 +713,6 @@ def test_a_quantity_below_the_ledger_scale_is_refused_not_silently_zeroed():
     ("Interest Income", "buy", Decimal("1")),
     ("Staking Reward", "buy", Decimal("1")),
     ("Referred Award", "buy", Decimal("1")),
-    ("CLAIM_DISTRIBUTION_4", "buy", Decimal("1")),
     ("Acquire", "buy", Decimal("1")),
     ("Acquired", "buy", Decimal("1")),
     ("Buy", "buy", Decimal("1")),
@@ -765,7 +764,7 @@ def test_an_acquisition_requires_a_usable_price_or_basis(type_word, price, basis
     assert [(e.row, e.reason, e.ticker) for e in errors] == [(2, "invalid_price", "SYN")]
 
 
-@pytest.mark.parametrize("type_word", _ACQUISITION_LABELS)
+@pytest.mark.parametrize("type_word", [label for label in _ACQUISITION_LABELS if label not in {"claim", "distribution", "insolvency distribution"}])
 @pytest.mark.parametrize("price,basis,expected", [
     ("0", "14", "0"), ("7", "invalid", "7"),
     ("", "0", "0"), ("", "14", "7"), ("invalid", "14", "7"),

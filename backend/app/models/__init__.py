@@ -15,6 +15,7 @@ from app.models.asset import Asset
 from app.models.asset_contribution import AssetContribution
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
+from app.models.recovery_evidence import InvestmentRecoveryEntry, InvestmentRecoveryReview
 from app.models.owned_transfer import (
     InvestmentOwnership, InvestmentMovementApplication, InvestmentOwnedTransfer, InvestmentIncident,
 )
@@ -60,6 +61,8 @@ __all__ = [
     "AssetContribution",
     "AssetGroup",
     "AssetTransaction",
+    "InvestmentRecoveryEntry",
+    "InvestmentRecoveryReview",
     "InvestmentOwnership",
     "InvestmentMovementApplication",
     "InvestmentOwnedTransfer",
