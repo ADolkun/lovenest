@@ -19,7 +19,7 @@ the Realised Gain the ledger reports. See ADR 0003.
 """
 import uuid
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Optional
 
 from sqlalchemy import select
@@ -105,7 +105,8 @@ def build_lots(
     and cost, and one record per `sale`.
     """
     if any(tx.kind in {"move_in", "move_out", "fee"} for tx in transactions):
-        return _movement_lots(transactions, as_of)
+        with localcontext(prec=128):
+            return _movement_lots(transactions, as_of)
     multiplier = multiplier_for(asset_type)
     allow_short = is_option(asset_type)
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or _EPOCH))

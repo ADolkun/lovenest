@@ -85,8 +85,10 @@ async def _state(session, workspace_id):
     for leg in result["legs"].values():
         result["canonical_legs"].setdefault(_key(result, leg.id), []).append(leg)
     from app.services.investment_evidence_service import _canonical_application_legs, _input, _source_families
-    families, _ = _source_families({str(row.id): _input(row) for row in result["observations"].values()},
-                                   {str(row.id): row.identity_key for row in result["observations"].values()})
+    families, result["conflicting_observations"] = _source_families(
+        {str(row.id): _input(row) for row in result["observations"].values()},
+        {str(row.id): row.identity_key for row in result["observations"].values()},
+    )
     leg_families = {leg.id: (families[str(leg.observation_id)], leg.source_leg_key) for leg in result["legs"].values()}
     result["application_legs"] = {}
     for leg in result["legs"].values():
@@ -119,6 +121,8 @@ def _movement_reasons(state, leg_id):
     leg, observation, item = _facts(state, leg_id)
     source = observation.payload
     reasons = []
+    if str(observation.id) in state["conflicting_observations"]:
+        reasons.append("source_version_conflict")
     if item.get("classification") not in {"transfer", "fee"} or (item.get("classification") == "fee" and item.get("quantity_role") == "principal"):
         reasons.append("unsupported_movement_classification")
     owners = {part.id: part for part in state["application_legs"].get(leg_id, [])}
@@ -211,6 +215,9 @@ def _ownership_reasons(state, ownership_id, asset_id, leg_id):
     _, observation, item = _facts(state, leg_id)
     payload = assertion.payload
     reasons = []
+    # The account retaining a fee observation is not necessarily its payer.
+    if item.get("quantity_role") in {"network_fee", "withdrawal_fee", "intermediary_fee", "token_transfer_fee"} and item.get("direction") != "out":
+        reasons.append("ownership_effect_unknown")
     if assertion.revoked_at or assertion.group_id != observation.group_id or (asset and assertion.group_id != asset.group_id):
         reasons.append("ownership_scope_conflict")
     if payload.get("chain") != item.get("chain"):
@@ -409,8 +416,9 @@ def _selection(state, selection, ordering_reviewed=False):
         selected["quantity"] = part.quantity
         lots.append(selected)
     if item.get("direction") == "out":
-        if quantity is None or sum((part.quantity for part in selection.allocations), Decimal(0)) != quantity:
-            reasons.append("lot_selection_required")
+        with localcontext(prec=128):
+            if quantity is None or sum((part.quantity for part in selection.allocations), Decimal(0)) != quantity:
+                reasons.append("lot_selection_required")
         if not pos["settlement_complete"]:
             reasons.append("source_inventory_unqualified")
     elif selection.allocations:
@@ -789,11 +797,12 @@ def _transfer_read(state, row):
     received = state["transactions"].get(apps[1].transaction_id)
     received_lots = (getattr(received, "_movement_read", None) or received.movement or {}).get("lots", []) if received else []
     invalid_roots = state["qualification"].get(apps[1].id, {}).get("invalid_root_transaction_ids", [])
-    known_cost = sum((Decimal(lot["acquisition_cost"]) for lot in received_lots
-                     if lot.get("acquisition_cost") is not None and lot.get("root_transaction_id") not in invalid_roots), Decimal(0))
+    with localcontext(prec=128):
+        known_cost = sum((Decimal(lot["acquisition_cost"]) for lot in received_lots
+                         if lot.get("acquisition_cost") is not None and lot.get("root_transaction_id") not in invalid_roots), Decimal(0))
+        unknown_quantity = sum((Decimal(lot["quantity"]) for lot in received_lots
+                                if lot.get("acquisition_cost") is None or lot.get("root_transaction_id") in invalid_roots), Decimal(0))
     principal_valid = all(state["qualification"].get(app.id, {}).get("settlement_complete", True) for app in apps)
-    unknown_quantity = sum((Decimal(lot["quantity"]) for lot in received_lots
-                            if lot.get("acquisition_cost") is None or lot.get("root_transaction_id") in invalid_roots), Decimal(0))
     return TransferRead(id=row.id, workspace_id=row.workspace_id, revision=state["revision"],
                         status="reversed" if row.reversed_at else "unresolved" if reasons else "confirmed",
                         request=payload["request"], principal_quantity=payload["principal_quantity"],

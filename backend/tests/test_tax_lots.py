@@ -33,6 +33,33 @@ def _tx(kind: str, qty: str, price: str, d: date, fee: str = "0") -> AssetTransa
     )
 
 
+@pytest.mark.parametrize("acquired,period", [("2023-01-01", "long"), ("2025-01-01", "short"), (None, None)])
+@pytest.mark.parametrize("sold", [False, True])
+def test_movement_period_totals_and_gains_preserve_exact_quantities(acquired, period, sold):
+    quantity = "12345678901234567890.123456789012345678"
+    received = AssetTransaction(
+        id=uuid.uuid4(), kind="move_in", quantity=Decimal(quantity), price=None, fee=Decimal(0),
+        date=date(2025, 2, 3), movement={"performance_basis": "0", "lots": [{
+            "lot_id": "synthetic-source-fragment", "root_transaction_id": str(uuid.uuid4()),
+            "quantity": quantity, "acquisition_cost": "0", "acquired": acquired,
+            "lineage": [], "missing_links": [],
+        }]},
+    )
+    transactions = [received]
+    if sold:
+        transactions.append(_tx("sell", quantity, "1", date(2025, 3, 1)))
+    result = _serialise(build_lots(transactions, as_of=date(2025, 3, 1)))
+    scope = result["sales"][0] if sold else result
+    assert Decimal(scope["long_quantity"]) == (Decimal(quantity) if period == "long" else 0)
+    assert Decimal(scope["short_quantity"]) == (Decimal(quantity) if period == "short" else 0)
+    if sold:
+        assert Decimal(scope["gain"]) == Decimal(quantity)
+        for term in ("long", "short"):
+            assert scope[f"{term}_gain"] is None if period is None else Decimal(scope[f"{term}_gain"]) == (Decimal(quantity) if period == term else 0)
+    else:
+        assert Decimal(result["known_basis_quantity"]) == Decimal(quantity)
+
+
 # ---------------------------------------------------------------------------
 # Holding period boundary (no DB)
 # ---------------------------------------------------------------------------

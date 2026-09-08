@@ -13,6 +13,26 @@ const LOCALES = readdirSync(LOCALES_DIR)
 // remove a locale once its downstream strings have translations.
 const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'hi', 'ja', 'sk'])
 
+// #133 ships EN + PT-BR. Other locales use English for these shared labels,
+// while existing common/evidence keys still require translations.
+const OWNED_TRANSFER_SHARED_KEYS = [
+  'common.all',
+  'evidence.unknown',
+  'evidence.direction.in',
+  'evidence.direction.out',
+  'evidence.direction.unknown',
+  'evidence.field.token_program',
+  'evidence.field.source_address',
+  'evidence.field.destination_address',
+  'evidence.field.source_owner',
+  'evidence.field.destination_owner',
+  'evidence.field.raw_units',
+  'evidence.field.decimals',
+  'evidence.field.quantity_role',
+  'evidence.field.fee_payer',
+  'evidence.field.fee_semantics',
+]
+
 function readRaw(locale: string): string {
   return readFileSync(path.join(LOCALES_DIR, `${locale}.json`), 'utf-8')
 }
@@ -124,6 +144,27 @@ function findDuplicateKeys(source: string): string[] {
 }
 
 describe('i18n locale files', () => {
+  it('ships owned transfers in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
+    const { default: i18n } = await import('@/lib/i18n')
+    const english = JSON.parse(readRaw('en'))
+    const portuguese = JSON.parse(readRaw('pt-BR'))
+    expect(flattenKeys(portuguese.ownedTransfers).sort()).toEqual(flattenKeys(english.ownedTransfers).sort())
+    const portugueseKeys = new Set(flattenKeys(portuguese))
+    expect(OWNED_TRANSFER_SHARED_KEYS.filter((key) => !portugueseKeys.has(key))).toEqual([])
+    const pt = i18n.getFixedT('pt-BR')
+    expect(pt('ownedTransfers.originalCost')).toBe('Custo original de aquisição')
+    expect(pt('ownedTransfers.performanceCost')).toBe('Base para cálculo de desempenho')
+    expect(pt('ownedTransfers.fields.known_acquisition_cost')).toBe('Subtotal dos custos de aquisição conhecidos')
+    expect(pt('ownedTransfers.failed')).toBe('Falhou')
+    expect(pt('ownedTransfers.reviewFailed')).not.toBe(pt('ownedTransfers.failed'))
+    expect(pt('ownedTransfers.settledEvidence')).not.toBe(pt('ownedTransfers.settled'))
+    const enValues = flattenValues(english)
+    const fallbackKeys = [...flattenValues(english.ownedTransfers, 'ownedTransfers').keys(), ...OWNED_TRANSFER_SHARED_KEYS]
+    for (const locale of LOCALES.filter((locale) => !['en', 'pt-BR'].includes(locale))) {
+      for (const key of fallbackKeys) expect(i18n.getFixedT(locale)(key)).toBe(enValues.get(key))
+    }
+  })
+
   it('ships historical evidence in English and Brazilian Portuguese with explicit fallback elsewhere', async () => {
     const { default: i18n } = await import('@/lib/i18n')
     const english = JSON.parse(readRaw('en')).history
@@ -164,10 +205,10 @@ describe('i18n locale files', () => {
         const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
         // A key is covered if the locale has the key directly OR has at least one
         // i18next plural form of it (e.g. _one/_few/_many/_other for Polish).
-        // #144 ships EN + PT-BR; other languages use the runtime English
-        // fallback for this namespace until its translations are supplied.
+        // #133 and #144 ship EN + PT-BR; other languages use the runtime
+        // English fallback only for these namespaces and exact shared keys.
         const missing = [...enKeys].filter((k) =>
-          !(locale !== 'pt-BR' && k.startsWith('history.')) && !hasKeyOrPluralForms(keys, k),
+          !(locale !== 'pt-BR' && (k.startsWith('history.') || k.startsWith('ownedTransfers.') || OWNED_TRANSFER_SHARED_KEYS.includes(k))) && !hasKeyOrPluralForms(keys, k),
         )
         expect(missing, `Keys missing in ${locale}:`).toEqual([])
       })

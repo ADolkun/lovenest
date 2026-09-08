@@ -217,6 +217,7 @@ async def recompute_and_cache(session: AsyncSession, asset: Asset) -> None:
     gain, and refreshes today's AssetValue so the portfolio chart matches the
     new quantity.
     """
+    from app.services.movement_replay import KINDS
     from app.services.owned_transfer_service import prepare_replay
     await prepare_replay(session, asset.workspace_id, if_movements=True)
     result = await session.execute(
@@ -225,7 +226,7 @@ async def recompute_and_cache(session: AsyncSession, asset: Asset) -> None:
     txs = list(result.scalars().all())
     pos = _recompute(txs, asset_type=asset.type)
 
-    if asset.connection_id and (pos["units"] != asset.units or not pos.get("settlement_complete", True)):
+    if asset.connection_id and any(tx.kind in KINDS for tx in txs) and (pos["units"] != asset.units or not pos.get("settlement_complete", True)):
         # A reviewed history is not authority to replace a provider snapshot.
         asset.average_price = asset.purchase_price = asset.realized_gain = None
         return

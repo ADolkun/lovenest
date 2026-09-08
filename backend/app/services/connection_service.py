@@ -1065,12 +1065,12 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     """Whether replaying the ledger reproduces the quantity the provider reports.
 
     A ledger is only the authority for a Holding when it is *complete*, and
-    the provider's own balance is the one check available for that. A transfer
-    between the user's own wallets carries its basis with it and states no
-    price, so it is deliberately never recorded (ADR 0008) — meaning a coin
-    that moved that way has no row, and the replay lands somewhere the
-    exchange disagrees with: short where the coins arrived, long where they
-    left. A position whose buys are missing but whose sell is not replays to zero,
+    the provider's own balance is the one check available for that. Unreviewed
+    or unqualified transfers between owned wallets may remain missing from
+    the ledger; reviewed movements participate only while their evidence is
+    qualified. Missing movements leave the replay short where coins arrived
+    or long where they left. A position whose buys are missing but whose sell
+    is not replays to zero,
     which `recompute_and_cache` reads as a full exit and stamps with a sell
     date. That drops a holding the exchange still reports a balance for out of
     the portfolio entirely.
