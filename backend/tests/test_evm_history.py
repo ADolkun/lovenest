@@ -695,6 +695,38 @@ async def test_indexed_internal_conflicts_invalidate_overlapping_collections_and
 
 
 @pytest.mark.parametrize("chain", ["ethereum", "base", "polygon"])
+@pytest.mark.parametrize("keep_unaffected", [False, True])
+async def test_cross_archive_conflict_recomputes_supported_subtotals(monkeypatch, chain, keep_unaffected):
+    from decimal import Decimal
+    from app.services.onchain_history import qualify_archive
+
+    payloads = {TX: bundle()}
+    if keep_unaffected:
+        payloads[INTERNAL_TX] = bundle(INTERNAL_TX, logs=[], payer=OTHER, amount=0)
+    rpc = RPC(payloads)
+    rpc.overrides["eth_getBalance"] = None
+    install(monkeypatch, rpc, policies={chain: policy()})
+    first = await collect(chain)
+    original = copy.deepcopy(first)
+    rpc.payloads[TX] = bundle(amount=7 * 10**18)
+    second = await collect(chain)
+    qualified = qualify_archive(first, [("peer", second)])
+    assert qualified["transactions"][chain + ":" + TX]["canonical_version"] is None
+    native = next(row for row in qualified["reconciliation"] if row["asset"]["native"])
+    assert native["known_subtotal_raw_units"] == ("5" if keep_unaffected else "0")
+    assert Decimal(native["settled_change"]) == (Decimal("0.000000000000000005") if keep_unaffected else 0)
+    assert native["opening"] is native["closing"] is None
+    for row in qualified["reconciliation"]:
+        assert row["expected_closing"] is row["discrepancy"] is None
+        assert row["status"] == "unknown"
+        assert "cross_collection_conflict" in row["reasons"]
+        if not row["asset"]["native"]:
+            assert row["known_subtotal_raw_units"] == "0"
+    assert first == original
+    assert qualified["payloads"] == original["payloads"]
+
+
+@pytest.mark.parametrize("chain", ["ethereum", "base", "polygon"])
 async def test_owned_transfer_accepts_qualified_chain_archive_and_rejects_conflict(
     monkeypatch, client, auth_headers, session, test_workspace, test_user, chain,
 ):

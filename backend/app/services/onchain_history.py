@@ -267,10 +267,11 @@ def _transaction_conflicts(archives):
     facts = {}
     payload_hashes = {}
     prevout_fields = {}
+    spends = {}
     for collection_id, source in flatten_archives(archives):
         for key, transaction in source.get("transactions", {}).items():
             identity = (source.get("chain"), key)
-            fact = facts.setdefault(identity, {"variants": set(), "internal_variants": set(), "indexed_paths": {}, "owners": set(), "collections": set(), "conflicting": False})
+            fact = facts.setdefault(identity, {"variants": set(), "internal_variants": set(), "indexed_paths": {}, "owners": set(), "collections": set(), "conflicting": False, "reorged_blocks": set()})
             fact["owners"].add(source.get("owner"))
             fact["collections"].add(str(collection_id) if collection_id else "this_collection")
             fact["conflicting"] |= transaction.get("revision_status") in {"conflicting_or_reorganized", "cross_collection_conflict"}
@@ -291,14 +292,39 @@ def _transaction_conflicts(archives):
                 if source.get("chain") == "bitcoin":
                     from app.providers.bitcoin_history import bitcoin_prevout_fingerprints
                     fact["conflicting"] |= "prevout_conflict" in version.get("gaps", [])
+                    if version.get("block_hash") and (version.get("confirmation_status") == "reorged" or version.get("active_chain") is False):
+                        fact["reorged_blocks"].add(version["block_hash"])
                     for field, fingerprint in bitcoin_prevout_fingerprints(version).items():
                         known = prevout_fields.setdefault(field, {"fingerprints": set(), "transactions": set()})
                         known["fingerprints"].add(fingerprint)
                         known["transactions"].add(identity)
+                    current = version["version_id"] == transaction.get("canonical_version")
+                    # Qualification cannot erase an unresolved settled claim.
+                    # Positive reorg/mempool evidence can retire that inclusion.
+                    latest = transaction["versions"][-1]
+                    retained_conflict = (transaction.get("canonical_version") is None and fact["conflicting"]
+                                         and latest.get("confirmation_status") not in {"reorged", "mempool"}
+                                         and latest.get("active_chain") is not False)
+                    for item in version.get("inputs", []):
+                        if item.get("outpoint") and not item.get("is_coinbase"):
+                            spent = spends.setdefault(item["outpoint"], {"transactions": set(), "settled": set()})
+                            spent["transactions"].add(identity)
+                            if (current or retained_conflict) and version.get("settlement") == "settled":
+                                spent["settled"].add((identity, version.get("block_hash")))
     for known in prevout_fields.values():
         if len(known["fingerprints"]) > 1:
+            collections = set().union(*(facts[identity]["collections"] for identity in known["transactions"]))
             for identity in known["transactions"]:
                 facts[identity]["conflicting"] = True
+                facts[identity]["collections"].update(collections)
+    for spent in spends.values():
+        settled = {identity for identity, block_hash in spent["settled"] if block_hash not in facts[identity]["reorged_blocks"]}
+        if settled and len(spent["transactions"]) > 1:
+            collections = set().union(*(facts[identity]["collections"] for identity in spent["transactions"]))
+            for identity in spent["transactions"]:
+                if len(settled) > 1 or identity not in settled:
+                    facts[identity]["conflicting"] = True
+                    facts[identity]["collections"].update(collections)
     return {(identity[0], owner, identity[1]): sorted(fact["collections"]) for identity, fact in facts.items()
             if len(fact["variants"]) > 1 or len(fact["internal_variants"]) > 1 or any(len(values) > 1 for values in fact["indexed_paths"].values()) or fact["conflicting"]
             for owner in fact["owners"]}
@@ -328,6 +354,15 @@ def qualify_archive(archive, peers):
     if qualified.get("chain", "solana") == "solana":
         qualified["reconciliation"] = reconcile_history(qualified)
     elif "cross_collection_conflict" in qualified["gaps"]:
+        if qualified["chain"] in {"ethereum", "base", "polygon"}:
+            from app.providers.evm_history import reconcile_evm_history
+            qualified["reconciliation"] = reconcile_evm_history(qualified)
+        elif qualified["chain"] == "bitcoin":
+            from app.providers.bitcoin_history import _quantity
+            subtotal = sum(int(version["owned_quantity"]["known_delta_raw_units"]) for _, version in current_versions(qualified)
+                           if version.get("settlement") == "settled" and version.get("in_requested_window") is True and version.get("owned_quantity"))
+            for row in qualified.get("reconciliation", []):
+                row.update(known_settled_change=_quantity(subtotal, 8), known_settled_change_raw_units=str(subtotal))
         for row in qualified.get("reconciliation", []):
             row.update(status="unknown", expected_closing=None, discrepancy=None)
             row["reasons"] = sorted(set(row.get("reasons", []) + ["cross_collection_conflict"]))

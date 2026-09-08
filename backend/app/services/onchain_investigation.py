@@ -98,6 +98,9 @@ def walk_evidence(events, request, owned_endpoints):
         if not _qualified(leg):
             boundaries.append({"code": "unsettled_or_unresolved_leg", "event_id": event.event_id, "leg_id": leg.leg_id})
             continue
+        if not timeline._within_window(event, since, until):
+            boundaries.append({"code": "outside_requested_window", "event_id": event.event_id, "leg_id": leg.leg_id})
+            continue
         if event.time.event_at is None:
             boundaries.append({"code": "event_time_order_unknown", "event_id": event.event_id, "leg_id": leg.leg_id})
         if depth >= request.max_hops:
@@ -116,11 +119,13 @@ def walk_evidence(events, request, owned_endpoints):
             if not bridges:
                 boundaries.append({"code": "bridge_destination_unresolved", "event_id": event.event_id, "leg_id": leg.leg_id})
             for target, target_leg in bridges:
+                if not timeline._within_window(target, since, until):
+                    continue
                 queue.append((target, target_leg, depth + 1, "corroborated_bridge", since, until))
         # Reviewed producer relationships remain available even when their economics are unknown.
         for relation in event.relationships:
             target = events.get(relation.event_id)
-            if relation.state == "confirmed" and target and relation.kind in {"owned_transfer", "source_corroboration", "receipt", "disposition", "transfer"}:
+            if relation.state == "confirmed" and target and timeline._within_window(target, since, until) and relation.kind in {"owned_transfer", "source_corroboration", "receipt", "disposition", "transfer"}:
                 for target_leg in target.legs:
                     if target_leg.canonical_asset_key == leg.canonical_asset_key and _qualified(target_leg):
                         queue.append((target, target_leg, depth + 1, relation.kind, since, until))
@@ -150,16 +155,25 @@ def walk_evidence(events, request, owned_endpoints):
             if not timeline._within_window(other, since, until):
                 continue
             for candidate in other.legs:
-                if other.event_id == event.event_id:
+                if leg.chain == "bitcoin":
+                    outgoing, incoming = ("outpoint", "spent_outpoint") if request.direction == "out" else ("spent_outpoint", "outpoint")
+                    if other.event_id == event.event_id:
+                        # Inspect the transaction's other side without allocating its outputs to this input.
+                        adjacent = bool(leg.derivation.get(incoming) and candidate.derivation.get(outgoing))
+                    else:
+                        adjacent = bool(leg.derivation.get(outgoing) and leg.derivation[outgoing] == candidate.derivation.get(incoming))
+                else:
+                    adjacent = endpoint in {_endpoint(candidate, opposite), getattr(candidate, opposite + "_address")}
+                if other.event_id == event.event_id and leg.chain != "bitcoin":
                     first, second = _instruction_order(leg), _instruction_order(candidate)
                     if (first is None or second is None or first == second or (second > first) != (request.direction == "out")
                         or getattr(leg, side + "_address") != getattr(candidate, opposite + "_address")):
                         continue
                 if (candidate.canonical_asset_key == leg.canonical_asset_key and _qualified(candidate)
-                    and endpoint in {_endpoint(candidate, opposite), getattr(candidate, opposite + "_address")}
+                    and adjacent
                     and (candidate.quantity is None or candidate.quantity >= request.minimums.get(candidate.canonical_asset_key, Decimal(0)))):
                     candidates.append((other, candidate))
-        if not candidates:
+        if not candidates and leg.chain != "bitcoin":
             groups = {account.group_id for account in event.accounts if account.group_id}
             candidates = [(other, candidate) for other in events.values() if other.event_id != event.event_id
                           and groups.intersection(account.group_id for account in other.accounts)
@@ -173,8 +187,10 @@ def walk_evidence(events, request, owned_endpoints):
             boundaries.append({"code": "branch_limit", "event_id": event.event_id, "leg_id": leg.leg_id, "omitted": len(candidates) - request.max_branches})
         for other, candidate in candidates[:request.max_branches]:
             # External evidence is inspectable, with no claim that its full value belongs to this trail.
-            queue.append((other, candidate, depth + 1, "observed_external_activity" if external else "observed_owned_activity", since, until))
-        if external or outpoint:
+            same_transaction = leg.chain == "bitcoin" and other.event_id == event.event_id
+            queue.append((other, candidate, depth if same_transaction else depth + 1,
+                          "observed_transaction_activity" if same_transaction else "observed_external_activity" if external else "observed_owned_activity", since, until))
+        if (external or outpoint) and not (leg.chain == "bitcoin" and request.direction == "out" and not leg.derivation.get("outpoint")):
             bounds = {"since": since.isoformat() if since else None, "until": until.isoformat() if until else None}
             item = {"event_id": event.event_id, "leg_id": leg.leg_id, "chain": leg.chain,
                     "address": getattr(leg, side + "_address") or endpoint, "asset_key": leg.canonical_asset_key,
@@ -186,16 +202,18 @@ def walk_evidence(events, request, owned_endpoints):
     return list(included.values()), steps, list(frontier.values()), boundaries
 
 
-def research_events(row, state):
+def research_events(row, state, *, events=None):
     """Reuse the timeline's source and leg adapter for the same durable payloads."""
-    events, details = {}, {}
+    events = {} if events is None else events
+    details = {}
     for research_key, retained in row.payload.get("investigations", {}).items():
         peers = [(peer.id, peer.payload) for peer in state.get("archives", {}).values()]
         archive = history.qualify_archive(retained["archive"], peers or [(row.id, row.payload)])
         for transaction_key, transaction in archive.get("transactions", {}).items():
-            event_id = "research:" + str(row.id) + ":" + _digest([research_key, transaction_key])
-            event = timeline._new_event(event_id)
-            event.reason_codes = ["external_ownership_and_allocation_unknown", *archive.get("gaps", [])]
+            event_id = "research:" + _digest([str(row.workspace_id), archive.get("chain"), transaction_key])
+            event = events.setdefault(event_id, timeline._new_event(event_id))
+            event.reason_codes = sorted(set(event.reason_codes + ["external_ownership_and_allocation_unknown", *archive.get("gaps", [])]))
+            legs = {leg.leg_id: leg for leg in event.legs}
             if transaction.get("versions") and transaction.get("canonical_version") is None:
                 event.status, event.linkage = "conflicting", "conflicting"
                 event.conflicting_fields.append("source_version")
@@ -208,19 +226,27 @@ def research_events(row, state):
                 source.source_id = "research:" + str(row.id) + ":" + _digest([research_key, transaction_key, version.get("version_id")])
                 source.detail_url = "/api/assets/timeline/sources/" + source.source_id
                 source.account = TimelineAccount()
-                event.sources.append(source)
+                timeline._put_source(event, source)
                 details[source.source_id] = TimelineSourceDetail(workspace_id=str(row.workspace_id), source=source,
                     raw_payload={"encoding": "json", "json": json.dumps(payload, separators=(",", ":"))} if payload else None,
                     transaction={"encoding": "json", "json": json.dumps(transaction, separators=(",", ":"))}, coverage=[coverage])
                 if source.is_current:
-                    event.mechanics.extend(version.get("relationships", []))
+                    for relation in version.get("relationships", []):
+                        if relation not in event.mechanics:
+                            event.mechanics.append(relation)
                 for part in version.get("legs", []):
                     leg, asset = timeline._archive_leg(part, source, archive.get("owner"), state)
                     # Source owners remain observed metadata; none are asserted to belong to this workspace.
-                    leg.leg_id = "research-leg:" + _digest([event_id, version.get("version_id"), part["key"]])
+                    identity = timeline._archive_leg_identity(version, part, source)
+                    leg.leg_id = "research-leg:" + _digest([event_id, identity])
                     leg.non_additive = bool(part.get("non_additive")) or (leg.execution_status != "success" and leg.classification != "fee")
-                    event.legs.append(leg)
-                    event.assets.append(asset)
+                    if leg.leg_id in legs:
+                        prior = legs[leg.leg_id]
+                        prior.source_ids = sorted(set(prior.source_ids + leg.source_ids))
+                    else:
+                        legs[leg.leg_id] = leg
+                        event.legs.append(leg)
+                        event.assets.append(asset)
             timeline._finish(event)
             events[event_id] = event
     return events, details
@@ -246,9 +272,9 @@ async def _scope(session, workspace_id, request):
             row = _event_collection(state, reached, reached_leg)
             if row is not None:
                 break
-    if row:
-        extra, _ = research_events(row, state)
-        events.update(extra)
+    # Read reachability is independent of the archive chosen to store new progress.
+    for retained in state["archives"].values():
+        research_events(retained, state, events=events)
     attach_reviewed_bridges(state, events)
     return state, events, owned, row, request
 
@@ -261,16 +287,41 @@ def _event_collection(state, event, leg):
     return rows[0] if rows else _root_collection(state, event, leg)
 
 
+def _completed_frontier(state, row, request, frontier):
+    """Reuse completed compatible reads without moving another root's writer binding."""
+    from app.providers import bitcoin_history, evm_history, solana_history
+    decoder = (bitcoin_history if frontier["chain"] == "bitcoin" else solana_history if frontier["chain"] == "solana" else evm_history).DECODER_VERSION
+    if row.payload.get("source_identity") != history.history_source_identity(row.payload["chain"]):
+        return False
+    for peer in state["archives"].values():
+        saved = peer.payload.get("investigations", {}).get(frontier["key"])
+        if not saved or saved["archive"].get("resumable") is not False:
+            continue
+        binding = saved.get("binding", {})
+        if (binding.get("version") != RESEARCH_VERSION
+            or binding.get("root_anchor") != row.payload.get("anchor")
+            or binding.get("root_decoder") != row.payload.get("decoder_version")
+            or saved["archive"].get("decoder_version") != decoder
+            or saved["archive"].get("source_identity") != history.history_source_identity(frontier["chain"])):
+            continue
+        if frontier["chain"] == "bitcoin":
+            limits = saved["archive"].get("research", {}).get("limits", {})
+            if (limits.get("hops", -1) < request.max_hops - frontier["depth"]
+                or limits.get("branches", -1) < request.max_branches):
+                continue
+        return True
+    return False
+
+
 async def preview_investigation(session, workspace_id, request):
-    _, events, owned, row, canonical = await _scope(session, workspace_id, request)
+    state, events, owned, row, canonical = await _scope(session, workspace_id, request)
     included, steps, frontier, boundaries = walk_evidence(events, canonical, owned)
     if row is None:
         frontier = []
         boundaries.append({"code": "no_retained_collection"})
-    elif row.payload.get("investigations"):
+    else:
         for item in frontier:
-            saved = row.payload["investigations"].get(item["key"])
-            item["resumable"] = saved["archive"].get("resumable", False) if saved else True
+            item["resumable"] = not _completed_frontier(state, row, canonical, item)
     return InvestigationRead(workspace_id=str(workspace_id), request=canonical, collection_id=row.id if row else None,
                              revision=row.revision if row else None, events=included, steps=steps, frontier=frontier, boundaries=boundaries)
 
@@ -293,6 +344,8 @@ async def continue_investigation(session, workspace_id, request):
         root_source = history.history_source_identity(row.payload["chain"])
         if row.payload["source_identity"] != root_source:
             raise history._error(409, "history_restart_required", "Saved collection source changed; restart explicitly")
+        if _completed_frontier(state, row, canonical, chosen):
+            raise history._error(409, "investigation_complete", "Selected evidence is already retained; reopen the preview")
         retained = copy.deepcopy(row.payload)
         entries = retained.setdefault("investigations", {})
         prior = entries.get(chosen["key"])

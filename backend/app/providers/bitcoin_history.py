@@ -359,9 +359,9 @@ def bitcoin_source_identity():
 
 
 def bitcoin_prevout_fingerprints(version):
-    """Compare known spent-output fields, including retained lookup enrichment."""
+    """Compare known outpoint fields from outputs, spends and lookup enrichment."""
     facts = {}
-    for item in version.get("inputs", []):
+    for item in [*version.get("inputs", []), *version.get("outputs", [])]:
         outpoint = item.get("outpoint")
         if not outpoint or item.get("is_coinbase"):
             continue

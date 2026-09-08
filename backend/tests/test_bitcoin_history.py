@@ -325,6 +325,178 @@ async def test_contradictory_embedded_and_recovered_prevout_never_qualifies(monk
     assert shared.qualify_archive(archive, [])["transactions"]["bitcoin:send-A"]["canonical_version"] is None
 
 
+@pytest.mark.parametrize("peer_owner", [OWNER, "owned-B"])
+@pytest.mark.parametrize("nested", [False, True])
+async def test_cross_archive_settled_spends_never_qualify(monkeypatch, peer_owner, nested):
+    from app.services import onchain_history as shared
+
+    archives = []
+    for reference, owner in (("competitor-A", OWNER), ("competitor-B", peer_owner)):
+        payload = transaction(reference, inputs=[spend(), spend("external-funding", value=2000, address="external", script="52")],
+                              outputs=[output(2990, "recipient", "53")])
+        install(monkeypatch, Esplora({f"/address/{owner}/txs/chain": [payload]}))
+        archives.append(await history.collect_bitcoin_history(owner, source_identity="bitcoin:synthetic-config"))
+    original = copy.deepcopy(archives)
+    for index, archive in enumerate(archives):
+        peer = archives[1 - index]
+        if nested:
+            peer = {"chain": "bitcoin", "owner": "research-owner", "investigations": {"branch": {"archive": peer}}}
+        qualified = shared.qualify_archive(archive, [("peer", peer)])
+        retained = next(iter(qualified["transactions"].values()))
+        assert retained["canonical_version"] is None
+        assert retained["revision_status"] == "cross_collection_conflict"
+        assert ("peer:research:branch" if nested else "peer") in retained["conflicting_collections"]
+        assert shared.project_observations(qualified, "qualified") == []
+        assert qualified["coverage"]["settlement"] == "partial"
+        assert qualified["reconciliation"][0]["known_settled_change_raw_units"] == "0"
+        assert retained["versions"] == next(iter(archive["transactions"].values()))["versions"]
+        assert qualified["payloads"] == archive["payloads"]
+        assert set(qualified["inventory"]) == {archive["owner"]}
+        assert retained["versions"][0]["fee"]["payer_owner"] is None
+        assert shared.qualify_archive(qualified, [("peer", peer)])["transactions"] == qualified["transactions"]
+    assert archives == original
+
+
+@pytest.mark.parametrize("placement", ["local", "peer", "nested"])
+@pytest.mark.parametrize("field,changed", [("value", 2000), ("scriptpubkey", "52"), ("scriptpubkey_address", "external")])
+async def test_retained_parent_output_conflicts_with_child_prevout(monkeypatch, placement, field, changed):
+    from app.services import onchain_history as shared
+
+    parent = transaction("parent", inputs=[spend("older", value=1010)], outputs=[output(1000)])
+    child = transaction("child", inputs=[spend("parent")], outputs=[output(990, "external", "53")])
+    child["vin"][0]["prevout"][field] = changed
+    if field == "value":
+        child["fee"] = 1010
+    rpc = Esplora({f"/address/{OWNER}/txs/chain": [parent, child] if placement == "local" else [child]})
+    install(monkeypatch, rpc)
+    archive = await collect()
+    peers = []
+    if placement != "local":
+        rpc.routes[f"/address/{OWNER}/txs/chain"] = [parent]
+        peer = await collect()
+        if placement == "nested":
+            peer = {"chain": "bitcoin", "owner": OWNER, "investigations": {"parent": {"archive": peer}}}
+        peers = [("parent-source", peer)]
+    original = copy.deepcopy(archive)
+    qualified = shared.qualify_archive(archive, peers)
+    assert qualified["transactions"]["bitcoin:child"]["canonical_version"] is None
+    assert shared.project_observations(qualified, "qualified") == []
+    assert qualified["reconciliation"][0]["known_settled_change_raw_units"] == "0"
+    assert archive == original
+
+
+@pytest.mark.parametrize("field", ["value", "scriptpubkey", "scriptpubkey_address"])
+async def test_retained_parent_missing_field_allows_compatible_prevout_enrichment(monkeypatch, field):
+    from app.services import onchain_history as shared
+
+    parent = transaction("parent", inputs=[spend("older", value=10)], outputs=[output(0)])
+    parent["vout"][0].pop(field)
+    child = transaction("child", inputs=[spend("parent", value=0)], outputs=[output(0, "external", "52")])
+    child["fee"] = 0
+    install(monkeypatch, Esplora({f"/address/{OWNER}/txs/chain": [parent, child]}))
+    archive = await collect()
+    assert shared._transaction_conflicts([("source", archive)]) == {}
+    qualified = shared.qualify_archive(archive, [])
+    assert current(qualified, "child")["fee"]["raw_units"] == "0"
+    assert current(qualified, "child")["owned_quantity"]["delta_raw_units"] == "0"
+
+
+async def test_cross_archive_replacement_preserves_supported_settled_progression(monkeypatch):
+    from app.services import onchain_history as shared
+
+    a, b = transaction("rbf-A", confirmed=False), transaction("rbf-B", confirmed=False)
+    rpc = Esplora({f"/address/{OWNER}/txs/mempool": [a, b]})
+    install(monkeypatch, rpc)
+    pending = await collect()
+    rpc.routes["/tx/rbf-A"] = a
+    rpc.routes["/tx/rbf-B"] = transaction("rbf-B", outputs=[output(990)])
+    rpc.routes[f"/address/{OWNER}/txs/mempool"] = []
+    settled = await collect(state=pending, reobserve=True)
+    for archive, peer in ((pending, settled), (settled, pending)):
+        qualified = shared.qualify_archive(archive, [("peer", peer)])
+        assert qualified["transactions"]["bitcoin:rbf-A"]["canonical_version"] is None
+        assert current(qualified, "rbf-B")["settlement"] == current(archive, "rbf-B")["settlement"]
+        assert qualified["transactions"]["bitcoin:rbf-B"]["versions"] == archive["transactions"]["bitcoin:rbf-B"]["versions"]
+    assert current(shared.qualify_archive(settled, [("old", pending)]), "rbf-B")["settlement"] == "settled"
+
+
+async def test_retained_settled_conflicts_block_new_spend_until_positive_reorg(monkeypatch):
+    from app.services import onchain_history as shared
+
+    archives = []
+    for reference in ("competitor-A", "competitor-B", "competitor-C"):
+        install(monkeypatch, Esplora({f"/address/{OWNER}/txs/chain": [transaction(reference)]}))
+        archives.append(await collect())
+    a, b, c = archives
+    qualified_a = shared.qualify_archive(a, [("B", b)])
+    qualified_b = shared.qualify_archive(b, [("A", a)])
+    assert shared.qualify_archive(c, [("A", qualified_a), ("B", qualified_b)])["transactions"]["bitcoin:competitor-C"]["canonical_version"] is None
+    reorged = []
+    for reference, archive in (("competitor-A", a), ("competitor-B", b)):
+        rpc = Esplora({f"/tx/{reference}": transaction(reference)})
+        rpc.orphaned.add("block-95")
+        install(monkeypatch, rpc)
+        reorged.append((reference, await collect(state=archive, reobserve=True)))
+    assert current(shared.qualify_archive(c, reorged), "competitor-C")["settlement"] == "settled"
+
+
+@pytest.mark.parametrize("reobservation", ["reorg", "null", "unavailable"])
+async def test_cross_root_reorg_retires_only_the_contradicted_inclusion(monkeypatch, reobservation):
+    from app.services import onchain_history as shared
+
+    rpc = Esplora({f"/address/{OWNER}/txs/chain": [transaction("old-spend")]})
+    install(monkeypatch, rpc)
+    older = await collect()
+    rpc.routes["/tx/old-spend"] = None if reobservation == "null" else transaction("old-spend")
+    if reobservation == "reorg":
+        rpc.orphaned.add("block-95")
+    elif reobservation == "unavailable":
+        rpc.routes["/block/block-95/status"] = None
+    newer = await collect(state=older, reobserve=True)
+    install(monkeypatch, Esplora({f"/address/{OWNER}/txs/chain": [transaction("new-spend", height=94)]}))
+    winner = await collect()
+    newer["transactions"].update(winner["transactions"])
+    newer["payloads"].update(winner["payloads"])
+    for peers in ([("old", older), ("new", newer)], [("new", newer), ("old", older)]):
+        qualified = shared.qualify_archive(winner, peers)
+        assert (qualified["transactions"]["bitcoin:new-spend"]["canonical_version"] is not None) == (reobservation == "reorg")
+    if reobservation == "reorg":
+        # A different positively settled inclusion remains a competing claim.
+        install(monkeypatch, Esplora({f"/address/{OWNER}/txs/chain": [transaction("old-spend", height=93)]}))
+        reconfirmed = await collect()
+        assert shared.qualify_archive(winner, [("reorg", newer), ("reconfirmed", reconfirmed)])["transactions"]["bitcoin:new-spend"]["canonical_version"] is None
+
+
+async def test_cross_archive_conflict_subtotal_keeps_unaffected_owned_contribution(monkeypatch):
+    from app.services import onchain_history as shared
+
+    unaffected = transaction("receipt", inputs=[spend("independent", address="external", script="52")],
+                             outputs=[output(500), output(490, "external", "52")])
+    rpc = Esplora({f"/address/{OWNER}/txs/chain": [transaction("competitor-A"), unaffected]})
+    install(monkeypatch, rpc)
+    archive = await collect()
+    rpc.routes[f"/address/{OWNER}/txs/chain"] = [transaction("competitor-B")]
+    peer = await collect()
+    qualified = shared.qualify_archive(archive, [("peer", peer)])
+    row = qualified["reconciliation"][0]
+    assert row["known_settled_change_raw_units"] == "500"
+    assert Decimal(row["known_settled_change"]) == Decimal("0.000005")
+    assert row["opening_quantity"] is row["closing_quantity"] is row["expected_closing_quantity"] is row["discrepancy"] is None
+    assert row["status"] == "unknown"
+    assert [item.order_ref for item in shared.project_observations(qualified, "source")] == ["bitcoin:receipt"]
+
+
+async def test_cross_archive_coinbase_inputs_do_not_compete(monkeypatch):
+    from app.services import onchain_history as shared
+
+    archives = []
+    for reference in ("coinbase-A", "coinbase-B"):
+        payload = transaction(reference, inputs=[{"is_coinbase": True, "txid": "0" * 64, "vout": 4294967295}], outputs=[output(5000)])
+        install(monkeypatch, Esplora({f"/address/{OWNER}/txs/chain": [payload]}))
+        archives.append((reference, await collect()))
+    assert shared._transaction_conflicts(archives) == {}
+
+
 async def test_reviewed_scripts_use_scripthash_and_never_add_external_inventory(monkeypatch):
     supplied = [{"scriptpubkey": "52", "owner": OWNER, "reviewed": True}]
     script_hash = hashlib.sha256(bytes.fromhex("52")).digest()[::-1].hex()

@@ -676,3 +676,190 @@ async def test_nested_external_conflict_qualifies_event_source_and_export(client
     assert qualified["investigations"]["selected-external"]["archive"]["transactions"]["ethereum:" + evm.TX]["canonical_version"] is None
     assert qualified["investigations"]["selected-external"]["archive"]["payloads"]
     assert await _financial_state(session) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("later_anchor", [False, True])
+async def test_bitcoin_api_navigates_retained_grandchild_without_financial_changes(client, auth_headers, session, test_workspace, test_user, monkeypatch, later_anchor):
+    from tests.test_bitcoin_history import Esplora, install, transaction, spend, output, STAMP
+    import hashlib
+    from tests.test_onchain_history_api import connected_context
+    from tests.test_investment_timeline import _financial_state
+    data = b"\x00" + hashlib.sha256(b"independent-review-synthetic-B").digest()[:20]
+    raw = data + hashlib.sha256(hashlib.sha256(data).digest()).digest()[:4]
+    number, encoded = int.from_bytes(raw, "big"), ""
+    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    while number:
+        number, remainder = divmod(number, 58)
+        encoded = alphabet[remainder] + encoded
+    address = "1" + encoded
+    connection, _, _ = await connected_context(session, test_workspace.id, test_user.id)
+    connection.credentials = {"addresses": ["bitcoin:" + address]}
+    await session.commit()
+    before = await _financial_state(session)
+    root = transaction("api-root", inputs=[spend(address=address)], outputs=[output(990, "external-A", "52")])
+    child = transaction("api-child", inputs=[spend("api-root", value=990, address="external-A", script="52")], outputs=[output(980, "external-B", "53")], stamp=STAMP+1)
+    grandchild = transaction("api-grandchild", inputs=[spend("api-child", value=980, address="external-B", script="53")], outputs=[output(970, "external-C", "54")], stamp=STAMP+2)
+    rpc = Esplora({f"/address/{address}/txs/chain": [root], "/tx/api-root": root, "/tx/api-root/outspend/0": {"spent": True, "txid": "api-child", "vin": 0},
+                   "/tx/api-child": child, "/tx/api-child/outspend/0": {"spent": True, "txid": "api-grandchild", "vin": 0},
+                   "/tx/api-grandchild": grandchild, "/tx/api-grandchild/outspend/0": {"spent": False}})
+    install(monkeypatch, rpc)
+    response = await client.post("/api/onchain/history", headers=auth_headers, json={"connection_id": str(connection.id), "chain": "bitcoin", "address": address, "ownership_confirmed": True})
+    assert response.status_code == 200, response.text
+    saved = response.json()
+    rows = (await client.get("/api/assets/timeline", headers=auth_headers)).json()["events"]
+    event = rows[0]
+    outgoing = next(leg for leg in event["legs"] if leg["key"] == "bitcoin:api-root:output:0")
+    request = {"event_id": event["event_id"], "leg_id": outgoing["leg_id"], "direction": "out", "max_hops": 6}
+    preview = (await client.post("/api/onchain/investigation/preview", headers=auth_headers, json=request)).json()
+    response = await client.post("/api/onchain/investigation/continue", headers=auth_headers, json={**request, "collection_id": saved["collection_id"], "expected_revision": preview["revision"], "frontier_key": preview["frontier"][0]["key"]})
+    assert response.status_code == 200, response.text
+    returned = {leg["transaction_ref"] for event in response.json()["events"] for leg in event["legs"]}
+    exported = (await client.get(f"/api/onchain/history/{saved['collection_id']}/export", headers=auth_headers)).json()
+    retained = next(iter(exported["evidence"]["investigations"].values()))["archive"]["research"]["nodes"]
+    assert await _financial_state(session) == before
+    assert "api-grandchild" in retained
+    assert "api-grandchild" in returned
+    import copy
+    from app.providers.bitcoin_history import decode_bitcoin_transaction
+    row = await session.get(InvestmentHistoryCollection, uuid.UUID(saved["collection_id"]))
+    payload = copy.deepcopy(row.payload)
+    duplicate = copy.deepcopy(next(iter(payload["investigations"].values())))
+    archive = duplicate["archive"]
+    if later_anchor:
+        archive["anchor"].update(height=archive["anchor"]["height"] + 1, blockhash="synthetic-later-anchor")
+        for transaction in archive["transactions"].values():
+            prior = next(version for version in transaction["versions"] if version["version_id"] == transaction["canonical_version"])
+            raw = archive["payloads"][prior["payload_digest"]]["response"]
+            version = decode_bitcoin_transaction(transaction["signature"], raw, payload_digest=prior["payload_digest"], owner=archive["owner"], inventory=archive["inventory"], anchor=archive["anchor"], block_status={"in_best_chain": True})
+            version["in_requested_window"] = True
+            assert prior["version_id"] != version["version_id"]
+            transaction["versions"], transaction["canonical_version"] = [version], version["version_id"]
+    payload["investigations"]["independent-observation"] = duplicate
+    row.payload = payload
+    await session.commit()
+    count = len(rpc.calls)
+    response = await client.post("/api/onchain/investigation/preview", headers=auth_headers, json=request)
+    assert response.status_code == 200, response.text
+    child_event = next(event for event in response.json()["events"] if any(leg["transaction_ref"] == "api-child" for leg in event["legs"]))
+    outputs = [leg for leg in child_event["legs"] if leg["key"] == "bitcoin:api-child:output:0" and leg["is_current"]]
+    assert len(outputs) == 1 and len(outputs[0]["source_ids"]) == 2
+    for source_id in outputs[0]["source_ids"]:
+        opened = await client.get("/api/assets/timeline/sources/" + source_id, headers=auth_headers, params={"event_id": child_event["event_id"]})
+        assert opened.status_code == 200, opened.text
+        assert opened.json()["raw_payload"] is not None
+    assert len(rpc.calls) == count
+    assert await _financial_state(session) == before
+
+
+@pytest.mark.asyncio
+async def test_saved_external_evidence_reused_from_second_owned_start(client, auth_headers, session, test_workspace, test_user, monkeypatch):
+    from tests.test_bitcoin_history import STAMP
+    from app.providers import solana_history as sol
+    from tests.test_onchain_history_api import connected_context, A, B
+    from tests.test_solana_history import RPC, instruction, transaction as sol_transaction, signature, install as sol_install
+    from tests.test_investment_timeline import _financial_state
+    connection, _, _ = await connected_context(session, test_workspace.id, test_user.id)
+    connection.credentials = {"addresses": ["solana:" + A, "solana:" + B]}
+    await session.commit()
+    before = await _financial_state(session)
+    payloads = {}
+    for i, (name, source, destination) in enumerate((("owned-A-to-B", A, B), ("owned-B-to-C", B, "external-C"), ("external-C-to-D", "external-C", "external-D"))):
+        payloads[name] = sol_transaction([instruction(sol.SYSTEM_PROGRAM, "transfer", source=source, destination=destination, lamports=1_000_000_000)],
+                                         keys=(source, destination), pre=(2_000_000_000, 0), post=(970_000_000, 1_000_000_000))
+        payloads[name].update(slot=10+i, blockTime=STAMP+i)
+    rpc = RPC(pages={(A, None): [signature("owned-A-to-B", stamp=STAMP)], (B, None): [signature("owned-B-to-C", stamp=STAMP+1)],
+                     ("external-C", None): [signature("external-C-to-D", stamp=STAMP+2)]}, payloads=payloads)
+    sol_install(monkeypatch, rpc)
+    for address in (A, B):
+        response = await client.post("/api/onchain/history", headers=auth_headers, json={"connection_id": str(connection.id), "chain": "solana", "address": address, "ownership_confirmed": True})
+        assert response.status_code == 200, response.text
+    events = (await client.get("/api/assets/timeline", headers=auth_headers)).json()["events"]
+    def selection(reference):
+        event = next(event for event in events if any(leg["transaction_ref"] == reference for leg in event["legs"]))
+        leg = next(leg for leg in event["legs"] if leg["classification"] != "fee")
+        return {"event_id": event["event_id"], "leg_id": leg["leg_id"], "direction": "out", "max_hops": 6}
+    request_a = selection("owned-A-to-B")
+    preview_a = (await client.post("/api/onchain/investigation/preview", headers=auth_headers, json=request_a)).json()
+    frontier = next(item for item in preview_a["frontier"] if item["address"] == "external-C")
+    response = await client.post("/api/onchain/investigation/continue", headers=auth_headers, json={**request_a, "collection_id": preview_a["collection_id"], "expected_revision": preview_a["revision"], "frontier_key": frontier["key"]})
+    assert response.status_code == 200, response.text
+    from_a = {leg["transaction_ref"] for event in response.json()["events"] for leg in event["legs"]}
+    count = len(rpc.calls)
+    response = await client.post("/api/onchain/investigation/preview", headers=auth_headers, json=selection("owned-B-to-C"))
+    assert response.status_code == 200, response.text
+    from_b = {leg["transaction_ref"] for event in response.json()["events"] for leg in event["legs"]}
+    assert len(rpc.calls) == count
+    assert await _financial_state(session) == before
+    assert "external-C-to-D" in from_a
+    assert "external-C-to-D" in from_b
+    preview_b = response.json()
+    completed = next(item for item in preview_b["frontier"] if item["address"] == "external-C")
+    assert completed["resumable"] is False
+    duplicate = await client.post("/api/onchain/investigation/continue", headers=auth_headers, json={**preview_b["request"], "collection_id": preview_b["collection_id"], "expected_revision": preview_b["revision"], "frontier_key": completed["key"]})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "investigation_complete"
+    assert len(rpc.calls) == count
+    assert await _financial_state(session) == before
+
+
+@pytest.mark.parametrize("changed", [None, "source", "decoder", "root_decoder", "root_anchor", "key", "resumable", "hops", "branches"])
+def test_completed_frontier_requires_compatible_source_scope_and_explicit_completion(monkeypatch, changed):
+    from app.providers.bitcoin_history import DECODER_VERSION
+    monkeypatch.setattr(history, "history_source_identity", lambda chain: "current-source")
+    request = InvestigationRequest(event_id="event", leg_id="leg", max_hops=6, max_branches=5)
+    frontier = {"key": "key", "chain": "bitcoin", "depth": 2}
+    binding = {"version": research.RESEARCH_VERSION, "root_anchor": {"height": 50}, "root_decoder": DECODER_VERSION}
+    archive = {"source_identity": "current-source", "decoder_version": DECODER_VERSION, "resumable": False, "research": {"limits": {"hops": 4, "branches": 5}}}
+    root = SimpleNamespace(payload={"chain": "bitcoin", "source_identity": "current-source", "anchor": {"height": 50}, "decoder_version": DECODER_VERSION})
+    if changed == "source":
+        archive["source_identity"] = "older-source"
+    elif changed == "decoder":
+        archive["decoder_version"] = "older-decoder"
+    elif changed in {"root_anchor", "root_decoder"}:
+        binding[changed] = "older"
+    elif changed == "resumable":
+        del archive["resumable"]
+    elif changed in {"hops", "branches"}:
+        archive["research"]["limits"][changed] -= 1
+    peer = SimpleNamespace(payload={"investigations": {"changed-key" if changed == "key" else "key": {"binding": binding, "archive": archive}}})
+    assert research._completed_frontier({"archives": {"peer": peer}}, root, request, frontier) is (changed is None)
+
+
+@pytest.mark.parametrize("direction,start,end", [("out", 0, 5), ("in", 15, 20)])
+def test_outside_window_start_has_context_but_no_continuation(direction, start, end):
+    root = event("root", 10, [leg("selected", "SOL", "1", "owner", "external")])
+    result = research.walk_evidence({root.event_id: root}, InvestigationRequest(event_id="root", leg_id="selected", direction=direction,
+        since=STAMP + timedelta(minutes=start), until=STAMP + timedelta(minutes=end)), {("solana", "owner")})
+    assert [item.event_id for item in result[0]] == ["root"]
+    assert not result[2]
+    assert result[3] == [{"code": "outside_requested_window", "event_id": "root", "leg_id": "selected"}]
+
+
+@pytest.mark.parametrize("direction", ["in", "out"])
+@pytest.mark.parametrize("addressless", [False, True])
+def test_bitcoin_trail_uses_exact_outpoints_through_pooled_transaction(direction, addressless):
+    from tests.test_bitcoin_history import transaction, spend, output, decode, OWNER
+    address = None if addressless else "external-A"
+    payloads = [
+        transaction("root", outputs=[output(990, address, "52")]),
+        transaction("child", inputs=[spend("root", value=990, address=address, script="52"), spend("other-funding", value=1000, address="other-owner", script="54")], outputs=[output(1980, "external-B", "53")]),
+        transaction("grandchild", inputs=[spend("child", value=1980, address="external-B", script="53")], outputs=[output(1970, "external-C", "54")]),
+        transaction("unrelated", inputs=[spend("different-output", value=990, address=address, script="52")], outputs=[output(980, "unrelated-recipient", "55")]),
+    ]
+    events = {}
+    for index, payload in enumerate(payloads):
+        source = TimelineSource(source_id=payload["txid"], source_local_id=payload["txid"], source="onchain_history", provider="onchain", source_kind="primary_activity", provider_status="success", settlement_status="settled", detail_url="/synthetic")
+        parts = [research.timeline._archive_leg(part, source, OWNER, {}) for part in decode(payload)["legs"]]
+        events[payload["txid"]] = TimelineEvent(event_id=payload["txid"], kind="transfer", status="settled", time=TimelineTime(event_at=STAMP + timedelta(minutes=index)), legs=[part[0] for part in parts], assets=[part[1] for part in parts], sources=[source])
+    root = events["root" if direction == "out" else "grandchild"]
+    selected = next(part for part in root.legs if part.key.endswith("output:0"))
+    request = InvestigationRequest(event_id=root.event_id, leg_id=selected.leg_id, direction=direction, max_hops=2)
+    found, steps, frontier, _ = research.walk_evidence(events, request, {("bitcoin", OWNER)})
+    assert {item.event_id for item in found} == {"root", "child", "grandchild"}
+    assert all(step["attributed_quantity"] is None and step["depth"] <= 2 for step in steps)
+    if direction == "out":
+        assert all("output:" in next(part.key for event in found for part in event.legs if part.leg_id == item["leg_id"]) for item in frontier)
+    limited = research.walk_evidence(events, request.model_copy(update={"max_hops": 1}), {("bitcoin", OWNER)})
+    assert len(limited[0]) == 2
+    assert any(item["code"] == "hop_limit" for item in limited[3])

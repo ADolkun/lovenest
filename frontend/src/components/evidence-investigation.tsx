@@ -125,6 +125,8 @@ export function EvidenceInvestigation({ event, workspaceId, renderEvent, labelAs
   const errorCode = (mutation.error as { response?: { data?: { detail?: { code?: string } } } } | null)?.response?.data?.detail?.code
   const error = errorCode === 'history_revision_conflict' || errorCode === 'history_restart_required'
     ? t('investigation.changed', 'The saved evidence or source configuration changed. Preview the trail again before continuing.')
+    : errorCode === 'investigation_complete'
+    ? t('investigation.exhausted', 'No remaining pages in this declared continuation. Coverage gaps may remain.')
     : t('investigation.failed', 'This investigation request could not finish. Retained evidence remains visible. Retry the request or preview again.')
 
   return <section className="min-w-0 space-y-4 border-t border-border pt-6" aria-label={t('investigation.title', 'Follow evidence')}>

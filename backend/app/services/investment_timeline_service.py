@@ -263,6 +263,17 @@ def _archive_leg(part, source, owner, state):
     return result, asset
 
 
+def _archive_leg_identity(version, part, source):
+    # Retrieval anchors may differ while inclusion and exact decoded facts agree.
+    # Raw-payload locators and observed maturity remain on each retained source.
+    facts = {**part, "derivation": {key: value for key, value in part.get("derivation", {}).items() if key != "payload_digest"}}
+    if part.get("asset", {}).get("chain") == "bitcoin":
+        facts.pop("maturity_eligible", None)
+    return [version.get("evidence_fingerprint") or version.get("version_id"), source.decoder_version,
+            version.get("block_hash"), version.get("block_height"), facts,
+            source.is_current, source.settlement_status, source.provider_status]
+
+
 async def _project(session, workspace_id):
     # ponytail: project the existing local evidence scope before paging; move projection to SQL if large histories make reads slow.
     state = await transfers.prepare_replay(session, workspace_id)
@@ -430,19 +441,18 @@ async def _project(session, workspace_id):
                         event.kind = next(iter(mechanics))
                 for part in version.get("legs", []):
                     leg, asset = _archive_leg(part, source, archive.get("owner"), state)
-                    leg.leg_id = "archive-leg:" + evidence._digest([identifier, version.get("version_id"), part["key"]])
-                    if source.is_current:
-                        archive_leg_ids[(identifier, source.payload_digest, part["key"])] = leg.leg_id
-                    # Identical archive versions from overlapping collections preserve sources, once per account/leg/version.
-                    identity = (version.get("version_id"), part["key"])
+                    leg.leg_id = "archive-leg:" + evidence._digest([identifier, _archive_leg_identity(version, part, source)])
                     cache = state.setdefault("archive_leg_ids", {})
-                    prior = cache.get((identifier, identity))
+                    prior = cache.get(leg.leg_id)
                     if prior:
-                        prior.source_ids.append(source.source_id)
+                        prior.source_ids = sorted(set(prior.source_ids + leg.source_ids))
+                        leg = prior
                     else:
-                        cache[(identifier, identity)] = leg
+                        cache[leg.leg_id] = leg
                         event.legs.append(leg)
                         event.assets.append(asset)
+                    if source.is_current:
+                        archive_leg_ids[(identifier, source.payload_digest, part["key"])] = leg.leg_id
                 # Source locators are retained even when a raw payload has disappeared.
                 for existing in event.sources:
                     if existing.source_id != source.source_id and existing.source_locator == source.source_locator:

@@ -331,6 +331,21 @@ it('keeps exact per-asset minimums and inclusive backward bounds, and reuses eve
   expect(screen.getByRole('dialog')).toBeInTheDocument()
 })
 
+it('shows already retained evidence and disables a completed continuation after previewing again', async () => {
+  const completed = { ...trail(), frontier: trail().frontier.map((item) => ({ ...item, resumable: false })) }
+  vi.spyOn(onchain, 'previewInvestigation').mockResolvedValueOnce(trail()).mockResolvedValue(completed)
+  const continuation = vi.spyOn(onchain, 'continueInvestigation').mockRejectedValue({ response: { data: { detail: { code: 'investigation_complete' } } } })
+  const { user } = renderWithProviders(<View />, { route: '/assets?activity=timeline&event=event-a' })
+  const panel = within(await screen.findByRole('region', { name: 'Follow evidence' }))
+  await user.click(panel.getByRole('button', { name: 'Preview saved trail' }))
+  await user.click(await panel.findByRole('button', { name: 'Collect selected continuation' }))
+  await panel.findByText('No remaining pages in this declared continuation. Coverage gaps may remain.')
+  await user.click(panel.getByRole('button', { name: 'Preview saved trail' }))
+  await waitFor(() => expect(panel.getByRole('button', { name: 'Collect selected continuation' })).toBeDisabled())
+  expect(continuation).toHaveBeenCalledTimes(1)
+  expect(panel.getByText('solana · external-synthetic · TOKEN-X')).toBeInTheDocument()
+})
+
 it('discards a delayed investigation result after switching workspace', async () => {
   let finish!: (value: ReturnType<typeof trail>) => void
   vi.spyOn(onchain, 'previewInvestigation').mockReturnValue(new Promise((resolve) => { finish = resolve }))
