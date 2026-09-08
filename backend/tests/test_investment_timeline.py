@@ -2,25 +2,28 @@
 import copy
 import json
 import uuid
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event as sqlalchemy_event, select
 
 from app.models.asset import Asset
 from app.models.asset_transaction import AssetTransaction
 from app.models.collection import Collection
 from app.models.investment_evidence import InvestmentHistoryCollection, InvestmentLeg, InvestmentObservation
-from app.schemas.investment_evidence import EvidenceAllocation, EvidenceDecision
+from app.schemas.investment_evidence import EvidenceAllocation, EvidenceDecision, EvidenceLegInput, EvidenceObservationInput
 from app.services import investment_evidence_service as evidence
 from app.services import investment_timeline_service as timeline
+from tests import test_owned_transfers_integration as transfer_producer
 from tests.test_investment_evidence import observation, save, wallet as wallet_fixture
 from tests.test_onchain_history_api import A, connected_context, rpc_fixture
+from tests.test_owned_transfer_regressions import retain_revision
 from tests.test_owned_transfers_integration import (
     add_acquisition, apply_movement, checked, confirm_transfer, pair, retain_movement,
     select_lots, transfer_preview, transfers as transfers_fixture,
 )
-from tests.test_recovery_evidence_integration import receipt_journey
+from tests.test_recovery_evidence_integration import package, receipt_journey, review
 from tests.test_solana_history import RPC, TOKEN, TOKEN_2022, balance, instruction, signature, transaction
 
 PREFIX = "/api/assets/timeline"
@@ -446,3 +449,178 @@ def test_exact_sort_day_uses_utc_without_changing_original_timestamp():
     assert timeline._sort_key(event)[:2] == ("2025-02-03", "2025-02-03T02:00:00+00:00")
     assert event.time.event_at is not None
     assert event.time.event_at.isoformat() == "2025-02-02T18:00:00-08:00"
+
+
+@pytest.mark.parametrize("reverse_order", [False, True])
+async def test_shared_transaction_retains_each_selected_transfer_fee_and_unrelated_leg(transfers, reverse_order):
+    v = transfers
+    ref, at = "synthetic-batch-transfer", datetime.fromisoformat("2025-02-03T12:00:00+00:00")
+    principals = [EvidenceLegInput(
+        key=f"ix:{index}", asset_id=v.a.id, asset_symbol="SYN", chain="solana", token_address="native",
+        direction="out", classification="transfer", quantity=str(quantity), raw_units=str(quantity * 10**9), decimals=9,
+        transaction_ref=ref, leg_ref=f"ix:{index}", source_address=v.addresses[v.a.id],
+        destination_address=v.addresses[destination.id], source_owner=v.addresses[v.a.id],
+        destination_owner=v.addresses[destination.id], quantity_role="principal", fee_semantics="none",
+    ) for index, (destination, quantity) in enumerate([(v.b, 3), (v.c, 2)])]
+    fees = [leg.model_copy(update={"key": f"fee:{index}", "leg_ref": f"fee:{index}", "classification": "fee",
+        "quantity": Decimal("0.02"), "raw_units": "20000000", "destination_address": None, "destination_owner": None,
+        "quantity_role": "network_fee", "fee_payer": v.addresses[v.a.id], "fee_semantics": "separate"})
+        for index, leg in enumerate(principals)]
+    unrelated = principals[0].model_copy(update={"key": "unrelated", "leg_ref": "unrelated", "classification": "swap",
+        "quantity": Decimal("1"), "raw_units": "1000000000"})
+    source = EvidenceObservationInput(reference=ref, source="csv", provider="onchain", source_local_id=ref,
+        source_account_id=v.addresses[v.a.id], source_locator="synthetic/batch.csv", event_at=at, event_date=at.date(),
+        event_time_raw=at.isoformat(), time_precision="second", timezone="UTC", observed_at=at,
+        provider_status="completed", network_status="finalized", settlement_status="settled", legs=[*principals, *fees, unrelated])
+    preview = await evidence.preview_evidence(v.session, v.workspace.id, v.a.group_id, [source])
+    await evidence.import_evidence(v.session, v.workspace.id, v.user.id, v.a.group_id, [source], expected_revision=preview.revision)
+    outgoing = {leg.source_leg_key: leg for leg in await v.session.scalars(select(InvestmentLeg).where(InvestmentLeg.asset_id == v.a.id))}
+    requests = []
+    for index, (destination, quantity) in enumerate([(v.b, 3), (v.c, 2)]):
+        incoming = await retain_movement(v.session, destination, direction="in", reference=ref,
+            source=v.addresses[v.a.id], destination=v.addresses[destination.id], quantity=str(quantity), leg_key=f"ix:{index}")
+        requests.append({"out_leg_id": str(outgoing[f"ix:{index}"].id), "in_leg_id": str(incoming.id),
+            "source_asset_id": str(v.a.id), "destination_asset_id": str(destination.id),
+            "source_ownership_id": v.ownership[v.a.id], "destination_ownership_id": v.ownership[destination.id],
+            "reason": "Synthetic selected instruction and receipt"})
+    original = checked(await v.client.get(PREFIX, headers=v.headers))
+    original_ids = {event["event_id"] for event in original["events"] if not event["event_id"].startswith("ledger:")}
+    fee_lots = (await select_lots(v, requests[0]))["allocations"]
+    for index in (0, 1):
+        await apply_movement(v, v.a, outgoing[f"fee:{index}"],
+            allocations=[{"lot_id": fee_lots[0]["lot_id"], "quantity": "0.02"}])
+    confirmed = []
+    for index in ([1, 0] if reverse_order else [0, 1]):
+        request = await select_lots(v, requests[index])
+        request["fees"] = [{"leg_id": str(outgoing[f"fee:{index}"].id), "asset_id": str(v.a.id),
+            "ownership_id": v.ownership[v.a.id], "reason": "Synthetic independently selected fee",
+            "allocations": [{"lot_id": request["allocations"][0]["lot_id"], "quantity": "0.02"}]}]
+        confirmed.append(await confirm_transfer(v, request))
+        data = checked(await v.client.get(PREFIX, headers=v.headers))
+        grouped = next(event for event in data["events"] if any(part["id"] == confirmed[-1]["id"] for part in event["transfers"]))
+        assert grouped["kind"] == "unknown"  # The unrelated swap is not a transfer.
+        assert grouped["basis"]["state"] == "unknown" and grouped["basis"]["acquisition_cost"] is None
+        assert grouped["basis"]["reason_codes"] == ["transfer_basis_scoped_to_selected_legs"]
+    before = await _financial_state(v.session)
+    data = checked(await v.client.get(PREFIX, headers=v.headers))
+    grouped = next(event for event in data["events"] if event["transfers"])
+    assert len(grouped["legs"]) == 7 and len(grouped["sources"]) == 3
+    assert {leg["leg_id"] for leg in grouped["legs"]} == {
+        leg["leg_id"] for event in original["events"] if event["event_id"] in original_ids for leg in event["legs"]}
+    for transfer in confirmed:
+        retained = next(part for part in grouped["transfers"] if part["id"] == transfer["id"])
+        request = retained["request"]
+        assert {request["out_leg_id"], request["in_leg_id"], request["fees"][0]["leg_id"]} <= {leg["leg_id"] for leg in grouped["legs"]}
+        assert retained["acquisition_cost"] == transfer["acquisition_cost"]
+        assert any(link["review_id"] == transfer["id"] and link["state"] == "confirmed" for link in grouped["relationships"])
+    assert {Decimal(part["acquisition_cost"]) for part in grouped["transfers"]} == {Decimal("60"), Decimal("40")}
+    for identifier in original_ids | {"owned-transfer:" + part["id"] for part in confirmed}:
+        assert checked(await v.client.get(f"{PREFIX}/{identifier}", headers=v.headers))["event_id"] == grouped["event_id"]
+    for source in grouped["sources"]:
+        assert (await v.client.get(source["detail_url"], headers=v.headers, params={"event_id": grouped["event_id"]})).status_code == 200
+    assert await _financial_state(v.session) == before
+
+
+@pytest.mark.parametrize("reverse_order", [False, True])
+async def test_compatible_complementary_enrichment_preserves_exact_known_facts(session, test_workspace, test_user, wallet, reverse_order):
+    sparse = observation("synthetic-enrichment", quantity="3")
+    leg = sparse.legs[0]
+    leg.quantity = leg.unit_price = leg.subtotal = leg.total = leg.fee = None
+    leg.unit_price_origin, leg.classification = "unknown", "transfer"
+    quantity = sparse.model_copy(deep=True)
+    quantity.legs[0].quantity = Decimal("3.1234567890123456789012345678")
+    costs = sparse.model_copy(deep=True)
+    costs.legs[0].fee = costs.legs[0].acquisition_basis = Decimal("0")
+    costs.legs[0].unit_price_origin = "reported"
+    def fixed_ids(mapper, connection, row):
+        row.id = uuid.UUID(int=101 if row.payload["fee"] is None and row.payload["quantity"] is None else 102 if row.payload["quantity"] else 103)
+    sqlalchemy_event.listen(InvestmentLeg, "before_insert", fixed_ids)
+    try:
+        for item in ([costs, quantity, sparse] if reverse_order else [sparse, quantity, costs]):
+            await save(session, test_workspace, test_user, wallet, [item])
+    finally:
+        sqlalchemy_event.remove(InvestmentLeg, "before_insert", fixed_ids)
+    before = await _financial_state(session)
+    result = await timeline.list_timeline(session, test_workspace.id)
+    assert len(result.events) == 1
+    event = result.events[0]
+    assert len(event.sources) == 3 and len(event.legs) == 1
+    projected = event.legs[0]
+    assert projected.quantity == quantity.legs[0].quantity
+    assert projected.fee == 0 and projected.unit_price is None and projected.unit_price_origin == "reported"
+    assert event.basis.state == "known" and event.basis.acquisition_cost == 0
+    assert set(projected.source_ids) == {source.source_id for source in event.sources}
+    assert await _financial_state(session) == before
+
+
+async def test_superseded_recovery_review_is_historical_only(transfers):
+    v = transfers
+    await receipt_journey(v)
+    saved = await package(v)
+    old = next(item for item in saved["reviews"] if item["key"] == "notice-receipt")
+    replacement = {key: value for key, value in old.items() if key not in {
+        "id", "created_at", "created_by", "is_current", "blockers", "ready_for_review"}}
+    replacement.update(key="reconsidered-notice-receipt", supersedes_id=old["id"], relation_state="candidate",
+        reason="Synthetic documented reconsideration")
+    revised = await review(v, [replacement])
+    prior = next(item for item in revised["reviews"] if item["id"] == old["id"])
+    assert prior["is_current"] is False and prior["blockers"] == []
+    before = await _financial_state(v.session)
+    data = checked(await v.client.get(PREFIX, headers=v.headers))
+    assert not any(link["review_id"] == old["id"] for event in data["events"] for link in event["relationships"])
+    history = [item for event in data["events"] for detail in event["recovery"] for item in detail["reviews"]]
+    assert any(item["id"] == old["id"] and item["is_current"] is False for item in history)
+    current = next(item for item in revised["reviews"] if item["key"] == replacement["key"])
+    assert any(link["review_id"] == current["id"] and link["state"] == ("unresolved" if current["blockers"] else "candidate")
+        for event in data["events"] for link in event["relationships"])
+    assert await _financial_state(v.session) == before
+
+
+@pytest.mark.parametrize("invalidation", ["reverse", "conflict"])
+async def test_reversed_transfer_keeps_independent_reported_zero_basis(transfers, invalidation):
+    v = transfers
+    request = await pair(v, v.a, v.b)
+    incoming = await v.session.get(InvestmentLeg, uuid.UUID(request["in_leg_id"]))
+    await retain_revision(v.session, v, incoming, acquisition_basis="0")
+    confirmed = await confirm_transfer(v, await select_lots(v, request))
+    url = "/api/assets/evidence/transfers/" + confirmed["id"]
+    detail = checked(await v.client.get(url, headers=v.headers))
+    if invalidation == "reverse":
+        checked(await v.client.delete(url, headers=v.headers, params={"expected_revision": detail["revision"]}))
+    else:
+        outgoing = await v.session.get(InvestmentLeg, uuid.UUID(request["out_leg_id"]))
+        await retain_revision(v.session, v, outgoing, quantity="4", raw_units="4000000000")
+    before = await _financial_state(v.session)
+    events = checked(await v.client.get(PREFIX, headers=v.headers))["events"]
+    event = next(event for event in events if any(leg["acquisition_basis"] == "0" for leg in event["legs"]))
+    assert all(part["status"] == ("reversed" if invalidation == "reverse" else "unresolved") for part in event["transfers"])
+    assert event["basis"]["state"] == "known" and Decimal(event["basis"]["acquisition_cost"]) == 0
+    assert event["basis"]["reason_codes"] == ["reported_acquisition_basis"]
+    assert await _financial_state(v.session) == before
+
+
+async def test_collector_transfer_preserves_archive_ids_and_exact_pair_basis(
+    session, test_workspace, test_user, client, auth_headers, monkeypatch,
+):
+    original_confirm, observed = transfer_producer.confirm_transfer, []
+    async def confirm_and_inspect(v, request):
+        transfer = await original_confirm(v, request)
+        before = await _financial_state(session)
+        events = checked(await client.get(PREFIX, headers=v.headers))["events"]
+        event = next(event for event in events if any(part["id"] == transfer["id"] for part in event["transfers"]))
+        assert all(leg["leg_id"].startswith("archive-leg:") for leg in event["legs"])
+        assert len({leg["leg_id"] for leg in event["legs"]}) == len(event["legs"])
+        assert event["basis"]["state"] == "known" and Decimal(event["basis"]["acquisition_cost"]) == 60
+        for leg_id in (request["out_leg_id"], request["in_leg_id"], *(fee["leg_id"] for fee in request["fees"])):
+            raw = await session.get(InvestmentLeg, uuid.UUID(leg_id))
+            assert any(leg["key"] == raw.source_leg_key for leg in event["legs"])
+            assert checked(await client.get(f"{PREFIX}/event:{raw.event_id}", headers=v.headers))["event_id"] == event["event_id"]
+        assert await _financial_state(session) == before
+        observed.append(event["event_id"])
+        return transfer
+    monkeypatch.setattr(transfer_producer, "confirm_transfer", confirm_and_inspect)
+    await transfer_producer.test_actual_collector_outputs_confirm_with_fee_and_reobserve_to_unresolved(
+        session, test_workspace, test_user, client, auth_headers, monkeypatch)
+    assert len(observed) == 1
+    events = checked(await client.get(PREFIX, headers={**auth_headers, "X-Workspace-Id": str(test_workspace.id)}))["events"]
+    assert not any(part["status"] == "confirmed" for event in events for part in event["transfers"])

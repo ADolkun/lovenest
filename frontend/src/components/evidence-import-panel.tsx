@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { assets, assetGroups, assetErrorMessage } from '@/lib/api'
+import { assets, assetErrorMessage } from '@/lib/api'
+import { timeline } from '@/lib/timeline-api'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,7 +23,7 @@ export function EvidenceImportPanel({ mode = 'evidence', initialGroupId = '' }: 
   const { t } = useTranslation()
   const { current } = useWorkspace()
   const [groupId, setGroupId] = useState(initialGroupId)
-  const wallets = useQuery({ queryKey: ['asset-groups', current?.id], queryFn: assetGroups.list, enabled: !!current })
+  const wallets = useQuery({ queryKey: ['asset-groups', current?.id, 'source-review'], queryFn: ({ signal }) => timeline.wallets(current!.id, signal), enabled: !!current })
   const group = wallets.data?.find((wallet) => wallet.id === groupId)
   return <section className="space-y-4" aria-label={t('evidence.sourceReview', 'Source review')}>
     <p className="max-w-prose text-sm text-muted-foreground">{t('evidence.intro', 'Keep source observations, review their links, then apply supported activity. Saving evidence does not change holdings or establish acquisition basis.')}</p>

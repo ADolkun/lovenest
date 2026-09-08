@@ -1,11 +1,12 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EvidenceImportPanel } from './evidence-import-panel'
-import { renderWithProviders } from '@/test/utils'
+import { createTestQueryClient, renderWithProviders } from '@/test/utils'
 import type { EvidenceObservation, EvidencePreview, EvidenceRecord } from '@/types/investment-evidence'
 
 const api = vi.hoisted(() => ({ evidence: vi.fn(), previewImport: vi.fn(), importEvidence: vi.fn(), confirmEvidence: vi.fn(), unlinkEvidence: vi.fn(), list: vi.fn(), workspace: vi.fn(), logs: vi.fn().mockResolvedValue([]), undo: vi.fn() }))
 vi.mock('@/lib/api', () => ({ assets: api, importLogs: { list: api.logs, delete: api.undo }, assetGroups: { list: api.list }, assetErrorMessage: (error: { response?: { data?: { detail?: string } } }, fallback: string) => error.response?.data?.detail ?? fallback }))
+vi.mock('@/lib/timeline-api', () => ({ timeline: { wallets: api.list } }))
 vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { preferences: {} } }) }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: api.workspace }))
 
@@ -42,6 +43,26 @@ async function openReview(mode: 'evidence' | 'opening_lots' = 'evidence') {
 }
 
 describe('investment evidence review', () => {
+  it('opens a pinned archived synced wallet independently of cached portfolio wallets', async () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setDefaultOptions({ queries: { retry: false, staleTime: Infinity } })
+    queryClient.setQueryData(['asset-groups'], [])
+    queryClient.setQueryData(['asset-groups', 'investment'], [])
+    api.list.mockImplementation(async (workspaceId: string) => workspaceId === 'investment'
+      ? [{ id: 'wallet-a', name: 'Archived synced wallet', source: 'synthetic', connection_id: 'connection-a', assets: [] }]
+      : [])
+
+    const { user } = renderWithProviders(<EvidenceImportPanel initialGroupId="wallet-a" />, { queryClient })
+    await user.click(await screen.findByText('row-candidate'))
+    expect(screen.getByLabelText('Destination wallet / account')).toHaveValue('wallet-a')
+    expect(screen.getByRole('option', { name: 'Archived synced wallet' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm source link' })).toBeInTheDocument()
+    expect(api.list).toHaveBeenCalledWith('investment', expect.any(AbortSignal))
+    expect(queryClient.getQueryData(['asset-groups', 'investment'])).toEqual([])
+    expect(api.confirmEvidence).not.toHaveBeenCalled()
+    expect(api.importEvidence).not.toHaveBeenCalled()
+  })
+
   it('opens retained movements in the shared Activity review with exact observation and leg references', async () => {
     const view = fixture()
     view.observations[0].legs[0].classification = 'transfer'

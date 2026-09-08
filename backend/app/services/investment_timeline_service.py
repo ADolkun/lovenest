@@ -298,7 +298,12 @@ async def _project(session, workspace_id):
         {str(row.id): evidence._input(row) for row in state["observations"].values()},
         {str(row.id): row.identity_key for row in state["observations"].values()},
     )
-    canonical = {}
+    # Complete confirmed grouping before attaching noncurrent/unqualified reviews.
+    transfer_reads = sorted((transfers._transfer_read(state, row) for row in state["transfers"].values()),
+                            key=lambda read: (read.status != "confirmed", str(read.id)))
+    selected_leg_ids = {identifier for read in transfer_reads if read.status == "confirmed"
+                        for identifier in (read.request.out_leg_id, read.request.in_leg_id, *(fee.leg_id for fee in read.request.fees))}
+    canonical, displayed_leg_ids = {}, {}
     for leg in state["legs"].values():
         sid = str(leg.observation_id)
         family = (families[sid], leg.source_leg_key)
@@ -306,7 +311,8 @@ async def _project(session, workspace_id):
     for members in canonical.values():
         # A compatible source family has one leg identity; retain all source versions.
         members.sort(key=lambda leg: (not state["observations"][leg.observation_id].is_current,
-                                     -{"settled": 2, "pending": 1}.get(state["observations"][leg.observation_id].payload.get("settlement_status"), 0), str(leg.id)))
+                                     -{"settled": 2, "pending": 1}.get(state["observations"][leg.observation_id].payload.get("settlement_status"), 0),
+                                     leg.id not in selected_leg_ids, str(leg.id)))
         representative = members[0]
         targets = []
         for member in members:
@@ -320,9 +326,18 @@ async def _project(session, workspace_id):
             if targets:
                 event.linkage = "confirmed"
             elif state["observations"][representative.observation_id].payload.get("source_kind", "primary_activity") == "primary_activity":
-                item = representative.payload
+                item = dict(representative.payload)
+                current_members = [member for member in members if state["observations"][member.observation_id].is_current]
+                # The producer checks every family member for direct compatibility.
+                # Union complementary known facts; storage IDs only stabilize display identity.
+                for member in current_members:
+                    for field, value in member.payload.items():
+                        if value is not None and (item.get(field) is None or field == "unit_price_origin" and item.get(field) == "unknown"):
+                            item[field] = value
                 _put_leg(event, item, str(representative.id), sources[str(representative.observation_id)], state,
                          current=state["observations"][representative.observation_id].is_current)
+                event.legs[-1].source_ids = sorted({str(member.observation_id) for member in current_members or [representative]})
+                displayed_leg_ids.update({member.id: str(representative.id) for member in members})
             else:
                 # Secondary records are available as source context, never timeline movements.
                 if not event.legs and not event.sources:
@@ -367,7 +382,7 @@ async def _project(session, workspace_id):
         event.reason_codes.append("original_source_precision_unavailable")
     # Archive versions are the producer's supplied mechanics, not a second decode.
     archives = list(state["archives"].values())
-    archive_events = set()
+    archive_events, archive_leg_ids = set(), {}
     archive: dict[str, Any]
     for row in archives:
         try:
@@ -412,6 +427,8 @@ async def _project(session, workspace_id):
                 for part in version.get("legs", []):
                     leg, asset = _archive_leg(part, source, archive.get("owner"), state)
                     leg.leg_id = "archive-leg:" + evidence._digest([identifier, version.get("version_id"), part["key"]])
+                    if source.is_current:
+                        archive_leg_ids[(identifier, source.payload_digest, part["key"])] = leg.leg_id
                     # Identical archive versions from overlapping collections preserve sources, once per account/leg/version.
                     identity = (version.get("version_id"), part["key"])
                     cache = state.setdefault("archive_leg_ids", {})
@@ -429,39 +446,50 @@ async def _project(session, workspace_id):
                         existing.decoder_version = source.decoder_version
                         existing.availability, existing.unavailable_reason = source.availability, source.unavailable_reason
                         details[existing.source_id].update(details[source.source_id])
-    leg_events = {leg.id: aliases.get(_event_id(state, leg), _event_id(state, leg)) for leg in state["legs"].values()}
-    for row in state["transfers"].values():
-        read = transfers._transfer_read(state, row)
+    leg_events = {}
+    for leg in state["legs"].values():
+        identifier, seen = _event_id(state, leg), set()
+        if identifier in archive_events:
+            # Archive display IDs stay stable; qualify the original selected
+            # observation against its exact retained payload and instruction.
+            source = sources[str(leg.observation_id)]
+            displayed_leg_ids[leg.id] = archive_leg_ids.get((identifier, source.payload_digest, leg.source_leg_key))
+        while identifier in aliases and identifier not in seen:
+            seen.add(identifier)
+            identifier = aliases[identifier]
+        leg_events[leg.id] = identifier
+    for read in transfer_reads:
         request = read.request
         principal_ids = {leg_events.get(request.out_leg_id), leg_events.get(request.in_leg_id)} - {None}
         ids = principal_ids | {leg_events.get(fee.leg_id) for fee in request.fees} - {None}
-        available = [result[identifier] for identifier in ids if identifier in result]
-        if read.status == "confirmed" and len(principal_ids) <= len(available) and available:
-            identifier = "owned-transfer:" + str(row.id)
+        available = [result[identifier] for identifier in sorted(ids, key=str) if identifier in result]
+        if read.status == "confirmed" and all(leg_events.get(leg_id) in result for leg_id in (request.out_leg_id, request.in_leg_id, *(fee.leg_id for fee in request.fees))):
+            identifier = "owned-transfer:" + str(read.id)
             event = result.setdefault(identifier, _new_event(identifier))
-            event.kind, event.status, event.linkage = "transfer", "settled", "confirmed"
+            event.linkage = "confirmed"
             for part in available:
                 event.legs.extend(part.legs)
                 event.assets.extend(part.assets)
                 for source in part.sources:
                     _put_source(event, source)
                 event.relationships.extend(part.relationships)
+                event.transfers.extend(part.transfers)
                 event.coverage.extend(part.coverage)
                 event.reason_codes.extend(part.reason_codes)
                 event.conflicting_fields.extend(part.conflicting_fields)
+                if part.status == "conflicting":
+                    event.status = "conflicting"
                 aliases[part.event_id] = identifier
                 result.pop(part.event_id, None)
+            # A later pair can reuse any principal or fee source event in this group.
+            leg_events = {leg_id: identifier if event_id in ids else event_id for leg_id, event_id in leg_events.items()}
             research_urls = {part.native_trace_url for part in available if part.native_trace_url}
             event.native_trace_url = next(iter(research_urls)) if len(research_urls) == 1 else None
             available = [event]
         for event in available:
-            if read.status != "reversed":
-                event.basis = TimelineBasis(state="known" if read.unknown_basis_quantity == 0 else "partial" if read.principal_quantity > read.unknown_basis_quantity else "unknown",
-                    acquisition_cost=read.acquisition_cost, known_acquisition_cost=read.known_acquisition_cost,
-                    unknown_basis_quantity=read.unknown_basis_quantity, reason_codes=read.reason_codes)
             event.transfers.append(read.model_dump(mode="json"))
-            event.relationships.append(TimelineRelationship(kind="owned_transfer", state=read.status, review_id=str(row.id),
-                reason_codes=read.reason_codes, review_url=_review_url(None, "transfers") + "&transfer=" + str(row.id)))
+            event.relationships.append(TimelineRelationship(kind="owned_transfer", state=read.status, review_id=str(read.id),
+                reason_codes=read.reason_codes, review_url=_review_url(None, "transfers") + "&transfer=" + str(read.id)))
             if read.status != "confirmed":
                 event.reason_codes.extend(read.reason_codes)
     recovery_groups = set((await session.scalars(select(InvestmentRecoveryEntry.group_id).where(InvestmentRecoveryEntry.workspace_id == workspace_id))).all())
@@ -480,6 +508,8 @@ async def _project(session, workspace_id):
             reviews = [review for review in package.reviews if review.entry_id in entry_ids or review.target_entry_id in entry_ids]
             event.recovery.append({"group_id": str(group_id), "entries": [entry.model_dump(mode="json") for entry in entries], "reviews": [review.model_dump(mode="json") for review in reviews]})
             for review in reviews:
+                if not review.is_current:
+                    continue
                 event.relationships.append(TimelineRelationship(kind=review.relation_kind or review.kind,
                     state="unresolved" if review.blockers else review.relation_state or review.assertion_status or "unresolved",
                     review_id=str(review.id), reason_codes=review.blockers, conflicting_fields=review.conflicting_fields,
@@ -506,6 +536,27 @@ async def _project(session, workspace_id):
                 event.coverage.append(cov)
                 coverage.append(cov)
         _finish(event)
+        if any(part["status"] == "confirmed" for part in event.transfers):
+            # TransferRead owns pair-specific basis. Never apply one pair's cost to
+            # another movement or sum transfers that may carry the same lot twice.
+            qualified = [read for read in transfer_reads if str(read.id) in {part["id"] for part in event.transfers} and read.status == "confirmed"]
+            event.basis = TimelineBasis(reason_codes=["transfer_basis_scoped_to_selected_legs"])
+            if qualified:
+                current_principal = [leg for leg in event.legs if leg.is_current and leg.classification != "fee" and leg.quantity_role != "balance_delta"]
+                if {leg.classification for leg in current_principal} - {"transfer", "move_in", "move_out"}:
+                    event.kind = "unknown"
+                if len({leg.settlement_status for leg in current_principal}) > 1 or any(
+                    leg.execution_status in {"failed", "error", "canceled", "cancelled"} for leg in current_principal
+                ):
+                    event.status = "conflicting"
+            if len(qualified) == 1:
+                read = qualified[0]
+                selected = {displayed_leg_ids.get(leg_id) for leg_id in (read.request.out_leg_id, read.request.in_leg_id, *(fee.leg_id for fee in read.request.fees))}
+                current_ids = {leg.leg_id for leg in event.legs if leg.is_current and (not leg.non_additive or leg in current_principal)}
+                if current_ids == selected:
+                    event.basis = TimelineBasis(state="known" if read.unknown_basis_quantity == 0 else "partial" if read.principal_quantity > read.unknown_basis_quantity else "unknown",
+                        acquisition_cost=read.acquisition_cost, known_acquisition_cost=read.known_acquisition_cost,
+                        unknown_basis_quantity=read.unknown_basis_quantity, reason_codes=read.reason_codes)
     revision = evidence._digest({"state": state["revision"], "events": [(str(row.id), row.event_key) for row in state["events"].values()],
                                  "coverage": [item.model_dump(mode="json") for item in coverage], "errors": errors,
                                  "recovery": [event.recovery for event in result.values()]})
