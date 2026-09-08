@@ -57,7 +57,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 from app.api.owned_transfers import router as owned_transfers_router  # noqa: E402
+from app.api.investment_timeline import router as investment_timeline_router  # noqa: E402
 router.include_router(owned_transfers_router)
+router.include_router(investment_timeline_router)
 
 
 # ----------------------------------------------------------------------------

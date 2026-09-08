@@ -17,10 +17,11 @@ router = APIRouter(prefix="/api/asset-groups", tags=["asset-groups"])
 
 @router.get("", response_model=list[AssetGroupRead])
 async def list_groups(
+    include_empty: bool = False,
     ctx: WorkspaceContext = Depends(current_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
-    return await asset_group_service.get_groups(session, ctx.workspace.id, ctx.user_id)
+    return await asset_group_service.get_groups(session, ctx.workspace.id, ctx.user_id, include_empty=include_empty)
 
 
 @router.post("", response_model=AssetGroupRead, status_code=status.HTTP_201_CREATED)

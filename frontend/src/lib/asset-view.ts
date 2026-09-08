@@ -11,7 +11,7 @@ export function readAssetView(params: URLSearchParams) {
     view: view === 'wallets' || tab === 'holdings' || (!view && !!params.get('wallet'))
       ? 'wallets' as const : 'assets' as const,
     activity: tab === 'contributions' || activity === 'contributions'
-      ? 'contributions' as const : activity === 'wallets' ? 'wallets' as const : activity === 'transfers' ? 'transfers' as const : activity === 'recovery' ? 'recovery' as const : 'trades' as const,
+      ? 'contributions' as const : activity === 'timeline' ? 'timeline' as const : activity === 'wallets' ? 'wallets' as const : activity === 'transfers' ? 'transfers' as const : activity === 'recovery' ? 'recovery' as const : 'trades' as const,
   }
 }
 

@@ -8,7 +8,9 @@ import ContributionsTab from '@/components/contributions-tab'
 import { OwnedWalletActivity } from '@/pages/trace'
 import { OwnedTransfersPanel } from '@/components/owned-transfers-panel'
 import { RecoveryEvidencePanel } from '@/components/recovery-evidence-panel'
+import { OwnedCoinTimeline } from '@/components/owned-coin-timeline'
 import { readAssetView, transactionsForHoldings } from '@/lib/asset-view'
+import { timeline } from '@/lib/timeline-api'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
@@ -204,6 +206,10 @@ export default function AssetsPage() {
   const setView = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams)
     if ('wallet' in changes && !('holding' in changes)) next.delete('holding')
+    if ('wallet' in changes || 'activity' in changes) {
+      for (const key of ['event', 'event_source', 'timeline_offset', 'timeline_revision']) next.delete(key)
+      if (!('asset_id' in changes) && (activityView !== 'timeline' || (changes.activity && changes.activity !== 'timeline'))) next.delete('asset_id')
+    }
     // Normalize legacy tab names before applying a view/filter change.
     next.set('tab', activeTab)
     next.set('view', portfolioView)
@@ -280,7 +286,7 @@ export default function AssetsPage() {
   // Active Collection filter (issue #105): when a collection is active, scope
   // the Assets page to the assets in its wallets (asset_groups). A collection
   // with no wallets → no assets shown. "All accounts" (null) → show everything.
-  const { activeWalletIds } = useCollectionFilter()
+  const { activeWalletIds, activeCollectionId } = useCollectionFilter()
   const assetsList = useMemo(() => {
     const allowed = activeWalletIds ? new Set(activeWalletIds) : null
     return rawAssetsList?.filter((a) =>
@@ -425,8 +431,9 @@ export default function AssetsPage() {
   })
 
   const { data: rawWalletsList } = useQuery({
-    queryKey: ['asset-groups'],
-    queryFn: () => assetGroups.list(),
+    queryKey: activeTab === 'activity' ? ['asset-groups', current?.id, 'activity'] : ['asset-groups'],
+    queryFn: ({ signal }) => activeTab === 'activity' ? timeline.wallets(current!.id, signal) : assetGroups.list(),
+    enabled: activeTab !== 'activity' || !!current,
   })
   const collectionWallets = useMemo(() => {
     if (!activeWalletIds) return rawWalletsList
@@ -922,6 +929,11 @@ export default function AssetsPage() {
             <div><dt className="text-muted-foreground">{t('assets.colPortfolioPct')}</dt><dd className="mt-1 tabular-nums">{portfolioShare}</dd></div>
           </dl>
         )}
+        {isExpanded && <div className="border-t border-border px-3 py-2">
+          <Button variant="outline" className="min-h-11" onClick={() => setView({ tab: 'activity', activity: 'timeline', wallet: asset.group_id, asset_id: asset.id, canonical_asset_key: null })}>
+            {t('timeline.openHolding', 'View evidence timeline')}
+          </Button>
+        </div>}
         {isExpanded && (
           isMarketPriced ? (
             <>
@@ -1106,6 +1118,9 @@ export default function AssetsPage() {
             </span>
             <BalanceDetails canWrite={canWrite} wallets={[wallet]} holdings={walletAssets} workspaceId={current?.id} holdingsError={assetsError} canOpenAccounts={hasModule('accounts')} />
           </div>
+          <Button variant="outline" className="min-h-11" onClick={() => setView({ tab: 'activity', activity: 'timeline', wallet: wallet.id, canonical_asset_key: null })}>
+            {t('timeline.openWallet', 'Wallet timeline')}
+          </Button>
           {canWrite && (
             <>
               <button
@@ -1314,19 +1329,25 @@ export default function AssetsPage() {
             <NativeSelect id="assets-activity-kind" value={activityView} onChange={(event) => setView({ activity: event.target.value })}
               className="max-w-full rounded-md border border-input bg-card px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring">
               <option value="trades">{t('assets.activityTrades')}</option>
+              <option value="timeline">{t('timeline.title', 'Evidence timeline')}</option>
               <option value="contributions">{t('assets.activityContributions')}</option>
               <option value="transfers">{t('ownedTransfers.title', 'Movements and owned transfers')}</option>
               <option value="recovery">{t('recovery.title', 'Recovery evidence')}</option>
               {walletActivityEnabled && <option value="wallets">{t('assets.activityWallets')}</option>}
             </NativeSelect>
           </div>
-          {activityView === 'recovery' && current ? (
+          {activityView === 'timeline' && current ? (
+            <OwnedCoinTimeline key={`${current.id}:${activeCollectionId ?? ''}:${selectedWalletId ?? ''}`} workspaceId={current.id} collectionId={activeCollectionId ?? null} groupId={selectedWalletId} wallets={sortedWallets} nativeTraceEnabled={walletActivityEnabled} />
+          ) : activityView === 'recovery' && current ? (
             <RecoveryEvidencePanel key={`${current.id}:${selectedWalletId ?? ''}:${JSON.stringify(activeWalletIds)}`} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} />
           ) : activityView === 'transfers' && current ? (
             <OwnedTransfersPanel key={`${current.id}:${selectedWalletId ?? ''}:${JSON.stringify(activeWalletIds)}`} workspaceId={current.id} wallets={sortedWallets} scopeWalletIds={scopedWalletActivity ? sortedWallets.map((wallet) => wallet.id) : null} />
           ) : activityView === 'wallets' && walletActivityEnabled ? (
             <OwnedWalletActivity
-              addressKeys={scopedWalletActivity ? (assetsList ?? []).filter((asset) => asset.source === 'onchain' && asset.external_id).map((asset) => asset.external_id!.split(':').slice(0, 2).join(':')) : undefined}
+              addressKeys={scopedWalletActivity ? [...new Set([
+                ...(assetsList ?? []).filter((asset) => asset.source === 'onchain' && asset.external_id).map((asset) => asset.external_id!.split(':').slice(0, 2).join(':')),
+                ...sortedWallets.flatMap((wallet) => wallet.watched_address_keys ?? []),
+              ])] : undefined}
             />
           ) : activityView === 'contributions' ? (
             <ContributionsTab key={`${current?.id}:${selectedWalletId ?? ''}`} wallets={sortedWallets} currency={userCurrency} locale={locale} dateLocale={dateLocale} mask={mask} canWrite={canWrite} />

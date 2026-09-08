@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.balance_explanation import BalanceExplanation
 
@@ -38,6 +38,7 @@ class AssetGroupUpdate(BaseModel):
 
 
 class AssetGroupRead(AssetGroupBase):
+    watched_address_keys: list[str] = Field(default_factory=list)
     balance_explanation: BalanceExplanation | None = None
     id: uuid.UUID
     user_id: uuid.UUID
