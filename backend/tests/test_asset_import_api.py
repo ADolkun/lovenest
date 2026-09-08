@@ -389,7 +389,7 @@ async def test_mixed_acquisitions_preserve_stated_values_and_reject_an_unsupport
         b"ticker,date,quantity,price,kind\n"
         b"AAPL,2026-01-01,10,,claim\n"
         b"AAPL,2026-01-02,10,invalid,reward\n"
-        b"AAPL,2026-01-03,2,0,claim\n"
+        b"AAPL,2026-01-03,2,0,reward\n"
         b"AAPL,2026-01-04,3,7,acquire\n"
         b"AAPL,2026-01-05,4,0,airdrop\n"
         b"AAPL,2026-01-06,5,7,staking reward\n"

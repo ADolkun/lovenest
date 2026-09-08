@@ -23,6 +23,7 @@ from app.api.import_transactions import router as import_router
 from app.api.info import router as info_router
 from app.api.recurring_transactions import router as recurring_router
 from app.api.rules import router as rules_router
+from app.api.recovery_evidence import router as recovery_evidence_router
 from app.api.assets import router as assets_router
 from app.api.asset_groups import router as asset_groups_router
 from app.api.collections import router as collections_router
@@ -177,6 +178,7 @@ app.include_router(recurring_router)
 app.include_router(budgets_router)
 app.include_router(goals_router)
 app.include_router(groups_router)
+app.include_router(recovery_evidence_router)
 app.include_router(assets_router)
 app.include_router(asset_groups_router)
 app.include_router(contributions_router)

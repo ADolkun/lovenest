@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { PageHeader } from '@/components/page-header'
 import { AssetImportPanel } from '@/components/asset-import-panel'
 import { EvidenceImportPanel } from '@/components/evidence-import-panel'
+import { RecoveryEvidencePanel } from '@/components/recovery-evidence-panel'
 import { ContributionImportPanel } from '@/components/contribution-import-panel'
 import { ImportSummaryBar } from '@/components/import-summary-bar'
 import { ImportReviewTable } from '@/components/import-review-table'
@@ -653,8 +654,9 @@ const TAB_TITLES: Record<ImportTab, string> = {
 export default function ImportPage() {
   const { t } = useTranslation()
   const { current } = useWorkspace()
-  const [investmentMode, setInvestmentMode] = useState<'evidence' | 'orders' | 'opening_lots'>('evidence')
   const [searchParams, setSearchParams] = useSearchParams()
+  const requestedMode = searchParams.get('mode')
+  const investmentMode = requestedMode === 'recovery' || requestedMode === 'orders' || requestedMode === 'opening_lots' ? requestedMode : 'evidence'
   const requested = searchParams.get('tab')
   const tab = requested === 'investments' || requested === 'contributions' ? requested : 'transactions'
 
@@ -693,15 +695,18 @@ export default function ImportPage() {
             <p className="text-sm font-medium">{t('evidence.workspace', 'Workspace')}: {current?.name ?? t('evidence.unknown', 'Unknown')}</p>
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="investment-import-mode">{t('evidence.importMode', 'Import mode')}</Label>
-              <select id="investment-import-mode" value={investmentMode} onChange={(e) => setInvestmentMode(e.target.value as typeof investmentMode)} className="rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm">
+              <select id="investment-import-mode" value={investmentMode} onChange={(e) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set('mode', e.target.value); return next })} className="rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm">
                 <option value="evidence">{t('evidence.sourceReview', 'Source review')}</option>
+                <option value="recovery">{t('recovery.title', 'Recovery evidence')}</option>
                 <option value="orders">{t('evidence.orders', 'Standalone orders')}</option>
                 <option value="opening_lots">{t('evidence.openingLots', 'Standalone lot backfill')}</option>
               </select>
             </div>
           </div>
-          {investmentMode !== 'orders'
-            ? <EvidenceImportPanel key={`${current?.id}:${investmentMode}`} mode={investmentMode} />
+          {investmentMode === 'recovery'
+            ? <RecoveryEvidencePanel key={current?.id} />
+            : investmentMode !== 'orders'
+            ? <EvidenceImportPanel key={`${current?.id}:${investmentMode}`} mode={investmentMode} initialGroupId={searchParams.get('wallet') ?? ''} />
             : <AssetImportPanel key={`${current?.id}:${investmentMode}`} mode={investmentMode} />}
         </div>
       ) : tab === 'contributions' ? (

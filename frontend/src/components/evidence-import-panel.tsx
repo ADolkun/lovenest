@@ -18,10 +18,10 @@ const MATCH_STATES = ['linked', 'candidate', 'conflicting', 'unmatched'] as cons
 const MAPPING_FIELDS = ['ticker', 'date', 'quantity', 'price', 'kind', 'currency', 'execution_currency', 'unit_price_currency', 'subtotal_currency', 'total_currency', 'cost_basis', 'external_id', 'execution_id', 'subtotal', 'total', 'fee', 'fee_currency', 'valuation_currency', 'valuation_amount', 'external_funding_amount', 'external_funding_currency', 'provider_status', 'network_status', 'transaction_ref', 'order_ref', 'leg_ref', 'chain', 'token_address', 'token_program', 'source_address', 'destination_address', 'source_owner', 'destination_owner', 'raw_units', 'decimals', 'quantity_role', 'fee_payer', 'fee_semantics', 'provider_asset_id', 'isin', 'timezone', 'historical_workspace_label', 'date_sold', 'proceeds']
 const label = (value: string) => value.replaceAll('_', ' ')
 
-export function EvidenceImportPanel({ mode = 'evidence' }: { mode?: 'evidence' | 'opening_lots' }) {
+export function EvidenceImportPanel({ mode = 'evidence', initialGroupId = '' }: { mode?: 'evidence' | 'opening_lots'; initialGroupId?: string }) {
   const { t } = useTranslation()
   const { current } = useWorkspace()
-  const [groupId, setGroupId] = useState('')
+  const [groupId, setGroupId] = useState(initialGroupId)
   const wallets = useQuery({ queryKey: ['asset-groups', current?.id], queryFn: assetGroups.list, enabled: !!current })
   const group = wallets.data?.find((wallet) => wallet.id === groupId)
   return <section className="space-y-4" aria-label={t('evidence.sourceReview', 'Source review')}>

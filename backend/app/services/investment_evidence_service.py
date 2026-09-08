@@ -366,6 +366,12 @@ async def preview_evidence(
     group, cid = await _scope(session, workspace_id, group_id, connection_id)
     state = await _state(session, workspace_id, group_id)
     saved, events, legs, links, assets, txs = state
+    from app.models.recovery_evidence import InvestmentRecoveryEntry
+    recovery_observations = set((await session.scalars(select(InvestmentRecoveryEntry.observation_id).where(
+        InvestmentRecoveryEntry.workspace_id == workspace_id,
+        InvestmentRecoveryEntry.payload['role'].as_string().in_(['allowed_claim', 'recovery_notice', 'tax_workpaper', 'equity_statement']),
+    ))).all())
+    recovery_identities = {o.identity_key for o in saved if o.id in recovery_observations}
     by_id = {o.id: o for o in saved}
     event_by_id = {event.id: event for event in events}
     boundaries = {
@@ -467,6 +473,14 @@ async def preview_evidence(
             price = _price(observation, item, opening_boundary, asset)
             applicable = observation.source_kind == "primary_activity" and item.classification in {"buy", "sell", "income"}
             applicable |= bool(opening_boundary and observation.source_kind in {"remaining_lots", "tax_workpaper"})
+            recovery_only = (identities.get(observation.reference) in recovery_identities
+                             or item.classification == 'recovery'
+                             or asset_import_service._classify_kind(asset_import_service._normalize_header(
+                                 observation.source_fields.get('classification') or ''
+                             )) == 'recovery')
+            if recovery_only:
+                applicable = False
+                reasons.append('recovery_evidence_only')
             movement_owned = physical_movement_key(item.model_dump(mode="json")) in movement_keys
             if applicable and movement_owned:
                 conflicts.append("canonical_movement_application")
