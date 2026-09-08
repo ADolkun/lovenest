@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -49,7 +49,9 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
     enabled: open,
   })
 
-  useEffect(() => {
+  const [formSource, setFormSource] = useState<{ agent: typeof agent; open: boolean } | null>(null)
+  if (!formSource || formSource.agent !== agent || formSource.open !== open) {
+    setFormSource({ agent, open })
     if (agent) {
       setName(agent.name)
       setDescription(agent.description ?? '')
@@ -71,18 +73,15 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
       setAutoContext(true)
       setIsDefault(false)
     }
-  }, [agent, open])
+  }
 
   // When connections load (or the dialog opens), pre-select the most
   // sensible default: the user-flagged default connection, or the only
   // one if there's a single connection.
-  useEffect(() => {
-    if (!open || isEdit || connectionId) return
-    if (!connections || connections.length === 0) return
+  if (open && !isEdit && !connectionId && connections?.length) {
     const def = connections.find((c) => c.is_default)
     setConnectionId(def?.id ?? connections[0].id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, connections])
+  }
 
   const selectedConnection = connections?.find((c) => c.id === connectionId)
 

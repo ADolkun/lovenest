@@ -50,7 +50,7 @@ jobs:
           python3 .github/ci/test_changes.py
           python3 .github/ci/changes.py
 
-      - name: Skip unrelated backend checks
+      - name: Report backend checks not needed
         if: steps.changes.outputs.run_backend == 'false'
         run: echo "No backend-relevant changes; skipping backend checks."
 
@@ -105,7 +105,7 @@ jobs:
         env:
           EVIDENCE_TEST_DATABASE_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
-        run: uv run --no-sync pytest -n auto --dist loadfile --durations=25
+        run: uv run --no-sync pytest -n auto --dist loadfile --durations=25 -ra -W error
 
   frontend:
     name: Frontend (lint + build)
@@ -126,7 +126,7 @@ jobs:
           python3 .github/ci/test_changes.py
           python3 .github/ci/changes.py
 
-      - name: Skip unrelated frontend checks
+      - name: Report frontend checks not needed
         if: steps.changes.outputs.run_frontend == 'false'
         run: echo "No frontend-relevant changes; skipping frontend checks."
 
@@ -144,7 +144,7 @@ jobs:
 
       - name: Lint
         if: steps.changes.outputs.run_frontend != 'false'
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
 
       - name: Type check & build
         if: steps.changes.outputs.run_frontend != 'false'

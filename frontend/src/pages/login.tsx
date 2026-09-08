@@ -49,7 +49,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
-  const [passkeySupported, setPasskeySupported] = useState(false)
+  const [passkeySupported] = useState(isPasskeySupported)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
   const [oidcConfig, setOidcConfig] = useState<OIDCConfig | null>(null)
   const [oidcConfigFailed, setOidcConfigFailed] = useState(false)
@@ -72,7 +72,6 @@ export default function LoginPage() {
   const showPasswordForm = localAuthEnabled && (!oidcEnabled || showPasswordLogin)
 
   useEffect(() => {
-    setPasskeySupported(isPasskeySupported())
     if (token) {
       navigate('/', { replace: true })
       return

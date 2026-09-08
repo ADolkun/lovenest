@@ -365,12 +365,12 @@ async def update_contribution(
 
     if row.party == "employer" and row.kind != "contribution":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only a contribution can come from an employer",
         )
     if row.vested_on is not None and row.party != "employer":
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Only employer money vests",
         )
 
