@@ -225,7 +225,8 @@ async def test_a_hand_set_value_reports_when_it_was_entered(
 
     read = await asset_service.get_asset(session, claim.id, test_workspace.id)
     assert read is not None
-    assert read.value_updated_at == recorded.recorded_at
+    # The asset read exposes the UTC zone of the database entry clock.
+    assert read.value_updated_at == recorded.recorded_at.replace(tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio

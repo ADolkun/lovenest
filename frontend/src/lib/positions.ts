@@ -1,4 +1,5 @@
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
+import { holdingsMatchSnapshot, walletCash } from '@/lib/balance-explanation'
 
 // CONTEXT.md: a Cash Equivalent behaves as Liquid Cash, so it is never an
 // invested position. The classification is the user's, stored on `Asset.type`;
@@ -137,52 +138,16 @@ function primaryCostBasis(asset: Asset): number | null {
   return primaryValue(asset) - Number(gain)
 }
 
-// Balances and holding values are both stored at two decimals, so their
-// difference is too. Rounding back stops a residue like 4e-11 surfacing as a
-// cash row on an account whose holdings exactly match its balance.
-function roundCents(amount: number): number {
-  return Math.round(amount * 100) / 100
-}
-
-/**
- * Settled uninvested cash per wallet: the balance the provider reports for the
- * account, less everything the wallet holds.
- *
- * The floor at zero is load-bearing. A provider can report a zero balance
- * against real holdings — Coinbase prices its own positions and leaves the
- * account balance at 0 — and a negative figure would subtract those holdings
- * from the portfolio a second time.
- *
- * Cash is what is *left* of the balance, so the subtraction has to be complete
- * or the remainder is not cash. Two things make it incomplete, and both mean
- * the wallet derives nothing rather than a wrong figure:
- *
- *   - the account reported no balance, so there is nothing to subtract from;
- *   - a holding is unpriced, so its share of the balance is an unknown amount
- *     rather than zero, and the remainder would be that holding misread as cash.
- *
- * Every asset in the wallet counts against the balance, not only the ticker'd
- * ones a Position is built from — the provider's balance covers dust, cash
- * equivalents and anything else parked in the account.
- */
-function liquidCashPerWallet(assets: Asset[], wallets: AssetGroup[]): Map<string, number> {
-  const heldByWallet = new Map<string, number>()
-  const unpriced = new Set<string>()
-  for (const asset of assets) {
-    if (asset.is_archived || asset.sell_date || !asset.group_id) continue
-    if (hasValue(asset)) {
-      heldByWallet.set(asset.group_id, (heldByWallet.get(asset.group_id) ?? 0) + primaryValue(asset))
-    } else {
-      unpriced.add(asset.group_id)
-    }
-  }
-
+/** A partial/failed holding response cannot verify a server residual against this view. */
+function liquidCashPerWallet(assets: Asset[], wallets: AssetGroup[], currency?: string): Map<string, number> {
   const cash = new Map<string, number>()
   for (const wallet of wallets) {
-    const balance = wallet.account_balance
-    if (balance === null || balance === undefined) continue
-    if (unpriced.has(wallet.id)) continue
-    cash.set(wallet.id, Math.max(0, roundCents(balance - (heldByWallet.get(wallet.id) ?? 0))))
+    const amount = walletCash(wallet, currency)
+    if (amount === null) continue
+    const holdings = assets.filter((asset) => asset.group_id === wallet.id && !asset.is_archived && !asset.sell_date)
+    if (holdings.some((asset) => !hasValue(asset))) continue
+    if (!holdingsMatchSnapshot(wallet.balance_explanation!.holdings, holdings)) continue
+    cash.set(wallet.id, amount)
   }
   return cash
 }
@@ -272,7 +237,7 @@ function summarise(positions: Position[], liquidCash: WalletCash[]): PortfolioTo
  * worth under a dollar in total is what buries a real position in a ranking,
  * and by definition every leg of it is dust too.
  */
-export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfolio {
+export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency?: string): Portfolio {
   const walletsById = new Map(wallets.map((w) => [w.id, w]))
   const byTicker = new Map<string, Asset[]>()
   const occupiedWallets = new Set<string>()
@@ -327,7 +292,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[]): Portfoli
     })
   }
 
-  const cashPerWallet = liquidCashPerWallet(assets, wallets)
+  const cashPerWallet = liquidCashPerWallet(assets, wallets, currency)
   const liquidCash: WalletCash[] = [...cashPerWallet].map(
     ([walletId, amount]) => ({
       walletId,

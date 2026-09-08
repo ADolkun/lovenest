@@ -94,6 +94,32 @@ def _epoch_to_date(value: Any) -> Optional[date]:
         return None
 
 
+def _balance_metadata(raw: dict, *, has_errors: bool) -> dict:
+    # https://www.simplefin.org/protocol.html: balance-date is the source
+    # balance timestamp. Holdings' `created` is not a valuation timestamp.
+    observed_at = None
+    try:
+        timestamp = raw.get("balance-date")
+        seconds = int(timestamp) if isinstance(timestamp, (str, int)) and not isinstance(timestamp, bool) else 0
+        if seconds > 0:
+            observed_at = datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass
+    holdings = raw.get("holdings")
+    complete = isinstance(holdings, list) and not has_errors and all(
+        isinstance(h, dict) and h.get("id") and _to_decimal(h.get("market_value")) is not None
+        for h in holdings
+    )
+    return {
+        "observed_at": observed_at, "observation_basis": "source",
+        "value_available": _to_decimal(raw.get("balance")) is not None,
+        "currency_available": _iso_currency(raw.get("currency")) is not None,
+        "coverage": "complete" if _to_decimal(raw.get("balance")) is not None and not has_errors else "unknown",
+        "holdings_count": len(holdings) if isinstance(holdings, list) else None,
+        "holdings_complete": complete,
+    }
+
+
 def _accounts_url_and_auth(access_url: str) -> tuple[str, Optional[tuple[str, str]]]:
     parsed = urlsplit(access_url.rstrip("/"))
     if parsed.username is None:
@@ -456,6 +482,9 @@ class SimpleFinProvider(BankProvider):
                     institution_external_id=inst_ext,
                     institution_name=inst_name,
                     institution_logo_url=inst_logo,
+                    balance_metadata=_balance_metadata(
+                        raw, has_errors=bool(payload.get("errlist") or payload.get("errors")),
+                    ),
                 )
             )
         return institution_name or "SimpleFIN Connection", accounts

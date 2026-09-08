@@ -1,7 +1,8 @@
+import { reportedWallet } from '@/test/balance-fixtures'
 import { describe, expect, it } from 'vitest'
 
 import {
-  buildPortfolio,
+  buildPortfolio as build,
   filterPortfolio,
   shareOfTotal,
   CASH_EQUIVALENT_TYPE,
@@ -9,6 +10,8 @@ import {
   UNKNOWN_ACCOUNT_TYPE,
 } from './positions'
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
+
+const buildPortfolio = (assets: Asset[], wallets: AssetGroup[]) => build(assets, wallets.map((wallet) => reportedWallet(wallet, assets)), 'USD')
 
 let seq = 0
 
@@ -335,7 +338,7 @@ describe('weight and allocation', () => {
 })
 
 describe('liquid cash', () => {
-  it('derives settled cash as the account balance less what the wallet holds', () => {
+  it('uses the explicitly supplied compatible residual cash', () => {
     const { liquidCashTotal, total } = buildPortfolio(
       [holding({ ticker: 'AMC', value: 137.96, groupId: 'w1' })],
       [wallet('w1', 'investment', 'taxable', 535.26)],

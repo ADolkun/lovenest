@@ -52,7 +52,10 @@ def _opening_balance_values(account_type: str, balance: Decimal) -> tuple[Decima
     return amount, "credit" if is_credit else "debit"
 
 
-async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
+async def get_accounts(
+    session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False,
+    *, account_id: Optional[uuid.UUID] = None,
+) -> list[dict]:
     today = _Date.today()
     # Subquery: compute current_balance per account from transactions in one pass
     # Use amount_primary only when tx currency differs from account currency
@@ -129,12 +132,20 @@ async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_c
     )
     if not include_closed:
         query = query.where(Account.is_closed == False)
+    if account_id is not None:
+        query = query.where(Account.id == account_id)
     query = query.order_by(Account.name)
     result = await session.execute(query)
-    return [
-            serialize_account(acc, current_balance, previous_balance, connection)
-            for acc, connection, current_balance, previous_balance in result.all()
-        ]
+    from app.services.balance_explanation_service import explain_balance
+    reads = []
+    for acc, connection, current_balance, previous_balance in result.all():
+        payload = serialize_account(acc, current_balance, previous_balance, connection)
+        payload["balance_explanation"] = await explain_balance(
+            session, workspace_id, account=acc, connection=connection,
+            current_balance=current_balance,
+        )
+        reads.append(payload)
+    return reads
 
 
 def _institution(

@@ -1,9 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { BalanceDetails } from '@/components/balance-details'
 import { Badge } from '@/components/ui/badge'
 import { assets as assetsApi } from '@/lib/api'
 import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
@@ -21,6 +22,9 @@ import {
 import type { Asset, AssetGroup, AssetIncome } from '@/types'
 
 interface PositionsTabProps {
+  workspaceId?: string
+  holdingsError?: boolean
+  canOpenAccounts?: boolean
   holdings: Asset[]
   wallets: AssetGroup[]
   currency: string
@@ -33,7 +37,6 @@ interface PositionsTabProps {
   onOpenHolding: (assetId: string) => void
   children?: ReactNode
   walletContent?: ReactNode
-  onShowPositions?: () => void
 }
 
 const ACCOUNT_TYPE_KEYS: Record<string, string> = {
@@ -283,6 +286,9 @@ function TaxLotsPanel({
 export default function PositionsTab({
   holdings,
   wallets,
+  workspaceId,
+  holdingsError = false,
+  canOpenAccounts = true,
   currency,
   locale,
   dateLocale,
@@ -292,14 +298,30 @@ export default function PositionsTab({
   onOpenHolding,
   children,
   walletContent,
-  onShowPositions,
 }: PositionsTabProps) {
   const { t } = useTranslation()
   const [expandedTicker, setExpandedTicker] = useState<string | null>(null)
-  const [filter, setFilter] = useState<AllocationFilter | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const allocation = searchParams.get('allocation')
+  const allocationKey = searchParams.get('allocationKey')
+  const filter = useMemo<AllocationFilter | null>(() => allocationKey && (allocation === 'class' || allocation === 'wallet' || allocation === 'accountType')
+    ? { dim: allocation, key: allocationKey } : null, [allocation, allocationKey])
+  const setFilter = (nextFilter: AllocationFilter | null) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'portfolio')
+    next.set('view', 'assets')
+    if (nextFilter) {
+      next.set('allocation', nextFilter.dim)
+      next.set('allocationKey', nextFilter.key)
+    } else {
+      next.delete('allocation')
+      next.delete('allocationKey')
+    }
+    setSearchParams(next, { replace: true })
+  }
 
   const walletsById = useMemo(() => new Map(wallets.map((w) => [w.id, w])), [wallets])
-  const portfolio = useMemo(() => buildPortfolio(holdings, wallets), [holdings, wallets])
+  const portfolio = useMemo(() => buildPortfolio(holdings, wallets.map((wallet) => holdingsError || (workspaceId && wallet.balance_explanation?.workspace_id !== workspaceId) ? { ...wallet, balance_explanation: null } : wallet), currency), [holdings, wallets, currency, holdingsError, workspaceId])
 
   // One call for the whole workspace: a per-asset route would be one request
   // per row. A holding that received nothing is absent, not zero.
@@ -335,6 +357,10 @@ export default function PositionsTab({
     () => (filter && !walletContent ? filterPortfolio(portfolio, filter) : portfolio),
     [filter, portfolio, walletContent],
   )
+  const selectedHoldingIds = view.positions.flatMap((position) => position.legs.map((leg) => leg.assetId))
+  const detailHoldings = filter && !walletContent
+    ? holdings.filter((holding) => view.wallets.some((wallet) => wallet.id === holding.group_id) || selectedHoldingIds.includes(holding.id))
+    : holdings
   // Match buildPortfolio's scope: a separately listed manual asset cannot
   // make a fully priced ticker allocation incomplete.
   const unpricedIds = new Set(holdings.filter((holding) =>
@@ -344,7 +370,7 @@ export default function PositionsTab({
   const incompletePositions = view.positions.filter((position) => position.legs.some((leg) => unpricedIds.has(leg.assetId)))
   const hasUnpricedPositions = incompletePositions.length > 0
   const hasUnknownCash = view.unknownCashWalletIds.length > 0
-  const hasIncompleteBalance = hasUnpricedPositions || hasUnknownCash
+  const hasIncompleteBalance = hasUnpricedPositions || hasUnknownCash || holdingsError
   const hasKnownValue = view.positions.some((position) => position.legs.some((leg) => !unpricedIds.has(leg.assetId))) || view.liquidCash.length > 0
   const summaryValue = hasIncompleteBalance && !hasKnownValue ? null : view.total
 
@@ -404,8 +430,7 @@ export default function PositionsTab({
 
   const toggleFilter = (dim: AllocationDim, key: string) => {
     setExpandedTicker(null)
-    onShowPositions?.()
-    setFilter((current) => (!walletContent && current?.dim === dim && current.key === key ? null : { dim, key }))
+    setFilter(!walletContent && filter?.dim === dim && filter.key === key ? null : { dim, key })
   }
 
   // The ranking answers "where is my concentration risk", so what allocation
@@ -734,10 +759,11 @@ export default function PositionsTab({
             {hasIncompleteBalance && <p className="mt-1 text-xs text-muted-foreground">{t('assets.knownSubtotal', 'Known subtotal')}</p>}
           </div>
         </dl>
+        <BalanceDetails canWrite={canWrite} workspaceId={workspaceId} wallets={view.wallets.map((wallet) => walletsById.get(wallet.id) ?? wallet)} holdings={detailHoldings} holdingIds={filter?.dim === 'class' && !walletContent ? selectedHoldingIds : undefined} holdingsError={holdingsError} canOpenAccounts={canOpenAccounts} />
         {hasUnknownCash && <p role="status" className="mt-4 text-sm text-muted-foreground">{t('assets.unknownCashHint', 'Some wallet cash balances are unavailable. Balance and cash totals include known values only.')}</p>}
         {walletIncome && <p className="mt-4 text-sm text-muted-foreground">{t('assets.posWalletIncome')} <span className="ml-2 font-medium tabular-nums text-foreground">{money(walletIncome.total)}</span></p>}
         <details className="mt-4 border-t border-border pt-3">
-          <summary className="w-fit cursor-pointer rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{t('assets.balanceDetails')}</summary>
+          <summary className="w-fit cursor-pointer rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{t('balanceExplanation.portfolioBreakdown')}</summary>
           <div className="mt-2">
             {view.cashEquivalentTotal > 0 && renderTotalRow(t('assets.posCashEquivalents'), view.cashEquivalentTotal, incompletePositions.some((position) => position.isCashEquivalent) ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posCashEquivalentHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.cashEquivalentTotal, view.total))}
             {view.liquidCashTotal > 0 && renderTotalRow(t('assets.posLiquidCash'), view.liquidCashTotal, hasUnknownCash ? t('assets.knownSubtotal', 'Known subtotal') : t('assets.posLiquidCashHint'), hasIncompleteBalance ? undefined : shareOfTotal(view.liquidCashTotal, view.total))}

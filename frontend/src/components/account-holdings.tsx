@@ -1,3 +1,5 @@
+import { valueInCurrency } from '@/lib/balance-explanation'
+import { BalanceDetails } from '@/components/balance-details'
 import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -24,11 +26,12 @@ function WalletValue({ wallet }: { wallet: AssetGroup }) {
   const locale = useDisplayLocale()
   const currency = user?.preferences?.currency_display ?? 'USD'
   const missing = wallet.unvalued_count ?? 0
+  const value = valueInCurrency(wallet, currency)
   return (
     <span className="tabular-nums">
-      {missing >= wallet.asset_count && missing > 0
+      {value === null || (missing >= wallet.asset_count && missing > 0)
         ? t('accountHoldings.unpriced')
-        : mask(formatCurrency(wallet.current_value_primary, currency, locale))}
+        : mask(formatCurrency(value!, currency, locale))}
       {missing > 0 && <span className="mt-1 block text-xs font-normal text-warning-foreground">{t('accountHoldings.partial', { count: missing })}</span>}
     </span>
   )
@@ -37,11 +40,14 @@ function WalletValue({ wallet }: { wallet: AssetGroup }) {
 /** Holdings remain distinct from the cash ledger and provider account total. */
 export function AccountHoldingsSummary({ account, wallets, size = 'default' }: { account: Account; wallets: AssetGroup[]; size?: 'default' | 'large' }) {
   const { t } = useTranslation()
-  const { canWrite } = useWorkspace()
+  const { canWrite, current } = useWorkspace()
   const queryClient = useQueryClient()
   const unlink = useMutation({
     mutationFn: (id: string) => assetGroups.update(id, { account_id: null }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['asset-groups'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
+    },
     onError: (error) => toast.error(extractApiError(error, t('common.error'))),
   })
   const linked = wallets.filter((wallet) => wallet.account_id === account.id)
@@ -51,6 +57,7 @@ export function AccountHoldingsSummary({ account, wallets, size = 'default' }: {
         <span className="block text-xs font-medium text-muted-foreground group-hover/holdings:text-primary">{t('accountHoldings.holdings')}<span className="sr-only">:</span></span>{' '}
         <span className={`mt-1 block font-semibold text-foreground group-hover/holdings:text-primary ${size === 'large' ? 'text-2xl' : wallet.source === 'manual' ? 'text-lg' : 'text-sm'}`}><WalletValue wallet={wallet} /></span>
       </Link>
+      <BalanceDetails canWrite={canWrite} wallets={[wallet]} workspaceId={current?.id} />
       {wallet.source === 'manual' && canWrite && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -80,6 +87,7 @@ function WalletLinkRow({ wallet, accounts }: { wallet: AssetGroup; accounts: Acc
     mutationFn: () => assetGroups.update(wallet.id, { account_id: accountId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['asset-groups'] })
+      queryClient.invalidateQueries({ queryKey: ['accounts'] })
       toast.success(t('accountHoldings.linked'))
     },
     onError: (error) => toast.error(extractApiError(error, t('common.error'))),

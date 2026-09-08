@@ -69,6 +69,32 @@ describe('account holdings', () => {
     workspace.mockReturnValue({ current: { id: 'investment' }, canWrite: false })
     renderWithProviders(<AccountHoldingsSummary account={{ ...account, type: 'checking', is_closed: true }} wallets={[{ ...wallet, account_id: account.id }]} size="large" />)
     expect(screen.getByRole('link', { name: 'Holdings: $125.00' })).toHaveAttribute('href', '/assets?wallet=wallet-a')
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Balance details: Exchange' })).toBeInTheDocument()
   })
+})
+
+it.each(['link', 'unlink'])('invalidates inactive account list and detail after a manual %s', async (action) => {
+  const { QueryClient } = await import('@tanstack/react-query')
+  const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 300000, retry: false } } })
+  let linked = action === 'unlink'
+  const read = async () => ({ ...account, balance_explanation: { holdings: linked ? [{ asset_id: 'synthetic-held', value: 125 }] : [] } })
+  const keys = [['accounts'], ['accounts', account.id]]
+  for (const queryKey of keys) await queryClient.fetchQuery({ queryKey, queryFn: read })
+  update.mockImplementation(async (_id, data) => { linked = data.account_id !== null; return {} })
+  const { user } = renderWithProviders(action === 'link'
+    ? <UnlinkedWallets wallets={[wallet]} accounts={[account]} />
+    : <AccountHoldingsSummary account={account} wallets={[{ ...wallet, account_id: account.id }]} />, { queryClient })
+  if (action === 'link') {
+    await user.selectOptions(screen.getByRole('combobox'), account.id)
+    await user.click(screen.getByRole('button', { name: 'Link account' }))
+  } else {
+    await user.click(screen.getByRole('button', { name: 'More actions: Holdings · Exchange' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Unlink' }))
+  }
+  await waitFor(() => expect(update).toHaveBeenCalledWith(wallet.id, { account_id: action === 'link' ? account.id : null }))
+  for (const queryKey of keys) {
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+    const current = await queryClient.fetchQuery({ queryKey, queryFn: read })
+    expect(current.balance_explanation.holdings).toHaveLength(action === 'link' ? 1 : 0)
+  }
 })

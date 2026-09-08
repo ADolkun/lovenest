@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.balance_explanation import BalanceExplanation
+
 
 class AccountBase(BaseModel):
     name: str
@@ -42,6 +44,7 @@ class AccountUpdate(BaseModel):
 
 
 class AccountRead(AccountBase):
+    balance_explanation: BalanceExplanation | None = None
     id: uuid.UUID
     user_id: uuid.UUID
     connection_id: Optional[uuid.UUID] = None
