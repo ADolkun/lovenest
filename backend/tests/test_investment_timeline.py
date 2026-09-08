@@ -634,7 +634,7 @@ async def test_collector_transfer_preserves_archive_ids_and_exact_pair_basis(
     assert not any(part["status"] == "confirmed" for event in events for part in event["transfers"])
 
 
-@pytest.mark.parametrize("repeat", ["same_anchor", "later_anchor", "conflicting_facts", "coinbase_maturity"])
+@pytest.mark.parametrize("repeat", ["same_anchor", "later_anchor", "page_shape", "conflicting_facts", "coinbase_maturity"])
 async def test_bitcoin_collector_timeline_deduplicates_only_compatible_anchor_facts(
     client, auth_headers, session, test_workspace, test_user, monkeypatch, repeat,
 ):
@@ -657,13 +657,15 @@ async def test_bitcoin_collector_timeline_deduplicates_only_compatible_anchor_fa
         rpc.tip = 194 if coinbase else 101
     if repeat == "conflicting_facts":
         payload["vout"][0]["value"], payload["fee"] = 980, 20
+    if repeat == "page_shape":
+        rpc.routes[f"/address/{address}/txs/chain"].append(transaction("other-record", inputs=[spend("different-funding", address=address)]))
     second = checked(await client.post("/api/onchain/history", headers=auth_headers, json=request))
     before, call_count = await _financial_state(session), len(rpc.calls)
     retained = {row.id: copy.deepcopy(row.payload) for row in await session.scalars(
         select(InvestmentHistoryCollection).where(InvestmentHistoryCollection.workspace_id == test_workspace.id))}
     events = checked(await client.get(PREFIX, headers=auth_headers, params={"group_id": str(group.id)}))["events"]
-    assert len(events) == 1
-    event = events[0]
+    assert len(events) == (2 if repeat == "page_shape" else 1)
+    event = next(event for event in events if event["event_id"] == initial["event_id"])
     assert event["event_id"] == initial["event_id"]
     sources = [source for source in event["sources"] if source["source_id"].startswith("archive:")]
     assert len(sources) == 2

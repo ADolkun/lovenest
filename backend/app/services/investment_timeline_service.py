@@ -269,6 +269,7 @@ def _archive_leg_identity(version, part, source):
     facts = {**part, "derivation": {key: value for key, value in part.get("derivation", {}).items() if key != "payload_digest"}}
     if part.get("asset", {}).get("chain") == "bitcoin":
         facts.pop("maturity_eligible", None)
+        facts["derivation"].pop("prevout_source", None)
     return [version.get("evidence_fingerprint") or version.get("version_id"), source.decoder_version,
             version.get("block_hash"), version.get("block_height"), facts,
             source.is_current, source.settlement_status, source.provider_status]
