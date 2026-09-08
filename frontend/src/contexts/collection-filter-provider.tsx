@@ -60,4 +60,3 @@ export function CollectionFilterProvider({ children }: { children: ReactNode }) 
     <CollectionFilterContext.Provider value={value}>{children}</CollectionFilterContext.Provider>
   )
 }
-

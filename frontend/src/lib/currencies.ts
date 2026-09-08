@@ -34,4 +34,3 @@ export const CURRENCIES = [
   { code: 'SGD', flag: '\u{1F1F8}\u{1F1EC}', symbol: 'S$' },
   { code: 'TRY', flag: '\u{1F1F9}\u{1F1F7}', symbol: '₺' },
 ] as const
-

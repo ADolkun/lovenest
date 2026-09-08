@@ -17,4 +17,3 @@ const ACCOUNT_TYPE_CONFIG: Record<
 export function getAccountTypeConfig(type: string) {
   return ACCOUNT_TYPE_CONFIG[type] ?? ACCOUNT_TYPE_CONFIG['checking']
 }
-
