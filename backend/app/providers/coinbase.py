@@ -1058,6 +1058,13 @@ class CoinbaseProvider(BankProvider):
             chain=network.get("chain"), token_address=amount.get("token_address"),
             transaction_ref=network.get("hash") or network.get("transaction_hash"),
             execution_id=external_id,
+            leg_ref=network.get("leg_ref"), token_program=amount.get("token_program"),
+            source_address=(raw.get("from") or {}).get("address") if isinstance(raw.get("from"), dict) else None,
+            destination_address=(raw.get("to") or {}).get("address") if isinstance(raw.get("to"), dict) else None,
+            raw_units=amount.get("raw_units"), decimals=amount.get("decimals"),
+            quantity_role="principal" if classification == "transfer" else None,
+            fee_payer=network.get("fee_payer"),
+            fee_semantics="separate" if network.get("fee_semantics") == "separate" else "none" if network.get("fee_semantics") == "none" else "included" if network.get("fee_semantics") == "included" else "unknown",
         )
         # The fallback locates an observation with no provider id; it never
         # impersonates that missing id. No unrestricted source payload is kept.

@@ -158,11 +158,15 @@ class AssetTransactionRead(BaseModel):
     asset_id: uuid.UUID
     kind: str
     quantity: float
-    price: float
+    quantity_exact: str | None = None
+    price: float | None
     fee: float
     date: _date
     source: str
     notes: Optional[str] = None
+    movement_application_id: Optional[uuid.UUID] = None
+    transfer_id: Optional[uuid.UUID] = None
+    source_leg_id: Optional[uuid.UUID] = None
     # Denormalized holding context so the global transactions tab can render
     # rows without an extra per-row asset lookup.
     asset_name: Optional[str] = None

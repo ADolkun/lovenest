@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { assets, assetGroups, assetErrorMessage } from '@/lib/api'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ import type { EvidenceDecision, EvidenceObservation, EvidencePreview, EvidenceRe
 const SELECT_CLASS = 'min-h-10 rounded-md border border-border bg-card px-3 py-2 text-base focus-visible:outline-2 focus-visible:outline-ring sm:text-sm'
 const SOURCE_KINDS: EvidenceSourceKind[] = ['primary_activity', 'balance_snapshot', 'remaining_lots', 'tax_workpaper', 'recovery_notice']
 const MATCH_STATES = ['linked', 'candidate', 'conflicting', 'unmatched'] as const
-const MAPPING_FIELDS = ['ticker', 'date', 'quantity', 'price', 'kind', 'currency', 'execution_currency', 'unit_price_currency', 'subtotal_currency', 'total_currency', 'cost_basis', 'external_id', 'execution_id', 'subtotal', 'total', 'fee', 'fee_currency', 'valuation_currency', 'valuation_amount', 'external_funding_amount', 'external_funding_currency', 'provider_status', 'network_status', 'transaction_ref', 'order_ref', 'leg_ref', 'chain', 'token_address', 'provider_asset_id', 'isin', 'timezone', 'historical_workspace_label', 'date_sold', 'proceeds']
+const MAPPING_FIELDS = ['ticker', 'date', 'quantity', 'price', 'kind', 'currency', 'execution_currency', 'unit_price_currency', 'subtotal_currency', 'total_currency', 'cost_basis', 'external_id', 'execution_id', 'subtotal', 'total', 'fee', 'fee_currency', 'valuation_currency', 'valuation_amount', 'external_funding_amount', 'external_funding_currency', 'provider_status', 'network_status', 'transaction_ref', 'order_ref', 'leg_ref', 'chain', 'token_address', 'token_program', 'source_address', 'destination_address', 'source_owner', 'destination_owner', 'raw_units', 'decimals', 'quantity_role', 'fee_payer', 'fee_semantics', 'provider_asset_id', 'isin', 'timezone', 'historical_workspace_label', 'date_sold', 'proceeds']
 const label = (value: string) => value.replaceAll('_', ' ')
 
 export function EvidenceImportPanel({ mode = 'evidence' }: { mode?: 'evidence' | 'opening_lots' }) {
@@ -198,7 +199,7 @@ function EvidenceWalletReview({ group, workspaceId, mode }: { group: AssetGroup;
         <div className="flex-1 space-y-1"><Label htmlFor="evidence-search">{t('evidence.search', 'Search source IDs, assets or reasons')}</Label><Input id="evidence-search" type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} /></div>
       </div>
       {!records.length ? <p className="rounded-lg border border-border p-5 text-sm text-muted-foreground">{t('evidence.empty', 'No source observations in this wallet. Preview an exchange or brokerage CSV to start.')}</p> : !filtered.length ? <p role="status" className="py-5 text-sm text-muted-foreground">{t('evidence.noMatches', 'No observations match these filters.')}</p> : <div className="divide-y divide-border border-y border-border">
-        {filtered.slice(currentPage * 25, (currentPage + 1) * 25).map((record) => <EvidenceRecordReview key={`${view.revision}:${record.observation_ref}:${record.leg_key}`} record={record} observation={observations.get(record.observation_ref)} disabled={!actionable} onDecision={(decision) => mutate(async () => (await assets.confirmEvidence({ group_id: group.id, expected_revision: view.revision, decisions: [decision], opening_boundary: boundary, allow_unpriced: allowUnpriced })).evidence)} onUnlink={(id) => mutate(() => assets.unlinkEvidence(id, view.revision, boundary))} />)}
+        {filtered.slice(currentPage * 25, (currentPage + 1) * 25).map((record) => <EvidenceRecordReview key={`${view.revision}:${record.observation_ref}:${record.leg_key}`} groupId={group.id} record={record} observation={observations.get(record.observation_ref)} disabled={!actionable} onDecision={(decision) => mutate(async () => (await assets.confirmEvidence({ group_id: group.id, expected_revision: view.revision, decisions: [decision], opening_boundary: boundary, allow_unpriced: allowUnpriced })).evidence)} onUnlink={(id) => mutate(() => assets.unlinkEvidence(id, view.revision, boundary))} />)}
       </div>}
       {pageCount > 1 && <div className="flex items-center justify-between gap-3"><Button variant="outline" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>{t('common.previous', 'Previous')}</Button><span className="text-sm tabular-nums">{currentPage + 1} / {pageCount}</span><Button variant="outline" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>{t('common.next', 'Next')}</Button></div>}
       <details className="rounded-xl border border-border p-4 text-sm" open>
@@ -219,7 +220,7 @@ function EvidenceWalletReview({ group, workspaceId, mode }: { group: AssetGroup;
   </div>
 }
 
-function EvidenceRecordReview({ record, observation, disabled, onDecision, onUnlink }: { record: EvidenceRecord; observation?: EvidenceObservation; disabled: boolean; onDecision: (decision: EvidenceDecision) => void; onUnlink: (id: string) => void }) {
+function EvidenceRecordReview({ groupId, record, observation, disabled, onDecision, onUnlink }: { groupId: string; record: EvidenceRecord; observation?: EvidenceObservation; disabled: boolean; onDecision: (decision: EvidenceDecision) => void; onUnlink: (id: string) => void }) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [reason, setReason] = useState('')
@@ -232,7 +233,7 @@ function EvidenceRecordReview({ record, observation, disabled, onDecision, onUnl
   const allocationValid = allocations.every(({ quantity }) => quantity === null || /^\d+(\.\d+)?$/.test(quantity))
   const decision = { observation_ref: record.observation_ref, leg_key: record.leg_key }
   const needsSettlement = observation?.settlement_status === 'unknown'
-  const amountFields = leg ? ['quantity', 'unit_price', 'execution_currency', 'unit_price_origin', 'subtotal', 'total', 'fee', 'fee_currency', 'valuation_currency', 'valuation_amount', 'external_funding_amount', 'external_funding_currency', 'acquisition_basis', 'chain', 'token_address', 'isin', 'provider_asset_id', 'transaction_ref', 'leg_ref', 'execution_id'] as const : []
+  const amountFields = leg ? ['quantity', 'unit_price', 'execution_currency', 'unit_price_origin', 'subtotal', 'total', 'fee', 'fee_currency', 'valuation_currency', 'valuation_amount', 'external_funding_amount', 'external_funding_currency', 'acquisition_basis', 'chain', 'token_address', 'isin', 'provider_asset_id', 'transaction_ref', 'leg_ref', 'execution_id', 'token_program', 'source_address', 'destination_address', 'source_owner', 'destination_owner', 'raw_units', 'decimals', 'quantity_role', 'fee_payer', 'fee_semantics'] as const : []
   return <details className="py-4">
     <summary className="cursor-pointer rounded-md py-1 focus-visible:outline-2 focus-visible:outline-ring">
       <span className="inline-flex max-w-full flex-wrap items-baseline gap-x-3 gap-y-1 align-middle text-sm"><strong>{leg?.asset_symbol ?? t('evidence.unknownAsset', 'Unknown asset')}</strong><span className="tabular-nums">{leg?.quantity ?? unknown} · {t(`evidence.direction.${leg?.direction ?? 'unknown'}`, leg?.direction ?? unknown)}</span><span className={record.match_status === 'conflicting' ? 'text-warning-foreground' : 'text-muted-foreground'}>{t(`evidence.status.${record.match_status}`, label(record.match_status))}</span><span>{t(`evidence.application.${record.application_status}`, record.application_status === 'not_applicable' ? 'Evidence only' : label(record.application_status))}</span><span className="max-w-full break-all text-muted-foreground">{observation?.source_local_id ?? observation?.source_locator ?? record.observation_ref}</span></span>
@@ -241,6 +242,7 @@ function EvidenceRecordReview({ record, observation, disabled, onDecision, onUnl
       <p>{t('evidence.reportedTime', 'Reported event time')}: {observation?.event_time_raw ?? observation?.event_at ?? observation?.event_date ?? unknown} · {t('evidence.precision', 'Precision')}: {observation?.time_precision ?? unknown} · {t('evidence.timezone', 'Timezone')}: {observation?.timezone ?? unknown}</p>
       <p>{t('evidence.providerStatus', 'Provider status')}: {observation?.provider_status ?? unknown} · {t('evidence.networkStatus', 'Network status')}: {observation?.network_status ?? unknown} · {t('evidence.settlement', 'Settlement')}: {observation?.settlement_status ?? unknown}</p>
       <p>{t('evidence.classification', 'Classification')}: {leg?.classification ?? unknown} · {t('evidence.sourceKind', 'Source kind')}: {observation?.source_kind ? label(observation.source_kind) : unknown}</p>
+      {leg && ['transfer', 'unknown', 'fee', 'send', 'receive', 'withdrawal', 'deposit'].includes(leg.classification) && <Link className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-ring" to={`/assets?${new URLSearchParams({ tab: 'activity', activity: 'transfers', wallet: groupId, observation_ref: record.observation_ref, leg_key: record.leg_key })}`}>{t('ownedTransfers.reviewMovement', 'Review movement and ownership')}</Link>}
       <p>{t('evidence.observedAt', 'Observed / retrieved at')}: {observation?.observed_at ?? unknown} · {t('evidence.sourceAccount', 'Source account ID (if supplied)')}: {observation?.source_account_id ?? unknown}</p>
       <dl className="grid gap-x-5 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">{amountFields.map((field) => <div key={field}><dt className="text-muted-foreground">{t(`evidence.field.${field}`, label(field))}</dt><dd className="mt-1 break-all tabular-nums">{leg?.[field] ?? unknown}</dd></div>)}</dl>
       <div><h3 className="font-medium">{t('evidence.sourceRefs', 'Original source references')}</h3><ul className="mt-2 space-y-2 text-muted-foreground">{record.source_refs.map((ref, index) => <li key={`${ref.observation_ref}:${ref.leg_key}:${index}`} className="break-all">{ref.source} · {ref.source_local_id ?? unknown} · {ref.source_locator} · {ref.leg_key}</li>)}</ul></div>

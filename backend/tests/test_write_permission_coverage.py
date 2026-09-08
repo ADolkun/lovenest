@@ -75,6 +75,10 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # dry run only reports what an import would do.
     ("POST", "/api/assets/import/preview"): "parses an upload and returns a preview; writes nothing",
     ("POST", "/api/contributions/import/preview"): "parses an upload and returns a preview; writes nothing",
+    # Evidence previews replay a proposed body against workspace data without
+    # persisting applications, transfers, or holding changes.
+    ("POST", "/evidence/movements/preview"): "previews a movement against recorded inventory; writes nothing",
+    ("POST", "/evidence/transfers/preview"): "previews owned-transfer effects and lot selection; writes nothing",
     # And for a rule being written: the draft has to be a body, and the answer
     # is which existing transactions it would match. Reads rules' own scope.
     ("POST", "/api/rules/preview"): "evaluates an unsaved rule against transactions; writes nothing",

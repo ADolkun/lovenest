@@ -92,6 +92,9 @@ def _recompute(
     asset class multiplies by one and is refused a negative position, which is
     what makes this identical to the buy-and-hold replay it replaces.
     """
+    if any(tx.kind in {"move_in", "move_out", "fee"} for tx in transactions):
+        from app.services.movement_replay import replay
+        return replay(transactions)
     multiplier = multiplier_for(asset_type)
     allow_short = is_option(asset_type)
     txs = sorted(transactions, key=lambda t: (t.date, t.created_at or datetime.min.replace(tzinfo=timezone.utc)))
@@ -159,7 +162,8 @@ def _detect_oversell(
     """
     if is_option(asset_type):
         return None
-    txs = sorted(
+    from app.services.movement_replay import KINDS, ordered
+    txs = ordered(transactions) if any(tx.kind in KINDS for tx in transactions) else sorted(
         transactions,
         key=lambda t: (t.date, t.created_at or datetime.min.replace(tzinfo=timezone.utc)),
     )
@@ -168,10 +172,12 @@ def _detect_oversell(
         q = _d(tx.quantity)
         if tx.kind == "buy":
             qty += q
-        elif tx.kind == "sell":
+        elif tx.kind in {"sell", "move_out", "fee"}:
             if q > qty:
                 return (q, qty)
             qty -= q
+        elif tx.kind == "move_in":
+            qty += q
     return None
 
 
@@ -211,20 +217,28 @@ async def recompute_and_cache(session: AsyncSession, asset: Asset) -> None:
     gain, and refreshes today's AssetValue so the portfolio chart matches the
     new quantity.
     """
+    from app.services.movement_replay import KINDS
+    from app.services.owned_transfer_service import prepare_replay
+    await prepare_replay(session, asset.workspace_id, if_movements=True)
     result = await session.execute(
         select(AssetTransaction).where(AssetTransaction.asset_id == asset.id)
     )
     txs = list(result.scalars().all())
     pos = _recompute(txs, asset_type=asset.type)
 
+    if asset.connection_id and any(tx.kind in KINDS for tx in txs) and (pos["units"] != asset.units or not pos.get("settlement_complete", True)):
+        # A reviewed history is not authority to replace a provider snapshot.
+        asset.average_price = asset.purchase_price = asset.realized_gain = None
+        return
+
     asset.units = pos["units"]
     asset.average_price = pos["average_price"]
-    asset.realized_gain = pos["realized_gain"].quantize(Decimal("0.01"))
+    asset.realized_gain = pos["realized_gain"].quantize(Decimal("0.01")) if pos["realized_gain"] is not None else None
     # Open in either direction, so a written contract caches the credit it was
     # opened for as a negative basis and `gain_loss` still reads as the
     # unrealized gain: buying it back cheaper than the premium is a profit.
     asset.purchase_price = (
-        pos["cost_basis"].quantize(Decimal("0.01")) if pos["units"] else None
+        pos["cost_basis"].quantize(Decimal("0.01")) if pos["units"] and pos["cost_basis"] is not None else None
     )
     asset.purchase_date = pos["first_open"]
 
@@ -249,11 +263,15 @@ def _tx_to_read(tx: AssetTransaction, asset: Optional[Asset] = None) -> AssetTra
         asset_id=tx.asset_id,
         kind=tx.kind,
         quantity=float(tx.quantity),
-        price=float(tx.price),
+        quantity_exact=str(tx.quantity) if tx.kind in {"move_in", "move_out", "fee"} else None,
+        price=float(tx.price) if tx.price is not None else None,
         fee=float(tx.fee or 0),
         date=tx.date,
         source=tx.source,
         notes=tx.notes,
+        movement_application_id=(tx.movement or {}).get("application_id"),
+        transfer_id=(tx.movement or {}).get("transfer_id"),
+        source_leg_id=(tx.movement or {}).get("leg_id"),
         asset_name=asset.name if asset else None,
         ticker=asset.ticker if asset else None,
         currency=asset.currency if asset else None,
@@ -333,6 +351,8 @@ async def reportable_gain(
     years. Fixing that needs the wallet a trade happened in, which the ledger
     does not record.
     """
+    from app.services.owned_transfer_service import prepare_replay
+    await prepare_replay(session, workspace_id, if_movements=True)
     rows = (
         await session.execute(
             select(AssetTransaction, AssetGroup.tax_treatment, Asset.type)
@@ -356,12 +376,23 @@ async def reportable_gain(
 
     reportable = Decimal("0")
     non_reportable = Decimal("0")
+    complete = non_reportable_complete = True
     for asset_id, txs in ledgers.items():
+        position = _recompute(txs, asset_type=types[asset_id])
+        incomplete = not position.get("settlement_complete", True) or any(
+            g is None and (start is None or d >= start) and (end is None or d < end)
+            for d, g in position["realized_events"]
+        )
+        if incomplete:
+            if treatments[asset_id] in REPORTABLE_TAX_TREATMENTS:
+                complete = False
+            else:
+                non_reportable_complete = False
         gain = sum(
             (
                 g
-                for d, g in _recompute(txs, asset_type=types[asset_id])["realized_events"]
-                if (start is None or d >= start) and (end is None or d < end)
+                for d, g in position["realized_events"]
+                if g is not None and (start is None or d >= start) and (end is None or d < end)
             ),
             Decimal("0"),
         )
@@ -371,14 +402,18 @@ async def reportable_gain(
             non_reportable += gain
 
     return {
-        "reportable_gain": float(reportable.quantize(Decimal("0.01"))),
-        "non_reportable_gain": float(non_reportable.quantize(Decimal("0.01"))),
+        "reportable_gain": float(reportable.quantize(Decimal("0.01"))) if complete else None,
+        "known_reportable_gain": float(reportable.quantize(Decimal("0.01"))),
+        "basis_complete": complete,
+        "non_reportable_gain": float(non_reportable.quantize(Decimal("0.01"))) if non_reportable_complete else None,
+        "known_non_reportable_gain": float(non_reportable.quantize(Decimal("0.01"))),
+        "non_reportable_basis_complete": non_reportable_complete,
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
     }
 
 
-def _validate(kind: str, quantity: Decimal, price: Decimal) -> None:
+def _validate(kind: str, quantity: Decimal | None, price: Decimal | None) -> None:
     if kind not in _VALID_KINDS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -402,6 +437,8 @@ async def add_transaction(
     workspace_id: uuid.UUID,
     data: AssetTransactionCreate,
 ) -> Optional[AssetRead]:
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, {asset_id}, before_date=data.date)
     asset = await _load_asset(session, asset_id, workspace_id)
     if asset is None:
         return None
@@ -443,6 +480,8 @@ async def update_transaction(
     tx = result.scalar_one_or_none()
     if tx is None:
         return None
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, {tx.asset_id}, transaction_ids={tx.id}, before_date=min(tx.date, data.date or tx.date))
     fields = data.model_dump(exclude_unset=True)
     # Resolve the asset before mutating the row: bailing out after the
     # setattr loop would leave the edits pending in the session, so a later
@@ -464,11 +503,12 @@ async def update_transaction(
         date=fields.get("date", tx.date),
         created_at=tx.created_at,
     )
+    _validate(edited.kind, edited.quantity, edited.price)
     _raise_if_oversell(others + [edited], asset_type=asset.type)
 
     for key, value in fields.items():
         setattr(tx, key, value)
-    _validate(tx.kind, _d(tx.quantity), _d(tx.price))
+    _validate(tx.kind, tx.quantity, tx.price)
     await session.flush()
     await recompute_and_cache(session, asset)
     await session.commit()
@@ -486,6 +526,8 @@ async def delete_transaction(
     tx = result.scalar_one_or_none()
     if tx is None:
         return None
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, {tx.asset_id}, transaction_ids={tx.id}, before_date=tx.date)
     asset = await _load_asset(session, tx.asset_id, workspace_id)
     if asset is None:
         return None
@@ -558,6 +600,8 @@ async def buy_into_holding(
         session.add(asset)
         await session.flush()
 
+    from app.services.owned_transfer_service import guard_asset_mutation
+    await guard_asset_mutation(session, workspace_id, {asset.id}, before_date=data.date)
     session.add(
         AssetTransaction(
             asset_id=asset.id,

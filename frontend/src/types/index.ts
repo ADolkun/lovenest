@@ -890,9 +890,10 @@ export interface AssetImportResult {
 export interface AssetTransaction {
   id: string
   asset_id: string
-  kind: 'buy' | 'sell'
+  kind: 'buy' | 'sell' | 'move_in' | 'move_out' | 'fee'
   quantity: number
-  price: number
+  quantity_exact?: string | null
+  price: number | null
   fee: number
   date: string
   source: string
@@ -901,28 +902,36 @@ export interface AssetTransaction {
   ticker: string | null
   currency: string | null
   logo_url: string | null
+  movement_application_id?: string | null
+  transfer_id?: string | null
+  source_leg_id?: string | null
 }
 
 /** One acquisition, derived by replaying the ledger — never a stored record. */
 export interface TaxLot {
-  acquired: string
-  quantity: number
-  unit_price: number
-  cost: number
-  holding_days: number
-  long_term: boolean
+  acquired: string | null
+  quantity: number | string
+  unit_price: number | string | null
+  cost: number | string | null
+  holding_days: number | null
+  long_term: boolean | null
   /** Zero once the lot is long-term. */
-  days_until_long_term: number
+  days_until_long_term: number | null
+  lot_id?: string
+  root_transaction_id?: string | null
+  source_leg_id?: string | null
+  lineage?: string[]
+  missing_links?: string[]
 }
 
 export interface TaxLotSale {
   date: string
-  quantity: number
-  gain: number
-  long_quantity: number
-  short_quantity: number
-  long_gain: number
-  short_gain: number
+  quantity: number | string
+  gain: number | string | null
+  long_quantity: number | string
+  short_quantity: number | string
+  long_gain: number | string | null
+  short_gain: number | string | null
 }
 
 /** Trailing income, keyed by asset id and by wallet id.
@@ -960,13 +969,20 @@ export interface TaxLots {
   no_wallet: boolean
   as_of: string
   lots: TaxLot[]
-  long_quantity: number
-  short_quantity: number
-  long_cost: number
-  short_cost: number
+  long_quantity: number | string
+  short_quantity: number | string
+  long_cost: number | string | null
+  short_cost: number | string | null
   sales: TaxLotSale[]
-  realised_long: number
-  realised_short: number
+  realised_long: number | string | null
+  realised_short: number | string | null
+  known_basis_quantity?: string
+  unknown_basis_quantity?: string
+  known_acquisition_cost?: string
+  basis_complete?: boolean
+  settlement_complete?: boolean
+  unknown_disposition_quantity?: string
+  missing_links?: string[]
 }
 
 /** A wallet the warning names: it bought inside the window, or it holds the instrument now. */

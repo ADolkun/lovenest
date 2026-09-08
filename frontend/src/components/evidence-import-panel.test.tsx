@@ -42,6 +42,19 @@ async function openReview(mode: 'evidence' | 'opening_lots' = 'evidence') {
 }
 
 describe('investment evidence review', () => {
+  it('opens retained movements in the shared Activity review with exact observation and leg references', async () => {
+    const view = fixture()
+    view.observations[0].legs[0].classification = 'transfer'
+    view.records[0].application_status = 'not_applicable'
+    api.evidence.mockResolvedValue(view)
+    const { user } = await openReview()
+    await user.click(screen.getByText('row-linked'))
+    const link = screen.getByRole('link', { name: 'Review movement and ownership' })
+    expect(link).toHaveAttribute('href', '/assets?tab=activity&activity=transfers&wallet=wallet-a&observation_ref=observation-0&leg_key=purchase')
+    expect(api.confirmEvidence).not.toHaveBeenCalled()
+    expect(api.importEvidence).not.toHaveBeenCalled()
+  })
+
   it('loads retained observations without upload and filters all four match states', async () => {
     const { user } = await openReview()
     expect(api.evidence).toHaveBeenCalledWith('wallet-a', undefined)

@@ -46,3 +46,9 @@ tell them apart from the emptiness alone.
 
 If replaying the ledger ever measurably hurts, cache the derived figures on the
 Holding the way `average_price` already is. Do not promote the cache to a record.
+
+Issue #133 records reviewed movement allocations, not mutable remaining lots.
+Replay derives the fragments left in each holding from the original acquisition
+and selected transfer path. Partial and returning transfers retain original
+identity, supported cost and date without opening a new purchase. Unknown cost
+and date remain independently nullable, even when quantity is supported.

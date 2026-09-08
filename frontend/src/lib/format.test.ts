@@ -3,11 +3,27 @@ import { describe, expect, it } from 'vitest'
 import {
   formatAmountInput,
   formatCurrency,
+  formatExactDecimal,
   parseAmountInput,
   resolveDateLocale,
   resolveDateOrder,
   resolveDisplayLocale,
 } from '@/lib/format'
+
+it.each([
+  ['140.000000000000000000000000000000000000', '140'],
+  ['0.000000000000000000', '0'],
+  ['0E-18', '0'],
+  ['-0.000E+12', '0'],
+  ['+0.000', '0'],
+  ['0.00000000000000000100', '0.000000000000000001'],
+  ['9007199254740993.12345678901234567800', '9007199254740993.123456789012345678'],
+  ['-12.3400', '-12.34'],
+  ['1000', '1000'],
+  ['1E-18', '1E-18'],
+])('displays exact decimal %s as %s without numeric conversion', (value, expected) => {
+  expect(formatExactDecimal(value)).toBe(expected)
+})
 
 /**
  * Intl separates the symbol from the digits with a non-breaking or narrow

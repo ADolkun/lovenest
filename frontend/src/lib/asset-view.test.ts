@@ -10,6 +10,7 @@ describe('consolidated asset navigation', () => {
     expect(readAssetView(new URLSearchParams('tab=contributions')).activity).toBe('contributions')
     expect(readAssetView(new URLSearchParams('wallet=account-wallet')).view).toBe('wallets')
     expect(readAssetView(new URLSearchParams('tab=activity&activity=wallets&wallet=account-wallet'))).toEqual({ tab: 'activity', view: 'wallets', activity: 'wallets' })
+    expect(readAssetView(new URLSearchParams('tab=activity&activity=transfers&wallet=account-wallet'))).toEqual({ tab: 'activity', view: 'wallets', activity: 'transfers' })
     expect(readAssetView(new URLSearchParams('tab=unknown&view=unknown&activity=unknown'))).toEqual({ tab: 'portfolio', view: 'assets', activity: 'trades' })
   })
 

@@ -17,6 +17,24 @@ const retired = { ...held, id: 'retired', name: 'Closed holding', is_archived: t
 const outside = { ...held, id: 'outside', name: 'Other account fund', group_id: 'wallet-b' }
 const wallets = ['a', 'b'].map((name) => ({ id: `wallet-${name}`, name: `Wallet ${name.toUpperCase()}`, color: '#6366f1', position: 0, source: 'manual', tax_treatment: 'taxable', current_value: 9000, current_value_primary: 9000, unvalued_count: 0 })) as AssetGroup[]
 
+it('renders movement and fee quantities without trade price math or ordinary edits', async () => {
+  scope.canWrite = true
+  vi.spyOn(assets, 'allTransactions').mockResolvedValue((['move_in', 'move_out', 'fee'] as const).map((kind) => ({
+    id: kind, asset_id: 'retired', asset_name: `Movement ${kind}`, kind, quantity: kind === 'fee' ? 1e-18 : 9007199254740994, quantity_exact: kind === 'fee' ? '0.000000000000000001' : '9007199254740993.123456789012345678', price: null, fee: 0, currency: 'USD', date: '2026-01-01', source: 'manual',
+  })) as AssetTransaction[])
+  renderWithProviders(<AssetsPage />, { route: '/assets?tab=activity&wallet=wallet-a' })
+  for (const [kind, label] of [['move_in', 'Transfer in'], ['move_out', 'Transfer out'], ['fee', 'Fee units']]) {
+    const title = await screen.findByText(`Movement ${kind}`)
+    const row = within(title.parentElement!.parentElement!)
+    expect(row.getByText(label)).toBeInTheDocument()
+    expect(row.getByText(kind === 'fee' ? '0.000000000000000001' : '9007199254740993.123456789012345678', { exact: false })).toBeInTheDocument()
+    expect(row.getByText('No sale gain')).toBeInTheDocument()
+    expect(row.queryByText(/×|\$0\.00/)).not.toBeInTheDocument()
+    expect(row.queryByTitle(t('common.edit'))).not.toBeInTheDocument()
+    expect(row.queryByTitle(t('common.delete'))).not.toBeInTheDocument()
+  }
+})
+
 beforeEach(() => {
   vi.restoreAllMocks()
   scope.activeWalletIds = null
