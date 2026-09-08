@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { getAccountLabel, getAccountName } from '@/lib/account-utils'
 import { currentMonth, shiftMonth, monthLastDay, monthLabel, monthRange } from '@/lib/month-utils'
 import { useTranslation } from 'react-i18next'
@@ -120,24 +120,16 @@ export default function DashboardPage() {
   ))
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>(() => searchParams.get('day') ?? '')
 
-  const prevSearchRef = useRef<string | null>(null)
+  const [previousSearch, setPreviousSearch] = useState(() => searchParams.toString())
 
-  // Sync state from URL when navigating (e.g. back/forward button)
-  useEffect(() => {
-    const search = searchParams.toString()
-    if (prevSearchRef.current === search) return
-    const isInitial = prevSearchRef.current === null
-    prevSearchRef.current = search
-
-    const parsedMonth = parseMonthFromParams(searchParams)
-    if (parsedMonth) {
-      setSelectedMonth(parsedMonth)
-    } else if (!isInitial) {
-      setSelectedMonth(currentMonth())
-    }
+  // Restore the URL selection before rendering after back/forward navigation.
+  const currentSearch = searchParams.toString()
+  if (previousSearch !== currentSearch) {
+    setPreviousSearch(currentSearch)
+    setSelectedMonth(parseMonthFromParams(searchParams) ?? currentMonth())
     setTxViewMode(searchParams.get('view') === 'calendar' ? 'calendar' : 'list')
     setCalendarSelectedDate(searchParams.get('day') ?? '')
-  }, [searchParams])
+  }
 
   // Sync selectedMonth and the transactions view back to URL
   useEffect(() => {
@@ -490,7 +482,11 @@ export default function DashboardPage() {
 
   const [txPage, setTxPage] = useState(1)
   const [txSortDesc, setTxSortDesc] = useState(true)
-  useEffect(() => setTxPage(1), [selectedMonth])
+  const [pageMonth, setPageMonth] = useState(selectedMonth)
+  if (pageMonth !== selectedMonth) {
+    setPageMonth(selectedMonth)
+    setTxPage(1)
+  }
 
   type DisplayRow = {
     key: string

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
@@ -32,7 +32,13 @@ const PROVIDER_BRIDGE_URLS: Record<string, string> = {
   coinbase: 'https://portal.cdp.coinbase.com/access/api',
 }
 
-export function TokenConnectDialog({
+export function TokenConnectDialog(props: TokenConnectDialogProps) {
+  return props.open ? (
+    <TokenConnectSession key={`${props.provider}:${props.reconnectConnectionId ?? ''}`} {...props} />
+  ) : null
+}
+
+function TokenConnectSession({
   open,
   onClose,
   provider,
@@ -46,15 +52,6 @@ export function TokenConnectDialog({
   const [submitting, setSubmitting] = useState(false)
   const [syncAssets, setSyncAssets] = useState(true)
   const [reviewAccounts, setReviewAccounts] = useState(false)
-
-  useEffect(() => {
-    if (!open) {
-      setToken('')
-      setSubmitting(false)
-      setSyncAssets(true)
-      setReviewAccounts(false)
-    }
-  }, [open])
 
   const bridgeUrl = PROVIDER_BRIDGE_URLS[provider]
   const i18nKey = `accounts.tokenConnect.${provider}`

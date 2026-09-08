@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale } from '@/hooks/use-display-locale'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -71,10 +71,10 @@ export function TransactionSplitsSection({
   // Snapshot of the initial value so row hydration survives the
   // first push-state-up cycle (which zeros the parent before the
   // group has finished loading).
-  const seedRef = useRef<TransactionSplitsInput | null>(value)
+  const [seed] = useState<TransactionSplitsInput | null>(value)
   // Once rows have been hydrated for the seeded value, stop applying
   // it — further edits are user-driven.
-  const hydratedRef = useRef(false)
+  const [hydrated, setHydrated] = useState(false)
 
   const queryClient = useQueryClient()
   const [isCreatingGroup, setIsCreatingGroup] = useState(false)
@@ -84,9 +84,11 @@ export function TransactionSplitsSection({
   const [newGroupNotes, setNewGroupNotes] = useState('')
 
   // Sync newGroupCurrency default value if currency prop changes.
-  useEffect(() => {
+  const [previousCurrency, setPreviousCurrency] = useState(currency)
+  if (previousCurrency !== currency) {
+    setPreviousCurrency(currency)
     setNewGroupCurrency(currency)
-  }, [currency])
+  }
 
   const createGroupMutation = useMutation({
     mutationFn: (payload: GroupCreatePayload) => groupsApi.create(payload),
@@ -140,12 +142,10 @@ export function TransactionSplitsSection({
   }
 
   // Reset creation state if splits are disabled
-  useEffect(() => {
-    if (!enabled) {
-      setIsCreatingGroup(false)
-      setIsAddingMember(false)
-    }
-  }, [enabled])
+  if (!enabled && (isCreatingGroup || isAddingMember)) {
+    setIsCreatingGroup(false)
+    setIsAddingMember(false)
+  }
 
   const { data: groups } = useQuery({
     queryKey: ['groups'],
@@ -162,53 +162,25 @@ export function TransactionSplitsSection({
   // value (edit flow), look up which group the existing split members
   // belong to so the dialog opens on the right one. Otherwise fall back
   // to the first group.
-  useEffect(() => {
-    if (!enabled || groupId || !groups || groups.length === 0) return
-    const seededIds = new Set((seedRef.current?.splits ?? []).map((s) => s.group_member_id))
-    if (seededIds.size > 0) {
-      const match = groups.find((g) => g.members.some((m) => seededIds.has(m.id)))
-      if (match) {
-        setGroupId(match.id)
-        return
-      }
+  if (enabled && !groupId && groups?.length) {
+    const seededIds = new Set((seed?.splits ?? []).map((s) => s.group_member_id))
+    const match = groups.find((g) => g.members.some((m) => seededIds.has(m.id)))
+    setGroupId(match?.id ?? groups[0].id)
+  }
+
+  const [previousGroup, setPreviousGroup] = useState<typeof group>(undefined)
+  if (group && group !== previousGroup) {
+    setPreviousGroup(group)
+    if (!hydrated || previousGroup?.id !== group.id) {
+      setRows(buildRows(group, hydrated ? null : seed))
+    } else {
+      const prevMap = new Map(rows.map((row) => [row.member_id, row]))
+      setRows(group.members.map((member) => prevMap.get(member.id) ?? {
+        member_id: member.id, selected: false, amount: '', percent: '',
+      }))
     }
-    setGroupId(groups[0].id)
-  }, [enabled, groupId, groups])
-
-  const lastGroupIdRef = useRef<string | null>(null)
-
-  // Rebuild rows when the group changes or when members are added.
-  // Use the seed snapshot only on the first hydration so the parent's
-  // value doesn't get zeroed by the push-state-up effect.
-  useEffect(() => {
-    if (!group) return
-
-    const groupChanged = lastGroupIdRef.current !== group.id
-    lastGroupIdRef.current = group.id
-
-    setRows((prevRows) => {
-      // If first hydration or switched groups, rebuild completely
-      if (!hydratedRef.current || groupChanged) {
-        const source = hydratedRef.current ? null : seedRef.current
-        return buildRows(group, source)
-      }
-
-      // Otherwise, merge new group members into existing rows state to preserve user selections
-      const prevMap = new Map(prevRows.map((r) => [r.member_id, r]))
-      return group.members.map((m) => {
-        const existing = prevMap.get(m.id)
-        if (existing) return existing
-        return {
-          member_id: m.id,
-          selected: false,
-          amount: '',
-          percent: '',
-        }
-      })
-    })
-
-    hydratedRef.current = true
-  }, [group])
+    setHydrated(true)
+  }
 
   // Push state up whenever it changes meaningfully.
   useEffect(() => {

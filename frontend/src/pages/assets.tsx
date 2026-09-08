@@ -519,35 +519,32 @@ export default function AssetsPage() {
     return Math.round(current * 100) / 100
   }, [formMethod, formPurchasePrice, formGrowthRate, formGrowthType, formGrowthFrequency, formGrowthStartDate, formPurchaseDate])
 
-  const activeAssets = assetsList?.filter(a => !a.sell_date && !a.is_archived) ?? []
+  const activeAssets = useMemo(() => assetsList?.filter(a => !a.sell_date && !a.is_archived) ?? [], [assetsList])
   const soldAssets = assetsList?.filter(a => a.sell_date) ?? []
 
-  // Debounced ticker search. Runs only when the market-price method is
-  // selected and the query is non-trivial — keeps the autocomplete snappy
-  // without flooding the yfinance-backed endpoint.
+  const tickerSearchQuery = formMethod === 'market_price' && formTickerQuery.trim() !== selectedQuote?.symbol
+    ? formTickerQuery.trim() : ''
+  const [previousTickerQuery, setPreviousTickerQuery] = useState(tickerSearchQuery)
+  if (previousTickerQuery !== tickerSearchQuery) {
+    setPreviousTickerQuery(tickerSearchQuery)
+    setTickerSearchLoading(!!tickerSearchQuery)
+    if (!tickerSearchQuery) setTickerMatches([])
+  }
   useEffect(() => {
-    if (formMethod !== 'market_price') return
-    const q = formTickerQuery.trim()
-    // Don't search if the field matches the already-selected quote — the
-    // user just picked it and we'd spam the endpoint for no reason.
-    if (selectedQuote && q === selectedQuote.symbol) return
-    if (q.length < 1) {
-      setTickerMatches([])
-      return
-    }
-    setTickerSearchLoading(true)
+    if (!tickerSearchQuery) return
+    let cancelled = false
     const handle = window.setTimeout(async () => {
       try {
-        const results = await assets.marketSearch(q, 10)
-        setTickerMatches(results)
+        const results = await assets.marketSearch(tickerSearchQuery, 10)
+        if (!cancelled) setTickerMatches(results)
       } catch {
-        setTickerMatches([])
+        if (!cancelled) setTickerMatches([])
       } finally {
-        setTickerSearchLoading(false)
+        if (!cancelled) setTickerSearchLoading(false)
       }
     }, 300)
-    return () => window.clearTimeout(handle)
-  }, [formMethod, formTickerQuery, selectedQuote])
+    return () => { cancelled = true; window.clearTimeout(handle) }
+  }, [tickerSearchQuery])
 
   async function pickTickerMatch(match: MarketSymbolMatch) {
     setTickerMatches([])
@@ -3039,7 +3036,9 @@ function AddHoldingTransactionDialog({
   const [fee, setFee] = useState('')
   const [date, setDate] = useState(localDateString)
 
-  useEffect(() => {
+  const [formSource, setFormSource] = useState<{ assetId: typeof assetId } | null>(null)
+  if (!formSource || formSource.assetId !== assetId) {
+    setFormSource({ assetId })
     if (assetId) {
       setKind('buy')
       setQuantity('')
@@ -3047,7 +3046,7 @@ function AddHoldingTransactionDialog({
       setFee('')
       setDate(localDateString())
     }
-  }, [assetId])
+  }
 
   const saveMutation = useMutation({
     mutationFn: () =>

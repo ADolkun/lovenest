@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { connections } from '@/lib/api'
@@ -49,14 +49,16 @@ export function ConnectionSettingsDialog({
   const [syncAssets, setSyncAssets] = useState(true)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
+  const [formSource, setFormSource] = useState<{ connection: typeof connection } | null>(null)
+  if (!formSource || formSource.connection !== connection) {
+    setFormSource({ connection })
     if (connection) {
       setDisplayName(connection.display_name ?? '')
       setPayeeSource(connection.settings?.payee_source ?? 'auto')
       setImportPending(connection.settings?.import_pending ?? true)
       setSyncAssets(connection.settings?.sync_assets ?? true)
     }
-  }, [connection])
+  }
 
   // Only while the dialog is open, and exactly once per opening: this one costs
   // a provider request against a daily budget, and a refetch behind the user's
@@ -76,9 +78,11 @@ export function ConnectionSettingsDialog({
   })
   const accountList = providerAccounts.data
 
-  useEffect(() => {
+  const [selectionSource, setSelectionSource] = useState<{ accountList: typeof accountList } | null>(null)
+  if (!selectionSource || selectionSource.accountList !== accountList) {
+    setSelectionSource({ accountList })
     if (accountList) setSelected(initialSelection(accountList))
-  }, [accountList])
+  }
 
   const allSelected = !!accountList?.length && accountList.every((a) => selected.has(a.external_id))
 

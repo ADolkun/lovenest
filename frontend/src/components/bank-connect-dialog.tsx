@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useEffectEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { PluggyConnect } from 'react-pluggy-connect'
@@ -28,7 +28,13 @@ interface BankConnectDialogProps {
   onReviewAccounts?: (connection: BankConnection) => void
 }
 
-export function BankConnectDialog({
+export function BankConnectDialog(props: BankConnectDialogProps) {
+  return props.open ? (
+    <BankConnectSession key={`${props.provider ?? 'pluggy'}:${props.reconnectConnectionId ?? ''}`} {...props} />
+  ) : null
+}
+
+function BankConnectSession({
   open,
   onClose,
   reconnectConnectionId,
@@ -46,14 +52,12 @@ export function BankConnectDialog({
   // Reconnects keep the settings the connection already has, allowlist included.
   const needsInitialOptions = !reconnectConnectionId
 
+  const onTokenError = useEffectEvent(() => {
+    toast.error(t('accounts.connectError'))
+    onClose()
+  })
+
   useEffect(() => {
-    if (!open) {
-      setConnectToken(null)
-      setSyncAssets(true)
-      setReviewAccounts(false)
-      setOptionsConfirmed(false)
-      return
-    }
 
     if (needsInitialOptions && !optionsConfirmed) return
 
@@ -66,15 +70,14 @@ export function BankConnectDialog({
         if (!cancelled) setConnectToken(token)
       } catch {
         if (!cancelled) {
-          toast.error(t('accounts.connectError'))
-          onClose()
+          onTokenError()
         }
       }
     }
     fetchToken()
 
     return () => { cancelled = true }
-  }, [open, reconnectConnectionId, provider, needsInitialOptions, optionsConfirmed])
+  }, [reconnectConnectionId, provider, needsInitialOptions, optionsConfirmed])
 
   const handleSuccess = async (data: { item: { id: string } }) => {
     try {
