@@ -23,11 +23,47 @@ from app.schemas.onchain import (
 from app.services import onchain_checkpoint as checkpoints, onchain_trace
 from app.schemas.onchain_history import HistoryRead, HistoryRequest, HistorySummary
 from app.services import onchain_history
+from app.services import onchain_investigation
+from app.schemas.onchain_investigation import (
+    BridgeReviewRequest, InvestigationContinue, InvestigationRead, InvestigationRequest,
+)
 
 logger = logging.getLogger(__name__)
 _state_adapter = TypeAdapter(onchain_trace.TraceState)
 
 router = APIRouter(prefix="/api/onchain", tags=["onchain"])
+
+
+@router.post("/investigation/preview", response_model=InvestigationRead)
+async def preview_investigation(payload: InvestigationRequest, response: Response,
+                                ctx: WorkspaceContext = Depends(current_workspace),
+                                session: AsyncSession = Depends(get_async_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_investigation.preview_investigation(session, ctx.id, payload)
+
+
+@router.post("/investigation/continue", response_model=InvestigationRead)
+async def continue_investigation(payload: InvestigationContinue, response: Response,
+                                 ctx: WorkspaceContext = Depends(current_writable_workspace),
+                                 session: AsyncSession = Depends(get_async_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_investigation.continue_investigation(session, ctx.id, payload)
+
+
+@router.get("/investigation/bridge-candidates")
+async def bridge_candidates(event_id: str, response: Response,
+                            ctx: WorkspaceContext = Depends(current_workspace),
+                            session: AsyncSession = Depends(get_async_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_investigation.bridge_candidates(session, ctx.id, event_id)
+
+
+@router.post("/investigation/bridge")
+async def review_bridge(payload: BridgeReviewRequest, response: Response,
+                        ctx: WorkspaceContext = Depends(current_writable_workspace),
+                        session: AsyncSession = Depends(get_async_session)):
+    response.headers["Cache-Control"] = "no-store"
+    return await onchain_investigation.review_bridge(session, ctx.id, ctx.user_id, payload)
 
 
 @router.get("/chains", response_model=list[ChainRead])
@@ -46,7 +82,14 @@ async def list_chains(_: WorkspaceContext = Depends(current_workspace)):
             traceable=chain.kind != "evm"
             or has_explorer_key
             or bool(chain.token_index_url),
-            historical_evidence="solana_owned_history" if chain.key == "solana" else "unsupported",
+            historical_evidence=("solana_owned_history" if chain.key == "solana" else "bitcoin_owned_history" if chain.key == "bitcoin" else "evm_owned_history" if chain.key in {"ethereum", "base", "polygon"} else "unsupported"),
+            capabilities={
+                "holdings": "supported", "native_research": "supported",
+                "owned_history": "supported" if chain.key in {"solana", "bitcoin", "ethereum", "base", "polygon"} else "unsupported",
+                "internal_execution": "source_qualified" if chain.kind == "evm" else "unsupported",
+                "conversions": "producer_qualified" if chain.key == "solana" else "unsupported",
+                "snapshots": "source_qualified", "external_continuation": "selected_leg_only",
+            },
         )
         for chain in CHAINS.values()
     ]

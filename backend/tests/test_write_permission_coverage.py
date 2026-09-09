@@ -92,6 +92,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # hop and branch caps — not a key, and that does not belong in a query
     # string. Read-gated by `current_workspace` like any other view.
     ("POST", "/api/onchain/trace"): "walks public chain data; writes nothing",
+    ("POST", "/api/onchain/investigation/preview"): "previews retained workspace evidence; no writes or provider calls",
     # The agents surface, mounted only when AGENTS_ENABLED is on (the test
     # suite turns it on so these are always covered). An LLM connection is
     # the requester's own credential — scoped by `user.id`, never by
@@ -122,6 +123,7 @@ WORKSPACE_READ_ROUTES = {
         "/api/transactions/import/preview", "/api/assets/import/preview",
         "/api/contributions/import/preview", "/api/rules/preview",
         "/api/export/backup", "/api/onchain/trace",
+        "/api/onchain/investigation/preview",
         "/api/assets/recovery/preview",
     )
 }

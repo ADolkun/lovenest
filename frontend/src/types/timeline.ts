@@ -58,6 +58,9 @@ export interface TimelineLeg extends EvidenceLeg {
   settlement_status: string
   execution_status: string | null
   interpretation: string | null
+  sender_debit_raw_units?: string | null
+  receiver_credit_raw_units?: string | null
+  withheld_fee_raw_units?: string | null
   non_additive: boolean
   is_current: boolean
   reason_codes: string[]
@@ -108,6 +111,7 @@ export interface TimelineEvent {
   legs: TimelineLeg[]
   sources: TimelineSource[]
   relationships: TimelineRelationship[]
+  mechanics?: Record<string, unknown>[]
   basis: {
     state: 'known' | 'partial' | 'unknown'
     acquisition_cost: string | null

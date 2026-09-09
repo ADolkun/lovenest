@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { BalanceDetails } from '@/components/balance-details'
+import { EvidenceInvestigation } from '@/components/evidence-investigation'
 import type { AssetGroup } from '@/types'
 import type { TimelineAsset, TimelineCoverage, TimelineEvent, TimelineSource, TimelineTime } from '@/types/timeline'
 
@@ -113,6 +114,14 @@ function SourceDetails({ workspaceId, source, scope }: { workspaceId: string; so
   </section>
 }
 
+function InvestigationEventDetails({ event, workspaceId, wallets }: {
+  event: TimelineEvent; workspaceId: string; wallets: AssetGroup[]
+}) {
+  const [sourceId, setSourceId] = useState<string | null>(null)
+  // Reached events can cross the starting wallet/collection; source reads remain workspace-authorized.
+  return <EventDetails event={event} workspaceId={workspaceId} scope={{}} sourceId={sourceId} selectSource={setSourceId} nativeTraceEnabled={false} wallets={wallets} />
+}
+
 function EventDetails({ event, workspaceId, scope, sourceId, selectSource, nativeTraceEnabled, wallets }: {
   event: TimelineEvent; workspaceId: string; scope: TimelineFilters; sourceId: string | null; selectSource: (id: string) => void; nativeTraceEnabled: boolean; wallets: AssetGroup[]
 }) {
@@ -137,7 +146,7 @@ function EventDetails({ event, workspaceId, scope, sourceId, selectSource, nativ
         <h4 className="break-words text-sm font-medium">{label(leg.classification)} · {label(leg.direction)} · {leg.quantity == null ? t('timeline.unknown', 'Unknown') : mask(formatExactDecimal(leg.quantity))} {mask(assetLabel(leg, t('timeline.unknownAsset', 'Asset identity unresolved')))}</h4>
         <p className="text-sm text-muted-foreground">{label(leg.settlement_status)}{leg.non_additive && <> · {t('timeline.nonAdditive', 'Supporting measure; not an additional movement')}</>}{!leg.is_current && <> · {t('timeline.superseded', 'Superseded source interpretation')}</>}</p>
         <Facts values={{ account: event.accounts.find((account) => account.group_id === leg.group_id)?.group_name ?? leg.group_id, canonical_asset_identity: leg.canonical_asset_key, execution_status: leg.execution_status, interpretation: leg.interpretation, quantity_role: leg.quantity_role, reported_subtotal: leg.subtotal, reported_total: leg.total, execution_currency: leg.execution_currency, fee: leg.fee, fee_currency: leg.fee_currency, fee_semantics: leg.fee_semantics, fee_payer: leg.fee_payer, valuation_amount: leg.valuation_amount, valuation_currency: leg.valuation_currency, acquisition_basis: leg.acquisition_basis }} />
-        <details><summary className="min-h-11 cursor-pointer text-sm">{t('timeline.legIdentity', 'Endpoints, exact units and derivation')}</summary><div className="pt-3"><Facts values={{ chain: leg.chain, token_address: leg.token_address, token_program: leg.token_program, raw_units: leg.raw_units, decimals: leg.decimals, source_address: leg.source_address, destination_address: leg.destination_address, source_owner: leg.source_owner, destination_owner: leg.destination_owner, transaction_ref: leg.transaction_ref, leg_ref: leg.leg_ref, unit_price: leg.unit_price, unit_price_origin: leg.unit_price_origin, external_funding_amount: leg.external_funding_amount, external_funding_currency: leg.external_funding_currency, derivation: leg.derivation }} /></div></details>
+        <details><summary className="min-h-11 cursor-pointer text-sm">{t('timeline.legIdentity', 'Endpoints, exact units and derivation')}</summary><div className="pt-3"><Facts values={{ chain: leg.chain, token_address: leg.token_address, token_program: leg.token_program, raw_units: leg.raw_units, ...(leg.sender_debit_raw_units != null || leg.receiver_credit_raw_units != null || leg.withheld_fee_raw_units != null ? { sender_debit_raw_units: leg.sender_debit_raw_units, receiver_credit_raw_units: leg.receiver_credit_raw_units, withheld_fee_raw_units: leg.withheld_fee_raw_units } : {}), decimals: leg.decimals, source_address: leg.source_address, destination_address: leg.destination_address, source_owner: leg.source_owner, destination_owner: leg.destination_owner, transaction_ref: leg.transaction_ref, leg_ref: leg.leg_ref, unit_price: leg.unit_price, unit_price_origin: leg.unit_price_origin, external_funding_amount: leg.external_funding_amount, external_funding_currency: leg.external_funding_currency, derivation: leg.derivation }} /></div></details>
         <Reasons reasons={leg.reason_codes} />
         <div className="flex flex-wrap gap-2">{leg.source_ids.map((id) => <Button variant="outline" className="min-h-11" key={id} onClick={() => selectSource(id)}>{t('timeline.openSource', 'Open source')} · {mask(event.sources.find((source) => source.source_id === id)?.source ?? id)}</Button>)}</div>
       </article>)}</div>
@@ -164,6 +173,7 @@ function EventDetails({ event, workspaceId, scope, sourceId, selectSource, nativ
         <Reasons reasons={[...relation.reason_codes, ...relation.conflicting_fields.map((field) => `conflicting_${field}`)]} />
         {relation.review_url?.startsWith('/') && !relation.review_url.startsWith('//') && <Link className={linkClass} to={relation.review_url}>{t('timeline.reviewRelationship', 'Open relationship review')}</Link>}
       </div>)}
+      {!!event.mechanics?.length && <details><summary className="min-h-11 cursor-pointer text-sm">{t('investigation.mechanics', 'Supplied conversion and bridge evidence')}</summary><div className="space-y-4 pt-3">{event.mechanics.map((mechanic, index) => <Facts key={index} values={mechanic} />)}</div></details>}
     </section>
 
     <section className="space-y-3" aria-label={t('timeline.acquisition', 'Acquisition evidence')}>
@@ -182,6 +192,7 @@ function EventDetails({ event, workspaceId, scope, sourceId, selectSource, nativ
       <BalanceDetails workspaceId={workspaceId} wallets={wallets.filter((wallet) => event.accounts.some((account) => account.group_id === wallet.id))} />
     </div>
     {nativeTraceEnabled && <p className="text-sm text-muted-foreground">{t('timeline.nativeHelp', 'Native investigation starts only when submitted. Its bounds and terminal reasons describe research coverage; downstream pooled activity does not prove continuing ownership.')}</p>}
+    {nativeTraceEnabled && <EvidenceInvestigation key={`${workspaceId}:${event.event_id}`} event={event} workspaceId={workspaceId} labelAsset={(asset) => assetLabel(asset, t('timeline.unknownAsset', 'Asset identity unresolved'))} renderEvent={(selected) => <InvestigationEventDetails key={selected.event_id} event={selected} workspaceId={workspaceId} wallets={wallets} />} />}
   </div>
 }
 
@@ -250,7 +261,7 @@ export function OwnedCoinTimeline({ workspaceId, collectionId, groupId, wallets,
 
   const update = (changes: Record<string, string | null>, page = false) => {
     writeParams((next) => {
-      for (const key of ['event', 'event_source', ...(!page ? ['timeline_offset', 'timeline_revision'] : [])]) next.delete(key)
+      for (const key of ['event', 'event_source', 'investigation_event', ...(!page ? ['timeline_offset', 'timeline_revision'] : [])]) next.delete(key)
       for (const [key, value] of Object.entries(changes)) { if (value) next.set(key, value); else next.delete(key) }
     })
   }
@@ -258,10 +269,10 @@ export function OwnedCoinTimeline({ workspaceId, collectionId, groupId, wallets,
     if (key === 'event') focusTarget.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     writeParams((next) => {
       next.set(key, id)
-      if (key === 'event') next.delete('event_source')
+      if (key === 'event') { next.delete('event_source'); next.delete('investigation_event') }
     })
   }
-  const close = () => writeParams((next) => { next.delete('event'); next.delete('event_source') }, true)
+  const close = () => writeParams((next) => { next.delete('event'); next.delete('event_source'); next.delete('investigation_event') }, true)
 
   return <section className="min-w-0 space-y-6" aria-label={t('timeline.title', 'Evidence timeline')}>
     <div className="space-y-2"><h2 className="text-lg font-semibold">{t('timeline.title', 'Evidence timeline')}</h2><p className="max-w-prose text-sm text-muted-foreground">{t('timeline.intro', 'Follow retained acquisitions, movements and source evidence across your accounts. Sold, zero-balance and archived assets remain available here.')}</p></div>

@@ -10,6 +10,7 @@ Jupiter route IDL: https://github.com/jup-ag/instruction-parser/blob/main/src/id
 from __future__ import annotations
 
 import asyncio
+from asyncio import CancelledError
 import copy
 import hashlib
 import json
@@ -473,6 +474,8 @@ async def collect_solana_history(
     owner: str, *, source_identity: str, since: datetime | None = None,
     until: datetime | None = None, supplied_accounts: list[dict] | None = None,
     state: dict | None = None, reobserve: bool = False,
+    budget: RequestBudget | None = None, deadline: float | None = None, research: bool = False,
+    research_address: str | None = None, byte_limit: int | None = None,
 ) -> dict:
     """Resume only this declared owned inventory; never walk counterparties."""
     requested = {"since": since.isoformat() if since else None, "until": until.isoformat() if until else None, "commitment": "finalized"}
@@ -484,6 +487,15 @@ async def collect_solana_history(
         "inventory": {}, "streams": {}, "payloads": {}, "transactions": {}, "gaps": [],
         "snapshots": [], "inventory_programs": [], "unsearched_candidates": [], "bytes": 0,
     }
+    if state and archive.get("research", False) != research:
+        raise ValueError("Owned inventory and external research cannot share continuation")
+    archive["research"] = research
+    if research_address is not None and not research:
+        raise ValueError("Research endpoint requires an external research scope")
+    if state and archive.get("research_address") != research_address:
+        raise ValueError("Research endpoint changed; restart collection")
+    archive["research_address"] = research_address
+    total_limit = min(MAX_TOTAL_BYTES, byte_limit) if byte_limit is not None else MAX_TOTAL_BYTES
     if any(archive.get(key) != value for key, value in (("version", ARCHIVE_VERSION), ("decoder_version", DECODER_VERSION),
                                                       ("owner", owner), ("source_identity", source_identity), ("requested", requested))):
         raise ValueError("History source, owner, decoder or window changed; restart collection")
@@ -498,9 +510,9 @@ async def collect_solana_history(
     archive["limits"] = {"seconds": TIME_BUDGET_SECONDS, "attempts": MAX_ATTEMPTS, "concurrency": 1,
         "pages_per_address": MAX_HISTORY_PAGES, "accounts": MAX_ACCOUNTS,
                          "inventory_entries": MAX_INVENTORY_ENTRIES, "archive_bytes": MAX_ARCHIVE_BYTES,
-                         "total_bytes": MAX_TOTAL_BYTES, "payload_bytes": MAX_PAYLOAD_BYTES}
-    budget = RequestBudget(max_attempts=MAX_ATTEMPTS)
-    deadline = time.monotonic() + TIME_BUDGET_SECONDS
+                         "total_bytes": total_limit, "payload_bytes": MAX_PAYLOAD_BYTES}
+    budget = budget if budget is not None else RequestBudget(max_attempts=MAX_ATTEMPTS)
+    deadline = min(deadline, time.monotonic() + TIME_BUDGET_SECONDS) if deadline is not None else time.monotonic() + TIME_BUDGET_SECONDS
     chain = onchain.CHAINS["solana"]
     endpoint = onchain.rpc_url(chain)
     visited_reads: dict[str, tuple[Any, str]] = {}
@@ -524,7 +536,7 @@ async def collect_solana_history(
                                             "oldest_at": None, "newest_at": None, "unknown_timestamps": 0,
                                             "payload_gaps": [], "pending": [], "seen_cursors": [], "page_refs": []}
 
-    inventory(owner, "owner", {"source": "workspace_connection_ownership_assertion"})
+    inventory(research_address or owner, "research_endpoint" if research else "owner", {"source": "explicit_selected_external_leg" if research else "workspace_connection_ownership_assertion"})
     for item in supplied:
         inventory(item["address"], "supplied_token", {"source": "reviewed_supplied_account"},
                   {"owner": owner, "period": "reviewed_assertion_unspecified_interval", "source": "user_review"})
@@ -545,7 +557,7 @@ async def collect_solana_history(
         # ponytail: bounded O(reads * archive bytes) admission check; maintain
         # an incremental encoded-size counter if large archives become slow.
         total_size = len(json.dumps(archive, separators=(",", ":")).encode())
-        if digest not in archive["payloads"] and (size > MAX_PAYLOAD_BYTES or archive["bytes"] + size > MAX_ARCHIVE_BYTES or total_size + size + 16384 > MAX_TOTAL_BYTES):
+        if digest not in archive["payloads"] and (size > MAX_PAYLOAD_BYTES or archive["bytes"] + size > MAX_ARCHIVE_BYTES or total_size + size + 16384 > total_limit):
             archive["gaps"].append("payload_byte_limit")
             archive.setdefault("unavailable_payloads", []).append({"digest": digest, "method": method, "params": params, "bytes": size, "reason": "payload_byte_limit"})
             raise _CollectionStopped("payload_byte_limit")
@@ -618,7 +630,7 @@ async def collect_solana_history(
             version["confirmation_source"] = status_ref
         duplicate = any(item["version_id"] == version["version_id"] for item in transaction["versions"])
         proposed_bytes = 0 if duplicate else len(json.dumps(version, separators=(",", ":")).encode())
-        if len(json.dumps(archive, separators=(",", ":")).encode()) + proposed_bytes + 16384 > MAX_TOTAL_BYTES:
+        if len(json.dumps(archive, separators=(",", ":")).encode()) + proposed_bytes + 16384 > total_limit:
             transaction["retrieval_gap"] = "decoded_projection_byte_limit"
             raise _CollectionStopped("decoded_projection_byte_limit")
         prior = transaction["versions"]
@@ -632,7 +644,7 @@ async def collect_solana_history(
         else:
             transaction["canonical_version"] = version["version_id"]
             transaction["revision_status"] = "current"
-        for mapping in version["ownership"]:
+        for mapping in ([] if research else version["ownership"]):
             if mapping["owner"] == owner:
                 inventory(mapping["address"], "discovered_token", {"source": mapping["source"], "payload_digest": digest, "path": mapping["path"]}, mapping)
             elif not mapping.get("owner"):
@@ -641,9 +653,21 @@ async def collect_solana_history(
                     archive["unsearched_candidates"].append(candidate)
         return True
 
-    timeout = asyncio.timeout(TIME_BUDGET_SECONDS)
+    timeout = asyncio.timeout(max(0, deadline - time.monotonic()))
     try:
         async with timeout, onchain.session() as client:
+            if state and (archive.get("anchor") or {}).get("blockhash"):
+                anchor = archive["anchor"]
+                block, _ = await read(client, "getBlock", [anchor["slot"], {"commitment": "finalized", "transactionDetails": "none", "rewards": False}])
+                if not isinstance(block, dict) or not block.get("blockhash"):
+                    archive["gaps"].append("anchor_revalidation_unavailable")
+                    raise _CollectionStopped("anchor_revalidation_unavailable")
+                if block["blockhash"] != anchor["blockhash"]:
+                    archive["gaps"].append("anchor_changed_restart_required")
+                    for transaction in archive["transactions"].values():
+                        transaction["canonical_version"] = None
+                        transaction["revision_status"] = "conflicting_or_reorganized"
+                    raise _CollectionStopped("anchor_changed_restart_required")
             if archive["anchor"] is None:
                 slot, slot_ref = await read(client, "getSlot", [{"commitment": "finalized"}])
                 if _integer(slot) is None:
@@ -654,7 +678,7 @@ async def collect_solana_history(
                                          "commitment": "finalized", "source_refs": [slot_ref, block_ref]}
                     if not archive["anchor"]["blockhash"]:
                         archive["gaps"].append("anchor_blockhash_unavailable")
-            for program in onchain.SOLANA_TOKEN_PROGRAMS:
+            for program in (() if research else onchain.SOLANA_TOKEN_PROGRAMS):
                 if program in archive["inventory_programs"]:
                     continue
                 try:
@@ -752,6 +776,10 @@ async def collect_solana_history(
                     stream["stop_reason"] = interruption_code(exc)
     except OnchainRequestLimitExceeded:
         archive["gaps"].append("request_limit")
+    except CancelledError:
+        # Reads are sequential and awaited: leaving the client context drains
+        # the active read before retained siblings can be persisted by the caller.
+        archive["gaps"].append("cancelled")
     except _CollectionStopped as exc:
         archive["gaps"].append(str(exc))
     except OnchainDeadlineExceeded:

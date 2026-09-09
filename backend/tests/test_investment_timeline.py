@@ -599,17 +599,25 @@ async def test_reversed_transfer_keeps_independent_reported_zero_basis(transfers
     assert await _financial_state(v.session) == before
 
 
+@pytest.mark.parametrize("overlapping", [False, True])
 async def test_collector_transfer_preserves_archive_ids_and_exact_pair_basis(
-    session, test_workspace, test_user, client, auth_headers, monkeypatch,
+    session, test_workspace, test_user, client, auth_headers, monkeypatch, overlapping,
 ):
     original_confirm, observed = transfer_producer.confirm_transfer, []
     async def confirm_and_inspect(v, request):
         transfer = await original_confirm(v, request)
+        if overlapping:
+            archives = list(await session.scalars(select(InvestmentHistoryCollection).where(
+                InvestmentHistoryCollection.workspace_id == test_workspace.id)))
+            for archive in archives:
+                checked(await client.post("/api/onchain/history", headers=v.headers, json=archive.request))
         before = await _financial_state(session)
         events = checked(await client.get(PREFIX, headers=v.headers))["events"]
         event = next(event for event in events if any(part["id"] == transfer["id"] for part in event["transfers"]))
         assert all(leg["leg_id"].startswith("archive-leg:") for leg in event["legs"])
         assert len({leg["leg_id"] for leg in event["legs"]}) == len(event["legs"])
+        if overlapping:
+            assert all(len(leg["source_ids"]) == 2 for leg in event["legs"])
         assert event["basis"]["state"] == "known" and Decimal(event["basis"]["acquisition_cost"]) == 60
         for leg_id in (request["out_leg_id"], request["in_leg_id"], *(fee["leg_id"] for fee in request["fees"])):
             raw = await session.get(InvestmentLeg, uuid.UUID(leg_id))
@@ -624,3 +632,71 @@ async def test_collector_transfer_preserves_archive_ids_and_exact_pair_basis(
     assert len(observed) == 1
     events = checked(await client.get(PREFIX, headers={**auth_headers, "X-Workspace-Id": str(test_workspace.id)}))["events"]
     assert not any(part["status"] == "confirmed" for event in events for part in event["transfers"])
+
+
+@pytest.mark.parametrize("repeat", ["same_anchor", "later_anchor", "page_shape", "conflicting_facts", "coinbase_maturity"])
+async def test_bitcoin_collector_timeline_deduplicates_only_compatible_anchor_facts(
+    client, auth_headers, session, test_workspace, test_user, monkeypatch, repeat,
+):
+    from tests.test_bitcoin_history import Esplora, install, output, spend, transaction
+
+    # Base58Check of a synthetic fixture hash; every Esplora request is mocked.
+    address = "16g4GWdshjQrAYmfmvWxub92twwr3JFWgx"
+    connection, _, group = await connected_context(session, test_workspace.id, test_user.id)
+    connection.credentials = {"addresses": ["bitcoin:" + address]}
+    await session.commit()
+    coinbase = repeat == "coinbase_maturity"
+    inputs = [{"is_coinbase": True, "txid": "0" * 64, "vout": 4294967295, "scriptsig": "aa"}] if coinbase else [spend(address=address)]
+    payload = transaction(inputs=inputs, outputs=[output(990, address if coinbase else "external-A", "52")])
+    rpc = Esplora({f"/address/{address}/txs/chain": [payload]})
+    install(monkeypatch, rpc)
+    request = {"connection_id": str(connection.id), "chain": "bitcoin", "address": address, "ownership_confirmed": True}
+    first = checked(await client.post("/api/onchain/history", headers=auth_headers, json=request))
+    initial = checked(await client.get(PREFIX, headers=auth_headers))["events"][0]
+    if repeat != "same_anchor":
+        rpc.tip = 194 if coinbase else 101
+    if repeat == "conflicting_facts":
+        payload["vout"][0]["value"], payload["fee"] = 980, 20
+    if repeat == "page_shape":
+        rpc.routes[f"/address/{address}/txs/chain"].append(transaction("other-record", inputs=[spend("different-funding", address=address)]))
+    second = checked(await client.post("/api/onchain/history", headers=auth_headers, json=request))
+    before, call_count = await _financial_state(session), len(rpc.calls)
+    retained = {row.id: copy.deepcopy(row.payload) for row in await session.scalars(
+        select(InvestmentHistoryCollection).where(InvestmentHistoryCollection.workspace_id == test_workspace.id))}
+    events = checked(await client.get(PREFIX, headers=auth_headers, params={"group_id": str(group.id)}))["events"]
+    assert len(events) == (2 if repeat == "page_shape" else 1)
+    event = next(event for event in events if event["event_id"] == initial["event_id"])
+    assert event["event_id"] == initial["event_id"]
+    sources = [source for source in event["sources"] if source["source_id"].startswith("archive:")]
+    assert len(sources) == 2
+    assert {source["collection_id"] for source in sources} == {first["collection_id"], second["collection_id"]}
+    versions = []
+    for source in sources:
+        detail = checked(await client.get(source["detail_url"], headers=auth_headers))
+        assert detail["raw_payload"] and detail["transaction"]
+        version = json.loads(detail["transaction"]["json"])["versions"][0]
+        assert version["payload_digest"] == source["payload_digest"]
+        versions.append(version)
+    if coinbase:
+        assert {(version["confirmations"], version["legs"][0]["maturity_eligible"]) for version in versions} == {(6, False), (100, True)}
+    assert len({leg["leg_id"] for leg in event["legs"]}) == len(event["legs"])
+    if repeat == "conflicting_facts":
+        assert event["status"] == event["linkage"] == "conflicting"
+        assert len(event["legs"]) == 6
+        assert all(not leg["is_current"] and leg["settlement_status"] == "unknown" for leg in event["legs"])
+        assert all(len(leg["source_ids"]) == 1 for leg in event["legs"])
+    else:
+        assert event["status"] == "settled"
+        assert len(event["legs"]) == (1 if coinbase else 3)
+        assert {leg["leg_id"] for leg in event["legs"]} == {leg["leg_id"] for leg in initial["legs"]}
+        assert all(leg["is_current"] and leg["settlement_status"] == "settled" for leg in event["legs"])
+        assert all(set(leg["source_ids"]) == {source["source_id"] for source in sources} for leg in event["legs"])
+        if coinbase:
+            assert event["legs"][0]["raw_units"] == "990" and not event["legs"][0]["non_additive"]
+        else:
+            fee = next(leg for leg in event["legs"] if leg["classification"] == "fee")
+            assert fee["raw_units"] == "10" and fee["non_additive"]
+            assert Decimal(fee["quantity"]) == Decimal("0.0000001")
+    assert len(rpc.calls) == call_count and await _financial_state(session) == before
+    assert {row.id: row.payload for row in await session.scalars(select(InvestmentHistoryCollection).where(
+        InvestmentHistoryCollection.workspace_id == test_workspace.id))} == retained

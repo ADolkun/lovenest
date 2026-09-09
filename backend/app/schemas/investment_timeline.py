@@ -69,6 +69,9 @@ class TimelineLeg(EvidenceLegInput):
     non_additive: bool = False
     is_current: bool = True
     reason_codes: list[str] = Field(default_factory=list)
+    sender_debit_raw_units: str | None = None
+    receiver_credit_raw_units: str | None = None
+    withheld_fee_raw_units: str | None = None
 
 
 class TimelineRelationship(BaseModel):
@@ -132,6 +135,7 @@ class TimelineEvent(BaseModel):
     transfers: list[dict] = Field(default_factory=list)
     recovery: list[dict] = Field(default_factory=list)
     incidents: list[dict] = Field(default_factory=list)
+    mechanics: list[dict] = Field(default_factory=list)
 
 
 class TimelineRead(BaseModel):

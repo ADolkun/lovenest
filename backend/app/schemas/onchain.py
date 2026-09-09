@@ -16,6 +16,7 @@ class ChainRead(BaseModel):
     # to disable the chain rather than let a trace fail on submit.
     traceable: bool
     historical_evidence: str = "unsupported"
+    capabilities: dict[str, str] = Field(default_factory=dict)
 
 
 class TraceRequest(BaseModel):

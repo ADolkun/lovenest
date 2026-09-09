@@ -137,7 +137,7 @@ async def test_token_only_closed_supplied_zero_unpriced_inventory_and_replay(mon
     assert "private-key" not in json.dumps(archive)
     count = len(rpc.calls)
     replayed = await collect(state=json.loads(json.dumps(archive)), supplied_accounts=supplied)
-    assert len(rpc.calls) == count
+    assert rpc.calls[count:] == [("getBlock", [100, {"commitment": "finalized", "transactionDetails": "none", "rewards": False}])]
     assert replayed["transactions"] == archive["transactions"]
     assert all("getTokenAccountsByOwner" != call[0] or call[1][1]["programId"] in onchain.SOLANA_TOKEN_PROGRAMS for call in rpc.calls)
 

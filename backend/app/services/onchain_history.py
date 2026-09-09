@@ -16,7 +16,7 @@ from app.models.bank_connection import BankConnection
 from app.models.investment_evidence import InvestmentHistoryCollection, InvestmentObservation
 from app.models.workspace import Workspace
 from app.providers.onchain import (
-    ACCOUNT_EXTERNAL_ID, address_is_valid, normalize_address, parse_addresses, rpc_url,
+    ACCOUNT_EXTERNAL_ID, CHAINS, address_is_valid, normalize_address, parse_addresses, rpc_url,
 )
 from app.schemas.investment_evidence import EvidenceLegInput, EvidenceObservationInput
 from app.schemas.onchain_history import HistoryRead, HistoryRequest, HistorySummary
@@ -28,6 +28,28 @@ MAX_WORKSPACE_BYTES = 128 * 1024 * 1024
 MAX_COLLECTIONS = 100
 
 
+def history_source_identity(chain):
+    if chain == "solana":
+        return "solana-rpc:" + hashlib.sha256(rpc_url(resolve_chain(chain)).encode()).hexdigest()
+    if chain == "bitcoin":
+        from app.providers.bitcoin_history import bitcoin_source_identity
+        return bitcoin_source_identity()
+    from app.providers.evm_history import evm_source_identity
+    return evm_source_identity(chain)
+
+
+async def collect_archive(chain, address, *, start_block=None, end_block=None, **kwargs):
+    """Dispatch to producer-owned decoders with one unchanged archive boundary."""
+    if chain == "solana":
+        from app.providers.solana_history import collect_solana_history
+        return await collect_solana_history(address, **kwargs)
+    if chain == "bitcoin":
+        from app.providers.bitcoin_history import collect_bitcoin_history
+        return await collect_bitcoin_history(address, **kwargs)
+    from app.providers.evm_history import collect_evm_history
+    return await collect_evm_history(address, chain=chain, start_block=start_block or 0, end_block=end_block, **kwargs)
+
+
 def _error(status, code, message, reason=None):
     return HTTPException(status, {"code": code, "message": message, "reason": reason})
 
@@ -37,7 +59,7 @@ def _json_bytes(value):
 
 
 def _asset_key(asset):
-    return (asset.get("chain"), bool(asset.get("native")), asset.get("mint"), asset.get("token_program"))
+    return (asset.get("chain"), bool(asset.get("native")), asset.get("mint") or asset.get("contract"), asset.get("token_program"))
 
 
 def _instant(value):
@@ -62,6 +84,7 @@ def current_versions(archive):
 def project_observations(archive, collection_id):
     """Lossless segments keep the existing 100-leg import boundary intact."""
     owner = archive["owner"]
+    chain = archive.get("chain", "solana")
     result = []
     for transaction, version in current_versions(archive):
         legs = []
@@ -86,9 +109,9 @@ def project_observations(archive, collection_id):
                 bounded_quantities.add(leg["key"])
             legs.append(EvidenceLegInput(
                 key=leg["key"], chain=asset["chain"],
-                token_address="native" if native else asset.get("mint"),
+                token_address="native" if native else asset.get("mint") or asset.get("contract"),
                 provider_asset_id=":".join(str(part or "") for part in _asset_key(asset)),
-                asset_symbol="SOL" if native else None,
+                asset_symbol=CHAINS[chain].symbol if native and chain in CHAINS else None,
                 direction="out" if source_owned else "in" if destination_owned else "unknown",
                 quantity=quantity,
                 classification="unknown" if leg.get("interpretation") == "unresolved" else "fee" if leg.get("role") in roles else "transfer",
@@ -106,10 +129,11 @@ def project_observations(archive, collection_id):
             segment = offset // 100
             source_id = f"{transaction['signature']}:{segment}"
             when = _instant(version.get("block_time"))
-            settled = version.get("settlement") == "settled" and version.get("in_requested_window") is True
+            settled = (version.get("settlement") == "settled" and version.get("in_requested_window") is True
+                       and all(leg.get("settlement", "settled") == "settled" for leg in version.get("legs", []) if not leg.get("non_additive")))
             result.append(EvidenceObservationInput(
                 reference=f"{collection_id}:{source_id}:{version['version_id']}",
-                source="onchain_history", provider="onchain", source_account_id=f"solana:{owner}",
+                source="onchain_history", provider="onchain", source_account_id=f"{chain}:{owner}",
                 account_external_id=ACCOUNT_EXTERNAL_ID, source_local_id=source_id,
                 source_locator=f"onchain/history/{collection_id}/payloads/{version['payload_digest']}",
                 observed_at=_instant(archive.get("payloads", {}).get(version["payload_digest"], {}).get("retrieved_at")),
@@ -118,7 +142,7 @@ def project_observations(archive, collection_id):
                 timezone="UTC" if when else None, time_precision="second" if when else "unknown",
                 provider_status=version.get("execution"), network_status=version.get("confirmation_status"),
                 settlement_status="settled" if settled else "pending" if version.get("settlement") == "provisional" else "unknown",
-                order_ref=f"solana:{transaction['signature']}",
+                order_ref=f"{chain}:{transaction['signature']}",
                 coverage=["historical_inventory_unresolved", "basis_unknown", "funding_unknown"],
                 reason_codes=(
                     (["requested_window_unresolved"] if version.get("in_requested_window") is not True else [])
@@ -242,21 +266,75 @@ def _transaction_conflicts(archives):
     """Hash each content-addressed payload once for the whole authorized scope."""
     facts = {}
     payload_hashes = {}
-    for collection_id, source in archives:
+    prevout_fields = {}
+    spends = {}
+    for collection_id, source in flatten_archives(archives):
         for key, transaction in source.get("transactions", {}).items():
-            identity = (source.get("chain"), source.get("owner"), key)
-            fact = facts.setdefault(identity, {"variants": set(), "collections": set(), "conflicting": False})
+            identity = (source.get("chain"), key)
+            fact = facts.setdefault(identity, {"variants": set(), "internal_variants": set(), "indexed_paths": {}, "owners": set(), "collections": set(), "conflicting": False, "reorged_blocks": set()})
+            fact["owners"].add(source.get("owner"))
             fact["collections"].add(str(collection_id) if collection_id else "this_collection")
             fact["conflicting"] |= transaction.get("revision_status") in {"conflicting_or_reorganized", "cross_collection_conflict"}
             for version in transaction.get("versions", []):
                 digest = version["payload_digest"]
                 payload = source.get("payloads", {}).get(digest)
-                if payload is None:
-                    continue
-                if digest not in payload_hashes:
-                    payload_hashes[digest] = hashlib.sha256(_json_bytes(payload["response"].get("result"))).hexdigest()
-                fact["variants"].add(payload_hashes[digest])
-    return {identity: sorted(fact["collections"]) for identity, fact in facts.items() if len(fact["variants"]) > 1 or fact["conflicting"]}
+                if version.get("evidence_fingerprint"):
+                    fact["variants"].add(version["evidence_fingerprint"])
+                elif payload is not None:
+                    if digest not in payload_hashes:
+                        response = payload.get("response")
+                        payload_hashes[digest] = hashlib.sha256(_json_bytes(response.get("result", response) if isinstance(response, dict) else response)).hexdigest()
+                    fact["variants"].add(payload_hashes[digest])
+                if version.get("internal_evidence_fingerprint"):
+                    fact["internal_variants"].add(version["internal_evidence_fingerprint"])
+                for path, fingerprint in version.get("indexed_internal_fingerprints", {}).items():
+                    fact["indexed_paths"].setdefault(path, set()).add(fingerprint)
+                if source.get("chain") == "bitcoin":
+                    from app.providers.bitcoin_history import bitcoin_prevout_fingerprints
+                    fact["conflicting"] |= "prevout_conflict" in version.get("gaps", [])
+                    if version.get("block_hash") and (version.get("confirmation_status") == "reorged" or version.get("active_chain") is False):
+                        fact["reorged_blocks"].add(version["block_hash"])
+                    for field, fingerprint in bitcoin_prevout_fingerprints(version).items():
+                        known = prevout_fields.setdefault(field, {"fingerprints": set(), "transactions": set()})
+                        known["fingerprints"].add(fingerprint)
+                        known["transactions"].add(identity)
+                    current = version["version_id"] == transaction.get("canonical_version")
+                    # Qualification cannot erase an unresolved settled claim.
+                    # Positive reorg/mempool evidence can retire that inclusion.
+                    latest = transaction["versions"][-1]
+                    retained_conflict = (transaction.get("canonical_version") is None and fact["conflicting"]
+                                         and latest.get("confirmation_status") not in {"reorged", "mempool"}
+                                         and latest.get("active_chain") is not False)
+                    for item in version.get("inputs", []):
+                        if item.get("outpoint") and not item.get("is_coinbase"):
+                            spent = spends.setdefault(item["outpoint"], {"transactions": set(), "settled": set()})
+                            spent["transactions"].add(identity)
+                            if (current or retained_conflict) and version.get("settlement") == "settled":
+                                spent["settled"].add((identity, version.get("block_hash")))
+    for known in prevout_fields.values():
+        if len(known["fingerprints"]) > 1:
+            collections = set().union(*(facts[identity]["collections"] for identity in known["transactions"]))
+            for identity in known["transactions"]:
+                facts[identity]["conflicting"] = True
+                facts[identity]["collections"].update(collections)
+    for spent in spends.values():
+        settled = {identity for identity, block_hash in spent["settled"] if block_hash not in facts[identity]["reorged_blocks"]}
+        if settled and len(spent["transactions"]) > 1:
+            collections = set().union(*(facts[identity]["collections"] for identity in spent["transactions"]))
+            for identity in spent["transactions"]:
+                if len(settled) > 1 or identity not in settled:
+                    facts[identity]["conflicting"] = True
+                    facts[identity]["collections"].update(collections)
+    return {(identity[0], owner, identity[1]): sorted(fact["collections"]) for identity, fact in facts.items()
+            if len(fact["variants"]) > 1 or len(fact["internal_variants"]) > 1 or any(len(values) > 1 for values in fact["indexed_paths"].values()) or fact["conflicting"]
+            for owner in fact["owners"]}
+
+
+def flatten_archives(archives):
+    for collection_id, archive in archives:
+        yield collection_id, archive
+        for key, retained in archive.get("investigations", {}).items():
+            yield f"{collection_id}:research:{key}", retained["archive"]
 
 
 def qualify_archive(archive, peers):
@@ -273,15 +351,29 @@ def qualify_archive(archive, peers):
     qualified["gaps"] = sorted(set(qualified.get("gaps", [])))
     if "cross_collection_conflict" in qualified["gaps"]:
         qualified.setdefault("coverage", {}).update(interpretation="partial", settlement="partial")
-    qualified["reconciliation"] = reconcile_history(qualified)
+    if qualified.get("chain", "solana") == "solana":
+        qualified["reconciliation"] = reconcile_history(qualified)
+    elif "cross_collection_conflict" in qualified["gaps"]:
+        if qualified["chain"] in {"ethereum", "base", "polygon"}:
+            from app.providers.evm_history import reconcile_evm_history
+            qualified["reconciliation"] = reconcile_evm_history(qualified)
+        elif qualified["chain"] == "bitcoin":
+            from app.providers.bitcoin_history import _quantity
+            subtotal = sum(int(version["owned_quantity"]["known_delta_raw_units"]) for _, version in current_versions(qualified)
+                           if version.get("settlement") == "settled" and version.get("in_requested_window") is True and version.get("owned_quantity"))
+            for row in qualified.get("reconciliation", []):
+                row.update(known_settled_change=_quantity(subtotal, 8), known_settled_change_raw_units=str(subtotal))
+        for row in qualified.get("reconciliation", []):
+            row.update(status="unknown", expected_closing=None, discrepancy=None)
+            row["reasons"] = sorted(set(row.get("reasons", []) + ["cross_collection_conflict"]))
+    for retained in qualified.get("investigations", {}).values():
+        retained["archive"] = qualify_archive(retained["archive"], [(None, archive), *peers])
     return qualified
 
 
 async def _peer_archives(session, workspace_id, connection_id, owner, collection_id=None):
     query = select(InvestmentHistoryCollection).where(
         InvestmentHistoryCollection.workspace_id == workspace_id,
-        InvestmentHistoryCollection.connection_id == connection_id,
-        InvestmentHistoryCollection.request["address"].as_string() == owner,
     )
     if collection_id:
         query = query.where(InvestmentHistoryCollection.id != collection_id)
@@ -293,8 +385,8 @@ async def _owned_context(session, workspace_id, request):
         chain = resolve_chain(request.chain)
     except ValueError as exc:
         raise _error(422, "history_unsupported", "Unknown history chain") from exc
-    if chain.key != "solana":
-        raise _error(422, "history_unsupported", "Owned historical evidence is currently supported only for Solana")
+    if chain.key not in {"solana", "ethereum", "base", "polygon", "bitcoin"}:
+        raise _error(422, "history_unsupported", "Historical evidence is unsupported for this chain")
     address = normalize_address(chain, request.address)
     if not address_is_valid(chain, address):
         raise _error(422, "history_invalid_address", "Invalid address for the selected chain")
@@ -324,8 +416,10 @@ async def _owned_context(session, workspace_id, request):
         AssetGroup.external_id == _wallet_external_id(connection.external_id, account.external_id),
     ).with_for_update(nowait=True))
     for supplied in request.supplied_accounts:
-        if supplied.owner != address or not address_is_valid(chain, supplied.address) or supplied.address == address:
+        if supplied.owner != address or (supplied.scriptpubkey is not None and chain.key != "bitcoin") or (supplied.address is not None and (not address_is_valid(chain, supplied.address) or supplied.address == address)):
             raise _error(422, "history_invalid_account", "Historical token accounts require valid distinct addresses and the selected owner")
+    if chain.kind == "evm" and request.supplied_accounts:
+        raise _error(422, "history_invalid_account", "EVM collection supports one declared address at a time")
     return connection, account, group, address
 
 
@@ -357,7 +451,11 @@ async def read_history(session, workspace_id, collection_id):
     peers = await _peer_archives(session, workspace_id, row.connection_id, row.request["address"], row.id)
     # revision binds the retained continuation state; current qualification also
     # considers later source conflicts, without mutating a read/export request.
-    return history_read(row, qualify_archive(row.payload, peers))
+    qualified = qualify_archive(row.payload, peers)
+    if row.payload.get("bridges"):
+        from app.services.onchain_investigation import bridge_review_statuses
+        qualified["bridge_reviews"] = await bridge_review_statuses(session, workspace_id, row)
+    return history_read(row, qualified)
 
 
 async def list_history(session, workspace_id, connection_id=None):
@@ -367,36 +465,33 @@ async def list_history(session, workspace_id, connection_id=None):
             BankConnection.id == connection_id, BankConnection.workspace_id == workspace_id,
         )) is None:
             raise _error(404, "history_context_unavailable", "Connected wallet not found")
-        query = query.where(InvestmentHistoryCollection.connection_id == connection_id)
     rows = (await session.scalars(query.order_by(InvestmentHistoryCollection.updated_at.desc()).limit(100))).all()
-    connections = {}
-    for row in rows:
-        connections.setdefault(row.connection_id, []).append((row.id, row.payload))
-    conflicts = {connection: _transaction_conflicts(archives) for connection, archives in connections.items()}
+    conflicts = _transaction_conflicts([(row.id, row.payload) for row in rows])
     return [HistorySummary(
         collection_id=row.id, revision=row.revision, request=row.request, updated_at=_db_time(row.updated_at),
         coverage={**row.payload.get("coverage", {}), **({"interpretation": "partial", "settlement": "partial"} if any(
-            (row.payload.get("chain"), row.payload.get("owner"), key) in conflicts[row.connection_id]
+            (row.payload.get("chain"), row.payload.get("owner"), key) in conflicts
             for key in row.payload.get("transactions", {})
         ) else {})},
         transaction_count=len(row.payload.get("transactions", {})),
-    ) for row in rows]
+    ) for row in rows if connection_id is None or row.connection_id == connection_id]
 
 
 async def collect_history(session, workspace_id, user_id, request: HistoryRequest):
-    from app.providers.solana_history import collect_solana_history
     try:
         # Serialize quota reservation and current-version projection per workspace.
         # ponytail: workspace lock spans bounded RPC collection; move to reservations if contention matters.
         await session.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update(nowait=True))
         connection, account, group, address = await _owned_context(session, workspace_id, request)
         canonical = request.model_dump(mode="json", exclude={"collection_id", "expected_revision", "reobserve"})
-        canonical.update(chain="solana", address=address)
-        canonical["supplied_accounts"] = sorted(canonical["supplied_accounts"], key=lambda item: item["address"])
+        chain = resolve_chain(request.chain).key
+        canonical.update(chain=chain, address=address)
+        canonical["supplied_accounts"] = sorted(canonical["supplied_accounts"], key=lambda item: item["address"] or item.get("scriptpubkey", ""))
         row = await load_history(session, workspace_id, request.collection_id) if request.collection_id else None
-        source_identity = "solana-rpc:" + hashlib.sha256(rpc_url(resolve_chain("solana")).encode()).hexdigest()
+        source_identity = history_source_identity(chain)
         if row:
-            if row.request != canonical or row.connection_id != connection.id or row.group_id != (group.id if group else None) or row.payload["source_identity"] != source_identity or row.payload.get("ownership_assertion", {}).get("account_id") != str(account.id):
+            prior_request = HistoryRequest.model_validate(row.request).model_dump(mode="json", exclude={"collection_id", "expected_revision", "reobserve"})
+            if prior_request != canonical or row.connection_id != connection.id or row.group_id != (group.id if group else None) or row.payload["source_identity"] != source_identity or row.payload.get("ownership_assertion", {}).get("account_id") != str(account.id):
                 raise _error(409, "history_restart_required", "Saved collection settings changed; start a new collection explicitly")
             if row.revision != request.expected_revision:
                 raise _error(409, "history_revision_conflict", "Saved history changed; reopen before continuing")
@@ -411,11 +506,10 @@ async def collect_history(session, workspace_id, user_id, request: HistoryReques
         if used - (row.size_bytes if row else 0) + MAX_COLLECTION_BYTES > MAX_WORKSPACE_BYTES:
             raise _error(413, "history_storage_limit", "Workspace evidence storage cannot reserve another collection; export existing evidence")
         try:
-            evidence = await collect_solana_history(
-                address, source_identity=source_identity, since=request.since, until=request.until,
-                supplied_accounts=canonical["supplied_accounts"], state=copy.deepcopy(row.payload) if row else None,
-                reobserve=request.reobserve,
-            )
+            evidence = await collect_archive(chain, address, source_identity=source_identity,
+                since=request.since, until=request.until, supplied_accounts=[{key: value for key, value in item.items() if value is not None} for item in canonical["supplied_accounts"]],
+                state=copy.deepcopy(row.payload) if row else None, reobserve=request.reobserve,
+                start_block=request.start_block, end_block=request.end_block)
         except ValueError as exc:
             raise _error(409, "history_restart_required", "Saved source, decoder, anchor or inventory changed; restart explicitly") from exc
         now = datetime.now(timezone.utc)
@@ -451,7 +545,7 @@ async def collect_history(session, workspace_id, user_id, request: HistoryReques
         ))).all()
         transaction_ids = {transaction["signature"] for transaction in evidence.get("transactions", {}).values()}
         for old in saved:
-            if old.payload.get("source") == "onchain_history" and old.payload.get("source_account_id") == f"solana:{address}" and old.payload.get("order_ref") in {f"solana:{sig}" for sig in transaction_ids}:
+            if old.payload.get("source") == "onchain_history" and old.payload.get("source_account_id") == f"{chain}:{address}" and old.payload.get("order_ref") in {f"{chain}:{sig}" for sig in transaction_ids}:
                 old.is_current = old.identity_key in current_ids and any(
                     old.identity_key == crosswalk._identity(group_id, connection.id, item) and old.fingerprint == crosswalk._fingerprint(item)
                     for item in projected

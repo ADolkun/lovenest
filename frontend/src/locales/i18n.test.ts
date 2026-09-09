@@ -13,7 +13,7 @@ const LOCALES = readdirSync(LOCALES_DIR)
 // remove a locale once its downstream strings have translations.
 const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'hi', 'ja', 'sk'])
 
-// #146 balance explanations and #133 ship EN + PT-BR. Other locales use English for these shared labels,
+// #146 balance explanations, #133 and #155 ship EN + PT-BR. Other locales use English for these shared labels,
 // while existing common/evidence keys still require translations.
 const OWNED_TRANSFER_SHARED_KEYS = [
   'common.all',
@@ -31,6 +31,9 @@ const OWNED_TRANSFER_SHARED_KEYS = [
   'evidence.field.quantity_role',
   'evidence.field.fee_payer',
   'evidence.field.fee_semantics',
+  'timeline.fields.sender_debit_raw_units',
+  'timeline.fields.receiver_credit_raw_units',
+  'timeline.fields.withheld_fee_raw_units',
 ]
 
 function readRaw(locale: string): string {
@@ -222,10 +225,10 @@ describe('i18n locale files', () => {
         const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
         // A key is covered if the locale has the key directly OR has at least one
         // i18next plural form of it (e.g. _one/_few/_many/_other for Polish).
-        // #133 and #144 ship EN + PT-BR; other languages use the runtime
+        // #133, #144 and #155 ship EN + PT-BR; other languages use the runtime
         // English fallback only for these namespaces and exact shared keys.
         const missing = [...enKeys].filter((k) =>
-          !(locale !== 'pt-BR' && (k.startsWith('history.') || k.startsWith('ownedTransfers.') || k.startsWith('balanceExplanation.') || OWNED_TRANSFER_SHARED_KEYS.includes(k))) && !hasKeyOrPluralForms(keys, k),
+          !(locale !== 'pt-BR' && (k.startsWith('history.') || k.startsWith('investigation.') || k.startsWith('ownedTransfers.') || k.startsWith('balanceExplanation.') || OWNED_TRANSFER_SHARED_KEYS.includes(k))) && !hasKeyOrPluralForms(keys, k),
         )
         expect(missing, `Keys missing in ${locale}:`).toEqual([])
       })
