@@ -36,7 +36,8 @@ from app.providers.base import (
 )
 from app.services import oauth_state
 from app.services import admin_service
-from app.services import recurring_match_service
+from app.services import reconciliation_service, recurring_match_service
+from app.services.text_similarity import token_overlap
 from app.services.account_service import (
     _simplefin_to_internal_balance,
     sync_opening_balance_for_connected_account,
@@ -58,6 +59,8 @@ logger = logging.getLogger(__name__)
 LOCAL_IMPORT_SOURCES = {"import", "csv", "ofx", "qif", "camt"}
 
 settings = get_settings()
+
+_PROVIDER_SELL_DATE_METADATA_KEY = "_securo_provider_sell_date"
 
 
 def _clean_logo_url(value: object) -> Optional[str]:
@@ -249,7 +252,7 @@ async def _sync_holdings(
     """Fetch investment holdings from the provider and upsert them as Assets.
 
     Each holding becomes one Asset (type="investment") keyed by
-    (user_id, source, external_id). Every sync appends an AssetValue row
+    (workspace_id, source, external_id). Every sync appends an AssetValue row
     dated today; if a row for today already exists (same day re-sync) it
     is updated in place rather than creating a duplicate.
 
@@ -517,19 +520,21 @@ async def _sync_holdings(
     # the user's customization with them.
     split_group_ids = {row[0] for row in sync_owned if row[1] and "::" in row[1]}
 
-    # Also pull orphans (connection_id IS NULL) with the same source —
-    # those are assets archived by a prior disconnect. Re-matching on
-    # external_id lets users re-link their investment history when they
-    # re-add a connection without creating duplicate rows.
     existing_rows = await session.execute(
         select(Asset).where(
-            Asset.user_id == user_id,
+            Asset.workspace_id == connection.workspace_id,
             Asset.source == source,
-            or_(Asset.connection_id == connection.id, Asset.connection_id.is_(None)),
         )
     )
+    existing_assets = list(existing_rows.scalars().all())
     existing_by_external: dict[str, Asset] = {
-        a.external_id: a for a in existing_rows.scalars().all() if a.external_id
+        asset.external_id: asset for asset in existing_assets if asset.external_id
+    }
+    archive_candidates: dict[str, Asset] = {
+        asset.external_id: asset
+        for asset in existing_assets
+        if asset.external_id
+        and (asset.connection_id == connection.id or asset.connection_id is None)
     }
     seen: set[str] = set()
 
@@ -548,19 +553,63 @@ async def _sync_holdings(
         if holding.is_withdrawn:
             if existing is None:
                 continue
+            provider_sell_date: Optional[str] = None
             if existing.sell_date is None:
                 existing.sell_date = today
+                provider_sell_date = today.isoformat()
+            else:
+                # Preserve provenance across repeated withdrawn payloads, but
+                # deliberately drop it once the user changes the date.
+                previous_marker = (existing.external_metadata or {}).get(
+                    _PROVIDER_SELL_DATE_METADATA_KEY
+                )
+                if previous_marker == existing.sell_date.isoformat():
+                    provider_sell_date = previous_marker
             # Keep descriptive fields fresh in case the provider still
             # updates them post-closure, but don't touch valuation.
             existing.name = holding.name
-            existing.external_metadata = holding.metadata
+            withdrawn_metadata = dict(holding.metadata or {})
+            if provider_sell_date is not None:
+                withdrawn_metadata[_PROVIDER_SELL_DATE_METADATA_KEY] = provider_sell_date
+            existing.external_metadata = withdrawn_metadata or None
             existing.connection_id = connection.id
             continue
+
+        # A provider-reported closure is reversible. The prior raw status is
+        # already persisted in external_metadata, so no separate schema field
+        # is needed to distinguish TOTAL_WITHDRAWAL -> ACTIVE from a manually
+        # entered sell date. Manual dates remain authoritative when there was
+        # no provider withdrawal transition.
+        previous_metadata = existing.external_metadata or {} if existing is not None else {}
+        previous_provider_status = str(previous_metadata.get("status") or "").upper()
+        provider_sell_date = previous_metadata.get(_PROVIDER_SELL_DATE_METADATA_KEY)
+        if (
+            existing is not None
+            and existing.sell_date is not None
+            and previous_provider_status == "TOTAL_WITHDRAWAL"
+            and provider_sell_date == existing.sell_date.isoformat()
+        ):
+            existing.sell_date = None
 
         asset = await _upsert_asset_from_holding(
             session, existing, holding, user_id, connection.id, source,
             workspace_id=connection.workspace_id,
         )
+        if asset.group_id is not None:
+            existing_group = await session.get(AssetGroup, asset.group_id)
+            if (
+                existing_group is not None
+                and existing_group.workspace_id == connection.workspace_id
+                and existing_group.source == source
+                and (
+                    existing_group.connection_id == connection.id
+                    or existing_group.connection_id is None
+                )
+            ):
+                existing_group.user_id = user_id
+                sync_owned_group_ids.add(existing_group.id)
+                if existing_group.external_id and "::" in existing_group.external_id:
+                    split_group_ids.add(existing_group.id)
         # Attach to its institution's wallet. NOTE this deliberately moves
         # holdings between sync-owned wallets, not just out of a null group
         # like it used to: re-attribution corrects the sync's own earlier
@@ -592,7 +641,7 @@ async def _sync_holdings(
         if asset.sell_date is None:
             await _upsert_asset_value_for_today(session, asset, holding.current_value, today)
 
-    for ext_id, asset in existing_by_external.items():
+    for ext_id, asset in archive_candidates.items():
         if ext_id not in seen and not asset.is_archived:
             asset.is_archived = True
 
@@ -633,7 +682,7 @@ async def _upsert_asset_from_holding(
     user_id: uuid.UUID,
     connection_id: uuid.UUID,
     source: str,
-    workspace_id: Optional[uuid.UUID] = None,
+    workspace_id: uuid.UUID,
 ) -> Asset:
     """Create or update an Asset from a HoldingData payload.
 
@@ -646,6 +695,7 @@ async def _upsert_asset_from_holding(
     if asset is None:
         asset = Asset(
             user_id=user_id,
+            workspace_id=workspace_id,
             connection_id=connection_id,
             source=source,
             external_id=holding.external_id,
@@ -668,6 +718,7 @@ async def _upsert_asset_from_holding(
     # Fields Pluggy consistently returns — safe to overwrite each sync.
     asset.name = holding.name
     asset.currency = holding.currency
+    asset.user_id = user_id
     # external_metadata is a snapshot blob: we want the latest every time.
     asset.external_metadata = holding.metadata
     previous_connection_id = asset.connection_id
@@ -679,7 +730,7 @@ async def _upsert_asset_from_holding(
     # Re-adopted across workspaces (bank deleted in one, re-added in the
     # other): the asset follows its connection; its old wallet stays behind
     # in the old workspace, so placement is redone by the caller.
-    if workspace_id is not None and asset.workspace_id != workspace_id:
+    if asset.workspace_id != workspace_id:
         asset.workspace_id = workspace_id
         asset.group_id = None
 
@@ -1047,7 +1098,16 @@ async def handle_oauth_callback(
             connection_data.credentials, acc_data.external_id, None
         )
         incoming_external_ids = {txn.external_id for txn in transactions_data}
+        seen_external_ids: set[str] = set()
         for txn_data in transactions_data:
+            # Providers should return each external transaction once, but an
+            # upstream pagination bug can repeat a page. This account was just
+            # created, so batch-local tracking avoids both duplicate inserts
+            # and an unnecessary SELECT for every imported transaction.
+            if txn_data.external_id in seen_external_ids:
+                continue
+            seen_external_ids.add(txn_data.external_id)
+
             # Pending↔posted twin (and the credit-card installment variant).
             # When the same logical operation comes back under a new external
             # id with a different status, fingerprint match prevents the
@@ -1115,7 +1175,7 @@ async def handle_oauth_callback(
                 payee=txn_data.payee,
                 payee_id=payee_id,
                 raw_data=txn_data.raw_data,
-                category_id=category_id,
+                category_id=None,
                 installment_number=txn_data.installment_number,
                 total_installments=txn_data.total_installments,
                 installment_total_amount=txn_data.installment_total_amount,
@@ -1129,6 +1189,8 @@ async def handle_oauth_callback(
             await session.flush()
             new_tx_ids.append(transaction.id)
             await apply_rules_to_transaction(session, user_id, transaction)
+            if transaction.category_id is None:
+                transaction.category_id = category_id
 
             # Prefer bank-provided conversion for international transactions
             acct_currency = acc_data.currency or user_currency
@@ -1152,6 +1214,19 @@ async def handle_oauth_callback(
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
 
+    # And settle what this money was promised against, once the rows exist.
+    if new_tx_ids:
+        landed = list(
+            (
+                await session.execute(
+                    select(Transaction).where(Transaction.id.in_(new_tx_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        await reconciliation_service.match_incoming(session, workspace_id, landed)
+
     # Investment holdings live on /investments — separate endpoint from
     # /accounts. Pulled after account setup when enabled so holdings are
     # available on the Assets page immediately after the widget closes.
@@ -1162,18 +1237,6 @@ async def handle_oauth_callback(
     await session.commit()
     await session.refresh(connection)
     return connection
-
-
-def _description_similarity(a: str | None, b: str | None) -> float:
-    """Token overlap ratio between two descriptions."""
-    if not a or not b:
-        return 0.0
-    tokens_a = set(a.lower().split())
-    tokens_b = set(b.lower().split())
-    if not tokens_a or not tokens_b:
-        return 0.0
-    intersection = tokens_a & tokens_b
-    return len(intersection) / max(len(tokens_a), len(tokens_b))
 
 
 def _normalized_account_name(name: str | None) -> str:
@@ -1277,7 +1340,7 @@ async def _fuzzy_match_manual(
     best_match = None
     best_score = 0.0
     for candidate in candidates:
-        score = _description_similarity(
+        score = token_overlap(
             candidate.original_description or candidate.description,
             txn_data.description,
         )
@@ -1388,7 +1451,7 @@ async def _find_synced_duplicate(
     for candidate in result.scalars():
         if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
             continue
-        if _description_similarity(
+        if token_overlap(
             candidate.original_description or candidate.description,
             txn_data.description,
         ) >= 0.7:
@@ -1434,7 +1497,7 @@ async def _find_synced_duplicate(
                 raw.get("description"), txn_data.payee, txn_data.description,
             )
             description_matches = any(
-                left and right and _description_similarity(left, right) >= 0.9
+                left and right and token_overlap(left, right) >= 0.9
                 for left in candidate_descriptions
                 for right in incoming_descriptions
             )
@@ -1508,7 +1571,7 @@ async def _cleanup_phantom_duplicates(
             )
         )
         for sibling in sibling_result.scalars():
-            if _description_similarity(
+            if token_overlap(
                 sibling.original_description or sibling.description,
                 tx.original_description or tx.description,
             ) >= 0.9:
@@ -1756,7 +1819,7 @@ async def sync_connection(
     session: AsyncSession,
     connection_id: uuid.UUID,
     workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
+    requesting_user_id: uuid.UUID,
     trigger_provider_refresh: bool = False,
 ) -> tuple[BankConnection, int]:
     connection = await get_connection(
@@ -1766,6 +1829,20 @@ async def sync_connection(
         raise ValueError("Connection not found")
     if not connection.credentials:
         raise ValueError("Credentials not found")
+
+    # Authorization is workspace-scoped and happens before this service is
+    # called. Data imported from a bank connection, however, must always be
+    # owned by the user who owns that connection — not by whichever workspace
+    # member clicked Sync. Mixing those identities creates duplicate holdings
+    # and wallets because provider external IDs are unique per user.
+    if requesting_user_id != connection.user_id:
+        logger.info(
+            "Connection %s sync requested by workspace member %s; importing as owner %s",
+            connection.id,
+            requesting_user_id,
+            connection.user_id,
+        )
+    user_id = connection.user_id
 
     conn_settings = connection.settings or {}
     payee_source = conn_settings.get("payee_source", "auto")
@@ -1845,6 +1922,23 @@ async def sync_connection(
                 institution,
                 incoming_external_ids,
             )
+
+            if account is not None:
+                account.user_id = user_id
+                account.workspace_id = connection.workspace_id
+                await session.execute(
+                    update(Transaction)
+                    .where(
+                        Transaction.account_id == account.id,
+                        Transaction.source == "sync",
+                    )
+                    .values(user_id=user_id, workspace_id=connection.workspace_id)
+                )
+                await session.execute(
+                    update(CreditCardBill)
+                    .where(CreditCardBill.account_id == account.id)
+                    .values(user_id=user_id, workspace_id=connection.workspace_id)
+                )
 
             # Honor user intent: a closed connected account stays closed and is
             # not touched by sync. The row is left alone (no balance/name
@@ -2085,7 +2179,7 @@ async def sync_connection(
                     payee=txn_data.payee,
                     payee_id=sync_payee_id,
                     raw_data=txn_data.raw_data,
-                    category_id=category_id,
+                    category_id=None,
                     installment_number=txn_data.installment_number,
                     total_installments=txn_data.total_installments,
                     installment_total_amount=txn_data.installment_total_amount,
@@ -2131,7 +2225,7 @@ async def sync_connection(
                     # provenance is recorded outright.
                     placeholder.original_description = txn_data.description
                     if placeholder.category_id is None:
-                        placeholder.category_id = preview.category_id
+                        placeholder.category_id = preview.category_id or category_id
                     if txn_data.payee and not placeholder.payee:
                         placeholder.payee = txn_data.payee
                     if placeholder.payee_id is None:
@@ -2167,6 +2261,8 @@ async def sync_connection(
                     )
                 new_tx_ids.append(transaction.id)
                 await apply_rules_to_transaction(session, user_id, transaction)
+                if transaction.category_id is None:
+                    transaction.category_id = category_id
 
                 # Prefer bank-provided conversion for international transactions
                 acct_currency = acc_data.currency or user_currency
@@ -2188,6 +2284,25 @@ async def sync_connection(
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:
             await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
+
+            # Then settle whatever this money was promised against. It runs
+            # after the rows are written, not inside the loop: the recurring
+            # match upgrades a placeholder in place, while an invoice link is
+            # a row pointing at a transaction that has to exist first. It is
+            # also a single batch, so the candidate invoices are loaded once
+            # per sync rather than once per transaction.
+            landed = list(
+                (
+                    await session.execute(
+                        select(Transaction).where(Transaction.id.in_(new_tx_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            await reconciliation_service.match_incoming(
+                session, workspace_id, landed
+            )
 
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired
