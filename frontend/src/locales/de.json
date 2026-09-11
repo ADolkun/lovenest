@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" wird entfernt. Deine Konten und Daten sind nicht betroffen."
   },
   "auth": {
+    "localAuthDisabled": "Die Anmeldung mit Passwort ist auf diesem Server deaktiviert. Verwenden Sie Ihren Anmeldeanbieter oder kontaktieren Sie den Administrator.",
+    "passkeyEmailRequired": "Geben Sie eine gültige E-Mail-Adresse ein, um mit einem Passkey fortzufahren.",
+    "passkeysCleanupDescription": "Die lokale Anmeldung ist deaktiviert. Sie können gespeicherte Passkeys entfernen, aber keine neuen hinzufügen.",
     "login": "Einloggen",
     "register": "Konto erstellen",
     "logout": "Ausloggen",
