@@ -19,7 +19,7 @@ the Realised Gain the ledger reports. See ADR 0003.
 """
 import uuid
 from datetime import date, datetime, timezone
-from decimal import Decimal, localcontext
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Optional
 
 from sqlalchemy import select
@@ -28,8 +28,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
+from app.models.bank_connection import BankConnection
+from app.models.investment_evidence import InvestmentLeg, InvestmentObservation
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
-from app.services.asset_transaction_service import _d, _recompute, _split_trade
+from app.services.asset_transaction_service import _d, _detect_oversell, _recompute, _split_trade
 from app.services.option_contract import is_option, multiplier_for
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
@@ -308,6 +310,82 @@ def _movement_lots(transactions, as_of):
             **{key: pos[key] for key in ("known_basis_quantity", "unknown_basis_quantity", "known_acquisition_cost", "basis_complete", "settlement_complete", "unknown_disposition_quantity", "missing_links")}}
 
 
+def _quantity_qualification(asset, connection, txs, position, sources):
+    """Compare the last collected report with all recorded transactions, read-only.
+
+    Agreement supports this quantity equation only. Neither a collection receipt
+    nor matching quantities establishes current ownership or complete tax history.
+    """
+    from app.services.connection_service import LEDGER_RECONCILE_TOLERANCE
+
+    reasons = {"lifetime_history_unverified"}
+    metadata = asset.external_metadata or {}
+    observation = metadata.get("provider_quantity_observation")
+    observation = observation if isinstance(observation, dict) else {}
+    reported = None
+    try:
+        if observation.get("quantity") is not None:
+            reported = Decimal(str(observation["quantity"]))
+            if not reported.is_finite():
+                reported = None
+    except (InvalidOperation, ValueError):
+        pass
+    collected_at = observation.get("collected_at")
+    if not observation:
+        reasons.add("quantity_observation_missing")
+    if reported is None:
+        reasons.add("reported_quantity_unavailable")
+    settings = (connection.settings or {}) if connection is not None else {}
+    if asset.source in {"manual", "import", "csv", "ofx", "qif", "camt"}:
+        reasons.add("independent_quantity_unavailable")
+    elif connection is None or connection.provider != asset.source:
+        reasons.add("connection_unavailable")
+    elif connection.status != "active":
+        reasons.add("refresh_failed")
+    if not collected_at or collected_at != settings.get("holdings_quantity_attempt_at"):
+        reasons.add("quantity_observation_stale")
+    if asset.is_archived:
+        reasons.add("holding_archived")
+    if asset.sell_date is not None:
+        reasons.add("holding_closed")
+    # A cycle marker is the only quantity receipt. Account/quote/value times
+    # cannot turn retained units into a current provider quantity.
+    comparable = not (reasons - {"lifetime_history_unverified"})
+    replayed = sum(((-lot["quantity"] if lot["written"] else lot["quantity"])
+                    for lot in position["lots"]), Decimal(0))
+    discrepancy = replayed - reported if comparable else None
+    tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE if comparable else None
+    comparison = "not_comparable" if not comparable else (
+        "exact_match" if discrepancy == 0 else
+        "within_tolerance" if abs(discrepancy) <= tolerance else "mismatch"
+    )
+    if not txs:
+        reasons.add("recorded_transactions_missing")
+    if _detect_oversell(txs, asset_type=asset.type) is not None:
+        reasons.add("oversell")
+    if not position.get("settlement_complete", True):
+        reasons.add("movement_settlement_unqualified")
+    if any(not source.is_current or source.payload.get("settlement_status") != "settled"
+           for source, applied in sources if applied):
+        reasons.add("source_activity_unqualified")
+    quantity_supported = comparison in {"exact_match", "within_tolerance"} and not reasons & {
+        "recorded_transactions_missing", "oversell", "movement_settlement_unqualified", "source_activity_unqualified",
+    }
+    if not position.get("basis_complete", True) or any(tx.kind == "buy" and tx.price is None for tx in txs):
+        reasons.add("acquisition_basis_incomplete")
+    if any(source.payload.get("coverage") for source, _ in sources):
+        reasons.add("source_coverage_incomplete")
+    if (settings.get("holdings_observation") or {}).get("complete") is False:
+        reasons.add("partial_refresh")
+    return _exact_serialise({
+        "scope": "latest_reported_vs_recorded", "comparison": comparison,
+        "quantity_supported": quantity_supported,
+        "reported_quantity": reported, "stored_quantity": asset.units,
+        "replayed_quantity": replayed, "discrepancy": discrepancy, "tolerance": tolerance,
+        "collected_at": collected_at, "reason_codes": sorted(reasons),
+    })
+
+
 async def asset_tax_lots(
     session: AsyncSession,
     asset_id: uuid.UUID,
@@ -348,7 +426,9 @@ async def asset_tax_lots(
     txs = list(
         (
             await session.execute(
-                select(AssetTransaction).where(AssetTransaction.asset_id == asset_id)
+                select(AssetTransaction).where(
+                    AssetTransaction.asset_id == asset_id, AssetTransaction.workspace_id == workspace_id,
+                )
             )
         )
         .scalars()
@@ -364,4 +444,14 @@ async def asset_tax_lots(
     }
     if not head["tax_character"]:
         return {**head, "as_of": as_of.isoformat(), **_EMPTY}
-    return {**head, **_serialise(build_lots(txs, as_of=as_of, asset_type=asset.type))}
+    connection = await session.scalar(select(BankConnection).where(
+        BankConnection.id == asset.connection_id, BankConnection.workspace_id == workspace_id,
+    )) if asset.connection_id else None
+    sources = (await session.execute(select(InvestmentObservation, InvestmentLeg.asset_transaction_id)
+        .join(InvestmentLeg, InvestmentLeg.observation_id == InvestmentObservation.id)
+        .where(InvestmentLeg.asset_id == asset.id, InvestmentLeg.workspace_id == workspace_id,
+               InvestmentObservation.workspace_id == workspace_id))).all()
+    with localcontext(prec=128):
+        position = build_lots(txs, as_of=as_of, asset_type=asset.type)
+        qualification = _quantity_qualification(asset, connection, txs, position, sources)
+    return {**head, **_serialise(position), "qualification": qualification}
