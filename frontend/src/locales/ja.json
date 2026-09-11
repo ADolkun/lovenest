@@ -401,6 +401,9 @@
     "confirmDeleteDesc": "「{{name}}」を削除します。口座とデータには影響しません。"
   },
   "auth": {
+    "localAuthDisabled": "このサーバーではパスワードによるログインが無効です。ログインプロバイダーを利用するか、管理者にお問い合わせください。",
+    "passkeyEmailRequired": "パスキーで続行するには、有効なメールアドレスを入力してください。",
+    "passkeysCleanupDescription": "ローカルログインは無効です。保存済みのパスキーは削除できますが、新しく追加することはできません。",
     "login": "ログイン",
     "register": "アカウント作成",
     "logout": "ログアウト",

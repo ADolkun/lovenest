@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" wordt verwijderd. Uw accounts en gegevens worden niet beïnvloed."
   },
   "auth": {
+    "localAuthDisabled": "Aanmelden met een wachtwoord is uitgeschakeld op deze server. Gebruik uw aanmeldprovider of neem contact op met de beheerder.",
+    "passkeyEmailRequired": "Voer een geldig e-mailadres in om door te gaan met een passkey.",
+    "passkeysCleanupDescription": "Lokaal aanmelden is uitgeschakeld. U kunt opgeslagen passkeys verwijderen, maar geen nieuwe toevoegen.",
     "login": "Inloggen",
     "register": "Account aanmaken",
     "logout": "Uitloggen",

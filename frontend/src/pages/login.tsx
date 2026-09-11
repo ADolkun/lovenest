@@ -55,6 +55,8 @@ export default function LoginPage() {
   const [oidcConfigFailed, setOidcConfigFailed] = useState(false)
   // Keep OIDC primary while retaining a local break-glass path when enabled.
   const [showPasswordLogin, setShowPasswordLogin] = useState(false)
+  const [passkeyEmailRequested, setPasskeyEmailRequested] = useState(false)
+  const emailInputRef = useRef<HTMLInputElement>(null)
 
   // 2FA state
   const [requires2fa, setRequires2fa] = useState(false)
@@ -70,6 +72,10 @@ export default function LoginPage() {
   const noAuthMethodConfigured = oidcConfig !== null && !localAuthEnabled && !oidcEnabled
   const showPasskeyLogin = localAuthEnabled && passkeySupported
   const showPasswordForm = localAuthEnabled && (!oidcEnabled || showPasswordLogin)
+
+  useEffect(() => {
+    if (passkeyEmailRequested) emailInputRef.current?.focus()
+  }, [passkeyEmailRequested])
 
   useEffect(() => {
     if (token) {
@@ -117,6 +123,7 @@ export default function LoginPage() {
       !showPasswordForm ||
       !localAuthEnabled ||
       !passkeySupported ||
+      passkeyEmailRequested ||
       isLoading ||
       isPasskeyLoading
     ) return
@@ -138,6 +145,7 @@ export default function LoginPage() {
           options.options,
           abortController.signal,
         )
+        if (abortController.signal.aborted) return
         const result = await authApi.verifyPasskeyAuthentication(options.challenge_id, credential)
         if (abortController.signal.aborted) return
 
@@ -165,6 +173,7 @@ export default function LoginPage() {
     loginWithToken,
     navigate,
     passkeySupported,
+    passkeyEmailRequested,
     requires2fa,
     showPasswordForm,
     token,
@@ -187,11 +196,13 @@ export default function LoginPage() {
         navigate('/')
       }
     } catch (err) {
-      const axiosErr = err as AxiosError
+      const axiosErr = err as AxiosError<{ detail?: string }>
       if (isServerUnreachable(err)) {
         setError(t('auth.serverError'))
       } else if (axiosErr?.response?.status === 429) {
         setError(t('auth.tooManyAttempts'))
+      } else if (axiosErr?.response?.status === 403 && axiosErr.response.data?.detail === 'LOCAL_AUTH_DISABLED') {
+        setError(t('auth.localAuthDisabled'))
       } else {
         setError(t('auth.invalidCredentials'))
       }
@@ -206,12 +217,21 @@ export default function LoginPage() {
   }
 
   const handlePasskeyLogin = async () => {
+    if (isLoading || isPasskeyLoading) return
     conditionalPasskeyAbortRef.current?.abort()
+    // Explicit sign-in needs an email; leave account-less discovery to conditional UI.
+    setPasskeyEmailRequested(true)
+    setShowPasswordLogin(true)
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !emailInputRef.current?.checkValidity()) {
+      setError(t('auth.passkeyEmailRequired'))
+      emailInputRef.current?.focus()
+      return
+    }
     setError('')
     setIsPasskeyLoading(true)
     try {
-      const trimmedEmail = email.trim()
-      const options = await authApi.passkeyAuthenticationOptions(trimmedEmail || undefined)
+      const options = await authApi.passkeyAuthenticationOptions(trimmedEmail)
       const credential = await startPasskeyAuthentication(options.options)
       const result = await authApi.verifyPasskeyAuthentication(options.challenge_id, credential)
       loginWithToken(result.access_token)
@@ -419,7 +439,7 @@ export default function LoginPage() {
           {!authConfigLoading && !noAuthMethodConfigured && (
             <CardContent className="space-y-4 px-8 pt-4">
               {error && (
-                <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
+                <div id="login-error" role="alert" className="p-3 text-sm text-destructive bg-destructive/10 rounded-lg">
                   {error}
                 </div>
               )}
@@ -452,9 +472,17 @@ export default function LoginPage() {
                     <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
                     <Input
                       id="email"
+                      ref={emailInputRef}
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setError('') }}
+                      aria-describedby={error ? 'login-error' : undefined}
+                      onKeyDown={(e) => {
+                        if (passkeyEmailRequested && e.key === 'Enter') {
+                          e.preventDefault()
+                          void handlePasskeyLogin()
+                        }
+                      }}
                       placeholder="you@example.com"
                       autoComplete="username webauthn"
                       required
