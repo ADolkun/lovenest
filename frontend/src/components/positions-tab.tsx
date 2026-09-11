@@ -169,12 +169,14 @@ function WashSaleWarning({ assetId, dateLocale }: { assetId: string; dateLocale:
  */
 function TaxLotsPanel({
   assetId,
+  workspaceId,
   currency,
   locale,
   dateLocale,
   mask,
 }: {
   assetId: string
+  workspaceId?: string
   currency: string
   locale: string
   dateLocale: string
@@ -182,7 +184,7 @@ function TaxLotsPanel({
 }) {
   const { t } = useTranslation()
   const { data, isError, refetch } = useQuery({
-    queryKey: ['asset-tax-lots', assetId],
+    queryKey: ['asset-tax-lots', workspaceId, assetId],
     queryFn: () => assetsApi.taxLots(assetId),
   })
 
@@ -201,8 +203,8 @@ function TaxLotsPanel({
   // A gain in a Tax-Advantaged wallet is never Reportable, so it has no
   // long-versus-short answer to give.
   if (!data.tax_character) return hint(t('assets.lotsNoTaxCharacter'))
-  if (data.snapshot) return hint(t('assets.lotsSnapshot'))
-  if (data.lots.length === 0 && data.sales.length === 0) return hint(t('assets.lotsNone'))
+  const qualification = data.qualification
+  const quantity = (value: string | null) => value == null ? t('evidence.unknown', 'Unknown') : mask(formatExactDecimal(value))
 
   const character = (long: boolean | null) => long == null ? t('ownedTransfers.periodUnknown', 'Holding period unknown') : long ? t('assets.lotsLong') : t('assets.lotsShort')
 
@@ -211,11 +213,35 @@ function TaxLotsPanel({
       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
         {t('assets.lotsTitle')}
       </p>
+      <div role="status" className="mt-2 space-y-2 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">{!qualification ? t('assets.lotQualificationUnavailable', 'Quantity comparison unavailable')
+          : qualification.comparison === 'exact_match' ? t('assets.lotQuantityMatch', 'Recorded and reported quantities match')
+          : qualification.comparison === 'within_tolerance' ? t('assets.lotQuantityTolerance', 'Quantities agree within tolerance')
+          : qualification.comparison === 'mismatch' ? t('assets.lotQuantityMismatch', 'Recorded lots differ from the reported quantity')
+          : t('assets.lotQuantityNotComparable', 'Reported quantity cannot be compared')}</p>
+        <p>{t('assets.lotQualificationScope', 'All recorded transactions are compared with the latest collected quantity. The lot date controls holding age, not historical inventory. A match does not establish current ownership, complete history, acquisition basis or tax readiness.')}</p>
+        {qualification && <>
+          <dl className="flex flex-wrap gap-x-6 gap-y-2">
+            {[
+              [t('assets.lotRecordedQuantity', 'Recorded quantity'), qualification.replayed_quantity],
+              [t('assets.lotReportedQuantity', 'Reported quantity'), qualification.reported_quantity],
+              [t('assets.lotStoredQuantity', 'Stored holding quantity'), qualification.stored_quantity],
+              [t('assets.lotQuantityDifference', 'Recorded minus reported'), qualification.discrepancy],
+              [t('assets.lotQuantityAllowedDifference', 'Comparison tolerance'), qualification.tolerance],
+            ].map(([label, value]) => <div key={label} className="min-w-0"><dt>{label}</dt><dd className="break-all tabular-nums text-foreground">{quantity(value)}</dd></div>)}
+          </dl>
+          {qualification.collected_at && <p>{t('assets.lotQuantityCollectedAt', 'Collected at (not source as-of)')}: {new Date(qualification.collected_at).toLocaleString(dateLocale)}</p>}
+          {!qualification.quantity_supported && <p>{t('assets.lotQuantityUnverified', 'These recorded lots are not verified against reported inventory. Historical acquisitions are retained.')}</p>}
+          <ul className="list-inside list-disc">{qualification.reason_codes.filter(reason => reason !== 'lifetime_history_unverified').map(reason => <li key={reason}>{t(`assets.lotQualificationReasons.${reason}`, reason.replaceAll('_', ' '))}</li>)}</ul>
+        </>}
+      </div>
+      {data.snapshot && <p className="mt-2 text-sm text-muted-foreground">{t('assets.lotsSnapshot')}</p>}
+      {!data.snapshot && data.lots.length === 0 && data.sales.length === 0 && <p className="mt-2 text-sm text-muted-foreground">{t('assets.lotsNone')}</p>}
       {data.basis_complete === false && <p role="status" className="mt-2 text-sm text-muted-foreground">{t('ownedTransfers.partialLots', 'Acquisition basis is incomplete. Known cost subtotal')}: {money(data.known_acquisition_cost ?? null)} · {t('ownedTransfers.unknownUnits', 'Units with unknown basis')}: {data.unknown_basis_quantity == null ? t('evidence.unknown', 'Unknown') : mask(data.unknown_basis_quantity)}</p>}
       {data.settlement_complete === false && <p role="status" className="mt-2 text-sm text-warning-foreground">{t('ownedTransfers.principalUnknown', 'Movement settlement unresolved')}</p>}
       {!!data.missing_links?.length && <ul className="mt-2 list-inside list-disc text-sm text-warning-foreground">{data.missing_links.map((reason) => <li key={reason}>{t(`ownedTransfers.reasons.${reason}`, reason.replaceAll('_', ' '))}</li>)}</ul>}
       {data.lots.length > 0 && (
-        <>
+        <div className="overflow-x-auto"><div className="min-w-[560px]">
           <div
             className="grid items-center gap-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
             style={{ gridTemplateColumns: LOTS_GRID }}
@@ -265,7 +291,7 @@ function TaxLotsPanel({
               {money(data.short_cost)}
             </span>
           </div>
-        </>
+        </div></div>
       )}
       {data.sales.length > 0 && (
         <div className="mt-2 pt-2 border-t border-border/50 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
@@ -549,8 +575,10 @@ export default function PositionsTab({
 
   function renderLegs(position: Position) {
     return (
-      <div className="overflow-x-auto bg-muted/20 border-t border-border">
-      <div className="min-w-[780px] px-3 py-2">
+      <div className="bg-muted/20 border-t border-border px-3 py-2">
+        {position.legs.map((leg) => (
+          <div key={leg.assetId}>
+          <div className="overflow-x-auto"><div className="min-w-[780px]">
         <div
           className="grid items-center gap-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider"
           style={{ gridTemplateColumns: LEGS_GRID }}
@@ -563,8 +591,6 @@ export default function PositionsTab({
           <div className="text-right">{t('assets.posColGain')}</div>
           <div className="text-right">{t('assets.posColIncome')}</div>
         </div>
-        {position.legs.map((leg) => (
-          <div key={leg.assetId}>
             <div
               className="grid items-center gap-2 py-1.5 text-xs border-t border-border/50"
               style={{ gridTemplateColumns: LEGS_GRID }}
@@ -610,12 +636,14 @@ export default function PositionsTab({
                 {renderIncomeCell([leg.assetId], leg.value)}
               </div>
             </div>
+          </div></div>
             {/* Per wallet, not per ticker: tax character attaches to the wallet,
                 so a split blending a taxable leg with a Roth one would be a
                 figure no tax return could use. */}
             <WashSaleWarning assetId={leg.assetId} dateLocale={dateLocale} />
             <TaxLotsPanel
               assetId={leg.assetId}
+              workspaceId={workspaceId}
               currency={holdings.find((holding) => holding.id === leg.assetId)?.currency ?? currency}
               locale={locale}
               dateLocale={dateLocale}
@@ -623,7 +651,6 @@ export default function PositionsTab({
             />
           </div>
         ))}
-      </div>
       </div>
     )
   }

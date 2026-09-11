@@ -1315,15 +1315,21 @@ async def evidence_holding_for_sync(session, connection, holding, group_id):
     if len(candidates) != 1:
         return None, True
     asset = candidates[0]
+    if (asset.account_external_id is not None and holding.account_external_id is not None
+            and asset.account_external_id != holding.account_external_id):
+        return None, True
     identity = (asset.external_metadata or {}).get("evidence_asset_identity") or {}
     metadata = holding.metadata or {}
     verified = False
     for field in ("chain", "token_address", "provider_asset_id"):
-        if identity.get(field) and identity[field] != metadata.get(field):
+        if identity.get(field) and metadata.get(field) and identity[field] != metadata[field]:
             return None, True
-        if field in {"token_address", "provider_asset_id"} and identity.get(field):
+        if field == "provider_asset_id" and identity.get(field) and identity[field] == metadata.get(field):
             verified = True
-    if identity.get("isin") and identity["isin"] != holding.isin:
+    verified |= bool(identity.get("chain") and identity.get("token_address") and all(
+        identity[field] == metadata.get(field) for field in ("chain", "token_address")
+    ))
+    if identity.get("isin") and holding.isin and identity["isin"] != holding.isin:
         return None, True
     verified |= bool(identity.get("isin") and identity["isin"] == holding.isin)
     if not verified:
@@ -1333,6 +1339,9 @@ async def evidence_holding_for_sync(session, connection, holding, group_id):
             .where(
                 InvestmentObservation.workspace_id == connection.workspace_id,
                 InvestmentObservation.connection_id == connection.id,
+                InvestmentObservation.group_id == group_id,
+                InvestmentObservationLink.workspace_id == connection.workspace_id,
+                InvestmentLeg.workspace_id == connection.workspace_id,
                 InvestmentObservationLink.reversed_at.is_(None), InvestmentLeg.asset_id == asset.id,
             ))).all()
         verified = any(

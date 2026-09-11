@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "« {{name}} » sera supprimée. Vos comptes et vos données ne sont pas affectés."
   },
   "auth": {
+    "localAuthDisabled": "La connexion par mot de passe est désactivée sur ce serveur. Utilisez votre fournisseur de connexion ou contactez l’administrateur.",
+    "passkeyEmailRequired": "Saisissez une adresse e-mail valide pour continuer avec une clé d’accès.",
+    "passkeysCleanupDescription": "La connexion locale est désactivée. Vous pouvez supprimer les clés d’accès enregistrées, mais pas en ajouter.",
     "login": "Connexion",
     "register": "Créer un compte",
     "logout": "Déconnexion",

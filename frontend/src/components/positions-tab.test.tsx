@@ -1,6 +1,6 @@
 import { reportedWallet } from '@/test/balance-fixtures'
 import { beforeEach, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import PositionsTab from './positions-tab'
 import { renderWithProviders } from '@/test/utils'
 import { assets } from '@/lib/api'
@@ -19,6 +19,58 @@ beforeEach(() => {
 })
 
 const positions = (holdings: Asset[], wallets: AssetGroup[] = []) => <PositionsTab holdings={holdings} wallets={wallets.map((wallet) => reportedWallet(wallet, holdings))} currency="USD" locale="en-US" dateLocale="en-US" mask={(value) => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
+
+const quantityReport = (overrides: Partial<TaxLots> = {}): TaxLots => ({
+  asset_id: 'known', ticker: 'KNOWN', tax_character: true, snapshot: false, no_wallet: false,
+  as_of: '2026-01-01', lots: [], sales: [], long_quantity: '0', short_quantity: '0',
+  long_cost: '0', short_cost: '0', realised_long: '0', realised_short: '0',
+  qualification: { scope: 'latest_reported_vs_recorded', comparison: 'mismatch',
+    quantity_supported: false, reported_quantity: '0', stored_quantity: '0',
+    replayed_quantity: '12345678901234567890.123456789012345678',
+    discrepancy: '12345678901234567890.123456789012345678', tolerance: '0',
+    collected_at: '2026-01-01T00:00:00Z', reason_codes: ['lifetime_history_unverified'] },
+  ...overrides,
+})
+
+it.each([false, true])('shows exact quantity qualification before an empty or snapshot hint: snapshot=%s', async (snapshot) => {
+  vi.mocked(assets.taxLots).mockResolvedValue(quantityReport({ snapshot }))
+  const { user } = renderWithProviders(positions([known]))
+  await user.click(screen.getByRole('button', { name: /^KNOWN/ }))
+  expect(await screen.findByText('Recorded lots differ from the reported quantity')).toBeInTheDocument()
+  const values = screen.getByText('Reported quantity').parentElement!
+  expect(within(values).getByText('0')).toBeInTheDocument()
+  expect(screen.getAllByText('12345678901234567890.123456789012345678')).toHaveLength(2)
+  expect(screen.getByText(/A match does not establish current ownership/)).toBeInTheDocument()
+  expect(screen.getByText(snapshot ? /Imported position with no trades/ : /No lots — no trades/)).toBeInTheDocument()
+})
+
+it('keeps unavailable quantity separate from zero and masks exact quantities in privacy mode', async () => {
+  const report = quantityReport()
+  report.qualification = { ...report.qualification!, comparison: 'not_comparable', reported_quantity: null, discrepancy: null, tolerance: null }
+  vi.mocked(assets.taxLots).mockResolvedValue(report)
+  const { user } = renderWithProviders(<PositionsTab holdings={[known]} wallets={[]} currency="USD" locale="en-US" dateLocale="en-US" mask={() => '•••••'} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />)
+  await user.click(screen.getByRole('button', { name: /^KNOWN/ }))
+  expect(await screen.findByText('Reported quantity cannot be compared')).toBeInTheDocument()
+  expect(within(screen.getByText('Reported quantity').parentElement!).getByText('Unknown')).toBeInTheDocument()
+  expect(within(screen.getByText('Stored holding quantity').parentElement!).getByText('•••••')).toBeInTheDocument()
+  expect(screen.queryByText(/12345678901234567890/)).not.toBeInTheDocument()
+})
+
+it('keeps a delayed tax-lot response in its originating workspace and supports retry', async () => {
+  let finish!: (value: TaxLots) => void
+  vi.mocked(assets.taxLots).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    .mockRejectedValueOnce(new Error('Synthetic request failure')).mockResolvedValue(quantityReport())
+  const view = (workspaceId: string) => <PositionsTab workspaceId={workspaceId} holdings={[known]} wallets={[]} currency="USD" locale="en-US" dateLocale="en-US" mask={value => value} canWrite={false} onClassify={vi.fn()} onOpenHolding={vi.fn()} />
+  const { user, rerender, queryClient } = renderWithProviders(view('workspace-a'))
+  await user.click(screen.getByRole('button', { name: /^KNOWN/ }))
+  rerender(view('workspace-b'))
+  await act(async () => finish(quantityReport({ ticker: 'PRIVATE-OLD' })))
+  expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  expect(screen.queryByText('Recorded lots differ from the reported quantity')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByText('Recorded lots differ from the reported quantity')).toBeInTheDocument()
+  expect(queryClient.getQueryData(['asset-tax-lots', 'workspace-b', 'known'])).toEqual(quantityReport())
+})
 
 it('shows nullable transferred lot dates and costs beside a supported zero in the holding currency without fabricating gains', async () => {
   vi.mocked(assets.taxLots).mockResolvedValue({

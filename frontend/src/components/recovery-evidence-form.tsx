@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { NativeSelect } from '@/components/ui/native-select'
 import type { EvidenceObservation } from '@/types/investment-evidence'
+import type { Asset } from '@/types'
 import { RECOVERY_ROLES, type RecoveryRole } from '@/types/recovery-evidence'
 
 export type RecoveryDraft = { role: RecoveryRole; source: Record<string, string>; legs: Record<string, string>[] }
@@ -22,7 +23,7 @@ const roleFields: Record<RecoveryRole, [string, string][]> = {
 }
 
 /** A source is entered once; several asset rows may describe one distribution round. */
-export function RecoveryEvidenceForm({ busy, observations, onPreview, onChange }: { busy: boolean; observations: EvidenceObservation[]; onPreview: (draft: RecoveryDraft) => void; onChange: () => void }) {
+export function RecoveryEvidenceForm({ busy, observations, holdings, onPreview, onChange }: { busy: boolean; observations: EvidenceObservation[]; holdings: Asset[]; onPreview: (draft: RecoveryDraft) => void; onChange: () => void }) {
   const { t } = useTranslation()
   const { mask } = usePrivacyMode()
   const [role, setRole] = useState<RecoveryRole>('recovery_notice')
@@ -30,6 +31,7 @@ export function RecoveryEvidenceForm({ busy, observations, onPreview, onChange }
   const [nextRow, setNextRow] = useState(1)
   const [precision, setPrecision] = useState('unknown')
   const [existing, setExisting] = useState('')
+  const [associations, setAssociations] = useState<Record<number, string>>({})
   const selected = observations.find((item) => item.reference === existing)
   const field = (name: string, title: string, options: { required?: boolean; decimal?: boolean; type?: string } = {}) => <div key={name} className="min-w-0 space-y-1.5">
     <Label htmlFor={`recovery-${name}`}>{t(`recovery.field.${name.replace(/^leg-\d+-/, '')}`, title)}</Label>
@@ -77,7 +79,8 @@ export function RecoveryEvidenceForm({ busy, observations, onPreview, onChange }
         <legend className="px-1 text-sm font-medium">{t('recovery.assetRow', 'Asset record')} {index + 1}</legend>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {!selected && <>{field(`leg-${row}-asset_symbol`, 'Reported asset / currency')}
-          {field(`leg-${row}-quantity`, 'Reported quantity', { decimal: true })}</>}
+          {field(`leg-${row}-quantity`, 'Reported quantity', { decimal: true })}
+          <div className="min-w-0 space-y-1.5"><Label htmlFor={`recovery-leg-${row}-asset_id`}>{t('recovery.associateHolding', 'Associate existing destination holding (optional)')}</Label><NativeSelect id={`recovery-leg-${row}-asset_id`} name={`leg-${row}-asset_id`} className={selectClass} value={associations[row] ?? ''} onChange={(event) => setAssociations({ ...associations, [row]: event.target.value })}><option value="">{t('recovery.noAssociation', 'No holding association')}</option>{associations[row] && !holdings.some((holding) => holding.id === associations[row]) && <option value={associations[row]}>{t('recovery.selectedHoldingUnavailable', 'Selected holding unavailable — choose again')}</option>}{holdings.map((holding) => <option key={holding.id} value={holding.id}>{mask(`${holding.name}${holding.ticker ? ` · ${holding.ticker}` : ''}`)}</option>)}</NativeSelect><p className="text-xs text-muted-foreground">{t('recovery.associationHelp', 'This records an association only. Enter the source asset identity below; selecting a holding does not verify it or add quantity.')}</p></div></>}
           {field(`leg-${row}-round_asset_key`, 'Asset reference within the round')}
           {!selected && <>{field(`leg-${row}-valuation_amount`, 'Reported valuation', { decimal: true })}
           {field(`leg-${row}-valuation_currency`, 'Valuation currency')}</>}

@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" será removida. Suas contas e dados não são afetados."
   },
   "auth": {
+    "localAuthDisabled": "O acesso por senha está desativado neste servidor. Use seu provedor de acesso ou entre em contato com o administrador.",
+    "passkeyEmailRequired": "Insira um endereço de e-mail válido para continuar com uma chave de acesso.",
+    "passkeysCleanupDescription": "O acesso local está desativado. Você pode remover chaves de acesso salvas, mas não adicionar novas.",
     "login": "Entrar",
     "register": "Criar conta",
     "logout": "Sair",

@@ -5,11 +5,11 @@ import { renderWithProviders } from '@/test/utils'
 import type { EvidenceObservation } from '@/types/investment-evidence'
 import type { RecoveryDetails, RecoveryEntryRead, RecoveryPackage, RecoveryReviewRead, RecoveryRole } from '@/types/recovery-evidence'
 
-const api = vi.hoisted(() => ({ wallets: vi.fn(), list: vi.fn(), sources: vi.fn(), preview: vi.fn(), retain: vi.fn(), review: vi.fn(), export: vi.fn(), workspace: vi.fn(), transfers: vi.fn() }))
+const api = vi.hoisted(() => ({ wallets: vi.fn(), holdings: vi.fn(), privacy: false, list: vi.fn(), sources: vi.fn(), preview: vi.fn(), retain: vi.fn(), review: vi.fn(), export: vi.fn(), workspace: vi.fn(), transfers: vi.fn() }))
 vi.mock('@/lib/recovery-api', () => ({ recovery: api }))
 vi.mock('@/lib/api', () => ({ ownedTransfers: { index: api.transfers }, assetErrorMessage: (error: { message?: string }, fallback: string) => error?.message ?? fallback }))
 vi.mock('@/contexts/workspace-context', () => ({ useWorkspace: api.workspace }))
-vi.mock('@/hooks/use-privacy-mode', () => ({ usePrivacyMode: () => ({ mask: (value: string) => value, privacyMode: false }) }))
+vi.mock('@/hooks/use-privacy-mode', () => ({ usePrivacyMode: () => ({ mask: (value: string) => api.privacy ? '•••••' : value, privacyMode: api.privacy }) }))
 
 const emptyDetails: RecoveryDetails = { account_bucket: null, boundary_kind: null, claim_amount: null, claim_currency: null, proceeds: null, proceeds_currency: null, cash_credited: null, cash_currency: null, acquisition_date: null, statement_date: null, reported_cost: null, reported_cost_currency: null, provisional_allocation: null, allocation_currency: null }
 function observation(id: string): EvidenceObservation {
@@ -26,6 +26,8 @@ function reviewFixture(kind: RecoveryReviewRead['kind'] = 'allocation'): Recover
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  api.privacy = false
+  api.holdings.mockResolvedValue([])
   api.workspace.mockReturnValue({ current: { id: 'workspace-a', name: 'Investment' }, canWrite: true })
   api.wallets.mockResolvedValue([{ id: 'wallet-a', name: 'Recovery wallet' }, { id: 'wallet-b', name: 'Receiving platform' }])
   api.list.mockImplementation(async (_workspace, filters) => ({ ...fixture(), group_id: filters.group_id }))
@@ -35,6 +37,136 @@ beforeEach(() => {
   api.review.mockResolvedValue({ ...fixture(), revision: 'revision-2' })
   api.transfers.mockResolvedValue({ workspace_id: 'workspace-a', transfers: [], movements: [] })
   api.export.mockResolvedValue(new Blob(['synthetic exact export']))
+})
+
+describe('documentary recovery associations and case summary', () => {
+  it('requires an explicit change when a refreshed holding becomes unavailable', async () => {
+    api.holdings.mockResolvedValue([{ id: 'holding-a', name: 'Destination security', group_id: 'wallet-a' }])
+    const { user, queryClient } = await manual('equity_statement')
+    const select = screen.getByLabelText('Associate existing destination holding (optional)')
+    await user.selectOptions(select, 'holding-a')
+    api.holdings.mockResolvedValue([])
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ['recovery-holdings', 'workspace-a'] }) })
+    expect(select).toHaveValue('holding-a')
+    expect(await within(select).findByRole('option', { name: 'Selected holding unavailable — choose again' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await screen.findByText('The selected holding is unavailable. Choose another holding or clear the association.')
+    expect(api.preview).not.toHaveBeenCalled()
+    await user.selectOptions(select, '')
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalled())
+    expect(api.preview.mock.calls[0][2][0].observation.legs[0].asset_id).toBeNull()
+  })
+  it('preserves the selected holding through a deferred background refresh', async () => {
+    const holdings = [{ id: 'holding-a', name: 'Destination security', group_id: 'wallet-a' }]
+    api.holdings.mockResolvedValue(holdings)
+    const { user, queryClient } = await manual('equity_statement')
+    const select = screen.getByLabelText('Associate existing destination holding (optional)')
+    await user.selectOptions(select, 'holding-a')
+    let finish!: (value: typeof holdings) => void
+    api.holdings.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const refreshed = queryClient.invalidateQueries({ queryKey: ['recovery-holdings', 'workspace-a'] })
+    await screen.findByText('Loading destination holdings…')
+    try { expect(select).toHaveValue('holding-a') }
+    finally { await act(async () => { finish(holdings); await refreshed }) }
+    expect(select).toHaveValue('holding-a')
+  })
+  it('reopens the same source after the user closes its details', async () => {
+    const { user } = await open()
+    const button = screen.getByRole('button', { name: 'View source: source-1' })
+    await user.click(button)
+    const row = screen.getByRole('row', { name: 'receiving receipt: source-1' })
+    expect(row.querySelector('details')).toHaveAttribute('open')
+    await user.click(row.querySelector('summary')!)
+    expect(row.querySelector('details')).not.toHaveAttribute('open')
+    await user.click(button)
+    expect(row.querySelector('details')).toHaveAttribute('open')
+  })
+  it('selects only active destination holdings and preserves source quantities and identity', async () => {
+    api.holdings.mockResolvedValue([
+      { id: 'holding-a', name: 'Destination security', ticker: 'SYN', group_id: 'wallet-a' },
+      { id: 'holding-b', name: 'Other wallet security', group_id: 'wallet-b' },
+      { id: 'archived', name: 'Archived security', group_id: 'wallet-a', is_archived: true },
+      { id: 'sold', name: 'Sold security', group_id: 'wallet-a', sell_date: '2025-01-01' },
+    ])
+    const { user } = await manual('equity_statement')
+    const select = screen.getByLabelText('Associate existing destination holding (optional)')
+    expect(within(select).getAllByRole('option')).toHaveLength(2)
+    await user.selectOptions(select, 'holding-a')
+    await user.type(screen.getByLabelText('Reported quantity'), '4.123456789012345678901')
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalled())
+    expect(api.preview.mock.calls[0][2][0].observation.legs[0]).toMatchObject({ asset_id: 'holding-a', quantity: '4.123456789012345678901', isin: null, asset_symbol: null })
+    await user.selectOptions(screen.getByLabelText('Source to use'), 'retained-source')
+    expect(screen.queryByLabelText('Associate existing destination holding (optional)')).not.toBeInTheDocument()
+  })
+
+  it('allows unassociated manual evidence after a holdings error', async () => {
+    api.holdings.mockRejectedValue(new Error('Unavailable'))
+    const { user } = await manual()
+    await screen.findByText('Holdings could not be loaded. You can retain evidence without an association.')
+    await user.click(screen.getByRole('button', { name: 'Preview evidence' }))
+    await waitFor(() => expect(api.preview).toHaveBeenCalled())
+    expect(api.preview.mock.calls[0][2][0].observation.legs[0].asset_id).toBeNull()
+  })
+
+  it('records an exact documentary quantity with no fee adjustment or financial transfer field', async () => {
+    const { user } = await openReview('receiving receipt')
+    await user.selectOptions(screen.getByLabelText('Relationship'), 'documentary_receipt_disposition')
+    expect(screen.queryByLabelText('Reported rounding / fee adjustment (signed amount)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Confirmed owned transfer (if supported)')).not.toBeInTheDocument()
+    expect(screen.getByText(/Confirmation records a documented association only/)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Documented association quantity (same asset only)'), '1.123456789012345678901')
+    await user.type(screen.getByLabelText('Review source / document reference'), 'synthetic:partial-sale')
+    await user.type(screen.getByLabelText('Evidence and reason for this review'), 'Source documents a partial sale association')
+    await user.click(screen.getByRole('button', { name: 'Save separate review' }))
+    await waitFor(() => expect(api.review).toHaveBeenCalled())
+    expect(api.review.mock.calls[0][2][0]).toMatchObject({ relation_kind: 'documentary_receipt_disposition', documentary_quantity: '1.123456789012345678901', quantity_adjustment: null, owned_transfer_id: null })
+  })
+
+  it('separates exact source facts from one stored holding observation and excludes related context', async () => {
+    const data = fixture()
+    const holding = { asset_id: 'holding-a', name: 'Synthetic retained holding', group_id: 'wallet-a', source: 'manual', asset_symbol: 'SYN', stored_quantity: '0', quantity_observed_at: null, reason_codes: ['quantity_observation_date_unknown', 'stored_quantity_not_inventory_proof'] }
+    data.entries[1].associated_holding = holding
+    data.entries[3].associated_holding = holding
+    data.entries[1].observation.legs[0].quantity = '4.123456789012345678901'
+    data.entries[3].details.reported_cost = '0'; data.entries[3].details.reported_cost_currency = 'USD'
+    const related = entry('disposition', 9); related.reason_codes = ['related_context']; data.entries.push(related)
+    api.list.mockResolvedValue(data)
+    await open()
+    const summary = within(screen.getByRole('region', { name: 'Case summary' }))
+    expect(summary.getAllByText(/Synthetic retained holding/)).toHaveLength(1)
+    expect(summary.getByText(/4\.123456789012345678901/)).toBeInTheDocument()
+    expect(summary.getByText('Source-reported cost (not verified basis): 0 USD · Unknown')).toBeInTheDocument()
+    expect(summary.getByText('Stored holding quantity: 0 · Quantity observation date: Unknown')).toBeInTheDocument()
+    expect(summary.queryByRole('button', { name: 'View source: source-9' })).not.toBeInTheDocument()
+    expect(summary.getByText(/final claim settlement remain unverified/)).toBeInTheDocument()
+  })
+
+  it('opens a source on a later page from the case summary', async () => {
+    const data = fixture(); data.entries = Array.from({ length: 28 }, (_, index) => entry('receiving_receipt', index))
+    api.list.mockResolvedValue(data)
+    const { user } = renderWithProviders(<RecoveryEvidencePanel />, { route: '/assets?wallet=wallet-a' })
+    await user.click(await screen.findByRole('button', { name: 'View source: source-27' }))
+    expect(screen.getByText('2 / 2')).toBeInTheDocument()
+    const row = screen.getByRole('row', { name: 'receiving receipt: source-27' })
+    expect(row.querySelector('details')).toHaveAttribute('open')
+  })
+
+  it('masks case summary and holding labels for viewers', async () => {
+    api.privacy = true
+    api.workspace.mockReturnValue({ current: { id: 'workspace-a', name: 'Investment' }, canWrite: false })
+    const data = fixture(); data.entries[3].associated_holding = { asset_id: 'holding', group_id: 'wallet-a', name: 'Private synthetic stock', asset_symbol: 'SYN', source: 'manual', stored_quantity: '123.456789', quantity_observed_at: null, reason_codes: [] }
+    api.list.mockResolvedValue(data)
+    await open()
+    const summary = screen.getByRole('region', { name: 'Case summary' })
+    expect(summary).not.toHaveTextContent('Synthetic recovery')
+    expect(summary).not.toHaveTextContent('Private synthetic stock')
+    expect(summary).not.toHaveTextContent('123.456789')
+    expect(summary).not.toHaveTextContent('source-3')
+    expect(screen.queryByText('Add evidence or attach a retained source')).not.toBeInTheDocument()
+    expect(api.holdings).not.toHaveBeenCalled()
+  })
 })
 async function open() {
   const result = renderWithProviders(<RecoveryEvidencePanel />, { route: '/import?tab=investments&mode=recovery&wallet=wallet-a' })
