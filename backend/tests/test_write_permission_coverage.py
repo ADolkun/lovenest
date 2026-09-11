@@ -81,6 +81,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("POST", "/evidence/movements/preview"): "previews a movement against recorded inventory; writes nothing",
     ("POST", "/evidence/transfers/preview"): "previews owned-transfer effects and lot selection; writes nothing",
     ("POST", "/api/assets/recovery/preview"): "previews proposed recovery evidence in the readable workspace; writes nothing",
+    ("POST", "/api/assets/evidence/source-reviews/preview"): "previews source review and correction effects in the readable workspace; writes nothing",
     # And for a rule being written: the draft has to be a body, and the answer
     # is which existing transactions it would match. Reads rules' own scope.
     ("POST", "/api/rules/preview"): "evaluates an unsaved rule against transactions; writes nothing",
@@ -125,6 +126,7 @@ WORKSPACE_READ_ROUTES = {
         "/api/export/backup", "/api/onchain/trace",
         "/api/onchain/investigation/preview",
         "/api/assets/recovery/preview",
+        "/api/assets/evidence/source-reviews/preview",
     )
 }
 
