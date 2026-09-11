@@ -446,6 +446,11 @@ async def _sync_holdings(
     # report that it closed.
     from app.services.owned_transfer_service import lock_workspace
     await lock_workspace(session, connection.workspace_id)
+    # A cycle receipt, not a provider as-of time. Missing/failed/excluded reads
+    # leave older holding receipts behind, even when cached units are retained.
+    quantity_collected_at = datetime.now(timezone.utc).isoformat()
+    connection.settings = {**(connection.settings or {}),
+                           "holdings_quantity_attempt_at": quantity_collected_at}
     unreadable: list[str] = []
     try:
         provider = provider or get_provider(connection.provider)
@@ -794,11 +799,13 @@ async def _sync_holdings(
     for holding in holdings:
         seen.add(holding.external_id)
         existing = existing_by_external.get(holding.external_id)
+        identity_verified = False
 
         if existing is None and not holding.is_withdrawn:
             from app.services.investment_evidence_service import evidence_holding_for_sync
             mapped_group = await _wallet_for(holding)
             existing, ambiguous = await evidence_holding_for_sync(session, connection, holding, mapped_group.id)
+            identity_verified = existing is not None
             if ambiguous:
                 # Retain the pending API evidence below instead of adding a
                 # second snapshot beside a reviewed but unverified holding.
@@ -852,7 +859,10 @@ async def _sync_holdings(
             # Keep descriptive fields fresh in case the provider still
             # updates them post-closure, but don't touch valuation.
             existing.name = holding.name
-            withdrawn_metadata = dict(holding.metadata or {})
+            withdrawn_metadata = _holding_snapshot_metadata(
+                existing, holding, connection.id, source, connection.workspace_id,
+                quantity_collected_at,
+            )
             if provider_sell_date is not None:
                 withdrawn_metadata[_PROVIDER_SELL_DATE_METADATA_KEY] = provider_sell_date
             existing.external_metadata = withdrawn_metadata or None
@@ -878,6 +888,8 @@ async def _sync_holdings(
         asset = await _upsert_asset_from_holding(
             session, existing, holding, user_id, connection.id, source,
             workspace_id=connection.workspace_id,
+            quantity_collected_at=quantity_collected_at,
+            identity_verified=identity_verified,
         )
         if asset.group_id is not None:
             existing_group = await session.get(AssetGroup, asset.group_id)
@@ -1183,6 +1195,44 @@ async def _ledger_reconciles(session: AsyncSession, asset: Asset) -> bool:
     return False
 
 
+def _holding_snapshot_metadata(asset, holding, connection_id, source, workspace_id, collected_at, *, identity_verified=False):
+    """Replace provider facts; retain only compatible, explicitly reviewed identity."""
+    metadata = dict(holding.metadata or {})
+    # Providers cannot confer review. This namespace is written by evidence review.
+    metadata.pop("evidence_asset_identity", None)
+    metadata.pop("investment_evidence_created", None)
+    metadata["provider_quantity_observation"] = {
+        "quantity": str(holding.quantity) if holding.quantity is not None else None,
+        "collected_at": collected_at,
+    }
+    if asset is None:
+        return metadata
+    reviewed = (asset.external_metadata or {}).get("evidence_asset_identity")
+    if not isinstance(reviewed, dict):
+        return metadata
+    identity = {key: reviewed[key] for key in ("chain", "token_address", "provider_asset_id", "isin")
+                if isinstance(reviewed.get(key), str) and reviewed[key]}
+    same_scope = (
+        asset.workspace_id == workspace_id and asset.source == source
+        and asset.external_id == holding.external_id
+        and (holding.account_external_id is None or asset.account_external_id in {None, holding.account_external_id})
+        and (not holding.ticker or not asset.ticker or holding.ticker.upper() == asset.ticker.upper())
+    )
+    reported_identity = {**metadata, "isin": holding.isin}
+    compatible = all(not reported_identity.get(key) or reported_identity[key] == value
+                     for key, value in identity.items())
+    # Same live connection tolerates sparse identity. A reconnect needs a
+    # stable instrument identifier as well as the same scoped holding key.
+    reconnect_verified = any(identity.get(key) and identity[key] == reported_identity.get(key)
+                             for key in ("provider_asset_id", "isin")) or (
+        identity.get("chain") and identity.get("token_address")
+        and all(identity[key] == metadata.get(key) for key in ("chain", "token_address"))
+    )
+    if identity and same_scope and compatible and (asset.connection_id == connection_id or reconnect_verified or identity_verified):
+        metadata["evidence_asset_identity"] = identity
+    return metadata
+
+
 async def _upsert_asset_from_holding(
     session: AsyncSession,
     asset: Optional[Asset],
@@ -1191,6 +1241,9 @@ async def _upsert_asset_from_holding(
     connection_id: uuid.UUID,
     source: str,
     workspace_id: uuid.UUID,
+    *,
+    quantity_collected_at: Optional[str] = None,
+    identity_verified: bool = False,
 ) -> Asset:
     """Create or update an Asset from a HoldingData payload.
 
@@ -1200,6 +1253,11 @@ async def _upsert_asset_from_holding(
     via `sell_date`, not here, so this function only ever sees ACTIVE
     holdings and never flips `is_archived` on its own.
     """
+    metadata = _holding_snapshot_metadata(
+        asset, holding, connection_id, source, workspace_id,
+        quantity_collected_at or datetime.now(timezone.utc).isoformat(),
+        identity_verified=identity_verified,
+    )
     if asset is None:
         asset = Asset(
             user_id=user_id,
@@ -1229,7 +1287,7 @@ async def _upsert_asset_from_holding(
             isin=holding.isin,
             ticker=holding.ticker,
             maturity_date=holding.maturity_date,
-            external_metadata=holding.metadata,
+            external_metadata=metadata,
             valuation_method="manual",
         )
         session.add(asset)
@@ -1250,7 +1308,7 @@ async def _upsert_asset_from_holding(
     if holding.account_external_id is not None:
         asset.account_external_id = holding.account_external_id
     # external_metadata is a snapshot blob: we want the latest every time.
-    asset.external_metadata = holding.metadata
+    asset.external_metadata = metadata
     previous_connection_id = asset.connection_id
     asset.connection_id = connection_id
     # Only auto-unarchive when the holding moved to a different connection

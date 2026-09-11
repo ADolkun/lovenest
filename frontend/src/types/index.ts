@@ -970,6 +970,20 @@ export interface TaxLots {
   snapshot: boolean
   /** The holding is in no wallet, so there is no treatment to gate on — distinct from a tax-advantaged one. */
   no_wallet: boolean
+  qualification?: {
+    /** Compares all recorded trades, independently of the holding-age as_of date. */
+    scope: 'latest_reported_vs_recorded'
+    comparison: 'not_comparable' | 'exact_match' | 'within_tolerance' | 'mismatch'
+    /** Supports only the quantity equation at collection, never tax/ownership completeness. */
+    quantity_supported: boolean
+    reported_quantity: string | null
+    stored_quantity: string | null
+    replayed_quantity: string
+    discrepancy: string | null
+    tolerance: string | null
+    collected_at: string | null
+    reason_codes: string[]
+  }
   as_of: string
   lots: TaxLot[]
   long_quantity: number | string
