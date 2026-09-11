@@ -108,17 +108,19 @@ function SourceReviewContent({ workspaceId, groupId, evidence, disabled, canWrit
     if (blocked || mutationLock.current || !reviewed || !preview?.supported) return
     mutationLock.current = true
     const current = generation.current
+    const submitted = preview
     setBusy(true)
     try {
-      const value = await sourceReviews.confirm(workspaceId, preview)
-      if (current !== generation.current) return
+      const value = await sourceReviews.confirm(workspaceId, submitted)
       checkScope(value)
+      const keys = ['investment-evidence', 'investment-timeline', 'investment-timeline-event', 'investment-timeline-source']
+      if (submitted.request.action === 'correct' || submitted.request.action === 'reverse') keys.push('assets', 'asset-groups', 'asset-transactions', 'asset-tax-lots', 'asset-values', 'asset-trend', 'portfolio-trend', 'dashboard')
+      for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] })
+      void queryClient.invalidateQueries({ queryKey, exact: true })
+      if (current !== generation.current) return
       queryClient.setQueryData(queryKey, value)
       setPreview(null); setReviewed(false)
       setNotice(t('sourceReview.saved', 'Review saved. Original source facts and the audit remain retained.'))
-      const keys = ['investment-evidence', 'investment-timeline', 'investment-timeline-event', 'investment-timeline-source']
-      if (preview.request.action === 'correct' || preview.request.action === 'reverse') keys.push('assets', 'asset-groups', 'asset-transactions', 'asset-tax-lots', 'asset-values', 'asset-trend', 'portfolio-trend', 'dashboard')
-      for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] })
     } catch (failure) {
       if (current !== generation.current) return
       setPreview(null); setReviewed(false)

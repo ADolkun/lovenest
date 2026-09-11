@@ -112,3 +112,81 @@ describe('source correction review', () => {
     expect(mocks.confirm).not.toHaveBeenCalled()
   })
 })
+
+describe('deferred successful confirmations', () => {
+  it.each((['correct', 'reverse'] as const).flatMap(action =>
+    (['mounted', 'unmount', 'workspace', 'role', 'privacy'] as const).map(change => ({ action, change })),
+  ))('refreshes real caches after $action with $change and suppresses stale response data', async ({ action, change }) => {
+    const client = createTestQueryClient()
+    client.setDefaultOptions({ queries: { retry: false, gcTime: Infinity, staleTime: 300_000 } })
+    const auditKey = ['investment-source-reviews', 'workspace-A', 'wallet-A']
+    const otherAuditKey = ['investment-source-reviews', 'workspace-B', 'wallet-B']
+    const beforeQuantity = action === 'correct' ? '12' : '10'
+    const afterQuantity = action === 'correct' ? '10' : '12'
+    const caches = [
+      { key: ['asset-tax-lots', 'asset-A'], data: { lots: [{ quantity: beforeQuantity }] } },
+      { key: ['asset-tax-lots', 'asset-A', 'workspace-A'], data: { lots: [{ quantity: beforeQuantity }] } },
+      { key: ['investment-timeline', 'workspace-A', 'wallet-A'], data: { events: [{ quantity: beforeQuantity }] } },
+      { key: ['investment-timeline-event', 'workspace-A', 'event-A'], data: { quantity: beforeQuantity } },
+      { key: ['investment-timeline-source', 'workspace-A', 'source-A'], data: { applied_entry: { quantity: beforeQuantity } } },
+      ...['investment-evidence', 'assets', 'asset-groups', 'asset-transactions', 'asset-values', 'asset-trend', 'portfolio-trend', 'dashboard'].map(key => ({ key: [key], data: { quantity: beforeQuantity } })),
+    ]
+    for (const { key, data } of caches) client.setQueryData(key, data)
+    const data = packageFixture()
+    if (action === 'reverse') data.reviews[0].payload.request = { ...associationRequest, action: 'correct' }
+    client.setQueryData(auditKey, data)
+    const otherData = { ...packageFixture(), target: { ...target, workspace_id: 'workspace-B', group_id: 'wallet-B' } }
+    client.setQueryData(otherAuditKey, otherData)
+    let resolve!: (value: SourceReviewPackage) => void
+    const completion = new Promise<SourceReviewPackage>(done => { resolve = done })
+    mocks.confirm.mockReturnValue(completion)
+    const rendered = renderWithProviders(<SourceReviewPanel workspaceId="workspace-A" groupId="wallet-A" evidence={evidence} disabled={false} />, { queryClient: client })
+    await rendered.user.click(screen.getByText('Source meanings and acquisition corrections'))
+    await rendered.user.click(await screen.findByText(new RegExp(`${action === 'correct' ? 'associate' : 'correct'} · 2026-09-10`)))
+    await rendered.user.click(screen.getByRole('button', { name: action === 'correct' ? 'Preview acquisition correction' : 'Preview correction reversal' }))
+    await rendered.user.click(await screen.findByLabelText('I reviewed the source meanings, destination and exact effects above.'))
+    await rendered.user.click(screen.getByRole('button', { name: action === 'correct' ? 'Apply acquisition correction' : 'Apply correction reversal' }))
+    expect(mocks.confirm).toHaveBeenCalledWith('workspace-A', expect.objectContaining({ request: expect.objectContaining({ action, group_id: 'wallet-A' }) }))
+    if (change === 'unmount') rendered.unmount()
+    if (change === 'workspace') rendered.rerender(<SourceReviewPanel workspaceId="workspace-B" groupId="wallet-B" evidence={{ ...evidence, target: otherData.target }} disabled={false} />)
+    if (change === 'role' || change === 'privacy') {
+      mocks.workspace.mockReturnValue({ canWrite: change !== 'role' })
+      mocks.privacy.mockReturnValue({ privacyMode: change === 'privacy' })
+      rendered.rerender(<SourceReviewPanel workspaceId="workspace-A" groupId="wallet-A" evidence={evidence} disabled={false} />)
+    }
+    const updated = { ...data, revision: 'review-2' }
+    mocks.list.mockImplementation(async (workspace: string) => workspace === 'workspace-A' ? updated : otherData)
+    await act(async () => { resolve(updated); await completion })
+    for (const { key } of caches) {
+      const fetch = vi.fn(async () => ({ quantity: afterQuantity }))
+      expect(await client.fetchQuery({ queryKey: key, queryFn: fetch })).toEqual({ quantity: afterQuantity })
+      expect(fetch).toHaveBeenCalledTimes(1)
+    }
+    if (change !== 'mounted') {
+      expect(screen.queryByText('Review saved. Original source facts and the audit remain retained.')).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Source review preview' })).not.toBeInTheDocument()
+    }
+    if (change === 'unmount' || change === 'workspace' || change === 'privacy') {
+      expect(client.getQueryData(auditKey)).toEqual(data) // A late response cannot reinstall its payload.
+      const fetch = vi.fn(async () => updated)
+      expect(await client.fetchQuery({ queryKey: auditKey, queryFn: fetch })).toEqual(updated)
+      expect(fetch).toHaveBeenCalledTimes(1)
+    } else {
+      await waitFor(() => expect(client.getQueryData(auditKey)).toEqual(updated))
+      expect(mocks.list).toHaveBeenCalledWith('workspace-A', 'wallet-A', expect.any(AbortSignal))
+    }
+    expect(client.getQueryData(otherAuditKey)).toEqual(otherData)
+    expect(client.getQueryState(otherAuditKey)?.isInvalidated).toBe(false)
+  })
+
+  it('rejects response data from a different workspace after confirm', async () => {
+    const { user, queryClient } = await open()
+    mocks.confirm.mockResolvedValue({ ...packageFixture(), target: { ...target, workspace_id: 'workspace-B' }, revision: 'wrong-workspace' })
+    await user.click(screen.getByRole('button', { name: 'Preview acquisition correction' }))
+    await user.click(await screen.findByLabelText('I reviewed the source meanings, destination and exact effects above.'))
+    await user.click(screen.getByRole('button', { name: 'Apply acquisition correction' }))
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2))
+    expect(queryClient.getQueryData(['investment-source-reviews', 'workspace-A', 'wallet-A'])).toEqual(packageFixture())
+    expect(screen.queryByText('Review saved. Original source facts and the audit remain retained.')).not.toBeInTheDocument()
+  })
+})

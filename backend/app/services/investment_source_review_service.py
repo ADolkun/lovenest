@@ -160,6 +160,8 @@ def _association(state, request):
         raise HTTPException(422, "Choose two distinct source observations")
     if not evidence._same_asset(a, b) or a.direction != b.direction or (a.asset_id and b.asset_id and a.asset_id != b.asset_id):
         raise HTTPException(422, "Source asset or direction conflicts")
+    if a.token_program and b.token_program and a.token_program != b.token_program:
+        raise HTTPException(422, "Source token program conflicts")
     if left[1].provider != right[1].provider or (left[1].source_account_id and right[1].source_account_id
                                                and left[1].source_account_id != right[1].source_account_id):
         raise HTTPException(422, "Source provider or account identity conflicts")
@@ -304,6 +306,14 @@ def _preview(state, request):
                 blockers.append("correction_source_already_claimed")
             if tx:
                 asset = next(row for row in state["assets"] if row.id == tx.asset_id)
+                owner_item = _facts(state, owners[0].id)[3]
+                holding_identity = (asset.external_metadata or {}).get("evidence_asset_identity") or {}
+                programs = {program for program in (
+                    item.token_program, right[3].token_program, owner_item.token_program,
+                    holding_identity.get("token_program"),
+                ) if program}
+                if len(programs) > 1:
+                    blockers.append("token_program_conflict")
                 if any(row.payload["effects"]["before"]["id"] == str(tx.id) for row in active_corrections(state["reviews"])):
                     blockers.append("reverse_active_correction_first")
                 if target.source_kind != "primary_activity" or target.settlement_status != "settled" or target.reason_codes:

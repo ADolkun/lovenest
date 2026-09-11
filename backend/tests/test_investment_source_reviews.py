@@ -43,6 +43,9 @@ async def correction_case(session, test_workspace, test_user, wallet, request):
         wallet.connection_id = connection.id
         await session.commit()
     original = observation("api-original", source="coinbase_api")
+    if "programs" in options:
+        original.legs[0].chain, original.legs[0].token_address = "solana", "synthetic-mint"
+        original.legs[0].token_program = options["programs"][0]
     first = await save(session, test_workspace, test_user, wallet, [original])
     await apply(session, test_workspace, test_user, wallet, first.evidence)
     if connection:
@@ -52,7 +55,29 @@ async def correction_case(session, test_workspace, test_user, wallet, request):
         holding.current_value = Decimal("999")
         holding.last_price = Decimal("55")
         await session.commit()
+    target_id = (await session.scalars(select(InvestmentLeg))).one().id
+    if "programs" in options:
+        holding = (await session.scalars(select(Asset))).one()
+        holding.external_metadata = {"evidence_asset_identity": {
+            "provider_asset_id": "currency-SYN", "chain": "solana", "token_address": "synthetic-mint",
+            "token_program": options["programs"][2],
+        }}
+        await session.commit()
+    if options.get("alias"):
+        alias = original.model_copy(deep=True)
+        alias.source, alias.source_local_id = "csv", "canonical-alias"
+        alias.legs[0].token_program = None
+        saved = await save(session, test_workspace, test_user, wallet, [alias])
+        alias_ref = next(row.reference for row in saved.evidence.observations if row.source_local_id == "canonical-alias")
+        await evidence.confirm_evidence(session, test_workspace.id, test_user.id, wallet.id, [EvidenceDecision(
+            observation_ref=alias_ref, leg_key="amount", action="link", reason="Synthetic canonical alias",
+            allocations=[EvidenceAllocation(leg_id=target_id)],
+        )], saved.evidence.revision)
+        target_id = (await session.scalars(select(InvestmentLeg).where(InvestmentLeg.observation_id == uuid.UUID(alias_ref)))).one().id
     source = observation("csv-source", source="csv", quantity=options.get("quantity", "12"))
+    if "programs" in options:
+        source.legs[0].chain, source.legs[0].token_address = "solana", "synthetic-mint"
+        source.legs[0].token_program = options["programs"][1]
     source.event_at += timedelta(seconds=10)
     if options.get("next_day"):
         source.event_date += timedelta(days=1)
@@ -67,12 +92,12 @@ async def correction_case(session, test_workspace, test_user, wallet, request):
     sources = list((await session.scalars(select(InvestmentObservation))).all())
     legs = list((await session.scalars(select(InvestmentLeg))).all())
     tx = (await session.scalars(select(AssetTransaction))).one()
-    source_row = next(row for row in sources if row.payload["source"] == "csv")
+    source_row = next(row for row in sources if row.payload["source_local_id"] == "csv-source")
     target_row = next(row for row in sources if row.payload["source"] == "coinbase_api")
     request = SourceReviewRequest(
         group_id=wallet.id, request_key="association", action="associate", reason="Synthetic export documents the same acquisition",
         source_leg_id=next(row.id for row in legs if row.observation_id == source_row.id),
-        target_leg_id=next(row.id for row in legs if row.observation_id == target_row.id),
+        target_leg_id=target_id,
         source_semantics=SourceSemantics(clock_role="posted", amount_field="total", amount_meaning="fee_inclusive_total", decimal_places=2),
         target_semantics=SourceSemantics(clock_role="execution", amount_field="unit_price", amount_meaning="valuation"),
         same_execution_reviewed=True,
@@ -323,3 +348,117 @@ async def test_independent_applied_owner_and_recovery_dependencies_are_blocked(s
     await session.commit()
     preview = await service.preview_review(session, c["workspace"].id, correction(c, aid))
     assert "independently_applied_source_requires_separate_correction" in preview.blockers
+
+
+@pytest.mark.parametrize("correction_case", [{"programs": ("program-a", "program-b", "program-a")}], indirect=True)
+@pytest.mark.asyncio
+async def test_program_conflict_rejects_association_and_retained_legacy_review(session, correction_case):
+    c = correction_case
+    wid, uid, gid = c["workspace"].id, c["user"].id, c["wallet"].id
+    before = await service._load(session, wid, gid)
+    for confirm_request in (False, True):
+        with pytest.raises(HTTPException, match="token program") as error:
+            if confirm_request:
+                await service.confirm_review(session, wid, uid, SourceReviewConfirm(request=c["request"], expected_revision=before["revision"], preview_digest="legacy"))
+            else:
+                await service.preview_review(session, wid, c["request"])
+        assert error.value.status_code == 422
+    after = await service._load(session, wid, gid)
+    assert after["revision"] == before["revision"]
+    # Seed an association retained by the old implementation, without calling the guarded writer.
+    sources = []
+    for leg_id, semantics in ((c["request"].source_leg_id, c["request"].source_semantics),
+                              (c["request"].target_leg_id, c["request"].target_semantics)):
+        row, observation, leg, item = service._facts(after, leg_id)
+        sources.append({"observation_id": str(row.id), "identity_key": row.identity_key,
+                        "fingerprint": row.fingerprint, "leg_id": str(leg.id), "leg_key": item.key,
+                        "observation": observation.model_dump(mode="json"), "leg": item.model_dump(mode="json"),
+                        "semantics": semantics.model_dump(mode="json")})
+    retained = InvestmentSourceReview(workspace_id=wid, group_id=gid, request_key="legacy-association",
+        fingerprint=evidence._digest(c["request"].model_dump(mode="json")), created_by=uid,
+        payload={"request": c["request"].model_dump(mode="json"), "sources": sources,
+                 "effects": {"ledger_rows_added": 0, "units_delta": "0", "cost_delta": "0", "financial_ownership_changed": False}})
+    session.add(retained)
+    await session.commit()
+    request = correction(c, retained.id)
+    retained_revision = (await service._load(session, wid, gid))["revision"]
+    for confirm_request in (False, True):
+        with pytest.raises(HTTPException, match="token program"):
+            if confirm_request:
+                await service.confirm_review(session, wid, uid, SourceReviewConfirm(request=request, expected_revision="legacy", preview_digest="legacy"))
+            else:
+                await service.preview_review(session, wid, request)
+    state = await service._load(session, wid, gid)
+    assert state["revision"] == retained_revision and len(state["reviews"]) == 1
+    assert state["transactions"][0].price == 7
+    assert {row.id: row.payload for row in state["observations"]} == c["sources_before"]
+
+
+@pytest.mark.parametrize("correction_case", [
+    {"programs": ("program-a", "program-a", "program-b")},
+    {"programs": ("program-a", None, "program-b")},
+    {"programs": ("program-a", "program-b", None), "alias": True},
+    {"programs": ("program-a", None, "program-b"), "alias": True},
+], indirect=True)
+@pytest.mark.asyncio
+async def test_correction_checks_all_known_programs_without_financial_or_audit_writes(session, correction_case):
+    c = correction_case
+    wid, uid, gid = c["workspace"].id, c["user"].id, c["wallet"].id
+    aid = await associate(session, c)
+    before = await service._load(session, wid, gid)
+    request = correction(c, aid)
+    preview = await service.preview_review(session, wid, request)
+    assert not preview.supported and "token_program_conflict" in preview.blockers
+    with pytest.raises(HTTPException) as error:
+        await service.confirm_review(session, wid, uid, SourceReviewConfirm(request=request, expected_revision=preview.revision, preview_digest=preview.preview_digest))
+    assert error.value.status_code == 422
+    after = await service._load(session, wid, gid)
+    assert after["revision"] == before["revision"]  # All financial, evidence and audit state is unchanged.
+
+
+@pytest.mark.parametrize("correction_case", [{"programs": programs} for programs in [
+    ("program-a", "program-a", "program-a"), ("program-a", None, "program-a"),
+    (None, "program-a", None), (None, None, None),
+]], indirect=True)
+@pytest.mark.asyncio
+async def test_matching_or_missing_programs_allow_correction_replay_and_exact_reversal(session, correction_case):
+    c = correction_case
+    wid, uid = c["workspace"].id, c["user"].id
+    before = service._image(c["tx"])
+    aid = await associate(session, c)
+    _, data = await confirm(session, wid, correction(c, aid))
+    package = await service.confirm_review(session, wid, uid, data)
+    assert c["tx"].price == 10
+    assert len((await service.confirm_review(session, wid, uid, data)).reviews) == 2
+    # Reversal restores the exact stored before-image even if reviewed holding identity later drifts.
+    asset = await session.get(Asset, c["tx"].asset_id)
+    asset.external_metadata = {"evidence_asset_identity": {**asset.external_metadata["evidence_asset_identity"], "token_program": "program-drift"}}
+    await session.commit()
+    _, reverse = await confirm(session, wid, correction(c, package.reviews[-1].id, action="reverse", request_key="reverse"))
+    await service.confirm_review(session, wid, uid, reverse)
+    assert service._image(c["tx"]) == before
+    assert len((await service.confirm_review(session, wid, uid, reverse)).reviews) == 3
+    assert {row.id: row.payload for row in await session.scalars(select(InvestmentObservation))} == c["sources_before"]
+
+
+@pytest.mark.parametrize("correction_case", [{"programs": ("program-a", "program-a", "program-a")}], indirect=True)
+@pytest.mark.asyncio
+async def test_current_holding_program_drift_revalidates_before_confirm(session, correction_case):
+    c = correction_case
+    wid, uid, gid = c["workspace"].id, c["user"].id, c["wallet"].id
+    aid = await associate(session, c)
+    request = correction(c, aid)
+    _, data = await confirm(session, wid, request)
+    asset = await session.get(Asset, c["tx"].asset_id)
+    asset.external_metadata = {"evidence_asset_identity": {**asset.external_metadata["evidence_asset_identity"], "token_program": "program-b"}}
+    await session.commit()
+    before = await service._load(session, wid, gid)
+    with pytest.raises(HTTPException) as stale:
+        await service.confirm_review(session, wid, uid, data)
+    assert stale.value.status_code == 409
+    preview = await service.preview_review(session, wid, request)
+    assert not preview.supported and "token_program_conflict" in preview.blockers
+    with pytest.raises(HTTPException) as refused:
+        await service.confirm_review(session, wid, uid, SourceReviewConfirm(request=request, expected_revision=preview.revision, preview_digest=preview.preview_digest))
+    assert refused.value.status_code == 422
+    assert (await service._load(session, wid, gid))["revision"] == before["revision"]
