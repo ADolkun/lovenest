@@ -152,6 +152,8 @@ def _holding_read(state, source_group_id, observation, leg_key):
     conflicts = evidence._holding_conflicts(leg, asset)
     reasons.extend(f'holding_identity_conflict:{field}' for field in conflicts if field != 'unverified_holding_identity')
     identity = (asset.external_metadata or {}).get('evidence_asset_identity') or {}
+    if leg.token_program and identity.get('token_program') and leg.token_program != identity['token_program']:
+        reasons.append('holding_identity_conflict:token_program')
     verified = bool(leg.isin and leg.isin == asset.isin or
                     leg.chain and leg.chain == identity.get('chain') and leg.token_address and leg.token_address == identity.get('token_address') or
                     leg.provider_asset_id and leg.provider_asset_id == identity.get('provider_asset_id') and observation.provider == asset.source)

@@ -247,6 +247,48 @@ async def test_documentary_sources_cannot_contradict_reviewed_holding_token_prog
     assert response.status_code == 422 and 'token program' in response.text
 
 
+@pytest.mark.parametrize('token_program', ['program-b', None])
+async def test_retained_holding_program_change_qualifies_list_and_exports(transfers, token_program):
+    v = transfers
+    identity = {'chain': 'solana', 'token_address': 'synthetic-mint', 'token_program': 'program-a'}
+    v.b.external_metadata = {'evidence_asset_identity': identity}
+    await v.session.commit()
+    item = source('receipt', asset_id=str(v.b.id), **identity)
+    item['observation']['legs'][0]['isin'] = None
+    before = await transaction_count(v.session)
+    saved = await retain(v, [item])
+    original = saved['entries'][0]
+    reason = 'holding_identity_conflict:token_program'
+    assert reason not in original['associated_holding']['reason_codes']
+    old_revision = saved['revision']
+    v.b.external_metadata = {'evidence_asset_identity': {**identity, 'token_program': token_program}}
+    await v.session.commit()
+    saved = await package(v)
+    assert saved['revision'] != old_revision
+    assert saved['reviews'] == []
+    projections = [saved['entries'][0]]
+    for format in ('json', 'csv'):
+        params = {'group_id': str(v.b.group_id), 'format': format}
+        stale = await v.client.get(f'{RECOVERY}/export', headers=v.headers,
+                                   params={**params, 'expected_revision': old_revision})
+        assert stale.status_code == 409
+        response = await v.client.get(f'{RECOVERY}/export', headers=v.headers,
+                                      params={**params, 'expected_revision': saved['revision']})
+        assert response.status_code == 200
+        if format == 'json':
+            projections.append(response.json()['package']['entries'][0])
+        else:
+            projections.append(next(json.loads(row['payload_json']) for row in
+                                    csv.DictReader(io.StringIO(response.text)) if row['record_type'] == 'entry'))
+    for projected in projections:
+        assert projected['id'] == original['id']
+        assert projected['observation_id'] == original['observation_id']
+        assert projected['observation'] == original['observation']
+        assert projected['application'] == original['application']
+        assert (reason in projected['associated_holding']['reason_codes']) == (token_program is not None)
+    assert await transaction_count(v.session) == before
+
+
 async def test_reviewed_holding_provider_id_without_namespace_cannot_fill_source_identity(transfers):
     v = transfers
     # The reviewed holding namespace has an ID but does not record its issuing provider.
