@@ -47,6 +47,16 @@ export type RecoveryEntryRead = Omit<RecoveryEntryInput, 'observation_id' | 'obs
   observation_id: string | null;
   observation: EvidenceObservation;
   application: RecoveryApplication;
+  associated_holding?: {
+    asset_id: string;
+    group_id: string | null;
+    name: string | null;
+    asset_symbol: string | null;
+    source: string | null;
+    stored_quantity: string | null;
+    quantity_observed_at: string | null;
+    reason_codes: string[];
+  } | null;
   reason_codes: string[];
 };
 export type RecoveryReviewInput = {
@@ -55,7 +65,7 @@ export type RecoveryReviewInput = {
   entry_id: string;
   target_entry_id: string | null;
   supersedes_id: string | null;
-  relation_kind: 'claim_notice' | 'notice_receipt' | 'receipt_disposition' | 'disposition_proceeds' | 'candidate_acquisition' | 'owned_transfer_reference' | null;
+  relation_kind: 'claim_notice' | 'notice_receipt' | 'receipt_disposition' | 'disposition_proceeds' | 'candidate_acquisition' | 'owned_transfer_reference' | 'documentary_equity_distribution' | 'documentary_receipt_disposition' | null;
   relation_state: RecoveryState | null;
   assertion_kind: 'reported_cost' | 'provisional_allocation' | 'valuation' | 'account_mapping' | 'lot_mapping' | 'accounting_assumption' | 'filing_assertion' | null;
   assertion_status: AssertionStatus | null;
@@ -75,6 +85,7 @@ export type RecoveryReviewInput = {
   timing_evidence: string | null;
   quantity_adjustment: string | null; // explicit signed decimal, never inferred
   adjustment_evidence: string | null;
+  documentary_quantity?: string | null; // Association only, never inventory or lot allocation.
 };
 export type RecoveryReviewRead = RecoveryReviewInput & {
   id: string;

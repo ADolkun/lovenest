@@ -13,7 +13,7 @@ from app.models.recovery_evidence import InvestmentRecoveryEntry, InvestmentReco
 from app.schemas.investment_evidence import EvidenceLegInput
 from app.schemas.recovery_evidence import (
     RecoveryApplication, RecoveryEntryRead, RecoveryPackage, RecoveryReviewInput,
-    RecoveryReviewRead,
+    RecoveryReviewRead, RecoveryHoldingRead,
 )
 from app.services import investment_evidence_service as evidence
 from app.services import owned_transfer_service as movements
@@ -141,6 +141,34 @@ def _annotation_reasons(state, row, seen=None):
     return reasons
 
 
+def _holding_read(state, source_group_id, observation, leg_key):
+    leg = next(part for part in observation.legs if part.key == leg_key)
+    if leg.asset_id is None:
+        return None
+    asset = state['assets'].get(leg.asset_id)
+    if asset is None or asset.group_id != source_group_id:
+        return RecoveryHoldingRead(asset_id=leg.asset_id, reason_codes=['associated_holding_unavailable'])
+    reasons = ['stored_quantity_not_inventory_proof', 'quantity_observation_date_unknown']
+    conflicts = evidence._holding_conflicts(leg, asset)
+    reasons.extend(f'holding_identity_conflict:{field}' for field in conflicts if field != 'unverified_holding_identity')
+    identity = (asset.external_metadata or {}).get('evidence_asset_identity') or {}
+    verified = bool(leg.isin and leg.isin == asset.isin or
+                    leg.chain and leg.chain == identity.get('chain') and leg.token_address and leg.token_address == identity.get('token_address') or
+                    leg.provider_asset_id and leg.provider_asset_id == identity.get('provider_asset_id') and observation.provider == asset.source)
+    if not verified or 'unverified_holding_identity' in conflicts:
+        reasons.append('holding_identity_unverified')
+    if asset.is_archived:
+        reasons.append('holding_archived')
+    if asset.sell_date is not None:
+        reasons.append('holding_disposed')
+    if asset.units is None:
+        reasons.append('holding_quantity_unknown')
+    # Asset.units has no quantity observation clock; quote/import dates cannot fill it.
+    return RecoveryHoldingRead(asset_id=asset.id, group_id=asset.group_id, name=asset.name,
+                               asset_symbol=asset.ticker, source=asset.source, stored_quantity=asset.units,
+                               reason_codes=reasons)
+
+
 def _read_entry(state, row, seen=None):
     observation = evidence._input(_get(state, 'observations', row.observation_id))
     reasons = _annotation_reasons(state, row, seen)
@@ -166,6 +194,7 @@ def _read_entry(state, row, seen=None):
     source_group = state['groups'].get(state['observations'][row.observation_id].group_id)
     return RecoveryEntryRead(**row.payload, id=row.id, observation_id=row.observation_id, observation=observation,
                              source_group_id=source_group.id if source_group else None, source_group_name=source_group.name if source_group else None,
+                             associated_holding=_holding_read(state, source_group.id if source_group else None, observation, row.payload['leg_key']),
                              application=_application(state, row, row.payload['role']), reason_codes=reasons)
 
 
@@ -350,6 +379,7 @@ async def preview_recovery(session, workspace_id, data):
                                                 observation_id=item.observation_id,
                                                 source_group_id=state['observations'][item.observation_id].group_id if item.observation_id else data.group_id,
                                                 source_group_name=state['groups'][state['observations'][item.observation_id].group_id].name if item.observation_id and state['observations'][item.observation_id].group_id in state['groups'] else state['groups'][data.group_id].name,
+                                                associated_holding=_holding_read(state, state['observations'][item.observation_id].group_id if item.observation_id else data.group_id, observation, item.leg_key),
                                                 application=RecoveryApplication(reason_codes=['retain_before_movement_review'])))
     package.round_count = len({(row.case_key, row.round_key) for row in package.entries if row.round_key})
     package.asset_record_count = len({(row.case_key, row.round_key, row.round_asset_key) for row in package.entries if row.round_asset_key})
@@ -380,6 +410,28 @@ async def retain_recovery(session, workspace_id, user_id, data):
     except Exception:
         await session.rollback()
         raise
+
+
+def _documentary_identity(state, row):
+    observation = state['observations'][row.observation_id]
+    leg = EvidenceLegInput.model_validate(state['legs'][row.leg_id].payload)
+    provider = observation.payload['provider']
+    if leg.asset_id:
+        asset = _get(state, 'assets', leg.asset_id)
+        if asset.group_id != observation.group_id or asset.is_archived or asset.sell_date is not None:
+            raise HTTPException(422, 'Associated holding is no longer available in the source wallet')
+        if set(evidence._holding_conflicts(leg, asset)) - {'unverified_holding_identity'}:
+            raise HTTPException(422, 'Holding identity conflicts with source evidence')
+        # Only reviewed holding identity may fill missing source identity; a selected ID/ticker is not proof.
+        identity = (asset.external_metadata or {}).get('evidence_asset_identity') or {}
+        if leg.token_program and identity.get('token_program') and leg.token_program != identity['token_program']:
+            raise HTTPException(422, 'Holding token program conflicts with source evidence')
+        # The retained identity has no issuing-provider namespace; do not borrow its provider ID.
+        leg = leg.model_copy(update={field: getattr(leg, field) or value for field, value in {
+            'isin': asset.isin, 'chain': identity.get('chain'), 'token_address': identity.get('token_address'),
+            'token_program': identity.get('token_program'),
+        }.items()})
+    return leg, provider
 
 
 def _validate_review(state, group_id, data, seen=None):
@@ -437,6 +489,8 @@ def _validate_review(state, group_id, data, seen=None):
         'disposition_proceeds': ({'disposition'}, {'cash_proceeds'}),
         'candidate_acquisition': ({'tax_workpaper'}, {'platform_ledger', 'receiving_receipt', 'disposition'}),
         'owned_transfer_reference': ({'receiving_receipt', 'platform_ledger'}, {'receiving_receipt', 'platform_ledger', 'disposition'}),
+        'documentary_equity_distribution': ({'allowed_claim', 'recovery_notice'}, {'equity_statement'}),
+        'documentary_receipt_disposition': ({'receiving_receipt', 'equity_statement'}, {'disposition'}),
     }
     left, right = allowed[data.relation_kind]
     if entry.payload['role'] not in left or target.payload['role'] not in right:
@@ -445,6 +499,38 @@ def _validate_review(state, group_id, data, seen=None):
         return
     if data.missing_evidence or data.conflicting_fields or not data.supporting_observation_ids:
         raise HTTPException(422, 'Resolve conflicts and provide supporting evidence before confirming a relation')
+    if data.relation_kind in {'documentary_equity_distribution', 'documentary_receipt_disposition'}:
+        if not data.account_mapping_evidence or not data.timing_evidence:
+            raise HTTPException(422, 'Source account and timing compatibility require documented review')
+        if any(not (state['observations'][row.observation_id].payload.get('event_date') or
+                    state['observations'][row.observation_id].payload.get('event_at')) for row in (entry, target)):
+            raise HTTPException(422, 'Source date/qualification is unresolved')
+        a, a_provider = _documentary_identity(state, entry)
+        b, b_provider = _documentary_identity(state, target)
+        if data.relation_kind == 'documentary_equity_distribution':
+            if not (b.isin or b.provider_asset_id):
+                raise HTTPException(422, 'Documentary equity association requires supported security identity')
+            left, right = _annotation_facts(state, entry, seen), _annotation_facts(state, target, seen)
+            if not right.get('round_key') or not right.get('round_asset_key'):
+                raise HTTPException(422, 'Equity distribution requires an explicit round and round asset')
+            if entry.payload['role'] == 'recovery_notice' and any(left.get(field) != right.get(field) for field in ('round_key', 'round_asset_key')):
+                raise HTTPException(422, 'Notice and equity statement require the same explicit round and round asset')
+        else:
+            strong_match = bool(a.isin and a.isin == b.isin or
+                                a.chain and a.chain == b.chain and a.token_address and a.token_address == b.token_address or
+                                a.provider_asset_id and a.provider_asset_id == b.provider_asset_id and a_provider == b_provider)
+            identity_conflict = any(getattr(a, field) and getattr(b, field) and getattr(a, field) != getattr(b, field)
+                                    for field in ('isin', 'chain', 'token_address', 'token_program'))
+            if a_provider == b_provider and a.provider_asset_id and b.provider_asset_id and a.provider_asset_id != b.provider_asset_id:
+                identity_conflict = True
+            if not strong_match or identity_conflict:
+                raise HTTPException(422, 'Documentary disposition requires compatible supported asset identities; ticker or holding selection alone is insufficient')
+            if a.quantity is None or b.quantity is None or data.documentary_quantity is None:
+                raise HTTPException(422, 'Documentary association requires both source quantities and an exact documented quantity')
+            if not Decimal(0) < data.documentary_quantity <= min(a.quantity, b.quantity):
+                raise HTTPException(422, 'Documented quantity must be positive and no greater than either source quantity')
+        # Confirmation certifies this documented association only; financial lineage below remains independent.
+        return
     if data.relation_kind == 'candidate_acquisition':
         raise HTTPException(422, 'An acquisition correspondence remains a candidate pending provenance review')
     if data.relation_kind == 'owned_transfer_reference' and not data.owned_transfer_id:

@@ -71,6 +71,17 @@ class RecoveryApplication(Contract):
     reason_codes: list[str] = Field(default_factory=list)
 
 
+class RecoveryHoldingRead(Contract):
+    asset_id: UUID
+    group_id: UUID | None = None
+    name: str | None = None
+    asset_symbol: str | None = None
+    source: str | None = None
+    stored_quantity: Decimal | None = None
+    quantity_observed_at: datetime | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
 class RecoveryEntryRead(Contract):
     source_group_id: UUID | None = None
     source_group_name: str | None = None
@@ -87,6 +98,7 @@ class RecoveryEntryRead(Contract):
     details: RecoveryDetails
     missing_evidence: list[str]
     application: RecoveryApplication = Field(default_factory=RecoveryApplication)
+    associated_holding: RecoveryHoldingRead | None = None
     reason_codes: list[str] = Field(default_factory=list)
 
 
@@ -96,7 +108,7 @@ class RecoveryReviewInput(Contract):
     entry_id: UUID
     target_entry_id: UUID | None = None
     supersedes_id: UUID | None = None
-    relation_kind: Literal['claim_notice', 'notice_receipt', 'receipt_disposition', 'disposition_proceeds', 'candidate_acquisition', 'owned_transfer_reference'] | None = None
+    relation_kind: Literal['claim_notice', 'notice_receipt', 'receipt_disposition', 'disposition_proceeds', 'candidate_acquisition', 'owned_transfer_reference', 'documentary_equity_distribution', 'documentary_receipt_disposition'] | None = None
     relation_state: State | None = None
     assertion_kind: Literal['reported_cost', 'provisional_allocation', 'valuation', 'account_mapping', 'lot_mapping', 'accounting_assumption', 'filing_assertion'] | None = None
     assertion_status: AssertionStatus | None = None
@@ -116,6 +128,7 @@ class RecoveryReviewInput(Contract):
     timing_evidence: Text | None = None
     quantity_adjustment: Decimal | None = None
     adjustment_evidence: Text | None = None
+    documentary_quantity: Amount | None = None
 
     @model_validator(mode='before')
     @classmethod
@@ -133,6 +146,11 @@ class RecoveryReviewInput(Contract):
 
     @model_validator(mode='after')
     def semantics(self):
+        if self.relation_kind in {'documentary_equity_distribution', 'documentary_receipt_disposition'}:
+            if self.quantity_adjustment is not None or self.adjustment_evidence or self.owned_transfer_id:
+                raise ValueError('Documentary associations cannot carry fee adjustments or owned-transfer lineage')
+        if self.documentary_quantity is not None and self.relation_kind != 'documentary_receipt_disposition':
+            raise ValueError('A documentary quantity belongs only to a documentary receipt/disposition association')
         if self.kind == 'relation':
             if not self.relation_kind or not self.relation_state:
                 raise ValueError('A relation requires a kind and independent relation state')
