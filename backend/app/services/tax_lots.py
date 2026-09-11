@@ -353,12 +353,15 @@ def _quantity_qualification(asset, connection, txs, position, sources):
     comparable = not (reasons - {"lifetime_history_unverified"})
     replayed = sum(((-lot["quantity"] if lot["written"] else lot["quantity"])
                     for lot in position["lots"]), Decimal(0))
-    discrepancy = replayed - reported if comparable else None
-    tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE if comparable else None
-    comparison = "not_comparable" if not comparable else (
-        "exact_match" if discrepancy == 0 else
-        "within_tolerance" if abs(discrepancy) <= tolerance else "mismatch"
-    )
+    discrepancy = tolerance = None
+    comparison = "not_comparable"
+    if comparable and reported is not None:
+        discrepancy = replayed - reported
+        tolerance = abs(reported) * LEDGER_RECONCILE_TOLERANCE
+        comparison = (
+            "exact_match" if discrepancy == 0 else
+            "within_tolerance" if abs(discrepancy) <= tolerance else "mismatch"
+        )
     if not txs:
         reasons.add("recorded_transactions_missing")
     if _detect_oversell(txs, asset_type=asset.type) is not None:

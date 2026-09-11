@@ -118,6 +118,7 @@ async def test_quantity_comparison_preserves_historical_lots_and_does_not_write(
         result = await asset_tax_lots(session, asset.id, test_workspace.id, as_of=date(2021, 6, 1))
     finally:
         event.remove(session.bind.sync_engine, "before_cursor_execute", capture)
+    assert result is not None
     assert result["lots"][0]["quantity"] == 10
     assert result["lots"][0]["acquired"] == "2020-01-01"
     q = result["qualification"]
@@ -171,6 +172,7 @@ async def test_retained_or_unavailable_quantities_cannot_certify_inventory(
         asset.external_metadata = {"investment_evidence_created": True}
     await session.commit()
     result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
     q = result["qualification"]
     assert q["comparison"] == "not_comparable"
     assert q["quantity_supported"] is False
@@ -184,6 +186,7 @@ async def test_snapshot_and_oversell_zero_never_certify_a_complete_history(
 ):
     _, _, asset = await _portfolio(session, test_user, test_workspace, "10", ledger=False)
     result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
     assert result["snapshot"] is True and result["lots"] == []
     assert "recorded_transactions_missing" in result["qualification"]["reason_codes"]
     asset.units = Decimal(0)
@@ -207,7 +210,9 @@ async def test_snapshot_and_oversell_zero_never_certify_a_complete_history(
         )
     )
     await session.commit()
-    q = (await asset_tax_lots(session, asset.id, test_workspace.id))["qualification"]
+    result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
+    q = result["qualification"]
     assert q["comparison"] == "exact_match" and not q["quantity_supported"]
     assert "oversell" in q["reason_codes"]
 
@@ -242,7 +247,9 @@ async def test_active_and_withdrawn_refresh_preserve_reviewed_identity_only(
         direction="in",
         classification="transfer",
         quantity="10",
-        **IDENTITY,
+        chain=IDENTITY["chain"],
+        token_address=IDENTITY["token_address"],
+        provider_asset_id=IDENTITY["provider_asset_id"],
     )
     for _ in range(2):
         await _sync_holdings(session, test_user.id, connection, {}, provider=provider)
@@ -284,6 +291,7 @@ async def test_refresh_does_not_carry_reviewed_identity_across_conflicts(
         metadata={"provider_asset_id": "synthetic-currency"},
     )
     wid, cid = test_workspace.id, connection.id
+    assert holding.metadata is not None
     if case == "provider_id":
         holding.metadata["provider_asset_id"] = "changed-currency"
     if case == "token":
@@ -322,12 +330,16 @@ async def test_sparse_quantity_and_failed_refresh_preserve_position_but_invalida
     await session.commit()
     assert asset.units == 10
     assert asset.external_metadata["provider_quantity_observation"]["quantity"] is None
-    q = (await asset_tax_lots(session, asset.id, test_workspace.id))["qualification"]
+    result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
+    q = result["qualification"]
     assert q["reported_quantity"] is None and q["comparison"] == "not_comparable"
     provider.get_holdings.side_effect = PartialHoldings([], [asset.external_id])
     await _sync_holdings(session, test_user.id, connection, {}, provider=provider)
     await session.commit()
-    q = (await asset_tax_lots(session, asset.id, test_workspace.id))["qualification"]
+    result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
+    q = result["qualification"]
     assert "quantity_observation_stale" in q["reason_codes"]
     assert asset.units == 10 and not asset.is_archived
 
@@ -343,6 +355,7 @@ async def test_reportability_and_workspace_boundaries(
         group.tax_treatment = treatment
     await session.commit()
     result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
     assert result["lots"] == result["sales"] == [] and not result["tax_character"]
     assert "qualification" not in result
     assert await asset_tax_lots(session, asset.id, uuid.uuid4()) is None
@@ -397,7 +410,9 @@ async def test_exact_api_qualification_preserves_decimal_precision_and_written_s
     session.execute.side_effect = [asset_rows, tx_rows, source_rows]
     session.scalar.return_value = conn
     with patch("app.services.owned_transfer_service.prepare_replay", new=AsyncMock()):
-        q = (await asset_tax_lots(session, aid, wid))["qualification"]
+        result = await asset_tax_lots(session, aid, wid)
+    assert result is not None
+    q = result["qualification"]
     assert q["reported_quantity"] == q["replayed_quantity"] == quantity
     assert q["comparison"] == "exact_match" and q["quantity_supported"]
     with localcontext(prec=128):
@@ -428,6 +443,7 @@ async def test_movement_read_keeps_missing_basis_and_settlement_qualification(
     )
     await session.commit()
     result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
     assert result["basis_complete"] is False
     q = result["qualification"]
     assert "acquisition_basis_incomplete" in q["reason_codes"]
@@ -476,6 +492,7 @@ async def test_retained_sources_contribute_coverage_without_becoming_another_led
     )
     await session.commit()
     result = await asset_tax_lots(session, asset.id, test_workspace.id)
+    assert result is not None
     q = result["qualification"]
     assert q["comparison"] == "exact_match" and not q["quantity_supported"]
     assert {"source_activity_unqualified", "source_coverage_incomplete"} <= set(q["reason_codes"])
