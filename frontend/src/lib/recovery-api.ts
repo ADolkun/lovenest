@@ -1,11 +1,15 @@
 import api from '@/lib/api'
-import type { AssetGroup } from '@/types'
+import type { Asset, AssetGroup } from '@/types'
 import type { EvidencePreview } from '@/types/investment-evidence'
 import type { RecoveryEntryInput, RecoveryPackage, RecoveryReviewInput, RecoveryRole, RecoveryState, AssertionStatus } from '@/types/recovery-evidence'
 
 export type RecoveryFilters = { group_id: string; case_key?: string; round_key?: string; role?: RecoveryRole; state?: RecoveryState | AssertionStatus; q?: string }
 const headers = (workspaceId: string) => ({ 'X-Workspace-Id': workspaceId })
 export const recovery = {
+  holdings: async (workspaceId: string, signal?: AbortSignal): Promise<Asset[]> => {
+    const { data } = await api.get('/assets', { headers: headers(workspaceId), signal })
+    return data
+  },
   wallets: async (workspaceId: string, signal?: AbortSignal): Promise<AssetGroup[]> => {
     const { data } = await api.get('/asset-groups', { headers: headers(workspaceId), signal })
     return data

@@ -33,7 +33,7 @@ async function draftEntries(draft: RecoveryDraft, observations: EvidenceObservat
   if (source.existing_observation_id && !existing) throw new Error('The selected retained source is unavailable. Refresh the source list.')
   const rows = existing ? draft.legs.slice(0, 1) : draft.legs
   const legs: EvidenceLeg[] = rows.map((row, index) => ({
-    key: `asset-${index + 1}`, asset_symbol: row.asset_symbol || null, asset_id: null, chain: row.chain || null, token_address: row.token_address || null, isin: row.isin || null, provider_asset_id: row.provider_asset_id || null,
+    key: `asset-${index + 1}`, asset_symbol: row.asset_symbol || null, asset_id: row.asset_id || null, chain: row.chain || null, token_address: row.token_address || null, isin: row.isin || null, provider_asset_id: row.provider_asset_id || null,
     direction: role === 'receiving_receipt' ? 'in' : role === 'disposition' ? 'out' : 'unknown', classification: role === 'receiving_receipt' ? 'transfer' : role === 'disposition' ? 'sell' : 'unknown',
     quantity: row.quantity || null, unit_price: null, subtotal: null, total: null, fee: row.fee || null, fee_currency: row.fee_currency || null,
     valuation_amount: row.valuation_amount || null, valuation_currency: row.valuation_currency || null, acquisition_basis: row.acquisition_basis || null,
@@ -90,6 +90,7 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [page, setPage] = useState(0)
+  const [sourceTarget, setSourceTarget] = useState<{ id: string } | null>(null)
   const [formVersion, setFormVersion] = useState(0)
   const generation = useRef(0)
   const lock = useRef(false)
@@ -97,6 +98,8 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
   const key = ['recovery', workspaceId, filters]
   const query = useQuery({ queryKey: key, queryFn: ({ signal }) => recovery.list(workspaceId, filters, signal), retry: false })
   const sources = useQuery({ queryKey: ['recovery-sources', workspaceId, sourceGroup], queryFn: ({ signal }) => recovery.sources(workspaceId, sourceGroup, signal), retry: false })
+  const holdings = useQuery({ queryKey: ['recovery-holdings', workspaceId], queryFn: ({ signal }) => recovery.holdings(workspaceId, signal), enabled: canWrite, retry: false })
+  const eligibleHoldings = holdings.data?.filter((asset) => asset.group_id === group.id && !asset.is_archived && !asset.sell_date) ?? []
   const context = useQuery({ queryKey: ['recovery', workspaceId, { group_id: sourceGroup }], queryFn: ({ signal }) => recovery.list(workspaceId, { group_id: sourceGroup }, signal), retry: false })
   const observations = sources.data?.target.workspace_id === workspaceId && sources.data.target.group_id === sourceGroup ? sources.data.observations : []
   const data = preview?.data ?? query.data
@@ -132,6 +135,7 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
     const current = ++generation.current
     setBusy(true); setError(null); setNotice(''); setPreview(null)
     try {
+      if (!draft.source.existing_observation_id && draft.legs.some((leg) => leg.asset_id && !eligibleHoldings.some((asset) => asset.id === leg.asset_id))) throw new Error(t('recovery.holdingChanged', 'The selected holding is unavailable. Choose another holding or clear the association.'))
       const entries = await draftEntries(draft, observations)
       const result = checked(await recovery.preview(workspaceId, group.id, entries))
       if (current === generation.current) setPreview({ entries, data: result })
@@ -157,6 +161,13 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
   const relatedEntries = view?.entries.filter((entry) => entry.reason_codes.includes('related_context')) ?? []
   const pages = Math.max(1, Math.ceil(entries.length / 25))
   const activePage = Math.min(page, pages - 1)
+  useEffect(() => {
+    if (!sourceTarget) return
+    const row = document.getElementById(`recovery-entry-${sourceTarget.id}`)
+    const details = row?.querySelector('details')
+    if (details) details.open = true
+    row?.scrollIntoView?.({ block: 'start' })
+  }, [sourceTarget, activePage])
   const related = context.data?.workspace_id === workspaceId && context.data.group_id === sourceGroup ? context.data : null
   const reviewContext = view ? { ...view, entries: [...new Map([...view.entries, ...(related?.entries ?? [])].map((entry) => [entry.id ?? entry.key, entry])).values()], reviews: [...new Map([...view.reviews, ...(related?.reviews ?? [])].map((review) => [review.id, review])).values()] } : null
   return <div className="min-w-0 space-y-6">
@@ -172,7 +183,10 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
       <div className="max-w-xl space-y-1.5"><Label htmlFor="recovery-source-wallet">{t('recovery.sourceWallet', 'Source wallet for retained evidence')}</Label><NativeSelect id="recovery-source-wallet" className={selectClass} value={sourceGroup} disabled={busy} onChange={(event) => { invalidateDraft(); setSourceGroup(event.target.value); setFormVersion((value) => value + 1) }}>{wallets.map((wallet) => <option key={wallet.id} value={wallet.id}>{mask(wallet.name)}</option>)}</NativeSelect></div>
       <p className="text-sm text-muted-foreground">{t('recovery.sourceBoundary', 'Retained sources keep their original account. New evidence belongs to the selected recovery destination; choosing a source account does not transfer assets.')}</p>
       {sources.isError && <div role="alert" className="text-sm"><p>{t('recovery.sourcesError', 'Retained sources could not be loaded. Manual entry remains available.')}</p><Button variant="outline" onClick={() => void sources.refetch()}>{t('common.retry', 'Retry')}</Button></div>}
-      <RecoveryEvidenceForm key={`${formVersion}:${sourceGroup}`} busy={busy} observations={observations} onPreview={(draft) => void prepare(draft)} onChange={invalidateDraft} />
+      {holdings.isFetching && <p role="status" className="text-sm">{t('recovery.loadingHoldings', 'Loading destination holdings…')}</p>}
+      {holdings.isError && <div role="alert" className="text-sm"><p>{t('recovery.holdingsError', 'Holdings could not be loaded. You can retain evidence without an association.')}</p><Button variant="outline" onClick={() => void holdings.refetch()}>{t('common.retry', 'Retry')}</Button></div>}
+      {holdings.isSuccess && !holdings.isFetching && !eligibleHoldings.length && <p className="text-sm text-muted-foreground">{t('recovery.noEligibleHoldings', 'No active holdings are available in this destination. Evidence can remain unassociated.')}</p>}
+      <RecoveryEvidenceForm key={`${formVersion}:${sourceGroup}`} busy={busy} observations={observations} holdings={eligibleHoldings} onPreview={(draft) => void prepare(draft)} onChange={invalidateDraft} />
       <Link className="inline-flex min-h-11 items-center text-sm underline" to={`/import?${new URLSearchParams({ tab: 'investments', mode: 'evidence', wallet: sourceGroup })}`}>{t('recovery.importCsv', 'Import a CSV in Source review, then attach its retained evidence here')}</Link>
     </div></details>}
     {!canWrite && <p className="text-sm text-muted-foreground">{t('recovery.viewer', 'Viewers can read and export saved evidence. An editor can retain sources and record reviews.')}</p>}
@@ -186,6 +200,7 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
       {preview && <div className="space-y-3 border-y border-border py-4"><p role="status" className="text-sm">{t('recovery.previewOnly', 'Preview only: saving these observations adds no financial quantities or basis.')}</p><p className="text-xs text-muted-foreground">{t('recovery.previewScope', 'Preview includes saved destination evidence and this source. Your filters resume after save or cancel.')}</p><div className="flex flex-wrap gap-2"><Button disabled={!canWrite || busy} onClick={() => void perform(() => recovery.retain(workspaceId, group.id, preview.entries, preview.data.revision), true)}>{t('recovery.save', 'Save evidence')}</Button><Button variant="ghost" disabled={busy} onClick={invalidateDraft}>{t('common.cancel', 'Cancel')}</Button></div></div>}
       {view.coverage.length > 0 && <section aria-label={t('recovery.coverage', 'Coverage and scope')} className="space-y-3 border-y border-border py-4 text-sm"><h3 className="font-medium">{t('recovery.coverage', 'Coverage and scope')}</h3><ul className="list-inside list-disc space-y-1">{[...new Set(view.coverage)].map((reason) => <li key={reason} className="break-words">{mask(label(reason))}</li>)}</ul></section>}
       {(view.missing_evidence.length > 0 || view.allocation_blockers.length > 0) && <section aria-label={t('recovery.gaps', 'Evidence gaps and model blockers')} className="space-y-3 border-y border-border py-4 text-sm"><h3 className="font-medium">{t('recovery.gaps', 'Evidence gaps and model blockers')}</h3><ul className="list-inside list-disc space-y-1">{[...new Set([...view.missing_evidence, ...view.allocation_blockers])].map((reason) => <li key={reason} className="break-words">{mask(label(reason))}</li>)}</ul><p>{t('recovery.noFinalization', 'Missing inputs and unresolved controlling assumptions prevent final allocation. Correcting a reference alone does not verify a model or filing assertion.')}</p></section>}
+      {entries.length > 0 && !preview && <RecoveryCaseSummary entries={entries} data={view} onSource={(entry) => { setPage(Math.floor(entries.indexOf(entry) / 25)); setSourceTarget({ id: entry.id ?? entry.key }) }} />}
       {!entries.length ? <p role="status" className="py-6 text-sm text-muted-foreground">{Object.keys(filters).length > 1 ? t('recovery.noMatches', 'No evidence matches these filters. Clear filters to inspect other retained sources.') : t('recovery.empty', 'No recovery evidence is saved for this wallet. Add a source or attach retained evidence to start.')}</p> : <div role="table" aria-label={t('recovery.table', 'Recovery reconciliation')} className="min-w-0 divide-y divide-border border-y border-border">
         <div role="row" className="hidden grid-cols-[1.2fr_1fr_1fr_1fr] gap-3 py-3 text-xs font-medium text-muted-foreground sm:grid">{['Source role / reference', 'Round / asset', 'Reported quantity / date', 'Evidence / application state'].map((text) => <div role="columnheader" key={text}>{t(`recovery.column.${text}`, text)}</div>)}</div>
         {entries.slice(activePage * 25, (activePage + 1) * 25).map((entry) => <RecoveryRow key={`${view.revision}:${entry.id ?? entry.key}`} entry={entry} data={reviewContext!} busy={busy || !!preview || query.isError || query.isFetching || context.isError} canWrite={canWrite && !preview} onSave={(review) => void perform(() => recovery.review(workspaceId, group.id, [review], view.revision))} />)}
@@ -195,6 +210,41 @@ function RecoveryWallet({ workspaceId, group, wallets, filters }: { workspaceId:
       <p className="text-xs text-muted-foreground">{t('recovery.precisionFooter', 'Unknown values remain unknown; displayed source precision is preserved. A source-confirmed notice can still have a missing receipt and unknown basis.')}</p>
     </>}
   </div>
+}
+
+function RecoveryCaseSummary({ entries, data, onSource }: { entries: RecoveryEntryRead[]; data: RecoveryPackage; onSource: (entry: RecoveryEntryRead) => void }) {
+  const { t } = useTranslation()
+  const { mask } = usePrivacyMode()
+  const unknown = t('recovery.unknown', 'Unknown')
+  const label = (value: string) => t(`recovery.value.${value}`, value.replaceAll('_', ' '))
+  return <section aria-label={t('recovery.caseSummary', 'Case summary')} className="space-y-5">
+    <div className="space-y-1"><h3 className="font-semibold">{t('recovery.caseSummary', 'Case summary')}</h3><p className="max-w-prose text-sm text-muted-foreground">{t('recovery.summaryScope', 'Selected source observations only. Receipts, dispositions and holding observations are separate, never added or subtracted. Related evidence outside your filters remains below.')}</p></div>
+    {[...new Set(entries.map((entry) => entry.case_key))].map((caseKey) => {
+      const rows = entries.filter((entry) => entry.case_key === caseKey)
+      const ids = new Set(rows.map((entry) => entry.id))
+      const reviews = data.reviews.filter((review) => review.is_current && (ids.has(review.entry_id) || review.target_entry_id && ids.has(review.target_entry_id)))
+      const holdings = [...new Map(rows.flatMap((entry) => entry.associated_holding ? [[entry.associated_holding.asset_id, entry.associated_holding] as const] : [])).values()]
+      const reasons = [...new Set([...rows.flatMap((entry) => [...entry.missing_evidence, ...entry.reason_codes, ...entry.application.reason_codes]), ...reviews.flatMap((review) => review.blockers)])]
+      return <div key={caseKey} className="min-w-0 space-y-4 border-y border-border py-4 text-sm">
+        <h4 className="break-words font-medium">{mask(caseKey)}</h4>
+        <ul className="space-y-3">{rows.filter((entry) => ['receiving_receipt', 'disposition', 'equity_statement'].includes(entry.role)).map((entry) => {
+          const leg = entry.observation.legs.find((part) => part.key === entry.leg_key)
+          return <li key={entry.id ?? entry.key} className="min-w-0 space-y-1 break-words">
+            <p><span className="font-medium">{label(entry.role)}</span> · {mask(leg?.quantity ?? unknown)} {mask(leg?.asset_symbol ?? unknown)} · {mask(entry.observation.event_time_raw ?? entry.observation.event_at ?? entry.observation.event_date ?? unknown)}</p>
+            {entry.role === 'disposition' && <p>{t('recovery.summaryProceeds', 'Reported proceeds')}: {mask(entry.details.proceeds ?? unknown)} {mask(entry.details.proceeds_currency ?? unknown)}</p>}
+            {entry.role === 'equity_statement' && <p>{t('recovery.summaryCost', 'Source-reported cost (not verified basis)')}: {mask(entry.details.reported_cost ?? unknown)} {mask(entry.details.reported_cost_currency ?? unknown)} · {mask(entry.details.statement_date ?? unknown)}</p>}
+            <p>{t('recovery.summaryValuation', 'Source valuation')}: {mask(leg?.valuation_amount ?? unknown)} {mask(leg?.valuation_currency ?? unknown)} · {mask(entry.observation.event_at ?? entry.observation.event_date ?? unknown)}</p>
+            <Button variant="link" className="h-auto min-h-11 max-w-full justify-start whitespace-normal break-all px-0 text-start" onClick={() => onSource(entry)}>{t('recovery.summarySource', 'View source')}: {mask(entry.observation.source_local_id ?? entry.observation.source_locator)}</Button>
+          </li>
+        })}</ul>
+        <div className="space-y-2"><h5 className="font-medium">{t('recovery.associatedHoldings', 'Associated holding observations')}</h5>{!holdings.length && <p>{t('recovery.noAssociatedHoldings', 'No holding association is recorded for these sources.')}</p>}
+          {holdings.map((holding) => <div key={holding.asset_id} className="min-w-0 space-y-1 break-words"><p>{mask(holding.name ?? unknown)} · {mask(holding.asset_symbol ?? unknown)} · {mask(holding.source ?? unknown)}</p><p>{t('recovery.storedQuantity', 'Stored holding quantity')}: {mask(holding.stored_quantity ?? unknown)} · {t('recovery.quantityDate', 'Quantity observation date')}: {mask(holding.quantity_observed_at ?? unknown)}</p><p className="text-xs text-muted-foreground">{[...new Set(rows.flatMap((entry) => entry.associated_holding?.asset_id === holding.asset_id ? entry.associated_holding.reason_codes : []))].map((reason) => mask(label(reason))).join(' · ')}</p></div>)}
+        </div>
+        {reviews.some((review) => review.relation_kind?.startsWith('documentary_')) && <p>{t('recovery.documentarySummary', 'Documentary associations record source relationships only; applied inventory and financial lot lineage remain separate.')}</p>}
+        <details><summary className="cursor-pointer py-3 font-medium">{t('recovery.summaryUnresolved', 'Unresolved facts and qualifications')}</summary><p className="break-words">{reasons.map((reason) => mask(label(reason))).join(' · ')}</p><p className="mt-2">{t('recovery.summaryQualification', 'Inventory history, acquisition basis, tax treatment and final claim settlement remain unverified. Stored holdings and source-reported costs do not settle these questions.')}</p></details>
+      </div>
+    })}
+  </section>
 }
 
 function RecoveryRow({ entry, data, busy, canWrite, onSave }: { entry: RecoveryEntryRead; data: RecoveryPackage; busy: boolean; canWrite: boolean; onSave: (review: Parameters<typeof recovery.review>[2][number]) => void }) {
@@ -207,7 +257,7 @@ function RecoveryRow({ entry, data, busy, canWrite, onSave }: { entry: RecoveryE
   const leg = source.legs.find((item) => item.key === entry.leg_key)
   const reviews = data.reviews.filter((review) => review.entry_id === entry.id || review.target_entry_id === entry.id)
   const fields = { original_source_wallet: entry.source_group_name, source_provider: source.provider, source_reference: source.source_local_id, source_locator: source.source_locator, historical_source_account: source.source_account_id, historical_workspace_context: source.historical_workspace_label, reported_time: source.event_time_raw ?? source.event_at ?? source.event_date, source_precision: source.time_precision, timezone: source.timezone, retrieved_at: source.observed_at, provider_status: source.provider_status, network_status: source.network_status, settlement_status: source.settlement_status, ...leg, ...entry.details }
-  return <div role="row" aria-label={`${label(entry.role)}: ${mask(source.source_local_id ?? source.source_locator)}`} className="min-w-0 py-3"><div role="cell"><details>
+  return <div id={`recovery-entry-${entry.id ?? entry.key}`} role="row" aria-label={`${label(entry.role)}: ${mask(source.source_local_id ?? source.source_locator)}`} className="min-w-0 py-3"><div role="cell"><details>
     <summary className="cursor-pointer rounded-md py-2 focus-visible:outline-2 focus-visible:outline-ring"><span className="grid min-w-0 gap-2 text-sm sm:grid-cols-[1.2fr_1fr_1fr_1fr] sm:gap-3"><span className="min-w-0 break-words"><strong>{label(entry.role)}</strong><span className="mt-1 block break-all text-xs text-muted-foreground">{mask(source.source_local_id ?? source.source_locator)}</span></span><span className="break-words">{mask(entry.case_key)} · {mask(entry.round_key ?? t('recovery.unassignedRound', 'Round unassigned'))}<span className="block">{mask(leg?.asset_symbol ?? unknown)} · {mask(entry.round_asset_key ?? t('recovery.unassignedAsset', 'Asset reference unassigned'))}</span></span><span className="break-words tabular-nums">{mask(leg?.quantity ?? unknown)}<span className="block text-xs">{mask(source.event_time_raw ?? source.event_at ?? source.event_date ?? unknown)} · {label(source.time_precision)}</span></span><span className="break-words"><span className="block">{t('recovery.sourceState', 'Source state')}: {label(entry.reported_state)}</span><span className="block">{t('recovery.quantityApplication', 'Quantity application')}: {entry.role === 'receiving_receipt' ? label(entry.application.status) : t('recovery.evidenceOnly', 'Evidence only')}</span></span></span></summary>
     <div className="space-y-4 py-4 text-sm">
       <h4 className="font-medium">{t('recovery.originalFacts', 'Original source facts and separately reported details')}</h4>
@@ -216,7 +266,7 @@ function RecoveryRow({ entry, data, busy, canWrite, onSave }: { entry: RecoveryE
       <ul className="list-inside list-disc space-y-1">{[...new Set([...entry.missing_evidence, ...entry.reason_codes, ...entry.application.reason_codes])].map((reason) => <li key={reason} className="break-words">{mask(label(reason))}</li>)}</ul>
       {entry.role === 'receiving_receipt' && entry.application.status === 'unsupported' && <p>{t('recovery.offchainUnsupported', 'This receipt remains evidence only. Quantity application requires independently supported movement evidence; missing chain facts or basis are never invented.')}</p>}
       {entry.application.leg_id && entry.application.status !== 'unsupported' && <Link className="inline-flex min-h-11 items-center underline" to={`/assets?${new URLSearchParams({ tab: 'activity', activity: 'transfers', movement: entry.application.leg_id, ...(entry.source_group_id ? { wallet: entry.source_group_id } : {}) })}`}>{t('recovery.movement', 'Review supported quantity movement')}</Link>}
-      {reviews.length > 0 && <div className="space-y-4"><h4 className="font-medium">{t('recovery.recordedReviews', 'Recorded relationships, corrections and model assertions')}</h4>{reviews.map((review) => <div key={review.id} className="space-y-2 border-t border-border pt-3"><p className="font-medium">{label(review.kind)} · {label(review.relation_state ?? review.assertion_status ?? 'modeled')} · {review.is_current ? t('recovery.current', 'Current review') : t('recovery.superseded', 'Superseded review retained')}</p><dl className="grid gap-3 sm:grid-cols-2">{Object.entries({ meaning: review.relation_kind ?? review.assertion_kind, field: review.field, asserted_value: review.value, currency: review.currency, proposed_correction: review.proposed_value, source: review.source_locator, reason: review.reason, created_at: review.created_at, related_source: data.entries.find((item) => item.id === review.target_entry_id)?.observation.source_locator ?? null, documented_account_mapping: review.account_mapping_evidence, documented_timing: review.timing_evidence, quantity_adjustment: review.quantity_adjustment, adjustment_source: review.adjustment_evidence, supporting_sources: review.supporting_observation_ids.map((id) => data.entries.find((item) => item.observation_id === id)?.observation.source_locator ?? id).join('; ') || null, required_inputs: review.required_entry_ids.map((id) => data.entries.find((item) => item.id === id)?.observation.source_locator ?? id).join('; ') || null, required_assumptions: review.required_review_ids.map((id) => data.reviews.find((item) => item.id === id)?.reason ?? id).join('; ') || null }).map(([key, value]) => <div key={key}><dt className="text-muted-foreground">{label(key)}</dt><dd className="break-words">{mask(value ?? unknown)}</dd></div>)}</dl>{review.blockers.length > 0 && <ul className="list-inside list-disc">{review.blockers.map((reason) => <li key={reason}>{mask(label(reason))}</li>)}</ul>}{review.kind === 'allocation' && <p>{review.ready_for_review ? t('recovery.ready', 'Inputs ready for review; allocation and filing treatment are not finalized.') : t('recovery.blocked', 'Allocation blocked by unresolved inputs or assumptions.')}</p>}</div>)}</div>}
+      {reviews.length > 0 && <div className="space-y-4"><h4 className="font-medium">{t('recovery.recordedReviews', 'Recorded relationships, corrections and model assertions')}</h4>{reviews.map((review) => <div key={review.id} className="space-y-2 border-t border-border pt-3"><p className="font-medium">{label(review.kind)} · {label(review.relation_state ?? review.assertion_status ?? 'modeled')} · {review.is_current ? t('recovery.current', 'Current review') : t('recovery.superseded', 'Superseded review retained')}</p><dl className="grid gap-3 sm:grid-cols-2">{Object.entries({ meaning: review.relation_kind ?? review.assertion_kind, field: review.field, asserted_value: review.value, currency: review.currency, proposed_correction: review.proposed_value, source: review.source_locator, reason: review.reason, created_at: review.created_at, related_source: data.entries.find((item) => item.id === review.target_entry_id)?.observation.source_locator ?? null, documented_account_mapping: review.account_mapping_evidence, documented_timing: review.timing_evidence, documentary_association_quantity: review.documentary_quantity ?? null, quantity_adjustment: review.quantity_adjustment, adjustment_source: review.adjustment_evidence, supporting_sources: review.supporting_observation_ids.map((id) => data.entries.find((item) => item.observation_id === id)?.observation.source_locator ?? id).join('; ') || null, required_inputs: review.required_entry_ids.map((id) => data.entries.find((item) => item.id === id)?.observation.source_locator ?? id).join('; ') || null, required_assumptions: review.required_review_ids.map((id) => data.reviews.find((item) => item.id === id)?.reason ?? id).join('; ') || null }).map(([key, value]) => <div key={key}><dt className="text-muted-foreground">{label(key)}</dt><dd className="break-words">{mask(value ?? unknown)}</dd></div>)}</dl>{review.blockers.length > 0 && <ul className="list-inside list-disc">{review.blockers.map((reason) => <li key={reason}>{mask(label(reason))}</li>)}</ul>}{review.kind === 'allocation' && <p>{review.ready_for_review ? t('recovery.ready', 'Inputs ready for review; allocation and filing treatment are not finalized.') : t('recovery.blocked', 'Allocation blocked by unresolved inputs or assumptions.')}</p>}</div>)}</div>}
       {canWrite && entry.id && <><Button variant="outline" disabled={busy} onClick={() => setReviewing(!reviewing)} aria-expanded={reviewing}>{reviewing ? t('recovery.closeReview', 'Close review form') : t('recovery.addReview', 'Add relationship, correction or model review')}</Button>{reviewing && <RecoveryReviewForm entry={entry} data={data} busy={busy} onSave={onSave} />}</>}
     </div>
   </details></div></div>
