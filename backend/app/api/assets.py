@@ -29,6 +29,10 @@ from app.schemas.investment_evidence import (
     EvidenceConfirmRequest, EvidenceOpeningBoundary, EvidencePreview, EvidenceResult,
 )
 from app.services import investment_evidence_service
+from app.schemas.investment_source_review import (
+    SourceReviewConfirm, SourceReviewPackage, SourceReviewPreview, SourceReviewRequest,
+)
+from app.services import investment_source_review_service
 from app.schemas.asset import (
     AssetBuyCreate,
     AssetCreate,
@@ -475,6 +479,43 @@ async def confirm_investment_evidence(
         data.decisions, data.expected_revision, opening_boundary=data.opening_boundary,
         allow_unpriced=data.allow_unpriced,
     )
+
+
+@router.get("/evidence/source-reviews", response_model=SourceReviewPackage)
+async def list_source_reviews(
+    group_id: uuid.UUID, ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await investment_source_review_service.list_reviews(session, ctx.workspace.id, group_id)
+
+
+@router.post("/evidence/source-reviews/preview", response_model=SourceReviewPreview)
+async def preview_source_review(
+    data: SourceReviewRequest, ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await investment_source_review_service.preview_review(session, ctx.workspace.id, data)
+
+
+@router.post("/evidence/source-reviews/confirm", response_model=SourceReviewPackage)
+async def confirm_source_review(
+    data: SourceReviewConfirm, ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    return await investment_source_review_service.confirm_review(session, ctx.workspace.id, ctx.user_id, data)
+
+
+@router.get("/evidence/source-reviews/export")
+async def export_source_reviews(
+    group_id: uuid.UUID, expected_revision: str, ctx: WorkspaceContext = Depends(current_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    package = await investment_source_review_service.list_reviews(session, ctx.workspace.id, group_id)
+    if package.revision != expected_revision:
+        raise HTTPException(409, "Source reviews changed; refresh before exporting")
+    return Response(package.model_dump_json(indent=2), media_type="application/json", headers={
+        "Content-Disposition": 'attachment; filename="source-reviews.json"',
+    })
 
 
 @router.delete("/evidence/links/{link_id}", response_model=EvidencePreview)

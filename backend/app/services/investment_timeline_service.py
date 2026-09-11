@@ -572,6 +572,8 @@ async def _project(session, workspace_id):
                     event.basis = TimelineBasis(state="known" if read.unknown_basis_quantity == 0 else "partial" if read.principal_quantity > read.unknown_basis_quantity else "unknown",
                         acquisition_cost=read.acquisition_cost, known_acquisition_cost=read.known_acquisition_cost,
                         unknown_basis_quantity=read.unknown_basis_quantity, reason_codes=read.reason_codes)
+    from app.services.investment_source_review_service import attach_timeline_reviews
+    attach_timeline_reviews(state, result, details, displayed_leg_ids)
     revision = evidence._digest({"state": state["revision"], "events": [(str(row.id), row.event_key) for row in state["events"].values()],
                                  "coverage": [item.model_dump(mode="json") for item in coverage], "errors": errors,
                                  "recovery": [event.recovery for event in result.values()]})
