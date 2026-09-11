@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" verrà rimossa. I tuoi conti e dati non sono interessati."
   },
   "auth": {
+    "localAuthDisabled": "L’accesso con password è disattivato su questo server. Usa il tuo provider di accesso o contatta l’amministratore.",
+    "passkeyEmailRequired": "Inserisci un indirizzo email valido per continuare con una passkey.",
+    "passkeysCleanupDescription": "L’accesso locale è disattivato. Puoi rimuovere le passkey salvate, ma non aggiungerne di nuove.",
     "login": "Accedi",
     "register": "Crea account",
     "logout": "Esci",

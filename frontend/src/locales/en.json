@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" will be removed. Your accounts and data are not affected."
   },
   "auth": {
+    "localAuthDisabled": "Password sign-in is disabled on this server. Use your sign-in provider or contact the administrator.",
+    "passkeyEmailRequired": "Enter a valid email address to continue with a passkey.",
+    "passkeysCleanupDescription": "Local sign-in is disabled. You can remove saved passkeys, but cannot add new ones.",
     "login": "Login",
     "register": "Create account",
     "logout": "Logout",

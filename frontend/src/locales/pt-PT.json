@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "\"{{name}}\" será eliminada. As tuas contas e os teus dados não serão afetados."
   },
   "auth": {
+    "localAuthDisabled": "O início de sessão por palavra-passe está desativado neste servidor. Utilize o seu fornecedor de autenticação ou contacte o administrador.",
+    "passkeyEmailRequired": "Introduza um endereço de e-mail válido para continuar com uma chave de acesso.",
+    "passkeysCleanupDescription": "O início de sessão local está desativado. Pode remover chaves de acesso guardadas, mas não adicionar novas.",
     "login": "Iniciar sessão",
     "register": "Criar conta",
     "logout": "Terminar sessão",

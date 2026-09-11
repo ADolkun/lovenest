@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 interface PasskeyManagementDialogProps {
   open: boolean
   onClose: () => void
+  localAuthEnabled?: boolean
 }
 
 const FAILURE_KEYS: Record<PasskeyFailure, string> = {
@@ -38,7 +39,7 @@ export function PasskeyManagementDialog(props: PasskeyManagementDialogProps) {
   return props.open ? <PasskeyManagementSession {...props} /> : null
 }
 
-function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProps) {
+function PasskeyManagementSession({ open, onClose, localAuthEnabled = true }: PasskeyManagementDialogProps) {
   const { t } = useTranslation()
   const [passkeys, setPasskeys] = useState<Passkey[]>([])
   const [name, setName] = useState('')
@@ -47,7 +48,7 @@ function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProp
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
-  const blocker = passkeyBlocker()
+  const blocker = localAuthEnabled ? passkeyBlocker() : null
 
   const loadPasskeys = useCallback((signal?: AbortSignal) => {
     return auth.listPasskeys()
@@ -75,6 +76,7 @@ function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProp
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!localAuthEnabled) return
     const passkeyName = name.trim() || t('auth.defaultPasskeyName')
     setSaving(true)
     try {
@@ -113,7 +115,7 @@ function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProp
         </DialogHeader>
 
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t('auth.passkeysDescription')}</p>
+          <p className="text-sm text-muted-foreground">{t(localAuthEnabled ? 'auth.passkeysDescription' : 'auth.passkeysCleanupDescription')}</p>
 
           {blocker && (
             <Alert variant="warning" className="border-transparent px-3 py-2.5">
@@ -122,30 +124,32 @@ function PasskeyManagementSession({ open, onClose }: PasskeyManagementDialogProp
             </Alert>
           )}
 
-          <form onSubmit={handleRegister} className="space-y-3 rounded-lg border p-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="passkey-name">{t('auth.passkeyName')}</Label>
-              <Input
-                id="passkey-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder={t('auth.passkeyNamePlaceholder')}
-                maxLength={100}
-                disabled={saving || !!blocker}
-              />
-            </div>
-            <Button type="submit" disabled={!!blocker || saving} className="w-full">
-              {saving && <Loader2 size={15} className="animate-spin" />}
-              {saving ? t('auth.passkeyWaiting') : t('auth.addPasskey')}
-            </Button>
-          </form>
+          {localAuthEnabled && (
+            <form onSubmit={handleRegister} className="space-y-3 rounded-lg border p-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="passkey-name">{t('auth.passkeyName')}</Label>
+                <Input
+                  id="passkey-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder={t('auth.passkeyNamePlaceholder')}
+                  maxLength={100}
+                  disabled={saving || !!blocker}
+                />
+              </div>
+              <Button type="submit" disabled={!!blocker || saving} className="w-full">
+                {saving && <Loader2 size={15} className="animate-spin" />}
+                {saving ? t('auth.passkeyWaiting') : t('auth.addPasskey')}
+              </Button>
+            </form>
+          )}
 
           <div className="space-y-2">
             {loading ? (
               <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
             ) : loadFailed ? (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 p-3">
-                <p className="text-sm text-destructive">{t('auth.passkeyLoadError')}</p>
+                <p role="alert" className="text-sm text-destructive">{t('auth.passkeyLoadError')}</p>
                 <Button type="button" variant="outline" size="sm" onClick={() => { setLoading(true); setLoadFailed(false); void loadPasskeys() }}>
                   {t('common.retry')}
                 </Button>

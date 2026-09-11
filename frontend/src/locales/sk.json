@@ -401,6 +401,9 @@
     "confirmDeleteDesc": "„{{name}}“ sa odstráni. Tvoje účty ani údaje to neovplyvní."
   },
   "auth": {
+    "localAuthDisabled": "Prihlásenie heslom je na tomto serveri vypnuté. Použite svojho poskytovateľa prihlásenia alebo kontaktujte správcu.",
+    "passkeyEmailRequired": "Ak chcete pokračovať s prístupovým kľúčom, zadajte platnú e-mailovú adresu.",
+    "passkeysCleanupDescription": "Lokálne prihlásenie je vypnuté. Uložené prístupové kľúče môžete odstrániť, ale nemôžete pridávať nové.",
     "login": "Prihlásiť sa",
     "register": "Vytvoriť účet",
     "logout": "Odhlásiť sa",

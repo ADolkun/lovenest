@@ -403,6 +403,9 @@
     "confirmDeleteDesc": "„{{name}}” zostanie usunięta. Twoje konta i dane nie zostaną naruszone."
   },
   "auth": {
+    "localAuthDisabled": "Logowanie hasłem jest wyłączone na tym serwerze. Użyj swojego dostawcy logowania lub skontaktuj się z administratorem.",
+    "passkeyEmailRequired": "Wpisz prawidłowy adres e-mail, aby kontynuować z kluczem dostępu.",
+    "passkeysCleanupDescription": "Logowanie lokalne jest wyłączone. Możesz usuwać zapisane klucze dostępu, ale nie możesz dodawać nowych.",
     "login": "Zaloguj się",
     "register": "Utwórz konto",
     "logout": "Wyloguj się",
