@@ -366,6 +366,11 @@ async def preview_evidence(
     group, cid = await _scope(session, workspace_id, group_id, connection_id)
     state = await _state(session, workspace_id, group_id)
     saved, events, legs, links, assets, txs = state
+    from app.services.investment_source_review_service import active_corrections, correction_claims, review_rows
+    correction_reviews = await review_rows(session, workspace_id)
+    corrected_transactions = {row.payload["effects"]["after"]["id"] for row in active_corrections(correction_reviews)}
+    claims = {(claim["sources"][0]["identity_key"], claim["sources"][0]["leg_key"]): claim
+              for claim in correction_claims(correction_reviews)}
     from app.models.recovery_evidence import InvestmentRecoveryEntry
     recovery_observations = set((await session.scalars(select(InvestmentRecoveryEntry.observation_id).where(
         InvestmentRecoveryEntry.workspace_id == workspace_id,
@@ -442,6 +447,8 @@ async def preview_evidence(
             elif len(matches) > 1:
                 conflicts.append("ambiguous_holding_identity")
             reasons = []
+            if any(str(part.asset_transaction_id) in corrected_transactions for part in application_legs):
+                reasons.append("canonical_acquisition_corrected")
             candidates = []
             for lid, eid, other, other_leg, canonical in pool:
                 if other.reference == observation.reference or lid in {link.leg_id for link in related}:
@@ -532,6 +539,13 @@ async def preview_evidence(
             if application_reversed:
                 status = "blocked"
                 reasons.append("application_reversed")
+            claim = claims.get((identities.get(observation.reference), item.key))
+            if claim:
+                reasons.append("source_correction_ownership")
+                status = "already_applied"
+                if not any(str(tx.id) == claim["effects"]["after"]["id"] for tx in txs):
+                    status = "blocked"
+                    reasons.append("application_reversed")
             if applicable and opening_boundary and not opening_boundary.overlap_reviewed:
                 status = "blocked"
                 reasons.append("opening_overlap_review_required")
@@ -585,6 +599,7 @@ async def preview_evidence(
         "links": sorted((str(link.id), str(link.reversed_at)) for link in links),
         "ledger": sorted((str(tx.id), str(tx.asset_id), tx.kind, str(tx.quantity), str(tx.price), str(tx.fee), str(tx.date)) for tx in txs),
         "assets": sorted((str(a.id), str(a.units), str(a.group_id), str(a.connection_id)) for a in assets),
+        "source_reviews": [(str(row.id), row.fingerprint) for row in correction_reviews],
         "opening_boundary": opening_boundary.model_dump(mode="json") if opening_boundary else None,
     })
     reconciliation = _reconciliation(inputs, records, legs, events, opening_boundary, family_keys)
@@ -679,7 +694,7 @@ def _reconciliation(inputs, records, legs, events, opening_boundary, family_keys
             own = next((leg for leg in legs if str(leg.observation_id) == observation.reference and leg.source_leg_key == item.key), None)
             # Corroboration does not add another movement. Only canonical
             # settled primary legs enter the quantity equation.
-            if any(reason in record.reason_codes for reason in ("canonical_application_required", "application_reversed")):
+            if any(reason in record.reason_codes for reason in ("canonical_application_required", "application_reversed", "canonical_acquisition_corrected")):
                 missing.add("unresolved_movements")
                 continue
             if record.links or (record.application_status == "already_applied" and (own is None or not own.asset_transaction_id)):
@@ -789,6 +804,11 @@ async def _already_done(session, workspace_id, group_id, observations, decisions
 
 
 async def _link(session, workspace_id, user_id, row, item, decision, group_id, log=None):
+    from app.services.investment_source_review_service import active_corrections, correction_claims, review_rows
+    source_reviews = await review_rows(session, workspace_id)
+    if any(claim["sources"][0]["identity_key"] == row.identity_key
+           and claim["sources"][0]["leg_key"] == item.key for claim in correction_claims(source_reviews)):
+        raise HTTPException(409, "This source retains correction ownership; record a documentary association instead")
     if not decision.allocations or not decision.reason:
         raise HTTPException(422, "Reviewed links require allocations and a reason")
     if len({a.leg_id for a in decision.allocations}) != len(decision.allocations):
@@ -817,6 +837,11 @@ async def _link(session, workspace_id, user_id, row, item, decision, group_id, l
             target.asset_transaction_id, target.applied_at = tx.id, tx.created_at or datetime.now(timezone.utc)
         target_item = EvidenceLegInput.model_validate(target.payload)
         source = _input(await session.get(InvestmentObservation, target.observation_id))
+        target_row = await session.get(InvestmentObservation, target.observation_id)
+        if any(review.payload["effects"]["after"]["id"] == str(target.asset_transaction_id)
+               or review.payload["sources"][1]["identity_key"] == target_row.identity_key
+               for review in active_corrections(source_reviews)):
+            raise HTTPException(409, "This entry has an active correction; record a documentary association instead")
         if target.observation_id == row.id:
             raise HTTPException(422, "An observation cannot corroborate itself")
         if not _same_asset(item, target_item) or item.direction != target_item.direction:

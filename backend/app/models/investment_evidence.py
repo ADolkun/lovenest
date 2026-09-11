@@ -93,3 +93,21 @@ class InvestmentObservationLink(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InvestmentSourceReview(Base):
+    """Append-only source interpretations and corrections of an existing entry."""
+    __tablename__ = "investment_source_reviews"
+    __table_args__ = (UniqueConstraint("workspace_id", "request_key"), UniqueConstraint("supersedes_id"))
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("asset_groups.id", ondelete="SET NULL"), index=True)
+    request_key: Mapped[str] = mapped_column(String(128))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("investment_source_reviews.id"))
+    # Source, transaction and wallet IDs plus both images remain in the payload
+    # if a later ordinary deletion removes their live database rows.
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

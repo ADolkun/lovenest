@@ -51,6 +51,7 @@ export interface TimelineSource {
 }
 
 export interface TimelineLeg extends EvidenceLeg {
+  applied_entry?: { quantity: string; price: string; fee: string; date: string; tax_basis_complete: false } | null
   leg_id: string
   canonical_asset_key: string
   group_id: string | null
@@ -149,5 +150,7 @@ export interface TimelineSourceDetail {
   observation: Record<string, unknown> | null
   raw_payload: { encoding: 'json'; json: string } | null
   transaction: { encoding: 'json'; json: string } | null
+  applied_entry?: Record<string, unknown> | null
+  source_reviews?: Record<string, unknown>[]
   coverage: TimelineCoverage[]
 }

@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ImportHistory } from '@/components/import-history'
 import { NativeSelect } from '@/components/ui/native-select'
+import { SourceReviewPanel } from '@/components/source-review-panel'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import type { AssetGroup, AssetImportPreview } from '@/types'
 import type { EvidenceDecision, EvidenceObservation, EvidencePreview, EvidenceRecord, EvidenceSourceKind } from '@/types/investment-evidence'
 
@@ -22,9 +24,11 @@ const label = (value: string) => value.replaceAll('_', ' ')
 export function EvidenceImportPanel({ mode = 'evidence', initialGroupId = '' }: { mode?: 'evidence' | 'opening_lots'; initialGroupId?: string }) {
   const { t } = useTranslation()
   const { current } = useWorkspace()
+  const { privacyMode } = usePrivacyMode()
   const [groupId, setGroupId] = useState(initialGroupId)
   const wallets = useQuery({ queryKey: ['asset-groups', current?.id, 'source-review'], queryFn: ({ signal }) => timeline.wallets(current!.id, signal), enabled: !!current })
   const group = wallets.data?.find((wallet) => wallet.id === groupId)
+  if (privacyMode) return <p className="text-sm text-muted-foreground">{t('sourceReview.privacyHidden', 'Source review is hidden in privacy mode. Turn privacy mode off to inspect or export sources.')}</p>
   return <section className="space-y-4" aria-label={t('evidence.sourceReview', 'Source review')}>
     <p className="max-w-prose text-sm text-muted-foreground">{t('evidence.intro', 'Keep source observations, review their links, then apply supported activity. Saving evidence does not change holdings or establish acquisition basis.')}</p>
     <div className="max-w-xl space-y-2">
@@ -195,6 +199,7 @@ function EvidenceWalletReview({ group, workspaceId, mode }: { group: AssetGroup;
       </div>
       {file && <p className="text-sm text-muted-foreground">{t('evidence.saveFirst', 'Preview only. Save observations to review links and application; this step adds no holdings or basis.')}</p>}
       {canWrite && !file && <label className="flex items-start gap-2 text-sm text-muted-foreground"><input type="checkbox" className="mt-1" checked={allowUnpriced} disabled={busy} onChange={(event) => setAllowUnpriced(event.target.checked)} /><span>{t('assetImport.allowUnpriced')}<span className="mt-1 block text-xs">{t('evidence.unpricedBoundary', 'Allow unavailable market quotes only. Missing acquisition basis remains unknown.')}</span></span></label>}
+      {!file && mode === 'evidence' && <SourceReviewPanel workspaceId={workspaceId} groupId={group.id} evidence={view} disabled={busy || stored.isError} />}
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="space-y-1 sm:w-56"><Label htmlFor="evidence-filter">{t('evidence.statusFilter', 'Match status')}</Label><NativeSelect id="evidence-filter" className={SELECT_CLASS} value={filter} onChange={(event) => { setFilter(event.target.value); setPage(0) }}><option value="all">{t('common.all', 'All')} ({records.length})</option>{MATCH_STATES.map((status) => <option key={status} value={status}>{t(`evidence.status.${status}`, label(status))} ({records.filter((record) => record.match_status === status).length})</option>)}</NativeSelect></div>
         <div className="flex-1 space-y-1"><Label htmlFor="evidence-search">{t('evidence.search', 'Search source IDs, assets or reasons')}</Label><Input id="evidence-search" type="search" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0) }} /></div>

@@ -63,13 +63,14 @@ async def lock_workspace(session, workspace_id):
 
 
 async def _state(session, workspace_id):
+    from app.models.investment_evidence import InvestmentSourceReview
     result = {}
     for key, model in (("assets", Asset), ("groups", AssetGroup), ("transactions", AssetTransaction),
                        ("observations", InvestmentObservation), ("legs", InvestmentLeg),
                        ("links", InvestmentObservationLink),
                        ("ownership", InvestmentOwnership), ("applications", InvestmentMovementApplication),
                        ("transfers", InvestmentOwnedTransfer), ("incidents", InvestmentIncident),
-                       ("archives", InvestmentHistoryCollection)):
+                       ("archives", InvestmentHistoryCollection), ("source_reviews", InvestmentSourceReview)):
         rows = list((await session.scalars(select(model).where(model.workspace_id == workspace_id)
                                           .execution_options(populate_existing=True))).all())
         result[key] = {row.id: row for row in rows}
@@ -331,6 +332,11 @@ def _qualify(state):
                 qualification[row.id]["missing_links"].append("acquisition_source_unqualified")
                 qualification[row.id]["invalid_root_transaction_ids"].extend(
                     str(leg.asset_transaction_id) for leg in state["legs"].values() if str(leg.observation_id) == key and leg.asset_transaction_id
+                )
+                qualification[row.id]["invalid_root_transaction_ids"].extend(
+                    review.payload["effects"]["after"]["id"] for review in state.get("source_reviews", {}).values()
+                    if review.payload["request"]["action"] == "correct"
+                    and any(source["observation_id"] == key for source in review.payload["sources"])
                 )
     # Propagate principal and acquisition qualification through the recorded event DAG.
     for _ in range(len(active) + 1):
@@ -636,6 +642,11 @@ async def _write_application(session, state, user_id, selection, *, ordering_rev
     kind = "move_in" if item["direction"] == "in" else "move_out" if item["quantity_role"] == "principal" else "fee"
     parents = {str(tx.movement["application_id"]) for tx in prefix if tx.movement and tx.movement.get("application_id")}
     acquisition_observations = [str(part.observation_id) for part in state["legs"].values() if part.asset_transaction_id in {tx.id for tx in prefix}]
+    from app.services.investment_source_review_service import active_corrections
+    acquisition_observations.extend(source["observation_id"]
+        for review in active_corrections(state.get("source_reviews", {}).values())
+        if review.payload["effects"]["after"]["id"] in {str(tx.id) for tx in prefix}
+        for source in review.payload["sources"])
     payload = {"request": MovementPreviewRequest(**selection.model_dump(), ordering_reviewed=ordering_reviewed).model_dump(mode="json"),
                "dependency_transactions": {str(tx.id): _tx_fingerprint(tx) for tx in prefix},
                "selected_lots": _json(lots),
@@ -914,6 +925,8 @@ async def reverse_movement(session, workspace_id, identifier, expected_revision)
 async def guard_asset_mutation(session, workspace_id, asset_ids, *, transaction_ids=(), before_date=None):
     """Shared pre-write guard for manual changes, imports, undo and deletion."""
     await lock_workspace(session, workspace_id)
+    from app.services.investment_source_review_service import guard_corrected_transactions
+    await guard_corrected_transactions(session, workspace_id, asset_ids, transaction_ids, deleting_scope=before_date is None)
     state = await _state(session, workspace_id)
     tx_ids = {str(identifier) for identifier in transaction_ids}
     dependencies = []

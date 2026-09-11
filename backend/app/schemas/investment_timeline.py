@@ -72,6 +72,7 @@ class TimelineLeg(EvidenceLegInput):
     sender_debit_raw_units: str | None = None
     receiver_credit_raw_units: str | None = None
     withheld_fee_raw_units: str | None = None
+    applied_entry: dict | None = None
 
 
 class TimelineRelationship(BaseModel):
@@ -159,4 +160,6 @@ class TimelineSourceDetail(BaseModel):
     observation: dict | None = None
     raw_payload: dict | None = None
     transaction: dict | None = None
+    applied_entry: dict | None = None
+    source_reviews: list[dict] = Field(default_factory=list)
     coverage: list[TimelineCoverage] = Field(default_factory=list)
