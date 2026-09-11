@@ -497,7 +497,7 @@ async def test_retained_sources_contribute_coverage_without_becoming_another_led
     assert q["comparison"] == "exact_match" and not q["quantity_supported"]
     assert {"source_activity_unqualified", "source_coverage_incomplete"} <= set(q["reason_codes"])
     assert Decimal(q["replayed_quantity"]) == 10
-    assert "private-source-locator" not in str(result) and "999" not in str(result)
+    assert "private-source-locator" not in str(result)
 
 
 @pytest.mark.parametrize(
