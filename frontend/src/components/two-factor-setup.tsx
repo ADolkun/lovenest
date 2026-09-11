@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
+import type { AxiosError } from 'axios'
+import { isServerUnreachable } from '@/lib/auth-errors'
 import { useAuth } from '@/contexts/auth-context'
 import { auth } from '@/lib/api'
 import {
@@ -18,9 +20,10 @@ import { Label } from '@/components/ui/label'
 interface TwoFactorSetupProps {
   open: boolean
   onClose: () => void
+  localAuthEnabled?: boolean
 }
 
-export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
+export function TwoFactorSetup({ open, onClose, localAuthEnabled = true }: TwoFactorSetupProps) {
   const { t } = useTranslation()
   const { user, updateUser } = useAuth()
   const is2faEnabled = user?.is_2fa_enabled ?? false
@@ -39,6 +42,7 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
   const [disableLoading, setDisableLoading] = useState(false)
 
   const handleSetup = async () => {
+    if (!localAuthEnabled) return
     setSetupLoading(true)
     setError('')
     try {
@@ -55,6 +59,7 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
 
   const handleEnable = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!localAuthEnabled) return
     setSetupLoading(true)
     setError('')
     try {
@@ -78,8 +83,11 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
       toast.success(t('auth.twoFactorDisabled'))
       if (user) updateUser({ ...user, is_2fa_enabled: false })
       handleClose()
-    } catch {
-      setError(t('auth.invalid2faCode'))
+    } catch (err) {
+      const detail = (err as AxiosError<{ detail?: string }>).response?.data?.detail
+      setError(t(isServerUnreachable(err) ? 'auth.serverError'
+        : detail === 'Invalid password' ? 'auth.currentPasswordWrong'
+        : detail === 'Invalid 2FA code' ? 'auth.invalid2faCode' : 'common.error'))
     } finally {
       setDisableLoading(false)
     }
@@ -111,6 +119,7 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
               <Input
                 id="disable-password"
                 type="password"
+                autoComplete="current-password"
                 value={disablePassword}
                 onChange={(e) => setDisablePassword(e.target.value)}
                 required
@@ -122,6 +131,7 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
                 id="disable-code"
                 type="text"
                 inputMode="numeric"
+                autoComplete="one-time-code"
                 value={disableCode}
                 onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="000000"
@@ -130,7 +140,7 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
                 required
               />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleClose}>
                 {t('common.cancel')}
@@ -144,6 +154,8 @@ export function TwoFactorSetup({ open, onClose }: TwoFactorSetupProps) {
       </Dialog>
     )
   }
+
+  if (!localAuthEnabled) return null
 
   // Enable flow
   return (
