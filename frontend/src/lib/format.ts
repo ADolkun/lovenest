@@ -70,6 +70,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   AED: 'ar-AE',
   THB: 'th-TH',
   EGP: 'en-EG',
+  MYR: 'ms-MY',
 }
 
 /**

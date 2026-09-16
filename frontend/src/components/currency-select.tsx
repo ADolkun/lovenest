@@ -47,6 +47,7 @@ export const CURRENCIES = [
   { code: 'AED', flag: '\u{1F1E6}\u{1F1EA}', symbol: 'د.إ' },
   { code: 'THB', flag: '\u{1F1F9}\u{1F1ED}', symbol: '฿' },
   { code: 'EGP', flag: '\u{1F1EA}\u{1F1EC}', symbol: 'E£' },
+  { code: 'MYR', flag: '\u{1F1F2}\u{1F1FE}', symbol: 'RM' },
 ] as const
 
 interface CurrencySelectProps {
