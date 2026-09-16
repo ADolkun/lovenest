@@ -189,7 +189,7 @@ jobs:
         if: steps.helm-changes.outputs.run_helm == 'true'
         uses: azure/setup-helm@v5
         with:
-          version: v4.2.4
+          version: v4.3.0
 
       - name: Lint Helm Chart
         if: steps.helm-changes.outputs.run_helm == 'true'
