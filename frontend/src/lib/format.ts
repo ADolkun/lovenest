@@ -68,6 +68,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   PKR: 'en-PK',
   MDL: 'ro-MD',
   AED: 'ar-AE',
+  THB: 'th-TH',
 }
 
 /**
