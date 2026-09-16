@@ -69,6 +69,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   MDL: 'ro-MD',
   AED: 'ar-AE',
   THB: 'th-TH',
+  EGP: 'en-EG',
 }
 
 /**
