@@ -48,6 +48,7 @@ CURRENCY_META = {
     "MYR": {"symbol": "RM", "name": "Malaysian Ringgit", "flag": "\U0001F1F2\U0001F1FE"},
     "SAR": {"symbol": "ر.س", "name": "Saudi Riyal", "flag": "\U0001F1F8\U0001F1E6"},
     "QAR": {"symbol": "ر.ق", "name": "Qatari Riyal", "flag": "\U0001F1F6\U0001F1E6"},
+    "JMD": {"symbol": "J$", "name": "Jamaican Dollar", "flag": "\U0001F1EF\U0001F1F2"},
 }
 
 
