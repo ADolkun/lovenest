@@ -2267,7 +2267,9 @@
       "invoicesHint": "face à ce que vous avez à encaisser et à payer",
       "recurring": "Récurrents",
       "recurringHint": "face à ce que vous attendiez déjà",
-      "inactive": "Non utilisée ici"
+      "inactive": "Non utilisée ici",
+      "transfers": "Virements",
+      "transfersHint": "entre vos propres comptes"
     },
     "rule": {
       "sameClientExact": "Personne connue, montant exact",
@@ -2277,7 +2279,10 @@
       "sameAccountExact": "Même compte, montant exact",
       "unknown": "Règle",
       "partPayment": "Personne connue, une partie du montant",
-      "severalInvoices": "Personne connue, plusieurs factures à la fois"
+      "severalInvoices": "Personne connue, plusieurs factures à la fois",
+      "destinationNamed": "La description nomme l'autre compte",
+      "exactAmountNearby": "Montant exact, date proche",
+      "closeAmountWiderWindow": "Montant proche, fenêtre élargie"
     },
     "outcome": {
       "link": "Rattache seule",
@@ -2305,9 +2310,14 @@
       "onArrival": "quand l'argent entre ou sort",
       "onIssue": "quand une facture est émise",
       "amountPartial": "le montant couvre une partie de ce qui est dû",
-      "amountSet": "jusqu'à {{count}} factures en font le total"
+      "amountSet": "jusqu'à {{count}} factures en font le total",
+      "differentAccount": "deux comptes différents",
+      "accountTypes": "un des côtés est un compte de type {{kinds}}",
+      "accountNamed": "une des descriptions nomme l'autre compte",
+      "closestDate": "la date la plus proche l'emporte",
+      "uniqueCandidate": "un seul candidat convient"
     },
-    "newRule": "Nouvelle règle de rapprochement",
+    "newRule": "Nouvelle règle de correspondance",
     "saved": "Règle enregistrée",
     "reset": "Règle rétablie",
     "restore": "Revenir au réglage par défaut",
@@ -2345,10 +2355,15 @@
       "textExcludes": "ne doit pas contenir…",
       "textHint": "Plusieurs, séparés par des virgules, signifie n'importe lequel.",
       "trigger": "Quand nous cherchons",
-      "triggerHint": "Le rapprochement a lieu à deux moments, et les indices ne sont pas les mêmes.",
+      "triggerHint": "La correspondance a lieu à deux moments, et les indices ne sont pas les mêmes.",
       "amountMatch": "À quel point le montant doit correspondre",
       "amountMatchHint": "Comparé à ce qui reste dû, pas au total d'origine.",
-      "amountBandHint": "À propos du paiement lui-même : une taille que vous voulez, ou non, voir traitée par cette règle."
+      "amountBandHint": "À propos du paiement lui-même : une taille que vous voulez, ou non, voir traitée par cette règle.",
+      "transferSignals": "Ce qui en fait un virement",
+      "transferSignalsHint": "Les deux côtés sont toujours sur des comptes différents. Ici vous dites quoi d'autre doit être vrai avant de faire confiance à la paire.",
+      "accountTypes": "Seulement quand un des côtés est l'un de ceux-ci",
+      "amountMatchHintTransfer": "Comparé à l'autre côté, dans la même devise. Des devises différentes ne s'apparient jamais seules ; vous pouvez toujours relier les deux côtés à la main.",
+      "windowHintTransfer": "L'argent arrive rarement le jour où il est parti. Les deux côtés se comptent depuis l'autre écriture, donc deux jours de chaque côté couvrent un week-end."
     },
     "counterparty": {
       "any": "N'importe qui",
@@ -2369,7 +2384,7 @@
     },
     "queue": {
       "title": "En attente de vous",
-      "hint": "Rapprochements qui attendent votre confirmation.",
+      "hint": "Correspondances qui attendent votre confirmation.",
       "empty": "Rien à vérifier. Tout a été rapproché tout seul.",
       "aPayment": "Un paiement",
       "maySettle": "règle peut-être {{name}}",
@@ -2378,7 +2393,13 @@
       "declineHint": "Ce n'est pas ça. Cette paire ne sera plus proposée.",
       "linked": "Rattaché",
       "declined": "Écarté. Nous ne redemanderons pas",
-      "covers": "couvre"
+      "covers": "couvre",
+      "mayPairWith": "est peut-être l'autre moitié de {{name}}",
+      "kind": {
+        "transaction": "Virement",
+        "invoice": "Facture",
+        "recurring": "Récurrent"
+      }
     },
     "evidence": {
       "amountExact": "le montant correspond exactement",
@@ -2386,7 +2407,8 @@
       "knownPayer": "personne connue",
       "unknownPayer": "personne non identifiée",
       "sameDay": "même jour",
-      "daysApart": "{{days}} jours d'écart"
+      "daysApart_one": "{{count}} jour d'écart",
+      "daysApart_other": "{{count}} jours d'écart"
     },
     "direction": {
       "any": "Peu importe",
@@ -2397,8 +2419,9 @@
       "what": "Ce qu'est cette règle",
       "which": "Quel argent elle regarde",
       "whichHint": "Laissez tout vide et elle regarde tout l'argent",
-      "match": "Quand cela compte comme un rapprochement",
-      "matchHint": "À quel point le paiement et la promesse doivent correspondre"
+      "match": "Quand cela compte comme une correspondance",
+      "matchHint": "À quel point le paiement et la promesse doivent correspondre",
+      "matchHintTransfer": "À quel point les deux écritures doivent se rapprocher"
     },
     "trigger": {
       "money_arrives": "Quand l'argent entre ou sort",
@@ -2409,7 +2432,7 @@
       "bothHint": "La règle vaut dans les deux sens."
     },
     "history": {
-      "title": "Ce que le rapprochement a fait",
+      "title": "Ce que la correspondance automatique a fait",
       "hint": "Du plus récent.",
       "byPerson": "par vous",
       "byRules": "par les règles",
@@ -2423,12 +2446,10 @@
         "expired": "Suggestion expirée : {{name}}",
         "unlinked": "Détaché de {{name}}"
       },
-      "empty": "Rien pour l'instant. Cela se remplit à mesure que le rapprochement rattache, demande et reçoit une réponse."
+      "empty": "Rien pour l'instant. Cela se remplit à mesure que la correspondance rattache, demande et reçoit une réponse."
     },
     "moveUp": "Essayer celle-ci plus tôt",
     "moveDown": "Essayer celle-ci plus tard",
-    "matchingTitle": "Règles de rapprochement",
-    "matchingHint": "Comment chaque paiement est rattaché à ce qu'il solde.",
     "pair": {
       "owed": "Ce qui est dû",
       "arrived": "Ce qui a bougé",
@@ -2443,17 +2464,29 @@
       "thePayment": "le paiement",
       "acrossInvoices": "sur {{count}} factures",
       "dueOn": "échéance {{date}}",
-      "totalOf": "total de {{amount}}"
+      "totalOf": "total de {{amount}}",
+      "otherLeg": "L'autre côté",
+      "thisLeg": "Ce côté",
+      "otherLegAmount": "sur l'autre côté",
+      "thisLegAmount": "sur ce côté"
     },
     "discarded": "Supprimées de cet espace :",
-    "noneLeft": "Plus aucune règle de rapprochement dans cet ensemble. Rien n'est rapproché automatiquement ici.",
+    "noneLeft": "Plus aucune règle dans cet ensemble. Rien n'est rattaché automatiquement ici.",
     "confirmDeleteTitle": "Supprimer cette règle ?",
     "confirmDeleteDescription": "« {{name}} » ne décide plus rien. S'il s'agit d'une des nôtres, vous pourrez la rétablir plus tard.",
-    "exported": "Règles de rapprochement téléchargées",
+    "exported": "Règles de correspondance téléchargées",
     "imported": "{{imported}} règles importées ({{skipped}} ignorées)",
-    "invalidImportFile": "Ce n'est pas un fichier de règles de rapprochement",
-    "importConfirmTitle": "Importer les règles de rapprochement ?",
+    "invalidImportFile": "Ce n'est pas un fichier de règles de correspondance",
+    "importConfirmTitle": "Importer les règles de correspondance ?",
     "importConfirmDescription": "Le fichier {{file}} contient {{count}} règles.",
-    "importOverwriteWarning": "L'import remplace les règles de rapprochement de cet espace, y compris leur ordre. C'est irréversible."
+    "importOverwriteWarning": "L'import remplace les règles de cet ensemble, y compris leur ordre. C'est irréversible.",
+    "card": {
+      "transfers": "Règles de Virement",
+      "transfersHint": "Comment nous décidons que deux écritures sont un même virement entre vos comptes.",
+      "invoices": "Règles de Facture",
+      "invoicesHint": "Comment nous décidons quel paiement règle quelle facture.",
+      "recurring": "Règles Récurrentes",
+      "recurringHint": "Comment nous décidons qu’un prélèvement est la facture que vous attendiez."
+    }
   }
 }

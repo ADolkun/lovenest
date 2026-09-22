@@ -2267,7 +2267,9 @@
       "invoicesHint": "contra o que tem a receber e a pagar",
       "recurring": "Recorrentes",
       "recurringHint": "contra o que já estava à espera",
-      "inactive": "Não usada aqui"
+      "inactive": "Não usada aqui",
+      "transfers": "Transferências",
+      "transfersHint": "entre as suas próprias contas"
     },
     "rule": {
       "sameClientExact": "Pessoa conhecida, valor exato",
@@ -2277,7 +2279,10 @@
       "sameAccountExact": "Mesma conta, valor exato",
       "unknown": "Regra",
       "partPayment": "Pessoa conhecida, parte do valor",
-      "severalInvoices": "Pessoa conhecida, várias faturas de uma vez"
+      "severalInvoices": "Pessoa conhecida, várias faturas de uma vez",
+      "destinationNamed": "A descrição nomeia a outra conta",
+      "exactAmountNearby": "Valor exato, data próxima",
+      "closeAmountWiderWindow": "Valor aproximado, janela maior"
     },
     "outcome": {
       "link": "Liga sozinho",
@@ -2305,9 +2310,14 @@
       "onArrival": "quando o dinheiro entra ou sai",
       "onIssue": "quando uma fatura é emitida",
       "amountPartial": "o valor cobre parte do que se deve",
-      "amountSet": "até {{count}} faturas somam esse valor"
+      "amountSet": "até {{count}} faturas somam esse valor",
+      "differentAccount": "duas contas diferentes",
+      "accountTypes": "um dos lados é uma conta do tipo {{kinds}}",
+      "accountNamed": "uma das descrições nomeia a outra conta",
+      "closestDate": "a data mais próxima vence",
+      "uniqueCandidate": "só um candidato serve"
     },
-    "newRule": "Nova regra de conciliação",
+    "newRule": "Nova regra de vínculo",
     "saved": "Regra guardada",
     "reset": "Regra restaurada",
     "restore": "Voltar ao valor por omissão",
@@ -2345,10 +2355,15 @@
       "textExcludes": "não pode conter…",
       "textHint": "Vários, separados por vírgula, significa qualquer um deles.",
       "trigger": "Quando procuramos",
-      "triggerHint": "A conciliação acontece em dois momentos, e a evidência não é a mesma nos dois.",
+      "triggerHint": "O vínculo acontece em dois momentos, e a evidência não é a mesma nos dois.",
       "amountMatch": "Quão perto o valor tem de estar",
       "amountMatchHint": "Comparado com o que ainda se deve, não com o total original.",
-      "amountBandHint": "Sobre o pagamento em si: um tamanho que quer, ou não, que esta regra trate."
+      "amountBandHint": "Sobre o pagamento em si: um tamanho que quer, ou não, que esta regra trate.",
+      "transferSignals": "O que faz disto uma transferência",
+      "transferSignalsHint": "Os dois lados estão sempre em contas diferentes. Aqui indica o que mais precisa de ser verdade antes de confiar no par.",
+      "accountTypes": "Só quando um dos lados for um destes",
+      "amountMatchHintTransfer": "Comparado com o outro lado, na mesma moeda. Moedas diferentes nunca casam sozinhas; ainda pode ligar as duas pontas à mão.",
+      "windowHintTransfer": "O dinheiro raramente chega no dia em que saiu. Os dois lados contam a partir do outro registo, por isso dois dias para cada lado cobrem um fim de semana."
     },
     "counterparty": {
       "any": "Qualquer um",
@@ -2369,7 +2384,7 @@
     },
     "queue": {
       "title": "À sua espera",
-      "hint": "Conciliações que precisam da sua confirmação.",
+      "hint": "Vínculos que precisam da sua confirmação.",
       "empty": "Nada para rever. Correspondeu tudo sozinho.",
       "aPayment": "Um pagamento",
       "maySettle": "pode liquidar {{name}}",
@@ -2378,7 +2393,13 @@
       "declineHint": "Não é isso. Este par não voltará a ser sugerido.",
       "linked": "Ligado",
       "declined": "Descartado. Não voltamos a perguntar",
-      "covers": "cobre"
+      "covers": "cobre",
+      "mayPairWith": "pode ser a outra metade de {{name}}",
+      "kind": {
+        "transaction": "Transferência",
+        "invoice": "Fatura",
+        "recurring": "Recorrente"
+      }
     },
     "evidence": {
       "amountExact": "o valor corresponde exatamente",
@@ -2386,7 +2407,8 @@
       "knownPayer": "pessoa conhecida",
       "unknownPayer": "pessoa não identificada",
       "sameDay": "mesmo dia",
-      "daysApart": "{{days}} dias de diferença"
+      "daysApart_one": "{{count}} dia de diferença",
+      "daysApart_other": "{{count}} dias de diferença"
     },
     "direction": {
       "any": "Tanto faz",
@@ -2398,7 +2420,8 @@
       "which": "Que dinheiro ela olha",
       "whichHint": "Deixe tudo vazio e olha todo o dinheiro",
       "match": "Quando conta como correspondência",
-      "matchHint": "Quão perto o pagamento e a promessa têm de estar"
+      "matchHint": "Quão perto o pagamento e a promessa têm de estar",
+      "matchHintTransfer": "O quão perto os dois registos precisam de estar"
     },
     "trigger": {
       "money_arrives": "Quando o dinheiro entra ou sai",
@@ -2409,7 +2432,7 @@
       "bothHint": "A regra vale nos dois sentidos."
     },
     "history": {
-      "title": "O que a conciliação fez",
+      "title": "O que o vínculo automático fez",
       "hint": "Mais recentes primeiro.",
       "byPerson": "por si",
       "byRules": "pelas regras",
@@ -2423,12 +2446,10 @@
         "expired": "Sugestão expirou: {{name}}",
         "unlinked": "Vínculo desfeito com {{name}}"
       },
-      "empty": "Nada ainda. Isto preenche-se à medida que a conciliação liga, pergunta e é respondida."
+      "empty": "Nada ainda. Isto preenche-se à medida que o vínculo automático liga, pergunta e é respondido."
     },
     "moveUp": "Tentar esta antes",
     "moveDown": "Tentar esta depois",
-    "matchingTitle": "Regras de conciliação",
-    "matchingHint": "Como cada pagamento é ligado ao que ele liquida.",
     "pair": {
       "owed": "O que se deve",
       "arrived": "O que se moveu",
@@ -2443,17 +2464,29 @@
       "thePayment": "o pagamento",
       "acrossInvoices": "em {{count}} faturas",
       "dueOn": "vence {{date}}",
-      "totalOf": "total de {{amount}}"
+      "totalOf": "total de {{amount}}",
+      "otherLeg": "A outra ponta",
+      "thisLeg": "Esta ponta",
+      "otherLegAmount": "na outra ponta",
+      "thisLegAmount": "nesta ponta"
     },
     "discarded": "Eliminadas deste espaço:",
-    "noneLeft": "Nenhuma regra de conciliação neste conjunto. Nada aqui é conciliado automaticamente.",
+    "noneLeft": "Nenhuma regra neste conjunto. Nada aqui é vinculado automaticamente.",
     "confirmDeleteTitle": "Eliminar esta regra?",
     "confirmDeleteDescription": "\"{{name}}\" deixa de decidir seja o que for. Se for uma das nossas, pode trazê-la de volta mais tarde.",
-    "exported": "Regras de conciliação transferidas",
+    "exported": "Regras de vínculo transferidas",
     "imported": "{{imported}} regras importadas ({{skipped}} ignoradas)",
-    "invalidImportFile": "Este não é um ficheiro de regras de conciliação",
-    "importConfirmTitle": "Importar regras de conciliação?",
+    "invalidImportFile": "Este não é um ficheiro de regras de vínculo",
+    "importConfirmTitle": "Importar regras de vínculo?",
     "importConfirmDescription": "O ficheiro {{file}} contém {{count}} regras.",
-    "importOverwriteWarning": "A importação substitui as regras de conciliação deste espaço, incluindo a ordem. Não é possível anular."
+    "importOverwriteWarning": "A importação substitui as regras deste conjunto, incluindo a ordem. Não é possível anular.",
+    "card": {
+      "transfers": "Regras de Transferência",
+      "transfersHint": "Como decidimos que dois registos são a mesma transferência entre as suas contas.",
+      "invoices": "Regras de Fatura",
+      "invoicesHint": "Como decidimos qual pagamento liquida qual fatura.",
+      "recurring": "Regras de Recorrentes",
+      "recurringHint": "Como decidimos que uma cobrança é a conta que já esperava."
+    }
   }
 }

@@ -1386,6 +1386,23 @@ export interface ReconciliationConditions {
     foreign?: boolean
   }
   same_account?: boolean
+  /** The defining condition of a transfer: the two legs are on different
+   *  accounts. The inverse of `same_account`, and its own key so a rule
+   *  reads as a list of things that must be true. */
+  different_account?: boolean
+  /** Only pairs where one of the two legs sits on an account of this
+   *  kind. Either leg is enough: a rule that exists to be careful about
+   *  credit cards has to fire whichever end the card is on. */
+  account_types?: ('checking' | 'savings' | 'credit_card' | 'investment' | 'wallet')[]
+  /** One side's statement text has to name the other side's account. The
+   *  signal that tells two same-day transfers of the same amount apart,
+   *  when one line reads "To FORTUNEO ACCOUNT" and the other does not. */
+  account_name_in_description?: boolean
+  /** How to separate candidates that all fit. `closest_date` takes the
+   *  nearest in time and only gives up when nothing separates them, which
+   *  is different from `unique_candidate` refusing whenever there is more
+   *  than one. */
+  tie_break?: 'closest_date'
   unique_candidate?: boolean
 }
 
@@ -1469,7 +1486,7 @@ export interface ReconciliationSuggestion {
   id: string
   node: string
   strategy_id: string
-  expectation_kind: 'invoice' | 'recurring'
+  expectation_kind: 'invoice' | 'recurring' | 'transaction'
   expectation_id: string
   expectation_label?: string | null
   amount: string
@@ -1489,7 +1506,7 @@ export interface ReconciliationSuggestion {
    *  case; several when one payment is offered against several invoices,
    *  which is answered whole or not at all. */
   covers: {
-    expectation_kind: 'invoice' | 'recurring'
+    expectation_kind: 'invoice' | 'recurring' | 'transaction'
     expectation_id: string
     label?: string | null
     amount: string
@@ -1501,6 +1518,10 @@ export interface ReconciliationSuggestion {
     currency?: string | null
     date: string
     type: string
+    /** Which account the money moved on. With transfers in the queue the
+     *  question is about accounts, so a row naming only the other side
+     *  leaves the reader to work out which of theirs this one is. */
+    account_id?: string | null
   } | null
 }
 
@@ -1514,7 +1535,7 @@ export interface ReconciliationHistoryEvent {
   id: string
   at: string
   action: 'linked' | 'suggested' | 'accepted' | 'declined' | 'expired' | 'unlinked'
-  expectation_kind: 'invoice' | 'recurring'
+  expectation_kind: 'invoice' | 'recurring' | 'transaction'
   expectation_id: string
   expectation_label?: string | null
   amount: string

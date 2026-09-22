@@ -2266,7 +2266,9 @@
       "invoicesHint": "against what you have to receive and to pay",
       "recurring": "Recurring",
       "recurringHint": "against what you were already expecting",
-      "inactive": "Not in use here"
+      "inactive": "Not in use here",
+      "transfers": "Transfers",
+      "transfersHint": "between your own accounts"
     },
     "rule": {
       "sameClientExact": "Known person, exact amount",
@@ -2276,7 +2278,10 @@
       "sameAccountExact": "Same account, exact amount",
       "unknown": "Rule",
       "partPayment": "Known person, part of the amount",
-      "severalInvoices": "Known person, several invoices at once"
+      "severalInvoices": "Known person, several invoices at once",
+      "destinationNamed": "The description names the other account",
+      "exactAmountNearby": "Exact amount, nearby date",
+      "closeAmountWiderWindow": "Close amount, wider window"
     },
     "outcome": {
       "link": "Links",
@@ -2304,7 +2309,12 @@
       "onArrival": "when money comes in or goes out",
       "onIssue": "when an invoice is issued",
       "amountPartial": "the amount covers part of what is owed",
-      "amountSet": "up to {{count}} invoices add up to it"
+      "amountSet": "up to {{count}} invoices add up to it",
+      "differentAccount": "two different accounts",
+      "accountTypes": "one side is a {{kinds}} account",
+      "accountNamed": "one description names the other account",
+      "closestDate": "the closest date wins",
+      "uniqueCandidate": "only one candidate fits"
     },
     "newRule": "New matching rule",
     "saved": "Rule saved",
@@ -2347,7 +2357,12 @@
       "triggerHint": "Matching happens at two moments, and the evidence is not the same in both.",
       "amountMatch": "How close the amount must be",
       "amountMatchHint": "Compared against what is still owed, not the original total.",
-      "amountBandHint": "About the payment itself: a size you do or do not want this rule handling."
+      "amountBandHint": "About the payment itself: a size you do or do not want this rule handling.",
+      "transferSignals": "What makes it a transfer",
+      "transferSignalsHint": "The two legs are always on different accounts. These say what else has to be true before the pair is trusted.",
+      "accountTypes": "Only when one side is one of these",
+      "amountMatchHintTransfer": "Compared against the other leg, in the same currency. Different currencies never pair on their own; you can still link the two legs by hand.",
+      "windowHintTransfer": "Money rarely lands on the day it left. Both sides are counted from the other record, so two days either way covers a weekend."
     },
     "counterparty": {
       "any": "Anyone",
@@ -2377,7 +2392,13 @@
       "declineHint": "Not a match. This pair will not be suggested again.",
       "linked": "Linked",
       "declined": "Dismissed. We will not ask again",
-      "covers": "covers"
+      "covers": "covers",
+      "mayPairWith": "may be the other half of {{name}}",
+      "kind": {
+        "transaction": "Transfer",
+        "invoice": "Invoice",
+        "recurring": "Recurring"
+      }
     },
     "evidence": {
       "amountExact": "amount matches exactly",
@@ -2385,7 +2406,8 @@
       "knownPayer": "known person",
       "unknownPayer": "person not identified",
       "sameDay": "same day",
-      "daysApart": "{{days}} days apart"
+      "daysApart_one": "{{count}} day apart",
+      "daysApart_other": "{{count}} days apart"
     },
     "direction": {
       "any": "Either",
@@ -2397,7 +2419,8 @@
       "which": "Which money it looks at",
       "whichHint": "Leave everything empty and it looks at all of it",
       "match": "When it counts as a match",
-      "matchHint": "How closely the payment and the promise have to fit"
+      "matchHint": "How closely the payment and the promise have to fit",
+      "matchHintTransfer": "How close the two records have to be"
     },
     "trigger": {
       "money_arrives": "When money comes in or goes out",
@@ -2426,8 +2449,6 @@
     },
     "moveUp": "Try this one earlier",
     "moveDown": "Try this one later",
-    "matchingTitle": "Matching rules",
-    "matchingHint": "How each payment is bound to what it settles.",
     "pair": {
       "owed": "What is owed",
       "arrived": "What moved",
@@ -2442,7 +2463,11 @@
       "thePayment": "the payment",
       "acrossInvoices": "across {{count}} invoices",
       "dueOn": "due {{date}}",
-      "totalOf": "{{amount}} total"
+      "totalOf": "{{amount}} total",
+      "otherLeg": "The other leg",
+      "thisLeg": "This one",
+      "otherLegAmount": "on the other leg",
+      "thisLegAmount": "on this one"
     },
     "discarded": "Deleted from this workspace:",
     "noneLeft": "No matching rules left in this set. Nothing here is matched automatically.",
@@ -2453,6 +2478,14 @@
     "invalidImportFile": "That is not a matching-rules file",
     "importConfirmTitle": "Import matching rules?",
     "importConfirmDescription": "File {{file}} contains {{count}} rules.",
-    "importOverwriteWarning": "Importing replaces the matching rules this workspace has now, including their order. This cannot be undone."
+    "importOverwriteWarning": "Importing replaces the matching rules this workspace has now, including their order. This cannot be undone.",
+    "card": {
+      "transfers": "Transfer rules",
+      "transfersHint": "How we decide that two records are one transfer between your own accounts.",
+      "invoices": "Invoice rules",
+      "invoicesHint": "How we decide which payment settles which invoice.",
+      "recurring": "Recurring rules",
+      "recurringHint": "How we decide that a charge is the bill you were already expecting."
+    }
   }
 }

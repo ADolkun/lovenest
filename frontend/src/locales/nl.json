@@ -2268,7 +2268,9 @@
       "invoicesHint": "tegenover wat je moet ontvangen en betalen",
       "recurring": "Terugkerend",
       "recurringHint": "tegenover wat je al verwachtte",
-      "inactive": "Hier niet in gebruik"
+      "inactive": "Hier niet in gebruik",
+      "transfers": "Overboekingen",
+      "transfersHint": "tussen je eigen rekeningen"
     },
     "rule": {
       "sameClientExact": "Bekende persoon, exact bedrag",
@@ -2278,7 +2280,10 @@
       "sameAccountExact": "Zelfde rekening, exact bedrag",
       "unknown": "Regel",
       "partPayment": "Bekende persoon, deel van het bedrag",
-      "severalInvoices": "Bekende persoon, meerdere facturen tegelijk"
+      "severalInvoices": "Bekende persoon, meerdere facturen tegelijk",
+      "destinationNamed": "De omschrijving noemt de andere rekening",
+      "exactAmountNearby": "Exact bedrag, datum dichtbij",
+      "closeAmountWiderWindow": "Bedrag in de buurt, ruimer venster"
     },
     "outcome": {
       "link": "Koppelt zelf",
@@ -2306,7 +2311,12 @@
       "onArrival": "wanneer geld binnenkomt of weggaat",
       "onIssue": "wanneer een factuur wordt opgesteld",
       "amountPartial": "het bedrag dekt een deel van wat openstaat",
-      "amountSet": "tot {{count}} facturen tellen op tot dat bedrag"
+      "amountSet": "tot {{count}} facturen tellen op tot dat bedrag",
+      "differentAccount": "twee verschillende rekeningen",
+      "accountTypes": "een kant is een rekening van het type {{kinds}}",
+      "accountNamed": "een van de omschrijvingen noemt de andere rekening",
+      "closestDate": "de dichtstbijzijnde datum wint",
+      "uniqueCandidate": "slechts één kandidaat past"
     },
     "newRule": "Nieuwe afletterregel",
     "saved": "Regel opgeslagen",
@@ -2349,7 +2359,12 @@
       "triggerHint": "Afletteren gebeurt op twee momenten, en het bewijs is niet hetzelfde.",
       "amountMatch": "Hoe nauw het bedrag moet kloppen",
       "amountMatchHint": "Vergeleken met wat nog openstaat, niet met het oorspronkelijke totaal.",
-      "amountBandHint": "Over de betaling zelf: een omvang die je deze regel wel of niet wilt laten behandelen."
+      "amountBandHint": "Over de betaling zelf: een omvang die je deze regel wel of niet wilt laten behandelen.",
+      "transferSignals": "Wat het een overboeking maakt",
+      "transferSignalsHint": "De twee kanten staan altijd op verschillende rekeningen. Hier geef je aan wat er verder waar moet zijn voordat het paar wordt vertrouwd.",
+      "accountTypes": "Alleen als een kant een van deze is",
+      "amountMatchHintTransfer": "Vergeleken met de andere kant, in dezelfde valuta. Verschillende valuta koppelen nooit vanzelf; je kunt de twee kanten nog steeds handmatig verbinden.",
+      "windowHintTransfer": "Geld komt zelden aan op de dag dat het vertrok. Beide kanten tellen vanaf de andere regel, dus twee dagen per kant dekt een weekend."
     },
     "counterparty": {
       "any": "Iedereen",
@@ -2379,7 +2394,13 @@
       "declineHint": "Dit is het niet. Dit paar wordt niet opnieuw voorgesteld.",
       "linked": "Gekoppeld",
       "declined": "Afgewezen. We vragen het niet nog eens",
-      "covers": "dekt"
+      "covers": "dekt",
+      "mayPairWith": "kan de andere helft van {{name}} zijn",
+      "kind": {
+        "transaction": "Overboeking",
+        "invoice": "Factuur",
+        "recurring": "Terugkerend"
+      }
     },
     "evidence": {
       "amountExact": "bedrag klopt precies",
@@ -2387,7 +2408,8 @@
       "knownPayer": "bekende persoon",
       "unknownPayer": "persoon niet herkend",
       "sameDay": "zelfde dag",
-      "daysApart": "{{days}} dagen verschil"
+      "daysApart_one": "{{count}} dag verschil",
+      "daysApart_other": "{{count}} dagen verschil"
     },
     "direction": {
       "any": "Maakt niet uit",
@@ -2399,7 +2421,8 @@
       "which": "Naar welk geld hij kijkt",
       "whichHint": "Laat alles leeg en hij kijkt naar al het geld",
       "match": "Wanneer het als match telt",
-      "matchHint": "Hoe nauw de betaling en de belofte moeten passen"
+      "matchHint": "Hoe nauw de betaling en de belofte moeten passen",
+      "matchHintTransfer": "Hoe dicht de twee regels bij elkaar moeten liggen"
     },
     "trigger": {
       "money_arrives": "Wanneer geld binnenkomt of weggaat",
@@ -2428,8 +2451,6 @@
     },
     "moveUp": "Deze eerder proberen",
     "moveDown": "Deze later proberen",
-    "matchingTitle": "Afletterregels",
-    "matchingHint": "Hoe elke betaling wordt gekoppeld aan wat ze afrekent.",
     "pair": {
       "owed": "Wat openstaat",
       "arrived": "Wat er bewoog",
@@ -2444,7 +2465,11 @@
       "thePayment": "de betaling",
       "acrossInvoices": "over {{count}} facturen",
       "dueOn": "vervalt {{date}}",
-      "totalOf": "totaal {{amount}}"
+      "totalOf": "totaal {{amount}}",
+      "otherLeg": "De andere kant",
+      "thisLeg": "Deze kant",
+      "otherLegAmount": "aan de andere kant",
+      "thisLegAmount": "aan deze kant"
     },
     "discarded": "Verwijderd uit deze werkruimte:",
     "noneLeft": "Geen koppelregels meer in deze set. Hier wordt niets automatisch gekoppeld.",
@@ -2455,6 +2480,14 @@
     "invalidImportFile": "Dit is geen bestand met koppelregels",
     "importConfirmTitle": "Koppelregels importeren?",
     "importConfirmDescription": "Bestand {{file}} bevat {{count}} regels.",
-    "importOverwriteWarning": "Importeren vervangt de koppelregels van deze werkruimte, inclusief hun volgorde. Dit kan niet ongedaan worden gemaakt."
+    "importOverwriteWarning": "Importeren vervangt de koppelregels van deze werkruimte, inclusief hun volgorde. Dit kan niet ongedaan worden gemaakt.",
+    "card": {
+      "transfers": "Overboekingsregels",
+      "transfersHint": "Hoe we bepalen dat twee regels één overboeking tussen je eigen rekeningen zijn.",
+      "invoices": "Factuurregels",
+      "invoicesHint": "Hoe we bepalen welke betaling welke factuur voldoet.",
+      "recurring": "Regels voor Terugkerend",
+      "recurringHint": "Hoe we bepalen dat een afschrijving de rekening is die je al verwachtte."
+    }
   }
 }

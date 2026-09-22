@@ -2266,7 +2266,9 @@
       "invoicesHint": "受け取る分と支払う分に対して",
       "recurring": "定期取引",
       "recurringHint": "すでに予定していたものに対して",
-      "inactive": "ここでは使いません"
+      "inactive": "ここでは使いません",
+      "transfers": "振替",
+      "transfersHint": "自分の口座のあいだ"
     },
     "rule": {
       "sameClientExact": "既知の相手、金額が一致",
@@ -2276,7 +2278,10 @@
       "sameAccountExact": "同じ口座、金額が一致",
       "unknown": "ルール",
       "partPayment": "既知の相手、金額の一部",
-      "severalInvoices": "既知の相手、複数の請求書をまとめて"
+      "severalInvoices": "既知の相手、複数の請求書をまとめて",
+      "destinationNamed": "摘要がもう一方の口座名を含む",
+      "exactAmountNearby": "金額が一致し、日付が近い",
+      "closeAmountWiderWindow": "金額が近く、期間が広い"
     },
     "outcome": {
       "link": "自動連結",
@@ -2304,7 +2309,12 @@
       "onArrival": "入金または出金があったとき",
       "onIssue": "請求書を発行したとき",
       "amountPartial": "金額が未回収分の一部を満たす",
-      "amountSet": "最大{{count}}件の請求書の合計が一致"
+      "amountSet": "最大{{count}}件の請求書の合計が一致",
+      "differentAccount": "異なる2つの口座",
+      "accountTypes": "一方が{{kinds}}の口座",
+      "accountNamed": "いずれかの摘要がもう一方の口座名を含む",
+      "closestDate": "最も近い日付が優先",
+      "uniqueCandidate": "候補が1件だけ"
     },
     "newRule": "新しい照合ルール",
     "saved": "ルールを保存しました",
@@ -2347,7 +2357,12 @@
       "triggerHint": "照合は2つの場面で行われ、手がかりはそれぞれ異なります。",
       "amountMatch": "金額がどれだけ近い必要があるか",
       "amountMatchHint": "元の合計ではなく、未回収の残額と比べます。",
-      "amountBandHint": "支払いそのものについて。このルールに扱わせたい、あるいは扱わせたくない金額の大きさです。"
+      "amountBandHint": "支払いそのものについて。このルールに扱わせたい、あるいは扱わせたくない金額の大きさです。",
+      "transferSignals": "振替と見なす条件",
+      "transferSignalsHint": "両側は常に別の口座にあります。ここでは、その組み合わせを信頼する前に満たすべき条件を指定します。",
+      "accountTypes": "一方が次のいずれかの場合のみ",
+      "amountMatchHintTransfer": "同じ通貨で、もう一方と比較します。通貨が異なる場合は自動では組みません。両方を手動で結び付けることはできます。",
+      "windowHintTransfer": "お金が出た日に届くことはまれです。両側とももう一方の記録から数えるため、前後2日で週末をまかなえます。"
     },
     "counterparty": {
       "any": "誰でも",
@@ -2377,7 +2392,13 @@
       "declineHint": "一致しません。この組み合わせは二度と提案されません。",
       "linked": "結びつけました",
       "declined": "却下しました。二度と確認しません",
-      "covers": "がカバーする範囲"
+      "covers": "がカバーする範囲",
+      "mayPairWith": "{{name}} のもう一方かもしれません",
+      "kind": {
+        "transaction": "振替",
+        "invoice": "請求書",
+        "recurring": "定期"
+      }
     },
     "evidence": {
       "amountExact": "金額が完全に一致",
@@ -2385,7 +2406,8 @@
       "knownPayer": "既知の相手",
       "unknownPayer": "相手を特定できず",
       "sameDay": "同じ日",
-      "daysApart": "{{days}}日差"
+      "daysApart_one": "{{count}}日差",
+      "daysApart_other": "{{count}}日差"
     },
     "direction": {
       "any": "どちらでも",
@@ -2397,7 +2419,8 @@
       "which": "どの入出金を見るか",
       "whichHint": "すべて空欄にすると、すべてを見ます",
       "match": "一致とみなす条件",
-      "matchHint": "支払いと請求がどれだけ近い必要があるか"
+      "matchHint": "支払いと請求がどれだけ近い必要があるか",
+      "matchHintTransfer": "2つの記録がどれだけ近い必要があるか"
     },
     "trigger": {
       "money_arrives": "入金または出金があったとき",
@@ -2426,8 +2449,6 @@
     },
     "moveUp": "これをもっと先に試す",
     "moveDown": "これをもっと後に試す",
-    "matchingTitle": "照合ルール",
-    "matchingHint": "各支払いが何を消し込むかを結びつける方法です。",
     "pair": {
       "owed": "未回収の内容",
       "arrived": "動いたお金",
@@ -2442,7 +2463,11 @@
       "thePayment": "その支払い",
       "acrossInvoices": "請求書{{count}}件にわたって",
       "dueOn": "期日 {{date}}",
-      "totalOf": "合計 {{amount}}"
+      "totalOf": "合計 {{amount}}",
+      "otherLeg": "もう一方",
+      "thisLeg": "こちら",
+      "otherLegAmount": "もう一方の金額",
+      "thisLegAmount": "こちらの金額"
     },
     "discarded": "このワークスペースで削除済み:",
     "noneLeft": "このセットに照合ルールは残っていません。ここでは自動で照合されません。",
@@ -2453,6 +2478,14 @@
     "invalidImportFile": "照合ルールのファイルではありません",
     "importConfirmTitle": "照合ルールをインポートしますか?",
     "importConfirmDescription": "ファイル{{file}}には{{count}}件のルールが含まれています。",
-    "importOverwriteWarning": "インポートすると、このワークスペースの現在の照合ルールが順序ごと置き換わります。この操作は取り消せません。"
+    "importOverwriteWarning": "インポートすると、このワークスペースの現在の照合ルールが順序ごと置き換わります。この操作は取り消せません。",
+    "card": {
+      "transfers": "振替のルール",
+      "transfersHint": "2つの記録が自分の口座間の同じ振替だと判断する方法。",
+      "invoices": "請求書のルール",
+      "invoicesHint": "どの入金がどの請求書を消し込むかを判断する方法。",
+      "recurring": "定期のルール",
+      "recurringHint": "ある引き落としが予定していた支払いだと判断する方法。"
+    }
   }
 }

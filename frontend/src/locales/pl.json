@@ -2372,7 +2372,9 @@
       "invoicesHint": "wobec tego, co masz otrzymać i zapłacić",
       "recurring": "Cykliczne",
       "recurringHint": "wobec tego, czego już się spodziewałeś",
-      "inactive": "Tu nieużywane"
+      "inactive": "Tu nieużywane",
+      "transfers": "Przelewy",
+      "transfersHint": "między własnymi kontami"
     },
     "rule": {
       "sameClientExact": "Znana osoba, dokładna kwota",
@@ -2382,7 +2384,10 @@
       "sameAccountExact": "To samo konto, dokładna kwota",
       "unknown": "Reguła",
       "partPayment": "Znana osoba, część kwoty",
-      "severalInvoices": "Znana osoba, kilka faktur naraz"
+      "severalInvoices": "Znana osoba, kilka faktur naraz",
+      "destinationNamed": "Opis wskazuje drugie konto",
+      "exactAmountNearby": "Dokładna kwota, bliska data",
+      "closeAmountWiderWindow": "Zbliżona kwota, szersze okno"
     },
     "outcome": {
       "link": "Wiąże sama",
@@ -2410,7 +2415,12 @@
       "onArrival": "gdy pieniądze wpływają lub wypływają",
       "onIssue": "gdy wystawiana jest faktura",
       "amountPartial": "kwota pokrywa część należności",
-      "amountSet": "do {{count}} faktur daje tę sumę"
+      "amountSet": "do {{count}} faktur daje tę sumę",
+      "differentAccount": "dwa różne konta",
+      "accountTypes": "jedna ze stron to konto typu {{kinds}}",
+      "accountNamed": "jeden z opisów wskazuje drugie konto",
+      "closestDate": "wygrywa najbliższa data",
+      "uniqueCandidate": "pasuje tylko jeden kandydat"
     },
     "newRule": "Nowa reguła dopasowania",
     "saved": "Reguła zapisana",
@@ -2453,7 +2463,12 @@
       "triggerHint": "Dopasowanie dzieje się w dwóch momentach, a dowody nie są takie same.",
       "amountMatch": "Jak blisko musi być kwota",
       "amountMatchHint": "Porównywana z tym, co wciąż pozostaje do zapłaty, nie z pierwotną sumą.",
-      "amountBandHint": "O samej płatności: wielkość, którą ta reguła ma obsługiwać albo nie."
+      "amountBandHint": "O samej płatności: wielkość, którą ta reguła ma obsługiwać albo nie.",
+      "transferSignals": "Co czyni z tego przelew",
+      "transferSignalsHint": "Obie strony zawsze są na różnych kontach. Tutaj określasz, co jeszcze musi się zgadzać, zanim zaufamy tej parze.",
+      "accountTypes": "Tylko gdy jedna ze stron jest jedną z tych",
+      "amountMatchHintTransfer": "Porównywane z drugą stroną, w tej samej walucie. Różne waluty nigdy nie łączą się same; nadal możesz powiązać obie strony ręcznie.",
+      "windowHintTransfer": "Pieniądze rzadko docierają tego samego dnia, w którym wyszły. Obie strony liczą się od drugiego zapisu, więc dwa dni z każdej strony obejmują weekend."
     },
     "counterparty": {
       "any": "Ktokolwiek",
@@ -2483,7 +2498,13 @@
       "declineHint": "To nie to. Ta para nie będzie już proponowana.",
       "linked": "Powiązano",
       "declined": "Odrzucono. Nie zapytamy ponownie",
-      "covers": "pokrywa"
+      "covers": "pokrywa",
+      "mayPairWith": "może być drugą połową {{name}}",
+      "kind": {
+        "transaction": "Przelew",
+        "invoice": "Faktura",
+        "recurring": "Cykliczne"
+      }
     },
     "evidence": {
       "amountExact": "kwota zgadza się dokładnie",
@@ -2491,7 +2512,10 @@
       "knownPayer": "znana osoba",
       "unknownPayer": "osoba nierozpoznana",
       "sameDay": "ten sam dzień",
-      "daysApart": "różnica {{days}} dni"
+      "daysApart_one": "różnica {{count}} dnia",
+      "daysApart_few": "różnica {{count}} dni",
+      "daysApart_many": "różnica {{count}} dni",
+      "daysApart_other": "różnica {{count}} dni"
     },
     "direction": {
       "any": "Obojętnie",
@@ -2503,7 +2527,8 @@
       "which": "Na jakie pieniądze patrzy",
       "whichHint": "Zostaw wszystko puste, a patrzy na wszystkie",
       "match": "Kiedy liczy się jako dopasowanie",
-      "matchHint": "Jak blisko muszą być płatność i zobowiązanie"
+      "matchHint": "Jak blisko muszą być płatność i zobowiązanie",
+      "matchHintTransfer": "Jak blisko siebie muszą być oba zapisy"
     },
     "trigger": {
       "money_arrives": "Gdy pieniądze wpływają lub wypływają",
@@ -2532,8 +2557,6 @@
     },
     "moveUp": "Sprawdzaj tę wcześniej",
     "moveDown": "Sprawdzaj tę później",
-    "matchingTitle": "Reguły dopasowania",
-    "matchingHint": "Jak każda płatność wiąże się z tym, co rozlicza.",
     "pair": {
       "owed": "Co jest należne",
       "arrived": "Co się poruszyło",
@@ -2548,7 +2571,11 @@
       "thePayment": "płatność",
       "acrossInvoices": "na {{count}} faktur",
       "dueOn": "termin {{date}}",
-      "totalOf": "razem {{amount}}"
+      "totalOf": "razem {{amount}}",
+      "otherLeg": "Druga strona",
+      "thisLeg": "Ta strona",
+      "otherLegAmount": "po drugiej stronie",
+      "thisLegAmount": "po tej stronie"
     },
     "discarded": "Usunięte z tej przestrzeni:",
     "noneLeft": "W tym zestawie nie ma już reguł dopasowania. Nic nie jest tu dopasowywane automatycznie.",
@@ -2559,6 +2586,14 @@
     "invalidImportFile": "To nie jest plik z regułami dopasowania",
     "importConfirmTitle": "Zaimportować reguły dopasowania?",
     "importConfirmDescription": "Plik {{file}} zawiera {{count}} reguł.",
-    "importOverwriteWarning": "Import zastępuje reguły dopasowania tej przestrzeni wraz z ich kolejnością. Tego nie da się cofnąć."
+    "importOverwriteWarning": "Import zastępuje reguły dopasowania tej przestrzeni wraz z ich kolejnością. Tego nie da się cofnąć.",
+    "card": {
+      "transfers": "Reguły Przelewów",
+      "transfersHint": "Jak ustalamy, że dwa zapisy to ten sam przelew między twoimi kontami.",
+      "invoices": "Reguły Faktur",
+      "invoicesHint": "Jak ustalamy, która płatność rozlicza którą fakturę.",
+      "recurring": "Reguły Cyklicznych",
+      "recurringHint": "Jak ustalamy, że obciążenie to rachunek, którego już oczekiwałeś."
+    }
   }
 }

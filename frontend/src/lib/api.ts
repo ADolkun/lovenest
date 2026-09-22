@@ -1054,15 +1054,22 @@ export const reconciliation = {
       `/reconciliation/rules/${encodeURIComponent(node)}/${encodeURIComponent(id)}/reset`,
     )
   },
-  exportRules: async (): Promise<void> => {
+  /** `node` narrows the file to one set. Each set is its own card with
+   *  its own button, and a button under one heading that hands over
+   *  another set's rules is a button that lies. */
+  exportRules: async (node?: string): Promise<void> => {
     const { data } = await api.get('/reconciliation/rules/export', {
       responseType: 'blob',
+      params: node ? { node } : undefined,
     })
     const blob = new Blob([data], { type: 'application/json;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `securo-reconciliation-rules-${new Date().toISOString().slice(0, 10)}.json`
+    // The set in the filename, so two exports do not overwrite each
+    // other in the downloads folder on the same day.
+    const set = node ? `-${node.split('.').pop()}` : ''
+    a.download = `securo-reconciliation-rules${set}-${new Date().toISOString().slice(0, 10)}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -1073,11 +1080,13 @@ export const reconciliation = {
   importRules: async (
     payload: ReconciliationPolicyFile,
     overwrite = false,
+    node?: string,
   ): Promise<{ imported: number; skipped: number }> => {
-    const { data } = await api.post('/reconciliation/rules/import', {
-      payload,
-      overwrite,
-    })
+    const { data } = await api.post(
+      '/reconciliation/rules/import',
+      { payload, overwrite },
+      { params: node ? { node } : undefined },
+    )
     return data
   },
   /** What matching did, newest first. `expectationId` narrows it to

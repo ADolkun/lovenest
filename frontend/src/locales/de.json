@@ -2267,7 +2267,9 @@
       "invoicesHint": "gegen das, was Sie einnehmen und zahlen müssen",
       "recurring": "Wiederkehrend",
       "recurringHint": "gegen das, was Sie ohnehin erwartet haben",
-      "inactive": "Hier nicht in Gebrauch"
+      "inactive": "Hier nicht in Gebrauch",
+      "transfers": "Überweisungen",
+      "transfersHint": "zwischen Ihren eigenen Konten"
     },
     "rule": {
       "sameClientExact": "Bekannte Person, exakter Betrag",
@@ -2277,7 +2279,10 @@
       "sameAccountExact": "Gleiches Konto, exakter Betrag",
       "unknown": "Regel",
       "partPayment": "Bekannte Person, Teil des Betrags",
-      "severalInvoices": "Bekannte Person, mehrere Rechnungen auf einmal"
+      "severalInvoices": "Bekannte Person, mehrere Rechnungen auf einmal",
+      "destinationNamed": "Die Beschreibung nennt das andere Konto",
+      "exactAmountNearby": "Exakter Betrag, naher Termin",
+      "closeAmountWiderWindow": "Ähnlicher Betrag, größeres Fenster"
     },
     "outcome": {
       "link": "Verknüpft selbst",
@@ -2305,7 +2310,12 @@
       "onArrival": "wenn Geld eingeht oder abgeht",
       "onIssue": "wenn eine Rechnung gestellt wird",
       "amountPartial": "der Betrag deckt einen Teil des Offenen",
-      "amountSet": "bis zu {{count}} Rechnungen ergeben die Summe"
+      "amountSet": "bis zu {{count}} Rechnungen ergeben die Summe",
+      "differentAccount": "zwei verschiedene Konten",
+      "accountTypes": "eine Seite ist ein Konto vom Typ {{kinds}}",
+      "accountNamed": "eine der Beschreibungen nennt das andere Konto",
+      "closestDate": "das nächstliegende Datum gewinnt",
+      "uniqueCandidate": "nur ein Kandidat passt"
     },
     "newRule": "Neue Abgleichregel",
     "saved": "Regel gespeichert",
@@ -2348,7 +2358,12 @@
       "triggerHint": "Der Abgleich passiert zu zwei Zeitpunkten, und die Indizien sind nicht dieselben.",
       "amountMatch": "Wie genau der Betrag stimmen muss",
       "amountMatchHint": "Verglichen mit dem noch offenen Betrag, nicht mit der ursprünglichen Summe.",
-      "amountBandHint": "Über die Zahlung selbst: eine Größe, die diese Regel behandeln soll oder eben nicht."
+      "amountBandHint": "Über die Zahlung selbst: eine Größe, die diese Regel behandeln soll oder eben nicht.",
+      "transferSignals": "Was es zu einer Überweisung macht",
+      "transferSignalsHint": "Die beiden Seiten liegen immer auf verschiedenen Konten. Hier legen Sie fest, was sonst noch zutreffen muss, bevor dem Paar vertraut wird.",
+      "accountTypes": "Nur wenn eine Seite eines davon ist",
+      "amountMatchHintTransfer": "Verglichen mit der anderen Seite, in derselben Währung. Verschiedene Währungen werden nie von allein gepaart; Sie können die beiden Seiten weiterhin von Hand verknüpfen.",
+      "windowHintTransfer": "Geld kommt selten am selben Tag an, an dem es abging. Beide Seiten zählen ab dem anderen Eintrag, zwei Tage je Seite decken also ein Wochenende ab."
     },
     "counterparty": {
       "any": "Beliebig",
@@ -2378,7 +2393,13 @@
       "declineHint": "Passt nicht. Dieses Paar wird nicht erneut vorgeschlagen.",
       "linked": "Verknüpft",
       "declined": "Verworfen. Wir fragen nicht noch einmal",
-      "covers": "deckt"
+      "covers": "deckt",
+      "mayPairWith": "könnte die andere Hälfte von {{name}} sein",
+      "kind": {
+        "transaction": "Überweisung",
+        "invoice": "Rechnung",
+        "recurring": "Wiederkehrend"
+      }
     },
     "evidence": {
       "amountExact": "Betrag stimmt genau",
@@ -2386,7 +2407,8 @@
       "knownPayer": "bekannte Person",
       "unknownPayer": "Person nicht erkannt",
       "sameDay": "gleicher Tag",
-      "daysApart": "{{days}} Tage Abstand"
+      "daysApart_one": "{{count}} Tag Abstand",
+      "daysApart_other": "{{count}} Tage Abstand"
     },
     "direction": {
       "any": "Egal",
@@ -2398,7 +2420,8 @@
       "which": "Welches Geld sie ansieht",
       "whichHint": "Alles leer lassen, dann sieht sie alles an",
       "match": "Wann es als Treffer gilt",
-      "matchHint": "Wie genau Zahlung und Versprechen zusammenpassen müssen"
+      "matchHint": "Wie genau Zahlung und Versprechen zusammenpassen müssen",
+      "matchHintTransfer": "Wie nah die beiden Einträge beieinander liegen müssen"
     },
     "trigger": {
       "money_arrives": "Wenn Geld eingeht oder abgeht",
@@ -2427,8 +2450,6 @@
     },
     "moveUp": "Diese früher prüfen",
     "moveDown": "Diese später prüfen",
-    "matchingTitle": "Abgleichregeln",
-    "matchingHint": "Wie jede Zahlung mit dem verknüpft wird, was sie begleicht.",
     "pair": {
       "owed": "Was offen ist",
       "arrived": "Was sich bewegt hat",
@@ -2443,7 +2464,11 @@
       "thePayment": "die Zahlung",
       "acrossInvoices": "auf {{count}} Rechnungen",
       "dueOn": "fällig {{date}}",
-      "totalOf": "Gesamt {{amount}}"
+      "totalOf": "Gesamt {{amount}}",
+      "otherLeg": "Die andere Seite",
+      "thisLeg": "Diese Seite",
+      "otherLegAmount": "auf der anderen Seite",
+      "thisLegAmount": "auf dieser Seite"
     },
     "discarded": "Aus diesem Arbeitsbereich gelöscht:",
     "noneLeft": "Keine Abgleichsregeln mehr in dieser Gruppe. Hier wird nichts automatisch zugeordnet.",
@@ -2454,6 +2479,14 @@
     "invalidImportFile": "Das ist keine Datei mit Abgleichsregeln",
     "importConfirmTitle": "Abgleichsregeln importieren?",
     "importConfirmDescription": "Die Datei {{file}} enthält {{count}} Regeln.",
-    "importOverwriteWarning": "Der Import ersetzt die Abgleichsregeln dieses Arbeitsbereichs samt ihrer Reihenfolge. Das lässt sich nicht rückgängig machen."
+    "importOverwriteWarning": "Der Import ersetzt die Abgleichsregeln dieses Arbeitsbereichs samt ihrer Reihenfolge. Das lässt sich nicht rückgängig machen.",
+    "card": {
+      "transfers": "Überweisungsregeln",
+      "transfersHint": "Wie wir entscheiden, dass zwei Einträge eine Überweisung zwischen Ihren Konten sind.",
+      "invoices": "Rechnungsregeln",
+      "invoicesHint": "Wie wir entscheiden, welche Zahlung welche Rechnung begleicht.",
+      "recurring": "Regeln für Wiederkehrendes",
+      "recurringHint": "Wie wir entscheiden, dass eine Buchung die erwartete Rechnung ist."
+    }
   }
 }

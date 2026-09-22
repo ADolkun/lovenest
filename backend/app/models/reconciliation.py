@@ -149,7 +149,7 @@ class ReconciliationSuggestion(Base):
             name="ck_reconciliation_suggestion_status",
         ),
         CheckConstraint(
-            "expectation_kind IN ('invoice', 'recurring')",
+            "expectation_kind IN ('invoice', 'recurring', 'transaction')",
             name="ck_reconciliation_suggestion_kind",
         ),
         # The queue is always read as "what is still open here", so that is

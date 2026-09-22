@@ -2267,7 +2267,9 @@
       "invoicesHint": "rispetto a ciò che devi incassare e pagare",
       "recurring": "Ricorrenti",
       "recurringHint": "rispetto a ciò che già ti aspettavi",
-      "inactive": "Non usata qui"
+      "inactive": "Non usata qui",
+      "transfers": "Trasferimenti",
+      "transfersHint": "tra i tuoi conti"
     },
     "rule": {
       "sameClientExact": "Persona conosciuta, importo esatto",
@@ -2277,7 +2279,10 @@
       "sameAccountExact": "Stesso conto, importo esatto",
       "unknown": "Regola",
       "partPayment": "Persona conosciuta, parte dell'importo",
-      "severalInvoices": "Persona conosciuta, più fatture insieme"
+      "severalInvoices": "Persona conosciuta, più fatture insieme",
+      "destinationNamed": "La descrizione nomina l'altro conto",
+      "exactAmountNearby": "Importo esatto, data vicina",
+      "closeAmountWiderWindow": "Importo simile, finestra più ampia"
     },
     "outcome": {
       "link": "Collega da sola",
@@ -2305,9 +2310,14 @@
       "onArrival": "quando il denaro entra o esce",
       "onIssue": "quando si emette una fattura",
       "amountPartial": "l'importo copre parte di quanto è dovuto",
-      "amountSet": "fino a {{count}} fatture danno quella somma"
+      "amountSet": "fino a {{count}} fatture danno quella somma",
+      "differentAccount": "due conti diversi",
+      "accountTypes": "un lato è un conto di tipo {{kinds}}",
+      "accountNamed": "una delle descrizioni nomina l'altro conto",
+      "closestDate": "vince la data più vicina",
+      "uniqueCandidate": "solo un candidato corrisponde"
     },
-    "newRule": "Nuova regola di riconciliazione",
+    "newRule": "Nuova regola di corrispondenza",
     "saved": "Regola salvata",
     "reset": "Regola ripristinata",
     "restore": "Torna all'impostazione predefinita",
@@ -2345,10 +2355,15 @@
       "textExcludes": "non deve contenere…",
       "textHint": "Più parole separate da virgole significano una qualsiasi di esse.",
       "trigger": "Quando cerchiamo",
-      "triggerHint": "La riconciliazione avviene in due momenti, e le prove non sono le stesse.",
+      "triggerHint": "La corrispondenza avviene in due momenti, e le prove non sono le stesse.",
       "amountMatch": "Quanto deve avvicinarsi l'importo",
       "amountMatchHint": "Confrontato con quanto è ancora dovuto, non con il totale originale.",
-      "amountBandHint": "Sul pagamento in sé: una dimensione che vuoi, o non vuoi, che questa regola tratti."
+      "amountBandHint": "Sul pagamento in sé: una dimensione che vuoi, o non vuoi, che questa regola tratti.",
+      "transferSignals": "Cosa la rende un trasferimento",
+      "transferSignalsHint": "I due lati sono sempre su conti diversi. Qui dici cos'altro deve essere vero prima di fidarti della coppia.",
+      "accountTypes": "Solo quando un lato è uno di questi",
+      "amountMatchHintTransfer": "Confrontato con l'altro lato, nella stessa valuta. Valute diverse non si abbinano mai da sole; puoi comunque collegare i due lati a mano.",
+      "windowHintTransfer": "Il denaro raramente arriva il giorno in cui è partito. I due lati si contano dall'altro movimento, quindi due giorni per parte coprono un fine settimana."
     },
     "counterparty": {
       "any": "Chiunque",
@@ -2369,7 +2384,7 @@
     },
     "queue": {
       "title": "In attesa di te",
-      "hint": "Riconciliazioni che aspettano una tua conferma.",
+      "hint": "Corrispondenze che aspettano una tua conferma.",
       "empty": "Niente da rivedere. Ha combaciato tutto da solo.",
       "aPayment": "Un pagamento",
       "maySettle": "potrebbe saldare {{name}}",
@@ -2378,7 +2393,13 @@
       "declineHint": "Non è questo. Questa coppia non verrà più suggerita.",
       "linked": "Collegato",
       "declined": "Scartato: non lo chiederemo più",
-      "covers": "copre"
+      "covers": "copre",
+      "mayPairWith": "può essere l'altra metà di {{name}}",
+      "kind": {
+        "transaction": "Trasferimento",
+        "invoice": "Fattura",
+        "recurring": "Ricorrente"
+      }
     },
     "evidence": {
       "amountExact": "l'importo corrisponde esattamente",
@@ -2386,7 +2407,8 @@
       "knownPayer": "persona conosciuta",
       "unknownPayer": "persona non identificata",
       "sameDay": "stesso giorno",
-      "daysApart": "{{days}} giorni di differenza"
+      "daysApart_one": "{{count}} giorno di differenza",
+      "daysApart_other": "{{count}} giorni di differenza"
     },
     "direction": {
       "any": "Indifferente",
@@ -2398,7 +2420,8 @@
       "which": "Quale denaro guarda",
       "whichHint": "Lascia tutto vuoto e guarda tutto il denaro",
       "match": "Quando conta come corrispondenza",
-      "matchHint": "Quanto devono combaciare il pagamento e la promessa"
+      "matchHint": "Quanto devono combaciare il pagamento e la promessa",
+      "matchHintTransfer": "Quanto devono essere vicini i due movimenti"
     },
     "trigger": {
       "money_arrives": "Quando il denaro entra o esce",
@@ -2409,7 +2432,7 @@
       "bothHint": "La regola vale in tutti e due i versi."
     },
     "history": {
-      "title": "Cosa ha fatto la riconciliazione",
+      "title": "Cosa ha fatto la corrispondenza automatica",
       "hint": "Dalle più recenti.",
       "byPerson": "da te",
       "byRules": "dalle regole",
@@ -2423,12 +2446,10 @@
         "expired": "Suggerimento scaduto: {{name}}",
         "unlinked": "Scollegato da {{name}}"
       },
-      "empty": "Ancora niente. Si riempie man mano che la riconciliazione collega, chiede e riceve risposta."
+      "empty": "Ancora niente. Si riempie man mano che la corrispondenza collega, chiede e riceve risposta."
     },
     "moveUp": "Provare questa prima",
     "moveDown": "Provare questa dopo",
-    "matchingTitle": "Regole di riconciliazione",
-    "matchingHint": "Come ogni pagamento viene legato a ciò che salda.",
     "pair": {
       "owed": "Quanto è dovuto",
       "arrived": "Ciò che si è mosso",
@@ -2443,17 +2464,29 @@
       "thePayment": "il pagamento",
       "acrossInvoices": "su {{count}} fatture",
       "dueOn": "scade {{date}}",
-      "totalOf": "totale di {{amount}}"
+      "totalOf": "totale di {{amount}}",
+      "otherLeg": "L'altro lato",
+      "thisLeg": "Questo lato",
+      "otherLegAmount": "sull'altro lato",
+      "thisLegAmount": "su questo lato"
     },
     "discarded": "Eliminate da questo spazio:",
-    "noneLeft": "Nessuna regola di riconciliazione in questo insieme. Qui non viene riconciliato nulla in automatico.",
+    "noneLeft": "Nessuna regola in questo insieme. Qui non viene collegato nulla in automatico.",
     "confirmDeleteTitle": "Eliminare questa regola?",
     "confirmDeleteDescription": "\"{{name}}\" smette di decidere qualsiasi cosa. Se è una delle nostre, puoi riportarla indietro più tardi.",
-    "exported": "Regole di riconciliazione scaricate",
+    "exported": "Regole di corrispondenza scaricate",
     "imported": "{{imported}} regole importate ({{skipped}} ignorate)",
-    "invalidImportFile": "Questo non è un file di regole di riconciliazione",
-    "importConfirmTitle": "Importare le regole di riconciliazione?",
+    "invalidImportFile": "Questo non è un file di regole di corrispondenza",
+    "importConfirmTitle": "Importare le regole di corrispondenza?",
     "importConfirmDescription": "Il file {{file}} contiene {{count}} regole.",
-    "importOverwriteWarning": "L'importazione sostituisce le regole di riconciliazione di questo spazio, incluso il loro ordine. Non è reversibile."
+    "importOverwriteWarning": "L'importazione sostituisce le regole di questo insieme, incluso il loro ordine. Non è reversibile.",
+    "card": {
+      "transfers": "Regole di Trasferimento",
+      "transfersHint": "Come decidiamo che due movimenti sono lo stesso trasferimento tra i tuoi conti.",
+      "invoices": "Regole di Fattura",
+      "invoicesHint": "Come decidiamo quale pagamento salda quale fattura.",
+      "recurring": "Regole Ricorrenti",
+      "recurringHint": "Come decidiamo che un addebito è la bolletta che stavi già aspettando."
+    }
   }
 }
