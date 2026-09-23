@@ -13,6 +13,9 @@
     "locale": "Idioma",
     "taxJurisdiction": "Jurisdição fiscal",
     "taxJurisdictionHint": "Define quais documentos fiscais este workspace oferece. Independente do idioma da interface.",
+    "timezone": "Fuso horário",
+    "timezoneDefault": "Padrão do aplicativo ({{zone}})",
+    "timezoneHint": "O calendário em que este workspace mantém as contas. Saldos, orçamentos e vencimentos viram à meia-noite nesse fuso.",
     "members": "Membros",
     "addMember": "Adicionar membro",
     "addMemberTitle": "Adicionar membro",
@@ -2216,6 +2219,8 @@
       "timezoneTitle": "Data e hora",
       "timezone": "Fuso horário do aplicativo",
       "timezoneHelp": "Datas, transações recorrentes, tarefas agendadas e o contexto da IA usam este fuso horário. As alterações valem para novas solicitações e tarefas.",
+      "timezoneServerDefault": "Padrão do servidor ({{zone}})",
+      "timezoneSavedInvalid": "O valor salvo {{value}} não é um fuso horário que este servidor conhece. {{zone}} está em uso até que ele seja alterado.",
       "updated": "Configuração atualizada"
     }
   },

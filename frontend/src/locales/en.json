@@ -13,6 +13,9 @@
     "locale": "Language",
     "taxJurisdiction": "Tax jurisdiction",
     "taxJurisdictionHint": "Decides which fiscal documents this workspace is offered. Separate from the interface language.",
+    "timezone": "Timezone",
+    "timezoneDefault": "Application default ({{zone}})",
+    "timezoneHint": "The calendar this workspace keeps its books in. Balances, budgets and due dates turn over at midnight there.",
     "members": "Members",
     "addMember": "Add member",
     "addMemberTitle": "Add member",
@@ -2215,6 +2218,8 @@
       "timezoneTitle": "Date and time",
       "timezone": "Application timezone",
       "timezoneHelp": "Calendar dates, recurring transactions, scheduled work and AI context use this timezone. Changes apply to new requests and jobs.",
+      "timezoneServerDefault": "Server default ({{zone}})",
+      "timezoneSavedInvalid": "The saved value {{value}} is not a timezone this server knows. {{zone}} is in use until it is changed.",
       "updated": "Setting updated"
     }
   },

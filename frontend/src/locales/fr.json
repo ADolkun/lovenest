@@ -13,6 +13,9 @@
     "locale": "Langue",
     "taxJurisdiction": "Juridiction fiscale",
     "taxJurisdictionHint": "Détermine les documents fiscaux proposés dans cet espace de travail. Indépendant de la langue de l'interface.",
+    "timezone": "Fuseau horaire",
+    "timezoneDefault": "Valeur par défaut de l'application ({{zone}})",
+    "timezoneHint": "Le calendrier dans lequel ce workspace tient ses comptes. Soldes, budgets et échéances basculent à minuit dans ce fuseau.",
     "members": "Membres",
     "addMember": "Ajouter un membre",
     "addMemberTitle": "Ajouter un membre",
@@ -2216,6 +2219,8 @@
       "timezoneTitle": "Date et heure",
       "timezone": "Fuseau horaire de l’application",
       "timezoneHelp": "Les dates, les transactions récurrentes, les tâches planifiées et le contexte de l’IA utilisent ce fuseau horaire. Les changements s’appliquent aux nouvelles requêtes et tâches.",
+      "timezoneServerDefault": "Valeur par défaut du serveur ({{zone}})",
+      "timezoneSavedInvalid": "La valeur enregistrée {{value}} n'est pas un fuseau horaire connu de ce serveur. {{zone}} est utilisé jusqu'à ce qu'elle soit modifiée.",
       "updated": "Paramètre mis à jour"
     }
   },

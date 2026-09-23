@@ -27,7 +27,7 @@ async def _generate_all() -> int:
         total = 0
 
         async with session_maker() as session:
-            operation_timezone = await get_timezone(session)
+            operation_timezone = await get_timezone(session, fresh=True)
             result = await session.execute(select(User.id))
             user_ids = [row[0] for row in result.all()]
 

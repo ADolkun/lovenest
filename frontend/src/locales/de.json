@@ -13,6 +13,9 @@
     "locale": "Sprache",
     "taxJurisdiction": "Steuerjurisdiktion",
     "taxJurisdictionHint": "Bestimmt, welche steuerlichen Dokumente dieser Workspace anbietet. Unabhängig von der Sprache der Oberfläche.",
+    "timezone": "Zeitzone",
+    "timezoneDefault": "Anwendungsstandard ({{zone}})",
+    "timezoneHint": "Der Kalender, in dem dieser Workspace seine Bücher führt. Salden, Budgets und Fälligkeiten wechseln dort um Mitternacht.",
     "members": "Mitglieder",
     "addMember": "Mitglied hinzufügen",
     "addMemberTitle": "Mitglied hinzufügen",
@@ -2216,6 +2219,8 @@
       "timezoneTitle": "Datum und Uhrzeit",
       "timezone": "Anwendungszeitzone",
       "timezoneHelp": "Kalenderdaten, wiederkehrende Transaktionen, geplante Aufgaben und der KI-Kontext verwenden diese Zeitzone. Änderungen gelten für neue Anfragen und Aufgaben.",
+      "timezoneServerDefault": "Serverstandard ({{zone}})",
+      "timezoneSavedInvalid": "Der gespeicherte Wert {{value}} ist keine Zeitzone, die dieser Server kennt. Bis zur Änderung wird {{zone}} verwendet.",
       "updated": "Einstellung aktualisiert"
     }
   },

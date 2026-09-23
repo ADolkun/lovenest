@@ -13,6 +13,9 @@
     "locale": "Jazyk",
     "taxJurisdiction": "Daňová jurisdikcia",
     "taxJurisdictionHint": "Určuje, ktoré fiškálne dokumenty sa tomuto pracovnému priestoru ponúkajú. Nesúvisí s jazykom rozhrania.",
+    "timezone": "Časové pásmo",
+    "timezoneDefault": "Predvolené aplikácie ({{zone}})",
+    "timezoneHint": "Kalendár, v ktorom tento workspace vedie účty. Zostatky, rozpočty a splatnosti sa tam menia o polnoci.",
     "members": "Členovia",
     "addMember": "Pridať člena",
     "addMemberTitle": "Pridať člena",
@@ -2347,6 +2350,8 @@
       "timezoneTitle": "Dátum a čas",
       "timezone": "Časové pásmo aplikácie",
       "timezoneHelp": "Dátumy, opakované transakcie, naplánované úlohy a kontext AI používajú toto časové pásmo. Zmeny platia pre nové požiadavky a úlohy.",
+      "timezoneServerDefault": "Predvolené servera ({{zone}})",
+      "timezoneSavedInvalid": "Uložená hodnota {{value}} nie je časové pásmo, ktoré tento server pozná. Kým sa nezmení, používa sa {{zone}}.",
       "updated": "Nastavenie aktualizované"
     }
   },

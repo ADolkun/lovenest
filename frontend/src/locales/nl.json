@@ -13,6 +13,9 @@
     "locale": "Taal",
     "taxJurisdiction": "Belastingjurisdictie",
     "taxJurisdictionHint": "Bepaalt welke fiscale documenten deze workspace wordt aangeboden. Los van de interfacetaal.",
+    "timezone": "Tijdzone",
+    "timezoneDefault": "Standaard van de applicatie ({{zone}})",
+    "timezoneHint": "De kalender waarin deze workspace zijn boeken bijhoudt. Saldi, budgetten en vervaldata wisselen daar om middernacht.",
     "members": "Leden",
     "addMember": "Lid toevoegen",
     "addMemberTitle": "Lid toevoegen",
@@ -2217,6 +2220,8 @@
       "timezoneTitle": "Datum en tijd",
       "timezone": "Tijdzone van de applicatie",
       "timezoneHelp": "Datums, terugkerende transacties, geplande taken en de AI-context gebruiken deze tijdzone. Wijzigingen gelden voor nieuwe verzoeken en taken.",
+      "timezoneServerDefault": "Serverstandaard ({{zone}})",
+      "timezoneSavedInvalid": "De opgeslagen waarde {{value}} is geen tijdzone die deze server kent. {{zone}} wordt gebruikt totdat dit wordt gewijzigd.",
       "updated": "Instelling bijgewerkt"
     }
   },

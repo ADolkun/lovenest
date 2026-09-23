@@ -155,7 +155,7 @@ export const workspaces = {
     id: string,
     payload: Partial<
       Pick<Workspace, 'name' | 'icon' | 'color' | 'default_currency' | 'locale'>
-    > & { tax_jurisdiction?: string | null },
+    > & { tax_jurisdiction?: string | null; timezone?: string | null },
   ): Promise<Workspace> => {
     const { data } = await api.patch(`/workspaces/${id}`, payload)
     return data
@@ -1513,6 +1513,23 @@ export const backup = {
 }
 
 // Admin
+export interface TimezoneSetting {
+  /** The timezone in use, after fallbacks. */
+  timezone: string
+  /** What an administrator saved, valid or not; null when nothing is saved. */
+  saved: string | null
+  /** Where the application lands without a saved value. */
+  fallback: string
+  available: string[]
+}
+
+export const timezones = {
+  list: async (): Promise<{ default: string; available: string[] }> => {
+    const { data } = await api.get('/timezones')
+    return data
+  },
+}
+
 export const admin = {
   listUsers: async (params?: { search?: string; page?: number; limit?: number }): Promise<AdminUserList> => {
     const { data } = await api.get('/admin/users', { params })
@@ -1541,7 +1558,10 @@ export const admin = {
     const { data } = await api.patch(`/admin/settings/${key}`, { value })
     return data
   },
-  timezone: async (): Promise<{ timezone: string; available: string[] }> => {
+  deleteSetting: async (key: string): Promise<void> => {
+    await api.delete(`/admin/settings/${key}`)
+  },
+  timezone: async (): Promise<TimezoneSetting> => {
     const { data } = await api.get('/admin/timezone')
     return data
   },

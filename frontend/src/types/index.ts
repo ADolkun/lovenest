@@ -56,6 +56,9 @@ export interface Workspace {
   is_archived: boolean
   default_currency: string
   locale: string | null
+  /** The calendar this workspace keeps its books in, or null to follow the
+   *  application timezone. */
+  timezone: string | null
   /** Where the workspace files. Selects the fiscal document pack; never the
    *  interface language. */
   tax_jurisdiction: string | null
@@ -81,7 +84,6 @@ export interface WorkspaceMember {
 export interface UserPreferences {
   language?: string
   date_format?: string
-  timezone?: string
   currency_display?: string
   display_name?: string
   onboarding_completed?: boolean

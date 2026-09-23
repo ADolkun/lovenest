@@ -40,6 +40,7 @@ from app.api.invoices import router as invoices_router
 from app.api.public_invoices import router as public_invoices_router
 from app.api.payees import router as payees_router
 from app.api.settings import router as settings_router
+from app.api.timezones import router as timezones_router
 from app.api.transactions import router as transactions_router
 from app.api.two_factor import router as two_factor_router
 from app.api.user_lookup import router as user_lookup_router
@@ -189,6 +190,7 @@ app.include_router(reports_router)
 app.include_router(search_router)
 app.include_router(setup_router)
 app.include_router(currencies_router)
+app.include_router(timezones_router)
 app.include_router(fx_rates_router)
 app.include_router(export_router)
 app.include_router(attachments_router)

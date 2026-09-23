@@ -1,12 +1,19 @@
 import asyncio
 import logging
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
-from app.core.app_clock import app_today, get_timezone, use_resolved_timezone, use_timezone
+from app.core.app_clock import (
+    get_timezone,
+    get_workspace_timezone,
+    today_in,
+    use_resolved_timezone,
+    use_timezone,
+)
 from app.worker import celery_app
 from app.core.config import get_settings
 from app.models.asset import Asset
@@ -49,7 +56,7 @@ async def _apply_growth_rules() -> int:
         total = 0
 
         async with session_maker() as session:
-            operation_timezone = await get_timezone(session)
+            operation_timezone = await get_timezone(session, fresh=True)
             result = await session.execute(
                 select(Asset).where(
                     Asset.valuation_method == "growth_rule",
@@ -62,11 +69,18 @@ async def _apply_growth_rules() -> int:
             )
             assets = list(result.scalars().all())
 
+        # Each workspace keeps its own calendar, so "today" is resolved per
+        # workspace and remembered for the rest of this run.
+        todays: dict[uuid.UUID, date] = {}
         with use_resolved_timezone(operation_timezone):
-            today = app_today()
             for asset in assets:
                 try:
                     async with session_maker() as session:
+                        if asset.workspace_id not in todays:
+                            todays[asset.workspace_id] = today_in(
+                                await get_workspace_timezone(session, asset.workspace_id)
+                            )
+                        today = todays[asset.workspace_id]
                         # Get latest value
                         val_result = await session.execute(
                             select(AssetValue)
@@ -144,7 +158,7 @@ async def _refresh_market_prices() -> dict[str, int]:
     """
     engine, session_maker = _make_session_maker()
     try:
-        async with session_maker() as session, use_timezone(session):
+        async with session_maker() as session, use_timezone(session, fresh=True):
             return await refresh_all_market_prices(session)
     finally:
         await engine.dispose()

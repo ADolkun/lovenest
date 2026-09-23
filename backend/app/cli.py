@@ -15,7 +15,7 @@ async def generate_recurring() -> None:
     from app.models.user import User as UserModel
     from app.services import recurring_transaction_service
 
-    async with async_session_maker() as session, use_timezone(session):
+    async with async_session_maker() as session, use_timezone(session, fresh=True):
         result = await session.execute(select(UserModel))
         users = result.scalars().all()
         total = 0

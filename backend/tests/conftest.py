@@ -600,6 +600,16 @@ async def test_user_with_2fa(session: AsyncSession, clean_db) -> User:
 
 
 @pytest.fixture(autouse=True)
+def _fresh_timezone_cache():
+    """One test's saved timezone must never leak into the next through the cache."""
+    from app.core.app_clock import invalidate_timezone_cache
+
+    invalidate_timezone_cache()
+    yield
+    invalidate_timezone_cache()
+
+
+@pytest.fixture(autouse=True)
 def _mock_redis():
     """Provide a no-op Redis mock so rate limiting never blocks tests."""
     mock = AsyncMock()

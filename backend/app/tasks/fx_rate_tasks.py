@@ -23,7 +23,7 @@ async def _sync_fx_rates() -> int:
 
     engine, session_maker = _make_session_maker()
     try:
-        async with session_maker() as session, use_timezone(session):
+        async with session_maker() as session, use_timezone(session, fresh=True):
             count = await sync_rates(session)
         return count
     finally:
@@ -40,7 +40,7 @@ async def _restamp_recurring_fx() -> int:
 
     engine, session_maker = _make_session_maker()
     try:
-        async with session_maker() as session, use_timezone(session):
+        async with session_maker() as session, use_timezone(session, fresh=True):
             users = (await session.execute(select(User))).scalars().all()
             count = 0
             for user in users:
@@ -86,7 +86,7 @@ async def _restamp_fallback_transactions() -> int:
     settings = get_settings()
     engine, session_maker = _make_session_maker()
     try:
-        async with session_maker() as session, use_timezone(session):
+        async with session_maker() as session, use_timezone(session, fresh=True):
             users = {
                 u.id: u.primary_currency
                 for u in (await session.execute(select(User))).scalars().all()

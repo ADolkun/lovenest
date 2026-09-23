@@ -13,6 +13,9 @@
     "locale": "Język",
     "taxJurisdiction": "Jurysdykcja podatkowa",
     "taxJurisdictionHint": "Decyduje, jakie dokumenty podatkowe oferuje ten obszar roboczy. Niezależnie od języka interfejsu.",
+    "timezone": "Strefa czasowa",
+    "timezoneDefault": "Domyślna aplikacji ({{zone}})",
+    "timezoneHint": "Kalendarz, w którym ten workspace prowadzi księgi. Salda, budżety i terminy zmieniają się tam o północy.",
     "members": "Członkowie",
     "addMember": "Dodaj członka",
     "addMemberTitle": "Dodaj członka",
@@ -2315,6 +2318,8 @@
       "timezoneTitle": "Data i godzina",
       "timezone": "Strefa czasowa aplikacji",
       "timezoneHelp": "Daty, transakcje cykliczne, zaplanowane zadania i kontekst AI korzystają z tej strefy czasowej. Zmiany dotyczą nowych żądań i zadań.",
+      "timezoneServerDefault": "Domyślna serwera ({{zone}})",
+      "timezoneSavedInvalid": "Zapisana wartość {{value}} nie jest strefą czasową znaną temu serwerowi. Do czasu zmiany używana jest {{zone}}.",
       "updated": "Zaktualizowano ustawienie"
     }
   },

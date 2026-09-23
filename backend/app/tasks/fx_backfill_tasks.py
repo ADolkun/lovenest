@@ -37,7 +37,7 @@ async def _backfill_primary_amounts() -> dict:
     try:
         stats = {"transactions": 0, "recurring": 0, "assets": 0, "rates_synced": 0}
 
-        async with session_maker() as session, use_timezone(session):
+        async with session_maker() as session, use_timezone(session, fresh=True):
             # 1. Get all users up front so we can tell cross-currency rows apart.
             users_result = await session.execute(select(User))
             settings = get_settings()

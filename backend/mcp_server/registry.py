@@ -80,6 +80,14 @@ async def call_tool(
     if spec is None:
         raise KeyError(f"unknown tool: {name}")
     from app.core.app_clock import use_timezone
+    from mcp_server.tools._helpers import resolve_workspace_id
 
-    async with use_timezone(session):
+    # A token minted before workspaces existed carries no `ws_id`; the tool
+    # resolves the default workspace itself, and a caller with none at all
+    # still gets the application timezone rather than an error here.
+    try:
+        workspace_id = await resolve_workspace_id(session, ctx)
+    except ValueError:
+        workspace_id = None
+    async with use_timezone(session, workspace_id):
         return await spec.handler(session=session, ctx=ctx, **(arguments or {}))
