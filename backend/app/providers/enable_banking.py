@@ -563,7 +563,11 @@ class EnableBankingProvider(BankProvider):
         payee_source: str = "auto",
     ) -> list[TransactionData]:
         _ = self._session_id(credentials)  # surface expired credentials early
-        today = date.today()
+        # Enable Banking reads date_to as an inclusive UTC calendar day, so the
+        # window ends on the UTC date regardless of the application calendar;
+        # otherwise an application west of UTC would stop short of the day's
+        # newest transactions until its own date caught up.
+        today = datetime.now(timezone.utc).date()
         if since is not None:
             return await self._fetch_transactions(
                 account_external_id, since, today, payee_source

@@ -1945,6 +1945,9 @@
     "anyCountry": "Ergens anders"
   },
   "common": {
+    "selectTimezone": "Tijdzone kiezen",
+    "searchTimezone": "Tijdzone zoeken...",
+    "noTimezoneFound": "Geen tijdzone gevonden.",
     "createNamed": "\"{{name}}\" aanmaken",
     "view": "Bekijk",
     "add": "Toevoegen",
@@ -2211,6 +2214,9 @@
       "dateFormatMdyDesc": "Maand eerst, b.v. 06/04/2026.",
       "dateFormatYmd": "Jaar / Maand / Dag",
       "dateFormatYmdDesc": "ISO-volgorde, b.v. 04-06-2026.",
+      "timezoneTitle": "Datum en tijd",
+      "timezone": "Tijdzone van de applicatie",
+      "timezoneHelp": "Datums, terugkerende transacties, geplande taken en de AI-context gebruiken deze tijdzone. Wijzigingen gelden voor nieuwe verzoeken en taken.",
       "updated": "Instelling bijgewerkt"
     }
   },

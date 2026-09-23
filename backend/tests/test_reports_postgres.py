@@ -243,12 +243,8 @@ async def test_aggregate_by_month(session, test_user, test_transactions):
 
 
 async def test_monthly_report_follows_mode(session, test_user, test_account, monkeypatch):
-    class ReportDate(date):
-        @classmethod
-        def today(cls):
-            return cls(2026, 2, 1)
-
-    monkeypatch.setattr(report_service, "date", ReportDate)
+    # The service asks the application clock for today, so that is what is pinned.
+    monkeypatch.setattr(report_service, "app_today", lambda: date(2026, 2, 1))
     test_account.type = "credit_card"
     for when, effective, amount in [
         (date(2025, 12, 30), date(2026, 1, 16), Decimal("120")),

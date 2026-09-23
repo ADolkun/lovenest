@@ -7,6 +7,7 @@ from typing import Optional
 from sqlalchemy import String, select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.core.config import get_settings
 from app.models.account import Account
 from app.models.asset import Asset
@@ -311,7 +312,7 @@ async def get_net_worth_report(
     # A wallet-only collection (wallets, no accounts) still filters.
     if asset_group_ids is not None and account_ids is None:
         account_ids = []
-    real_today = date.today()
+    real_today = app_today()
     axis_end = end_date or real_today
     start = _report_start_date(
         axis_end, months, period, financial_year_start_month=financial_year_start_month,
@@ -437,7 +438,7 @@ async def get_income_expenses_report(
     """Build income/expenses; explicit custom windows include actuals only."""
     filtered = account_ids is not None
     acct_filter = [Transaction.account_id.in_(account_ids)] if filtered else []
-    real_today = date.today()
+    real_today = app_today()
     axis_end = end_date or real_today
     start = _report_start_date(
         axis_end,
@@ -1346,7 +1347,7 @@ async def get_cash_flow_report(
     from app.services.fx_rate_service import get_rate
 
     acct_filter = [Transaction.account_id.in_(account_ids)] if account_ids is not None else []
-    today = date.today()
+    today = app_today()
     end = _add_months(today, months)
     chart_start = _add_months(today, -_PAST_HISTORY_MONTHS)
 

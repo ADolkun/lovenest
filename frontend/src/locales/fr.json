@@ -1944,6 +1944,9 @@
     "anyCountry": "Ailleurs"
   },
   "common": {
+    "selectTimezone": "Choisir un fuseau horaire",
+    "searchTimezone": "Rechercher un fuseau horaire...",
+    "noTimezoneFound": "Aucun fuseau horaire trouvé.",
     "createNamed": "Créer « {{name}} »",
     "view": "Voir",
     "add": "Ajouter",
@@ -2210,6 +2213,9 @@
       "dateFormatMdyDesc": "Mois en premier, ex. 06/04/2026.",
       "dateFormatYmd": "Année / Mois / Jour",
       "dateFormatYmdDesc": "Ordre ISO, ex. 2026-06-04.",
+      "timezoneTitle": "Date et heure",
+      "timezone": "Fuseau horaire de l’application",
+      "timezoneHelp": "Les dates, les transactions récurrentes, les tâches planifiées et le contexte de l’IA utilisent ce fuseau horaire. Les changements s’appliquent aux nouvelles requêtes et tâches.",
       "updated": "Paramètre mis à jour"
     }
   },

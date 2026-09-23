@@ -1944,6 +1944,9 @@
     "anyCountry": "Qualsiasi altro luogo"
   },
   "common": {
+    "selectTimezone": "Seleziona fuso orario",
+    "searchTimezone": "Cerca fuso orario...",
+    "noTimezoneFound": "Nessun fuso orario trovato.",
     "createNamed": "Crea \"{{name}}\"",
     "view": "Visualizza",
     "add": "Aggiungi",
@@ -2210,6 +2213,9 @@
       "dateFormatMdyDesc": "Mese prima, es. 06/04/2026.",
       "dateFormatYmd": "Anno / Mese / Giorno",
       "dateFormatYmdDesc": "Ordine ISO, es. 2026-06-04.",
+      "timezoneTitle": "Data e ora",
+      "timezone": "Fuso orario dell’applicazione",
+      "timezoneHelp": "Le date, le transazioni ricorrenti, le attività pianificate e il contesto IA usano questo fuso orario. Le modifiche si applicano alle nuove richieste e attività.",
       "updated": "Impostazione aggiornata"
     }
   },

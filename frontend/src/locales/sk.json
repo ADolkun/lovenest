@@ -2063,6 +2063,9 @@
     "anyCountry": "Kdekoľvek inde"
   },
   "common": {
+    "selectTimezone": "Vyberte časové pásmo",
+    "searchTimezone": "Hľadať časové pásmo...",
+    "noTimezoneFound": "Nenašlo sa žiadne časové pásmo.",
     "createNamed": "Vytvoriť „{{name}}“",
     "view": "Zobraziť",
     "add": "Pridať",
@@ -2341,6 +2344,9 @@
       "dateFormatMdyDesc": "Najprv mesiac, napr. 06/04/2026.",
       "dateFormatYmd": "Rok / Mesiac / Deň",
       "dateFormatYmdDesc": "Poradie ISO, napr. 2026-06-04.",
+      "timezoneTitle": "Dátum a čas",
+      "timezone": "Časové pásmo aplikácie",
+      "timezoneHelp": "Dátumy, opakované transakcie, naplánované úlohy a kontext AI používajú toto časové pásmo. Zmeny platia pre nové požiadavky a úlohy.",
       "updated": "Nastavenie aktualizované"
     }
   },
