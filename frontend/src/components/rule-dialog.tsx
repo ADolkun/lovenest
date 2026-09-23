@@ -707,6 +707,7 @@ export function RuleDialog({
                               (category) => category.id === action.value
                             )}
                             placeholder={t('rules.selectCategory')}
+                            creatable
                             className={`${SELECT_CLASS} w-full`}
                           />
                         </div>

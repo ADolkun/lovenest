@@ -1838,6 +1838,7 @@
     "loadError": "Rapport laden mislukt"
   },
   "payees": {
+    "noPayeeFound": "Geen begunstigde gevonden.",
     "addFavorite": "Toevoegen aan favorieten",
     "removeFavorite": "Verwijderen uit favorieten",
     "favoriteError": "Kan favoriet niet bijwerken",
@@ -1944,6 +1945,7 @@
     "anyCountry": "Ergens anders"
   },
   "common": {
+    "createNamed": "\"{{name}}\" aanmaken",
     "view": "Bekijk",
     "add": "Toevoegen",
     "save": "Opslaan",

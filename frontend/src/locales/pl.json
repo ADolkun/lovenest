@@ -1921,6 +1921,7 @@
     "loadError": "Nie udało się załadować raportu"
   },
   "payees": {
+    "noPayeeFound": "Nie znaleziono odbiorcy.",
     "addFavorite": "Dodaj do ulubionych",
     "removeFavorite": "Usuń z ulubionych",
     "favoriteError": "Nie udało się zaktualizować ulubionych",
@@ -2033,6 +2034,7 @@
     "anyCountry": "Gdziekolwiek indziej"
   },
   "common": {
+    "createNamed": "Utwórz „{{name}}”",
     "view": "Zobacz",
     "add": "Dodaj",
     "save": "Zapisz",

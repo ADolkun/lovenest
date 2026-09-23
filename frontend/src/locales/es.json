@@ -1837,6 +1837,7 @@
     "loadError": "No se pudo cargar el informe"
   },
   "payees": {
+    "noPayeeFound": "No se encontró ningún beneficiario.",
     "addFavorite": "Añadir a favoritos",
     "removeFavorite": "Quitar de favoritos",
     "favoriteError": "No se pudo actualizar el favorito",
@@ -1943,6 +1944,7 @@
     "anyCountry": "Cualquier otro lugar"
   },
   "common": {
+    "createNamed": "Crear \"{{name}}\"",
     "view": "Ver",
     "add": "Añadir",
     "save": "Guardar",

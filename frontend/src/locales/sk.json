@@ -1948,6 +1948,7 @@
     "loadError": "Nepodarilo sa načítať prehľad"
   },
   "payees": {
+    "noPayeeFound": "Príjemca sa nenašiel.",
     "addFavorite": "Pridať do obľúbených",
     "removeFavorite": "Odstrániť z obľúbených",
     "title": "Príjemcovia",
@@ -2062,6 +2063,7 @@
     "anyCountry": "Kdekoľvek inde"
   },
   "common": {
+    "createNamed": "Vytvoriť „{{name}}“",
     "view": "Zobraziť",
     "add": "Pridať",
     "save": "Uložiť",

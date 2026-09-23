@@ -1837,6 +1837,7 @@
     "loadError": "Falha ao carregar o relatório"
   },
   "payees": {
+    "noPayeeFound": "Nenhuma entidade encontrada.",
     "addFavorite": "Adicionar aos favoritos",
     "removeFavorite": "Remover dos favoritos",
     "favoriteError": "Não foi possível atualizar o favorito",
@@ -1943,6 +1944,7 @@
     "anyCountry": "Qualquer outro lugar"
   },
   "common": {
+    "createNamed": "Criar \"{{name}}\"",
     "view": "Ver",
     "add": "Adicionar",
     "save": "Guardar",

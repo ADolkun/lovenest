@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { CategorySelect } from '@/components/category-select'
+import { PayeeSelect } from '@/components/payee-select'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
@@ -1116,6 +1117,7 @@ function TransactionForm({
             groups={displayCategoryGroups}
             currentCategory={seed?.category}
             allowNone={true}
+            creatable
             className="bg-card"
           />
         </div>
@@ -1123,16 +1125,12 @@ function TransactionForm({
       <div className={cn("grid gap-4", isSynced ? "grid-cols-1" : "grid-cols-2")}>
         <div className="space-y-2">
           <Label>{t('payees.payee')}</Label>
-          <select
-            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-card focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+          <PayeeSelect
             value={payeeId}
-            onChange={(e) => setPayeeId(e.target.value)}
-          >
-            <option value="">{t('payees.noPayee')}</option>
-            {(payeesList ?? []).map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            onChange={setPayeeId}
+            payees={payeesList ?? []}
+            creatable
+          />
           {isSynced && transaction?.payee && (
             <p className="text-xs text-muted-foreground">{t('payees.rawPayee')}: {transaction.payee}</p>
           )}

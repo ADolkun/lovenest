@@ -1836,6 +1836,7 @@
     "loadError": "Failed to load report"
   },
   "payees": {
+    "noPayeeFound": "No payee found.",
     "addFavorite": "Add to favorites",
     "removeFavorite": "Remove from favorites",
     "favoriteError": "Could not update favorite",
@@ -1942,6 +1943,7 @@
     "anyCountry": "Anywhere else"
   },
   "common": {
+    "createNamed": "Create \"{{name}}\"",
     "view": "View",
     "add": "Add",
     "save": "Save",
