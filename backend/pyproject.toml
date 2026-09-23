@@ -71,6 +71,9 @@ dev = [
 include = ["app*"]
 
 [tool.pytest.ini_options]
+# Fail on configuration/marker typos, duplicate parameter IDs and unexpected
+# xfail passes instead of silently weakening the suite.
+strict = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
@@ -95,6 +98,9 @@ omit = [
 # Match ruff's target-version: check against the oldest Python we support, so a
 # 3.12+-only construct is caught here rather than by a self-hoster on 3.11.
 python-version = "3.11"
+
+[tool.ty.rules]
+unused-ignore-comment = "error"
 
 [tool.ruff]
 line-length = 100
