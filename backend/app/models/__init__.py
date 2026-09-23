@@ -27,6 +27,7 @@ from app.models.group_settlement import GroupSettlement
 from app.models.collection import Collection, collection_accounts, collection_asset_groups
 from app.models.invoice import Invoice, InvoiceAllocation, InvoiceLine, InvoiceSettings
 from app.models.invoice_attachment import InvoiceAttachment
+from app.models.invoice_schedule import InvoiceSchedule, InvoiceScheduleTerm
 from app.models.reconciliation import (
     ReconciliationEvent,
     ReconciliationRule,
@@ -76,6 +77,8 @@ __all__ = [
     "InvoiceLine",
     "InvoiceSettings",
     "InvoiceAttachment",
+    "InvoiceSchedule",
+    "InvoiceScheduleTerm",
     "ReconciliationEvent",
     "ReconciliationRule",
     "ReconciliationSuggestion",

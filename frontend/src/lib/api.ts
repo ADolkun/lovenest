@@ -23,6 +23,13 @@ import type {
   InvoiceDirection,
   InvoiceDocumentPayload,
   InvoiceFacets,
+  InvoiceSchedule,
+  InvoiceScheduleEndReason,
+  InvoiceScheduleEndType,
+  InvoiceScheduleFrequency,
+  InvoiceSchedulePeriod,
+  InvoiceScheduleStatus,
+  InvoiceScheduleSummary,
   InvoiceLineInput,
   InvoiceShareLink,
   IssuerProfile,
@@ -1861,6 +1868,109 @@ export interface InvoiceWritePayload {
   lines?: InvoiceLineInput[]
 }
 
+export interface MakeRecurringPayload {
+  frequency: InvoiceScheduleFrequency
+  start_date?: string
+  name?: string
+  end_type?: InvoiceScheduleEndType
+  end_date?: string | null
+  end_count?: number | null
+  payment_terms_days?: number | null
+}
+
+export interface InvoiceScheduleWritePayload {
+  name?: string
+  payee_id?: string | null
+  frequency?: InvoiceScheduleFrequency
+  start_date?: string
+  end_type?: InvoiceScheduleEndType
+  end_date?: string | null
+  end_count?: number | null
+  payment_terms_days?: number | null
+  currency?: string
+  notes?: string | null
+  custom_fields?: Record<string, string> | null
+  /** Create only: the first term, in force from `start_date`. */
+  lines?: InvoiceLineInput[]
+  discount?: string | null
+}
+
+export interface InvoiceScheduleTermPayload {
+  effective_from?: string
+  lines?: InvoiceLineInput[]
+  discount?: string | null
+}
+
+/** Recurring invoices: an agreement that emits one invoice per period.
+ *  Its own prefix, because `/invoices/{id}` would swallow `schedules`. */
+export const invoiceSchedules = {
+  list: async (params?: { status?: InvoiceScheduleStatus; payee_id?: string }): Promise<InvoiceSchedule[]> => {
+    const { data } = await api.get('/invoice-schedules', { params })
+    return data
+  },
+  summary: async (): Promise<InvoiceScheduleSummary> => {
+    const { data } = await api.get('/invoice-schedules/summary')
+    return data
+  },
+  get: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.get(`/invoice-schedules/${id}`)
+    return data
+  },
+  invoices: async (id: string): Promise<Invoice[]> => {
+    const { data } = await api.get(`/invoice-schedules/${id}/invoices`)
+    return data
+  },
+  periods: async (id: string, ahead = 3): Promise<InvoiceSchedulePeriod[]> => {
+    const { data } = await api.get(`/invoice-schedules/${id}/periods`, { params: { ahead } })
+    return data
+  },
+  create: async (payload: InvoiceScheduleWritePayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post('/invoice-schedules', payload)
+    return data
+  },
+  update: async (id: string, payload: InvoiceScheduleWritePayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.patch(`/invoice-schedules/${id}`, payload)
+    return data
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/invoice-schedules/${id}`)
+  },
+  pause: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/pause`)
+    return data
+  },
+  resume: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/resume`)
+    return data
+  },
+  end: async (id: string, payload: { reason: InvoiceScheduleEndReason; ended_at?: string }): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/end`, payload)
+    return data
+  },
+  /** Emit the next period now, whether or not its date has come. */
+  generate: async (id: string): Promise<Invoice[]> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/generate`)
+    return data
+  },
+  addTerm: async (id: string, payload: InvoiceScheduleTermPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/terms`, payload)
+    return data
+  },
+  updateTerm: async (id: string, termId: string, payload: InvoiceScheduleTermPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.patch(`/invoice-schedules/${id}/terms/${termId}`, payload)
+    return data
+  },
+  removeTerm: async (id: string, termId: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.delete(`/invoice-schedules/${id}/terms/${termId}`)
+    return data
+  },
+  /** Say an existing invoice answers for a period of this agreement. */
+  link: async (id: string, payload: { invoice_id: string; period_start: string }): Promise<Invoice> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/link`, payload)
+    return data
+  },
+}
+
 export const invoices = {
   facets: async (year?: number, direction?: InvoiceDirection): Promise<InvoiceFacets> => {
     const { data } = await api.get('/invoices/facets', {
@@ -1868,7 +1978,7 @@ export const invoices = {
     })
     return data
   },
-  list: async (params?: { state?: string; year?: number; direction?: InvoiceDirection; payee_id?: string; q?: string } | Record<string, unknown>): Promise<Invoice[]> => {
+  list: async (params?: { state?: string; year?: number; direction?: InvoiceDirection; payee_id?: string; schedule_id?: string; q?: string; limit?: number } | Record<string, unknown>): Promise<Invoice[]> => {
     const cleanParams = params && !('queryKey' in params) ? params : undefined
     const { data } = await api.get('/invoices', { params: cleanParams })
     return data
@@ -1893,6 +2003,16 @@ export const invoices = {
   },
   remove: async (id: string): Promise<void> => {
     await api.delete(`/invoices/${id}`)
+  },
+  /** Turn this invoice into period one of a new agreement that repeats it. */
+  makeRecurring: async (id: string, payload: MakeRecurringPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoices/${id}/make-recurring`, payload)
+    return data
+  },
+  /** The invoice stops answering for a period. It stays as it is. */
+  unlinkSchedule: async (id: string): Promise<Invoice> => {
+    const { data } = await api.delete(`/invoices/${id}/schedule`)
+    return data
   },
   // The decisions. Each is its own call for the same reason it is its own
   // route on the server: a status change always has a cause.

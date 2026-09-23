@@ -33,12 +33,14 @@ from app.schemas.invoice import (
     IssuerProfileUpdate,
     ShareLinkRead,
 )
+from app.schemas.invoice_schedule import MakeRecurring, ScheduleRead
 from app.services import (
     invoice_archive,
     invoice_attachment_service,
     invoice_logo_service,
     invoice_document,
     invoice_pdf,
+    invoice_schedule_service,
     invoice_service,
     reconciliation_history_service,
     reconciliation_service,
@@ -202,6 +204,7 @@ async def list_invoices(
     year: Optional[int] = Query(None, ge=1970, le=2200, description="Filter by issue year"),
     direction: InvoiceDirection = DirectionParam,
     payee_id: Optional[uuid.UUID] = Query(None),
+    schedule_id: Optional[uuid.UUID] = Query(None, description="Only invoices of this agreement"),
     q: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -210,7 +213,7 @@ async def list_invoices(
 ):
     invoices = await invoice_service.list_invoices(
         session, ctx.workspace.id, state=state, year=year, direction=direction,
-        payee_id=payee_id, q=q, limit=limit, offset=offset,
+        payee_id=payee_id, schedule_id=schedule_id, q=q, limit=limit, offset=offset,
     )
     return [_serialize(inv) for inv in invoices]
 
@@ -388,6 +391,40 @@ async def reopen_invoice(
 # ---------------------------------------------------------------------------
 # Allocations — money bound to debt
 # ---------------------------------------------------------------------------
+@router.post("/{invoice_id}/make-recurring", response_model=ScheduleRead, status_code=status.HTTP_201_CREATED)
+async def make_recurring(
+    invoice_id: uuid.UUID,
+    payload: MakeRecurring,
+    ctx: WorkspaceContext = Depends(write_ctx),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Turn this invoice into period one of a new agreement that repeats it."""
+    from app.api.invoice_schedules import _read as _read_schedule
+
+    invoice = await _load(session, invoice_id, ctx.workspace.id)
+    try:
+        schedule = await invoice_schedule_service.make_recurring(
+            session, invoice, ctx.user_id, payload.model_dump(exclude_unset=True)
+        )
+    except InvoiceError as exc:
+        raise _http(exc)
+    await session.commit()
+    return await _read_schedule(session, schedule.id, ctx.workspace.id)
+
+
+@router.delete("/{invoice_id}/schedule", response_model=InvoiceRead)
+async def unlink_schedule(
+    invoice_id: uuid.UUID,
+    ctx: WorkspaceContext = Depends(write_ctx),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """The invoice stops answering for a period. It stays as it is."""
+    invoice = await _load(session, invoice_id, ctx.workspace.id)
+    await invoice_schedule_service.unlink_invoice(session, invoice)
+    await session.commit()
+    return _serialize(await _load(session, invoice_id, ctx.workspace.id))
+
+
 @router.post("/{invoice_id}/allocations", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
 async def create_allocation(
     invoice_id: uuid.UUID,

@@ -122,7 +122,7 @@ async def claims_in_range(
         query = query.where(Invoice.direction.in_(directions))
 
     rows = (await session.execute(query)).all()
-    return [
+    claims = [
         Claim(
             due_date=row.due_date,
             currency=row.currency or "USD",
@@ -131,3 +131,27 @@ async def claims_in_range(
         )
         for row in rows
     ]
+
+    # Periods of a recurring agreement that no invoice answers for yet.
+    # Same money as the invoice the job will emit for them, and the two
+    # never coexist: a period is projected only from the cursor on, and
+    # the cursor moves the moment the invoice exists. Receivable only,
+    # because that is the only side an agreement emits today.
+    if directions is None or "receivable" in directions:
+        # Imported lazily: the schedule service reads invoices and the
+        # ledger, and this module is read by the dashboard and reports.
+        # A top-level import would tie the two directions into a cycle.
+        from app.services import invoice_schedule_service
+
+        for period in await invoice_schedule_service.projected_periods(
+            session, workspace_id, range_start, range_end
+        ):
+            claims.append(
+                Claim(
+                    due_date=period.due_date,
+                    currency=period.currency,
+                    amount=period.amount,
+                    direction="receivable",
+                )
+            )
+    return claims
