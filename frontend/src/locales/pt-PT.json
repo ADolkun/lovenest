@@ -65,7 +65,8 @@
     "versionAriaLabel": "Versão em execução {{version}}",
     "versionLabel": "Versão {{version}}",
     "updateAvailable": "Atualização disponível",
-    "updateAvailableHint": "Está disponível uma nova versão ({{version}}) no GitHub"
+    "updateAvailableHint": "Está disponível uma nova versão ({{version}}) no GitHub",
+    "toggleMenu": "Alternar menu"
   },
   "cmdk": {
     "title": "Paleta de comandos",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Cobrança",
     "invoiceBadgeTooltip": "Esta transação quita uma cobrança. Abrir.",
     "suggestionBadge": "Pergunta",
-    "suggestionBadgeTooltip": "Um pagamento pode liquidar esta cobrança. Abra a fila para responder."
+    "suggestionBadgeTooltip": "Um pagamento pode liquidar esta cobrança. Abra a fila para responder.",
+    "clearGroupFilter": "Limpar filtro de grupo"
   },
   "accounts": {
     "title": "Contas",
@@ -1145,7 +1147,12 @@
         "description": "Bancos dos EUA e internacionais via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Banco reconectado com sucesso"
+    "reconnected": "Banco reconectado com sucesso",
+    "connectionStatus": {
+      "active": "Ativa",
+      "error": "Erro",
+      "expired": "Expirada"
+    }
   },
   "connections": {
     "settings": "Definições da ligação",
@@ -1957,7 +1964,11 @@
     "previous": "Anterior",
     "next": "Próximo",
     "rowsPerPage": "Linhas por página",
-    "noResults": "Nenhum resultado"
+    "noResults": "Nenhum resultado",
+    "preview": "Pré-visualizar",
+    "download": "Transferir",
+    "closePreview": "Fechar pré-visualização",
+    "remove": "Remover"
   },
   "splitGroups": {
     "title": "Grupos",
@@ -2420,7 +2431,8 @@
       "openSettings": "Definições do agente",
       "empty": "Escolhe um agente e começa uma conversa com os teus dados financeiros.",
       "openAgents": "Ir para Agentes",
-      "noConversations": "Nenhuma conversa ainda."
+      "noConversations": "Nenhuma conversa ainda.",
+      "backToChat": "Voltar ao chat"
     },
     "mcpExternal": {
       "title": "Acesso MCP externo",

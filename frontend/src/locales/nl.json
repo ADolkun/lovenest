@@ -65,7 +65,8 @@
     "versionAriaLabel": "Lopende versie {{version}}",
     "versionLabel": "Versie {{version}}",
     "updateAvailable": "Update beschikbaar",
-    "updateAvailableHint": "Een nieuwere release ({{version}}) is beschikbaar op GitHub"
+    "updateAvailableHint": "Een nieuwere release ({{version}}) is beschikbaar op GitHub",
+    "toggleMenu": "Menu in-/uitklappen"
   },
   "cmdk": {
     "title": "Commandopalet",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Deze transactie rekent een factuur af. Openen.",
     "suggestionBadge": "Vraag",
-    "suggestionBadgeTooltip": "Een betaling kan deze factuur voldoen. Open de wachtrij om te antwoorden."
+    "suggestionBadgeTooltip": "Een betaling kan deze factuur voldoen. Open de wachtrij om te antwoorden.",
+    "clearGroupFilter": "Groepsfilter wissen"
   },
   "accounts": {
     "title": "Rekeningen",
@@ -1146,7 +1148,12 @@
       }
     },
     "reconnected": "Bank heeft opnieuw verbinding gemaakt",
-    "multiInstitutionLink": "{{provider}} · {{count}} institutions"
+    "multiInstitutionLink": "{{provider}} · {{count}} institutions",
+    "connectionStatus": {
+      "active": "Actief",
+      "error": "Fout",
+      "expired": "Verlopen"
+    }
   },
   "connections": {
     "settings": "Verbindingsinstellingen",
@@ -1958,7 +1965,11 @@
     "previous": "Vorige",
     "next": "Volgende",
     "rowsPerPage": "Rijen per pagina",
-    "noResults": "Geen resultaten"
+    "noResults": "Geen resultaten",
+    "preview": "Voorbeeld",
+    "download": "Downloaden",
+    "closePreview": "Voorbeeld sluiten",
+    "remove": "Verwijderen"
   },
   "splitGroups": {
     "title": "Groepen",
@@ -2258,7 +2269,8 @@
       "openSettings": "Agent-instellingen",
       "empty": "Kies een makelaar en ga een gesprek aan met uw financiële gegevens.",
       "openAgents": "Ga naar Agents",
-      "noConversations": "Nog geen gesprekken."
+      "noConversations": "Nog geen gesprekken.",
+      "backToChat": "Terug naar chat"
     },
     "form": {
       "createTitle": "Nieuwe agent",

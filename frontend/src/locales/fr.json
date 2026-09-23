@@ -65,7 +65,8 @@
     "versionAriaLabel": "Version en cours d'exécution {{version}}",
     "versionLabel": "Version {{version}}",
     "updateAvailable": "Mise à jour disponible",
-    "updateAvailableHint": "Une version plus récente ({{version}}) est disponible sur GitHub"
+    "updateAvailableHint": "Une version plus récente ({{version}}) est disponible sur GitHub",
+    "toggleMenu": "Afficher/masquer le menu"
   },
   "cmdk": {
     "title": "Palette de commandes",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Cette transaction solde une facture. Ouvrir.",
     "suggestionBadge": "Question",
-    "suggestionBadgeTooltip": "Un paiement peut solder cette facture. Ouvrez la file pour répondre."
+    "suggestionBadgeTooltip": "Un paiement peut solder cette facture. Ouvrez la file pour répondre.",
+    "clearGroupFilter": "Effacer le filtre de groupe"
   },
   "accounts": {
     "title": "Comptes",
@@ -1145,7 +1147,12 @@
         "description": "Banques américaines et internationales via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Banque reconnectée avec succès"
+    "reconnected": "Banque reconnectée avec succès",
+    "connectionStatus": {
+      "active": "Active",
+      "error": "Erreur",
+      "expired": "Expirée"
+    }
   },
   "connections": {
     "settings": "Paramètres de connexion",
@@ -1957,7 +1964,11 @@
     "previous": "Précédent",
     "next": "Suivant",
     "rowsPerPage": "Lignes par page",
-    "noResults": "Aucun résultat"
+    "noResults": "Aucun résultat",
+    "preview": "Aperçu",
+    "download": "Télécharger",
+    "closePreview": "Fermer l'aperçu",
+    "remove": "Supprimer"
   },
   "splitGroups": {
     "title": "Groupes",
@@ -2257,7 +2268,8 @@
       "openSettings": "Paramètres de l'agent",
       "empty": "Choisissez un agent et commencez une conversation avec vos données financières.",
       "openAgents": "Aller aux agents",
-      "noConversations": "Aucune conversation pour l'instant."
+      "noConversations": "Aucune conversation pour l'instant.",
+      "backToChat": "Retour au chat"
     },
     "form": {
       "createTitle": "Nouvel agent",

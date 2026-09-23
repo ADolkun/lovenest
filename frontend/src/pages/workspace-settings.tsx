@@ -351,14 +351,14 @@ export default function WorkspaceSettingsPage() {
               <>
                 <div className="space-y-1.5">
                   <Label className="text-[13px]">
-                    {t('workspace.icon', 'Ícone')}
+                    {t('workspace.icon', 'Icon')}
                   </Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
                         type="button"
                         className="h-10 w-10 rounded-lg border border-input flex items-center justify-center hover:bg-muted/40 transition-colors shrink-0"
-                        title={t('workspace.icon', 'Ícone')}
+                        title={t('workspace.icon', 'Icon')}
                       >
                         <CategoryIcon icon={editIcon} color={editColor} size="sm" />
                       </button>
@@ -370,7 +370,7 @@ export default function WorkspaceSettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="ws-color" className="text-[13px]">
-                    {t('groups.color', 'Cor')}
+                    {t('groups.color', 'Color')}
                   </Label>
                   <input
                     id="ws-color"
@@ -378,7 +378,7 @@ export default function WorkspaceSettingsPage() {
                     value={editColor}
                     onChange={(e) => setEditColor(e.target.value)}
                     className="h-10 w-10 p-1 rounded-lg cursor-pointer border border-input bg-card shrink-0"
-                    title={t('groups.color', 'Cor')}
+                    title={t('groups.color', 'Color')}
                   />
                 </div>
               </>

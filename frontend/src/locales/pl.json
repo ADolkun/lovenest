@@ -65,7 +65,8 @@
     "versionAriaLabel": "Działa wersja {{version}}",
     "versionLabel": "Wersja {{version}}",
     "updateAvailable": "Dostępna aktualizacja",
-    "updateAvailableHint": "Na GitHubie dostępne jest nowsze wydanie ({{version}})"
+    "updateAvailableHint": "Na GitHubie dostępne jest nowsze wydanie ({{version}})",
+    "toggleMenu": "Przełącz menu"
   },
   "cmdk": {
     "title": "Paleta poleceń",
@@ -1035,7 +1036,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Ta transakcja rozlicza fakturę. Otwórz ją.",
     "suggestionBadge": "Pytanie",
-    "suggestionBadgeTooltip": "Płatność może opłacić tę fakturę. Otwórz kolejkę, aby odpowiedzieć."
+    "suggestionBadgeTooltip": "Płatność może opłacić tę fakturę. Otwórz kolejkę, aby odpowiedzieć.",
+    "clearGroupFilter": "Wyczyść filtr grupy"
   },
   "accounts": {
     "title": "Konta",
@@ -1193,7 +1195,12 @@
         "description": "Banki w USA i międzynarodowe przez SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank połączony ponownie"
+    "reconnected": "Bank połączony ponownie",
+    "connectionStatus": {
+      "active": "Aktywne",
+      "error": "Błąd",
+      "expired": "Wygasłe"
+    }
   },
   "connections": {
     "settings": "Ustawienia połączenia",
@@ -2050,7 +2057,11 @@
     "previous": "Poprzedni",
     "next": "Następny",
     "rowsPerPage": "Wierszy na stronę",
-    "noResults": "Brak wyników"
+    "noResults": "Brak wyników",
+    "preview": "Podgląd",
+    "download": "Pobierz",
+    "closePreview": "Zamknij podgląd",
+    "remove": "Usuń"
   },
   "splitGroups": {
     "title": "Grupy",
@@ -2525,7 +2536,8 @@
       "openSettings": "Ustawienia agenta",
       "empty": "Wybierz agenta i rozpocznij rozmowę na podstawie swoich danych finansowych.",
       "openAgents": "Przejdź do Agentów",
-      "noConversations": "Brak rozmów."
+      "noConversations": "Brak rozmów.",
+      "backToChat": "Wróć do czatu"
     },
     "mcpExternal": {
       "title": "Zewnętrzny dostęp MCP",

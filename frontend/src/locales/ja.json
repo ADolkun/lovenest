@@ -65,7 +65,8 @@
     "versionAriaLabel": "実行中のバージョン: {{version}}",
     "versionLabel": "バージョン {{version}}",
     "updateAvailable": "更新があります",
-    "updateAvailableHint": "新しいリリース({{version}})がGitHubで利用可能です"
+    "updateAvailableHint": "新しいリリース({{version}})がGitHubで利用可能です",
+    "toggleMenu": "メニューの切り替え"
   },
   "cmdk": {
     "title": "コマンドパレット",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "請求書",
     "invoiceBadgeTooltip": "この取引は請求書を決済しています。開く。",
     "suggestionBadge": "要確認",
-    "suggestionBadgeTooltip": "これが何かを消し込む可能性があります。キューを開いて回答してください。"
+    "suggestionBadgeTooltip": "これが何かを消し込む可能性があります。キューを開いて回答してください。",
+    "clearGroupFilter": "グループフィルターを解除"
   },
   "accounts": {
     "title": "口座",
@@ -1144,7 +1146,12 @@
         "description": "SimpleFIN Bridge経由の米国および国際的な銀行"
       }
     },
-    "reconnected": "銀行に再接続しました"
+    "reconnected": "銀行に再接続しました",
+    "connectionStatus": {
+      "active": "有効",
+      "error": "エラー",
+      "expired": "期限切れ"
+    }
   },
   "connections": {
     "settings": "接続設定",
@@ -1956,7 +1963,11 @@
     "previous": "前へ",
     "next": "次へ",
     "rowsPerPage": "1ページの行数",
-    "noResults": "結果はありません"
+    "noResults": "結果はありません",
+    "preview": "プレビュー",
+    "download": "ダウンロード",
+    "closePreview": "プレビューを閉じる",
+    "remove": "削除"
   },
   "splitGroups": {
     "title": "グループ",
@@ -2256,7 +2267,8 @@
       "openSettings": "エージェント設定",
       "empty": "エージェントを選んで、財務データとの会話を始めましょう。",
       "openAgents": "エージェントへ",
-      "noConversations": "会話はまだありません。"
+      "noConversations": "会話はまだありません。",
+      "backToChat": "チャットに戻る"
     },
     "form": {
       "createTitle": "新規エージェント",

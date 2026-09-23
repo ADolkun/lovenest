@@ -219,7 +219,7 @@ export function AppLayout() {
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="text-sidebar-muted hover:text-sidebar-foreground transition-colors"
-          aria-label="Toggle menu"
+          aria-label={t('app.toggleMenu')}
         >
           <Menu size={20} />
         </button>

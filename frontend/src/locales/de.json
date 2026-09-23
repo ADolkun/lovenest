@@ -65,7 +65,8 @@
     "versionAriaLabel": "Läuft mit Version {{version}}",
     "versionLabel": "Version {{version}}",
     "updateAvailable": "Update verfügbar",
-    "updateAvailableHint": "Eine neuere Version ({{version}}) ist auf GitHub verfügbar"
+    "updateAvailableHint": "Eine neuere Version ({{version}}) ist auf GitHub verfügbar",
+    "toggleMenu": "Menü umschalten"
   },
   "cmdk": {
     "title": "Befehlspalette",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Diese Transaktion begleicht eine Rechnung. Öffnen.",
     "suggestionBadge": "Frage",
-    "suggestionBadgeTooltip": "Eine Zahlung könnte diese Rechnung begleichen. Öffnen Sie die Warteschlange."
+    "suggestionBadgeTooltip": "Eine Zahlung könnte diese Rechnung begleichen. Öffnen Sie die Warteschlange.",
+    "clearGroupFilter": "Gruppenfilter entfernen"
   },
   "accounts": {
     "title": "Konten",
@@ -1145,7 +1147,12 @@
         "description": "US-amerikanische und internationale Banken via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank erfolgreich erneut verbunden"
+    "reconnected": "Bank erfolgreich erneut verbunden",
+    "connectionStatus": {
+      "active": "Aktiv",
+      "error": "Fehler",
+      "expired": "Abgelaufen"
+    }
   },
   "connections": {
     "settings": "Verbindungseinstellungen",
@@ -1957,7 +1964,11 @@
     "previous": "Vorherige",
     "next": "Nächste",
     "rowsPerPage": "Zeilen pro Seite",
-    "noResults": "Keine Ergebnisse"
+    "noResults": "Keine Ergebnisse",
+    "preview": "Vorschau",
+    "download": "Herunterladen",
+    "closePreview": "Vorschau schließen",
+    "remove": "Entfernen"
   },
   "splitGroups": {
     "title": "Gruppen",
@@ -2257,7 +2268,8 @@
       "openSettings": "Agenteneinstellungen",
       "empty": "Wähle einen Agenten und starte ein Gespräch über deine Finanzdaten.",
       "openAgents": "Gehe zu Agenten",
-      "noConversations": "Noch keine Konversationen."
+      "noConversations": "Noch keine Konversationen.",
+      "backToChat": "Zurück zum Chat"
     },
     "form": {
       "createTitle": "Neuer Agent",

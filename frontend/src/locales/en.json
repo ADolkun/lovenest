@@ -65,7 +65,8 @@
     "versionAriaLabel": "Running version {{version}}",
     "versionLabel": "Version {{version}}",
     "updateAvailable": "Update Available",
-    "updateAvailableHint": "A newer release ({{version}}) is available on GitHub"
+    "updateAvailableHint": "A newer release ({{version}}) is available on GitHub",
+    "toggleMenu": "Toggle menu"
   },
   "cmdk": {
     "title": "Command palette",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "This transaction settles an invoice. Open it.",
     "suggestionBadge": "Question",
-    "suggestionBadgeTooltip": "A payment may settle this. Open the queue to answer."
+    "suggestionBadgeTooltip": "A payment may settle this. Open the queue to answer.",
+    "clearGroupFilter": "Clear group filter"
   },
   "accounts": {
     "title": "Accounts",
@@ -1144,7 +1146,12 @@
         "description": "US and international banks via SimpleFIN Bridge"
       }
     },
-    "reconnected": "Bank reconnected successfully"
+    "reconnected": "Bank reconnected successfully",
+    "connectionStatus": {
+      "active": "Active",
+      "error": "Error",
+      "expired": "Expired"
+    }
   },
   "connections": {
     "settings": "Connection settings",
@@ -1956,7 +1963,11 @@
     "previous": "Previous",
     "next": "Next",
     "rowsPerPage": "Rows per page",
-    "noResults": "No results"
+    "noResults": "No results",
+    "preview": "Preview",
+    "download": "Download",
+    "closePreview": "Close preview",
+    "remove": "Remove"
   },
   "splitGroups": {
     "title": "Groups",
@@ -2256,7 +2267,8 @@
       "openSettings": "Agent settings",
       "empty": "Choose an agent and start a conversation with your financial data.",
       "openAgents": "Go to Agents",
-      "noConversations": "No conversations yet."
+      "noConversations": "No conversations yet.",
+      "backToChat": "Back to chat"
     },
     "form": {
       "createTitle": "New agent",

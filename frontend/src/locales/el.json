@@ -65,7 +65,8 @@
     "versionAriaLabel": "Εκτέλεση έκδοσης {{version}}",
     "versionLabel": "Έκδοση {{version}}",
     "updateAvailable": "Διαθέσιμη ενημέρωση",
-    "updateAvailableHint": "Μια νεότερη έκδοση ({{version}}) είναι διαθέσιμη στο GitHub"
+    "updateAvailableHint": "Μια νεότερη έκδοση ({{version}}) είναι διαθέσιμη στο GitHub",
+    "toggleMenu": "Εναλλαγή μενού"
   },
   "cmdk": {
     "title": "Γραμμή εντολών",
@@ -877,7 +878,12 @@
         "description": "Τράπεζες ΗΠΑ και διεθνείς μέσω SimpleFIN Bridge"
       }
     },
-    "reconnected": "Η τράπεζα επανασυνδέθηκε επιτυχώς"
+    "reconnected": "Η τράπεζα επανασυνδέθηκε επιτυχώς",
+    "connectionStatus": {
+      "active": "Ενεργή",
+      "error": "Σφάλμα",
+      "expired": "Έληξε"
+    }
   },
   "connections": {
     "settings": "Ρυθμίσεις σύνδεσης",
@@ -1176,7 +1182,8 @@
     "invoiceBadgeNoNumber": "Τιμολόγιο",
     "invoiceBadgeTooltip": "Αυτή η συναλλαγή εξοφλεί ένα τιμολόγιο. Ανοίξτε το.",
     "suggestionBadge": "Ερώτηση",
-    "suggestionBadgeTooltip": "Μια πληρωμή μπορεί να εξοφλεί ένα τιμολόγιο. Ανοίξτε την ουρά για να απαντήσετε."
+    "suggestionBadgeTooltip": "Μια πληρωμή μπορεί να εξοφλεί ένα τιμολόγιο. Ανοίξτε την ουρά για να απαντήσετε.",
+    "clearGroupFilter": "Κατάργηση φίλτρου ομάδας"
   },
   "budgets": {
     "title": "Προϋπολογισμοί",
@@ -1956,7 +1963,11 @@
     "previous": "Προηγούμενο",
     "next": "Επόμενο",
     "rowsPerPage": "Γραμμές ανά σελίδα",
-    "noResults": "Δεν βρέθηκαν αποτελέσματα"
+    "noResults": "Δεν βρέθηκαν αποτελέσματα",
+    "preview": "Προεπισκόπηση",
+    "download": "Λήψη",
+    "closePreview": "Κλείσιμο προεπισκόπησης",
+    "remove": "Αφαίρεση"
   },
   "splitGroups": {
     "title": "Ομάδες",
@@ -2256,7 +2267,8 @@
       "openSettings": "Ρυθμίσεις βοηθού",
       "empty": "Επιλέξτε έναν βοηθό και ξεκινήστε μια συνομιλία με τα οικονομικά σας δεδομένα.",
       "openAgents": "Μετάβαση στους Βοηθούς",
-      "noConversations": "Δεν υπάρχουν συνομιλίες ακόμα."
+      "noConversations": "Δεν υπάρχουν συνομιλίες ακόμα.",
+      "backToChat": "Επιστροφή στη συνομιλία"
     },
     "form": {
       "createTitle": "Νέος βοηθός",

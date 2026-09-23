@@ -65,7 +65,8 @@
     "versionAriaLabel": "वर्शन {{version}} चल रहा है",
     "versionLabel": "वर्शन {{version}}",
     "updateAvailable": "अपडेट उपलब्ध",
-    "updateAvailableHint": "GitHub पर एक नया रिलीज़ ({{version}}) उपलब्ध है"
+    "updateAvailableHint": "GitHub पर एक नया रिलीज़ ({{version}}) उपलब्ध है",
+    "toggleMenu": "मेनू टॉगल करें"
   },
   "cmdk": {
     "title": "कमांड पैलेट",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "इनवॉइस",
     "invoiceBadgeTooltip": "यह लेन-देन एक इनवॉइस चुकाता है। इसे खोलें।",
     "suggestionBadge": "सवाल",
-    "suggestionBadgeTooltip": "एक भुगतान इसे चुका सकता है। जवाब देने के लिए कतार खोलें।"
+    "suggestionBadgeTooltip": "एक भुगतान इसे चुका सकता है। जवाब देने के लिए कतार खोलें।",
+    "clearGroupFilter": "समूह फ़िल्टर हटाएँ"
   },
   "accounts": {
     "title": "खाते",
@@ -1144,7 +1146,12 @@
         "description": "SimpleFIN Bridge के ज़रिए अमेरिकी और अंतरराष्ट्रीय बैंक"
       }
     },
-    "reconnected": "बैंक सफलतापूर्वक फिर से कनेक्ट हुआ"
+    "reconnected": "बैंक सफलतापूर्वक फिर से कनेक्ट हुआ",
+    "connectionStatus": {
+      "active": "सक्रिय",
+      "error": "त्रुटि",
+      "expired": "समाप्त"
+    }
   },
   "connections": {
     "settings": "कनेक्शन सेटिंग्स",
@@ -1956,7 +1963,11 @@
     "previous": "पिछला",
     "next": "अगला",
     "rowsPerPage": "प्रति पृष्ठ पंक्तियाँ",
-    "noResults": "कोई परिणाम नहीं"
+    "noResults": "कोई परिणाम नहीं",
+    "preview": "पूर्वावलोकन",
+    "download": "डाउनलोड करें",
+    "closePreview": "पूर्वावलोकन बंद करें",
+    "remove": "हटाएँ"
   },
   "splitGroups": {
     "title": "समूह",
@@ -2256,7 +2267,8 @@
       "openSettings": "एजेंट सेटिंग्स",
       "empty": "एक एजेंट चुनें और अपने वित्तीय डेटा के साथ बातचीत शुरू करें।",
       "openAgents": "एजेंट पर जाएँ",
-      "noConversations": "अभी कोई बातचीत नहीं।"
+      "noConversations": "अभी कोई बातचीत नहीं।",
+      "backToChat": "चैट पर वापस जाएँ"
     },
     "form": {
       "createTitle": "नया एजेंट",

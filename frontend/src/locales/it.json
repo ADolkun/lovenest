@@ -65,7 +65,8 @@
     "versionAriaLabel": "Versione in esecuzione {{version}}",
     "versionLabel": "Versione {{version}}",
     "updateAvailable": "Aggiornamento disponibile",
-    "updateAvailableHint": "Una nuova versione ({{version}}) è disponibile su GitHub"
+    "updateAvailableHint": "Una nuova versione ({{version}}) è disponibile su GitHub",
+    "toggleMenu": "Mostra/nascondi menu"
   },
   "cmdk": {
     "title": "Palette dei comandi",
@@ -998,7 +999,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Questa transazione salda una fattura. Aprila.",
     "suggestionBadge": "Domanda",
-    "suggestionBadgeTooltip": "Un pagamento potrebbe saldare questa fattura. Apri la coda per rispondere."
+    "suggestionBadgeTooltip": "Un pagamento potrebbe saldare questa fattura. Apri la coda per rispondere.",
+    "clearGroupFilter": "Rimuovi filtro gruppo"
   },
   "accounts": {
     "title": "Conti",
@@ -1145,7 +1147,12 @@
         "description": "Banche statunitensi e internazionali tramite SimpleFIN Bridge"
       }
     },
-    "reconnected": "Banca riconnessa correttamente"
+    "reconnected": "Banca riconnessa correttamente",
+    "connectionStatus": {
+      "active": "Attiva",
+      "error": "Errore",
+      "expired": "Scaduta"
+    }
   },
   "connections": {
     "settings": "Impostazioni connessione",
@@ -1957,7 +1964,11 @@
     "previous": "Precedente",
     "next": "Successivo",
     "rowsPerPage": "Righe per pagina",
-    "noResults": "Nessun risultato"
+    "noResults": "Nessun risultato",
+    "preview": "Anteprima",
+    "download": "Scarica",
+    "closePreview": "Chiudi anteprima",
+    "remove": "Rimuovi"
   },
   "splitGroups": {
     "title": "Gruppi",
@@ -2420,7 +2431,8 @@
       "openSettings": "Impostazioni agente",
       "empty": "Scegli un agente e avvia una conversazione con i tuoi dati finanziari.",
       "openAgents": "Vai agli Agenti",
-      "noConversations": "Ancora nessuna conversazione."
+      "noConversations": "Ancora nessuna conversazione.",
+      "backToChat": "Torna alla chat"
     },
     "mcpExternal": {
       "title": "Accesso MCP esterno",

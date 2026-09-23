@@ -1491,7 +1491,7 @@ export default function TransactionsPage() {
             <button
               onClick={() => { setFilterGroupId(''); setPage(1) }}
               className="ml-0.5 text-primary/60 hover:text-primary"
-              aria-label="Clear group filter"
+              aria-label={t('transactions.clearGroupFilter')}
             >
               ×
             </button>

@@ -65,7 +65,8 @@
     "versionAriaLabel": "Запущена версия {{version}}",
     "versionLabel": "Версия {{version}}",
     "updateAvailable": "Доступно обновление",
-    "updateAvailableHint": "Новая версия ({{version}}) доступна на GitHub"
+    "updateAvailableHint": "Новая версия ({{version}}) доступна на GitHub",
+    "toggleMenu": "Переключить меню"
   },
   "cmdk": {
     "title": "Палитра команд",
@@ -1008,7 +1009,8 @@
     "invoiceBadgeNoNumber": "Invoice",
     "invoiceBadgeTooltip": "Эта операция закрывает счёт. Открыть.",
     "suggestionBadge": "Вопрос",
-    "suggestionBadgeTooltip": "Платёж может закрыть этот счёт. Откройте очередь, чтобы ответить."
+    "suggestionBadgeTooltip": "Платёж может закрыть этот счёт. Откройте очередь, чтобы ответить.",
+    "clearGroupFilter": "Сбросить фильтр группы"
   },
   "accounts": {
     "title": "Счета",
@@ -1157,7 +1159,12 @@
         "description": "Банки США и других стран через SimpleFIN Bridge"
       }
     },
-    "reconnected": "Банк успешно переподключён"
+    "reconnected": "Банк успешно переподключён",
+    "connectionStatus": {
+      "active": "Активно",
+      "error": "Ошибка",
+      "expired": "Истекло"
+    }
   },
   "connections": {
     "settings": "Настройки подключения",
@@ -1969,7 +1976,11 @@
     "previous": "Назад",
     "next": "Далее",
     "rowsPerPage": "Строк на странице",
-    "noResults": "Нет результатов"
+    "noResults": "Нет результатов",
+    "preview": "Просмотр",
+    "download": "Скачать",
+    "closePreview": "Закрыть просмотр",
+    "remove": "Удалить"
   },
   "splitGroups": {
     "title": "Группы",
@@ -2269,7 +2280,8 @@
       "openSettings": "Настройки агента",
       "empty": "Выберите агента и начните разговор по вашим финансовым данным.",
       "openAgents": "Перейти к агентам",
-      "noConversations": "Разговоров пока нет."
+      "noConversations": "Разговоров пока нет.",
+      "backToChat": "Вернуться к чату"
     },
     "form": {
       "createTitle": "Новый агент",

@@ -65,7 +65,8 @@
     "versionAriaLabel": "Spustená verzia {{version}}",
     "versionLabel": "Verzia {{version}}",
     "updateAvailable": "Dostupná aktualizácia",
-    "updateAvailableHint": "Na GitHube je dostupná novšia verzia ({{version}})"
+    "updateAvailableHint": "Na GitHube je dostupná novšia verzia ({{version}})",
+    "toggleMenu": "Prepnúť menu"
   },
   "cmdk": {
     "title": "Príkazová paleta",
@@ -1046,7 +1047,8 @@
     "invoiceBadgeNoNumber": "Faktúra",
     "invoiceBadgeTooltip": "Táto transakcia vyrovnáva faktúru. Otvorte ju.",
     "suggestionBadge": "Otázka",
-    "suggestionBadgeTooltip": "Platba môže uhradiť túto faktúru. Otvorte front a odpovedzte."
+    "suggestionBadgeTooltip": "Platba môže uhradiť túto faktúru. Otvorte front a odpovedzte.",
+    "clearGroupFilter": "Zrušiť filter skupiny"
   },
   "accounts": {
     "title": "Účty",
@@ -1208,7 +1210,12 @@
         "description": "Americké a medzinárodné banky cez SimpleFIN Bridge"
       }
     },
-    "reconnected": "Banka úspešne znovu prepojená"
+    "reconnected": "Banka úspešne znovu prepojená",
+    "connectionStatus": {
+      "active": "Aktívne",
+      "error": "Chyba",
+      "expired": "Vypršané"
+    }
   },
   "connections": {
     "settings": "Nastavenia prepojenia",
@@ -2080,7 +2087,11 @@
     "previous": "Predchádzajúca",
     "next": "Ďalej",
     "rowsPerPage": "Riadkov na stranu",
-    "noResults": "Žiadne výsledky"
+    "noResults": "Žiadne výsledky",
+    "preview": "Náhľad",
+    "download": "Stiahnuť",
+    "closePreview": "Zavrieť náhľad",
+    "remove": "Odstrániť"
   },
   "splitGroups": {
     "title": "Skupiny",
@@ -2388,7 +2399,8 @@
       "openSettings": "Nastavenia agenta",
       "empty": "Vyber si agenta a začni konverzáciu so svojimi finančnými dátami.",
       "openAgents": "Prejsť na agentov",
-      "noConversations": "Zatiaľ žiadne konverzácie."
+      "noConversations": "Zatiaľ žiadne konverzácie.",
+      "backToChat": "Späť na chat"
     },
     "form": {
       "createTitle": "Nový agent",

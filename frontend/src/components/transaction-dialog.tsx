@@ -265,7 +265,7 @@ export function TransactionDialog({
                     type="button"
                     className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
                     onClick={() => handlePreviewChange(null)}
-                    title="Close preview"
+                    title={t('common.closePreview')}
                   >
                     <ChevronLeft size={16} />
                   </button>
@@ -274,7 +274,7 @@ export function TransactionDialog({
                     type="button"
                     className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
                     onClick={handleDownloadPreview}
-                    title="Download"
+                    title={t('common.download')}
                   >
                     <Download size={14} />
                   </button>
@@ -309,7 +309,7 @@ export function TransactionDialog({
                 type="button"
                 className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
                 onClick={() => handlePreviewChange(null)}
-                title="Close preview"
+                title={t('common.closePreview')}
               >
                 <ChevronLeft size={18} />
               </button>
@@ -318,7 +318,7 @@ export function TransactionDialog({
                 type="button"
                 className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
                 onClick={handleDownloadPreview}
-                title="Download"
+                title={t('common.download')}
               >
                 <Download size={16} />
               </button>
