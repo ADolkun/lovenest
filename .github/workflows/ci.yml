@@ -69,7 +69,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.backend-changes.outputs.run_backend != 'false'
-        run: uv sync --locked --group dev
+        run: uv sync --locked --all-extras
 
       - name: Lint with Ruff
         if: steps.backend-changes.outputs.run_backend != 'false'
@@ -154,7 +154,7 @@ jobs:
         if: steps.frontend-changes.outputs.run_frontend != 'false'
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 

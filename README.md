@@ -229,8 +229,8 @@ Contributing with AI is welcome. We review the author, not the tool: whatever wr
 ```bash
 # Run backend tests (from backend/, needs Python 3.11+; same as CI)
 cd backend
-uv sync --locked --group dev   # installs the exact versions in uv.lock
-uv run --no-sync pytest
+pip install -e ".[dev]"   # first time only — installs pytest and dev deps
+pytest
 
 # Rebuild after dependency changes
 docker compose up --build
