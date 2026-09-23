@@ -549,6 +549,8 @@ export interface ImportLog {
   /** Null for an order import, which lands on holdings rather than an account. */
   account_id: string | null
   account_name: string | null
+  /** Currency of the totals; null when the import has no account. */
+  account_currency: string | null
   entity: 'transactions' | 'asset_orders'
   filename: string
   format: string
