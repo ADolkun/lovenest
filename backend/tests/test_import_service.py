@@ -2058,6 +2058,47 @@ class TestOfxInstallmentDedup:
         assert skipped == 2
 
 
+    @pytest.mark.asyncio
+    async def test_same_external_id_same_date_different_amounts_all_imported(
+        self, session: AsyncSession, test_user: User, test_workspace, test_account: Account,
+    ):
+        """Some banks reuse one FITID for several entries on the same day
+        (issue #911). Each distinct amount must be imported, and re-importing
+        the same file must still skip all of them."""
+        from app.schemas.transaction import TransactionImport
+
+        rows = [
+            TransactionImport(
+                description=memo,
+                amount=Decimal(amount),
+                date=date(2026, 7, 1),
+                type="credit",
+                external_id="101.820.900.050.894",
+            )
+            for memo, amount in [
+                ("Rende Facil 1", "1.72"),
+                ("Rende Facil 2", "3.04"),
+                ("Rende Facil 3", "2.85"),
+            ]
+        ]
+        imported, skipped, _, _ = await import_transactions(
+            session, test_workspace.id, test_user.id, test_account.id, rows, "ofx",
+        )
+        assert imported == 3
+        assert skipped == 0
+
+        imported2, skipped2, _, _ = await import_transactions(
+            session,
+            test_workspace.id,
+            test_user.id,
+            test_account.id,
+            [r.model_copy() for r in rows],
+            "ofx",
+        )
+        assert imported2 == 0
+        assert skipped2 == 3
+
+
 class TestCsvDuplicateDetectionToggle:
     @pytest.mark.asyncio
     async def test_csv_identical_new_rows_remain_distinct(

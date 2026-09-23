@@ -788,7 +788,9 @@ async def import_transactions(
 
         if should_detect_duplicates:
             # Prefer an external ID (OFX FITID), with date retained because some
-            # Brazilian cards reuse one purchase FITID across monthly installments.
+            # Brazilian cards reuse one purchase FITID across monthly installments,
+            # and amount and type retained because some banks reuse one FITID for
+            # several distinct entries posted on the same day.
             # Formats without unique IDs fall back to transaction fields; compare
             # both descriptions because rules may have changed the displayed one.
             if txn_data.external_id:
@@ -796,6 +798,8 @@ async def import_transactions(
                     Transaction.account_id == account_id,
                     Transaction.external_id == txn_data.external_id,
                     Transaction.date == txn_data.date,
+                    Transaction.amount == txn_data.amount,
+                    Transaction.type == txn_data.type,
                 )
             else:
                 existing_statement = select(Transaction).where(
