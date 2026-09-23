@@ -623,21 +623,41 @@ export default function AssetsPage() {
     setDialogOpen(true)
   }
 
+  // Holdings driven by the transactions ledger: quantity, buy date and cost
+  // basis come from the transactions, not from this form.
+  const editingIsLedgerBacked = !!editingAsset
+    && editingAsset.valuation_method === 'market_price'
+    && (editingAsset.average_price != null || (editingAsset.transaction_count ?? 0) > 0)
+
   function buildPayload() {
     const isMarket = formMethod === 'market_price'
+    const ledgerBacked = editingIsLedgerBacked
     const payload: Record<string, unknown> = {
       name: formName,
       type: formType,
       currency: formCurrency,
       group_id: formGroupId || null,
       valuation_method: formMethod,
-      purchase_date: formPurchaseDate || null,
-      // Tickers have no total purchase price — the cost basis is derived from
-      // the unit-price buy (and then the ledger). Only manual/growth assets
-      // carry a total purchase price.
-      purchase_price: isMarket ? null : (formPurchasePrice ? parseFloat(formPurchasePrice) : null),
-      sell_date: isMarket ? null : (formSellDate || null),
-      sell_price: isMarket ? null : (formSellPrice ? parseFloat(formSellPrice) : null),
+    }
+
+    // A ledger-backed holding derives its buy date, quantity and cost basis
+    // from its transactions, so an edit must not overwrite them.
+    if (!ledgerBacked) {
+      payload.purchase_date = formPurchaseDate || null
+    }
+
+    // Tickers have no total purchase price: the cost basis is derived from
+    // the unit-price buy (and then the ledger). Only manual/growth assets
+    // carry a total purchase price and sale info. On edit a ticker leaves
+    // these fields untouched instead of clearing them.
+    if (!isMarket) {
+      payload.purchase_price = formPurchasePrice ? parseFloat(formPurchasePrice) : null
+      payload.sell_date = formSellDate || null
+      payload.sell_price = formSellPrice ? parseFloat(formSellPrice) : null
+    } else if (!editingAsset) {
+      payload.purchase_price = null
+      payload.sell_date = null
+      payload.sell_price = null
     }
 
     if (formMethod === 'growth_rule') {
@@ -650,7 +670,9 @@ export default function AssetsPage() {
     if (isMarket) {
       payload.ticker = (selectedQuote?.symbol || formTickerQuery || '').toUpperCase()
       payload.ticker_exchange = selectedQuote?.exchange ?? null
-      payload.units = formUnits ? parseFloat(formUnits) : null
+      if (!ledgerBacked) {
+        payload.units = formUnits ? parseFloat(formUnits) : null
+      }
       // Opening buy price per unit (defaults to the live quote on the server
       // when omitted). Only meaningful on create.
       if (!editingAsset) {
@@ -1354,7 +1376,7 @@ export default function AssetsPage() {
                 ) : (
                   <div className="space-y-2">
                     <Label>{t('assets.quantity')}</Label>
-                    <Input type="number" step="any" min="0" value={formUnits} onChange={e => setFormUnits(e.target.value)} placeholder="10" />
+                    <Input type="number" step="any" min="0" value={formUnits} onChange={e => setFormUnits(e.target.value)} placeholder="10" disabled={editingIsLedgerBacked} />
                   </div>
                 )}
 
@@ -1435,7 +1457,7 @@ export default function AssetsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t('assets.purchaseDate')}</Label>
-                <DatePickerInput value={formPurchaseDate} onChange={setFormPurchaseDate} />
+                <DatePickerInput value={formPurchaseDate} onChange={setFormPurchaseDate} disabled={editingIsLedgerBacked} />
               </div>
               {formMethod !== 'market_price' && (
                 <div className="space-y-2">
