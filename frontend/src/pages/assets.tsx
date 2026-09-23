@@ -58,6 +58,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { getAssetProfit } from '@/lib/asset-profit'
+import { getPortfolioShare, getPortfolioTotalPrimary } from '@/lib/asset-portfolio-share'
 import { formatCurrency } from '@/lib/format'
 
 // Renders a logo image when one is available, falling back to the asset's
@@ -305,12 +306,6 @@ export default function AssetsPage() {
     (acc: number, a: { current_value?: number | null }) => acc + Number(a.current_value || 0),
     0,
   )
-  // Portfolio total in the user's primary currency — denominator for the
-  // "% da carteira" column in the holdings table.
-  const portfolioTotalPrimary = (assetsList ?? []).reduce(
-    (acc, a) => acc + Number(a.current_value_primary ?? a.current_value ?? 0),
-    0,
-  )
   const byType: Record<string, number> = {}
   for (const a of (assetsList ?? []) as Array<{ type?: string; current_value?: number | null }>) {
     if (!a.type) continue
@@ -497,6 +492,9 @@ export default function AssetsPage() {
 
   const activeAssets = useMemo(() => assetsList?.filter(a => !a.sell_date && !a.is_archived) ?? [], [assetsList])
   const soldAssets = assetsList?.filter(a => a.sell_date) ?? []
+  // Denominator for the "% of portfolio" column: current holdings only, in the
+  // user's primary currency, so the active rows add up to 100%.
+  const portfolioTotalPrimary = getPortfolioTotalPrimary(activeAssets)
 
   // Debounced ticker search. Runs only when the market-price method is
   // selected and the query is non-trivial — keeps the autocomplete snappy
@@ -717,10 +715,7 @@ export default function AssetsPage() {
     const isProviderOwned = isSynced && !isMarketPriced
     const hasCost = asset.average_price != null && asset.total_invested != null
     const profit = getAssetProfit(asset)
-    const pctOfPortfolio =
-      portfolioTotalPrimary > 0 && asset.current_value_primary != null
-        ? (asset.current_value_primary / portfolioTotalPrimary) * 100
-        : null
+    const pctOfPortfolio = asset.sell_date ? null : getPortfolioShare(asset, portfolioTotalPrimary)
     const needsBuys = isMarketPriced && !hasCost && !asset.sell_date
 
     return (
