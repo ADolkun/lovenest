@@ -888,6 +888,7 @@
     "transferNotes": "Opmerkingen",
     "transferInfo": "Dit is een overdracht. Wijzigingen in de beschrijving, datum en opmerkingen zijn van toepassing op beide partijen",
     "transferLinkedTo": "Gekoppeld aan:",
+    "transferOpenAccount": "Rekening {{account}} openen",
     "transferTooltip": "Overboekingen zijn uitgesloten van de rapport- en dashboardtotalen",
     "installmentTooltip": "Afbetalingsplan — {{count}} brengt in totaal {{total}} in rekening",
     "billOverrideTooltip": "Verplaatst naar de rekening met verschuldigde waarde {{date}}",

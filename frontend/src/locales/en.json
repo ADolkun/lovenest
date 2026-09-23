@@ -888,6 +888,7 @@
     "transferNotes": "Notes",
     "transferInfo": "This is a transfer — changes to description, date, and notes will apply to both sides",
     "transferLinkedTo": "Linked to:",
+    "transferOpenAccount": "Open {{account}}",
     "transferTooltip": "Transfers are excluded from report and dashboard totals",
     "installmentTooltip": "Installment plan — {{count}} charges totaling {{total}}",
     "billOverrideTooltip": "Moved to the bill due {{date}}",

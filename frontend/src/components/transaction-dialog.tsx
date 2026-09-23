@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getAccountLabel, getAccountName, sortAccountsByDisplayName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
 import { formatAmountInput, formatCurrency, parseAmountInput } from '@/lib/format'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -870,7 +871,20 @@ function TransactionForm({
                 return (
                   <p className="text-xs text-blue-600 dark:text-blue-300 truncate">
                     <span className="font-medium">{t('transactions.transferLinkedTo')}</span>{' '}
-                    {pairAccount ? getAccountName(pairAccount) : '—'}
+                    {pairAccount ? (
+                      <Link
+                        to={`/accounts/${pairAccount.id}`}
+                        onClick={(e) => {
+                          // A modified click opens a new tab; keep the dialog and its edits.
+                          if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                          onCancel()
+                        }}
+                        title={t('transactions.transferOpenAccount', { account: getAccountName(pairAccount) })}
+                        className="underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-100"
+                      >
+                        {getAccountName(pairAccount)}
+                      </Link>
+                    ) : '—'}
                     {' · '}
                     {new Date(transferPair.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                     {' · '}

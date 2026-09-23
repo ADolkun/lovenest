@@ -898,6 +898,7 @@
     "transferNotes": "Примітки",
     "transferInfo": "Це переказ — зміни в описі, даті та примітках буде застосовано до обох сторін",
     "transferLinkedTo": "Пов'язана з:",
+    "transferOpenAccount": "Відкрити рахунок {{account}}",
     "transferTooltip": "Перекази виключаються зі звітів та підсумків панелі",
     "installmentTooltip": "План розстрочки — {{count}} платежів на суму {{total}}",
     "billOverrideTooltip": "Перенесено на оплату {{date}}",

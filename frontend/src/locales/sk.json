@@ -928,6 +928,7 @@
     "transferNotes": "Poznámka",
     "transferInfo": "Toto je prevod — zmeny popisu, dátumu a poznámky sa prejavia na oboch stranách",
     "transferLinkedTo": "Prepojené s:",
+    "transferOpenAccount": "Otvoriť účet {{account}}",
     "transferTooltip": "Prevody sú vylúčené zo súčtov v reportoch a v prehľade",
     "installmentTooltip": "Splátkový plán — {{count}} splátok v celkovej výške {{total}}",
     "installmentTooltip_one": "Splátkový plán — {{count}} splátka v celkovej výške {{total}}",

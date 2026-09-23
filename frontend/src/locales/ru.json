@@ -898,6 +898,7 @@
     "transferNotes": "Примечания",
     "transferInfo": "Это перевод — изменения в описании, дате и примечаниях будут применены к обеим сторонам",
     "transferLinkedTo": "Связана с:",
+    "transferOpenAccount": "Открыть счёт {{account}}",
     "transferTooltip": "Переводы исключаются из отчётов и итогов панели",
     "installmentTooltip": "План рассрочки — {{count}} платежей на сумму {{total}}",
     "billOverrideTooltip": "Перенесено на оплату {{date}}",
