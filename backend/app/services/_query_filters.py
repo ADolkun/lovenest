@@ -118,6 +118,22 @@ def is_not_ignored():
     )
 
 
+def is_transfer():
+    """SQL filter: the row is a transfer rather than income or expense.
+
+    Either both legs were matched (`transfer_pair_id` set), or the row sits
+    in a category flagged `treat_as_transfer` (one-sided movements such as
+    an investment application). Same reading the transactions calendar uses
+    when it marks a day as having a transfer.
+    """
+    return or_(
+        Transaction.transfer_pair_id.is_not(None),
+        Transaction.category_id.in_(
+            select(Category.id).where(Category.treat_as_transfer.is_(True))
+        ),
+    )
+
+
 def counts_as_pnl():
     """SQL filter: True when a transaction should contribute to income/expense totals.
 
