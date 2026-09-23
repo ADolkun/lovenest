@@ -692,7 +692,7 @@
     "spendingByCategory": "Δαπάνες ανά κατηγορία",
     "monthlyTrend": "Μηνιαία τάση",
     "budgetVsActual": "Προϋπολογισμός έναντι Πραγματικού",
-    "balanceFlow": "Ροή υπολοίπου",
+    "balanceFlow": "Εξέλιξη υπολοίπου",
     "balanceFlowVsPrev": "Τον μήνα {{month}} την ημέρα {{day}}: {{amount}} ({{delta}})",
     "balancePeriodVariation": "Μεταβολή περιόδου",
     "balanceCurrentMonthLegend": "Τρέχων μήνας",

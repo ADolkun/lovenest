@@ -692,7 +692,7 @@
     "spendingByCategory": "श्रेणी के अनुसार खर्च",
     "monthlyTrend": "मासिक रुझान",
     "budgetVsActual": "बजट बनाम वास्तविक",
-    "balanceFlow": "शेष राशि प्रवाह",
+    "balanceFlow": "शेष राशि का रुझान",
     "balanceFlowVsPrev": "{{month}} में दिन {{day}} को: {{amount}} ({{delta}})",
     "balancePeriodVariation": "अवधि में बदलाव",
     "balanceCurrentMonthLegend": "मौजूदा महीना",

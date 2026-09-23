@@ -692,7 +692,7 @@
     "spendingByCategory": "カテゴリ別支出",
     "monthlyTrend": "月間推移",
     "budgetVsActual": "予算と実績",
-    "balanceFlow": "残高フロー",
+    "balanceFlow": "残高推移",
     "balanceFlowVsPrev": "{{month}}の{{day}}日目: {{amount}}({{delta}})",
     "balancePeriodVariation": "期間の変化",
     "balanceCurrentMonthLegend": "今月",
