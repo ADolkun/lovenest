@@ -2,8 +2,8 @@ import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
-// These two library suites exercise browser styles or i18n.
-const nodeTests = ['src/lib/!(theme-utils|workspace-kinds).test.ts']
+// These library suites need the DOM (browser styles, i18n, overlay lookups).
+const nodeTests = ['src/lib/!(theme-utils|workspace-kinds|overlay-layers).test.ts']
 
 export default defineConfig({
   plugins: [react()],
