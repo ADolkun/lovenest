@@ -71,6 +71,7 @@ const CONDITION_FIELDS = [
   { value: 'account_id', label: 'rules.fieldAccount' },
   { value: 'payee_id', label: 'rules.fieldPayee' },
   { value: 'date', label: 'rules.fieldDate' },
+  { value: 'status', label: 'rules.fieldStatus' },
 ] as const
 
 const STRING_OPS = [
@@ -94,7 +95,7 @@ const NUMERIC_OPS = [
 function getOpsForField(field: string) {
   if (field === 'amount' || field === 'date') return NUMERIC_OPS
   if (field === 'type') return [{ value: 'equals', label: 'rules.opIs' }]
-  if (field === 'payee_id' || field === 'account_id') return [
+  if (field === 'payee_id' || field === 'account_id' || field === 'status') return [
     { value: 'equals', label: 'rules.opIs' },
     { value: 'not_equals', label: 'rules.opIsNot' },
   ]
@@ -114,6 +115,10 @@ function conditionSummary(conditions: RuleConditionNode[], conditionsOp: string,
     if (c.field === 'payee_id') {
       const p = payeesList.find(p => p.id === c.value)
       return p ? p.name : String(c.value)
+    }
+    if (c.field === 'status') {
+      if (c.value === 'pending') return t('rules.statusPending')
+      if (c.value === 'posted') return t('rules.statusPosted')
     }
     return String(c.value)
   }
