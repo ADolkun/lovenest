@@ -109,13 +109,14 @@ export function TransactionDialog({
   isSynced = false,
   duplicateDraft = null,
   formResetKey = 0,
+  defaultAccountId,
 }: {
   open: boolean
   onClose: () => void
   transaction: Transaction | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
-  accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
+  accounts: { id: string; name: string; display_name?: string | null; type?: string; currency?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: TransactionSavePayload, recurringData?: { frequency: string; end_date?: string }, installmentData?: InstallmentSeriesInput, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -127,6 +128,8 @@ export function TransactionDialog({
   isSynced?: boolean
   duplicateDraft?: TransactionEditPayload | null
   formResetKey?: number
+  /** Account preselected when creating a new transaction. */
+  defaultAccountId?: string
 }) {
   const { t } = useTranslation()
   const [preview, setPreview] = useState<AttachmentPreview | null>(null)
@@ -217,6 +220,7 @@ export function TransactionDialog({
               key={transaction?.id ?? `new-${formResetKey}`}
               transaction={transaction}
               duplicateDraft={duplicateDraft}
+              defaultAccountId={defaultAccountId}
               categories={categories}
               categoryGroups={categoryGroups}
               accounts={accounts}
@@ -378,6 +382,7 @@ export function TransactionDialog({
 function TransactionForm({
   transaction,
   duplicateDraft,
+  defaultAccountId,
   categories,
   categoryGroups,
   accounts,
@@ -397,9 +402,10 @@ function TransactionForm({
 }: {
   transaction: Transaction | null
   duplicateDraft: TransactionEditPayload | null
+  defaultAccountId?: string
   categories: Category[]
   categoryGroups: CategoryGroup[]
-  accounts: { id: string; name: string; display_name?: string | null; type?: string }[]
+  accounts: { id: string; name: string; display_name?: string | null; type?: string; currency?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: TransactionEditPayload, recurringData?: { frequency: string; end_date?: string }, installmentData?: InstallmentSeriesInput, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -443,10 +449,15 @@ function TransactionForm({
   const [date, setDate] = useState(seed?.date ?? localDateString())
   const [type, setType] = useState<'debit' | 'credit'>(seed?.type ?? 'debit')
   const [status, setStatus] = useState<'posted' | 'pending'>(seed?.status ?? 'posted')
-  const [currency, setCurrency] = useState(seed?.currency ?? userCurrency)
+  // Opened from an account page, start in that account's currency.
+  const [currency, setCurrency] = useState(
+    seed?.currency
+      ?? (defaultAccountId ? accounts.find(a => a.id === defaultAccountId)?.currency : undefined)
+      ?? userCurrency
+  )
   const [categoryId, setCategoryId] = useState(seed?.category_id ?? '')
   const [payeeId, setPayeeId] = useState(seed?.payee_id ?? '')
-  const [accountId, setAccountId] = useState(seed?.account_id ?? sortedAccounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState(seed?.account_id ?? defaultAccountId ?? sortedAccounts[0]?.id ?? '')
   const [notes, setNotes] = useState(seed?.notes ?? '')
   // Manual CC bucketing override (issue #92). Empty = auto. Visible only
   // when the selected account is a credit card.
