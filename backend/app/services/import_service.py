@@ -459,7 +459,7 @@ def parse_csv(
     date_cols = ['date', 'data', 'dt', 'transaction_date', 'data_transacao']
     desc_cols = ['description', 'descricao', 'desc', 'memo', 'historico', 'lancamento']
     amount_cols = ['amount', 'valor', 'value', 'quantia']
-    type_cols = ['type', 'tipo']
+    type_cols = ['type', 'tipo', 'transaction type', 'transaction_type']
     category_cols = ['category', 'categoria']
     currency_cols = ['currency', 'moeda', 'currency_code']
     fx_rate_cols = ['fx_rate', 'fx_rate_used', 'taxa_cambio', 'exchange_rate', 'taxa']
@@ -537,6 +537,17 @@ def parse_csv(
     else:
         date_formats = ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%d.%m.%Y']
 
+    # Decide the decimal separator once per file from every amount cell, so
+    # "25,000" next to "1,500.50" reads as twenty-five thousand rather than
+    # being guessed in isolation.
+    amount_fields = [c for c in (inflow_col, outflow_col) if c] if use_split else [amount_col]
+    decimal_separator = infer_decimal_separator(
+        v
+        for r in csv.DictReader(io.StringIO(text), dialect=dialect)
+        for k, v in r.items()
+        if k is not None and k.lower().strip() in amount_fields
+    )
+
     transactions = []
     failed_rows = []
     for row in reader:
@@ -567,8 +578,8 @@ def parse_csv(
 
         # Parse amount
         if use_split:
-            inflow_str = normalize_amount(row.get(inflow_col, ""))
-            outflow_str = normalize_amount(row.get(outflow_col, ""))
+            inflow_str = normalize_amount(row.get(inflow_col, ""), decimal_separator)
+            outflow_str = normalize_amount(row.get(outflow_col, ""), decimal_separator)
 
             try:
                 inflow = Decimal(inflow_str) if inflow_str else Decimal('0')
@@ -590,7 +601,7 @@ def parse_csv(
                 failed_rows.append(FailedRow(line_number=reader.line_num, description=row.get(desc_col, "").strip(), raw_value=raw_val, error_reason="no_amount"))
                 continue  # Skip rows with no amount
         else:
-            amount_str = normalize_amount(row[amount_col])
+            amount_str = normalize_amount(row[amount_col], decimal_separator)
 
             try:
                 amount = Decimal(amount_str)
@@ -601,8 +612,9 @@ def parse_csv(
             if flip_amount:
                 amount = -amount
 
-            if type_col and row.get(type_col, '').strip() in ('credit', 'debit'):
-                txn_type = row[type_col].strip()
+            raw_type = row.get(type_col, '').strip().lower() if type_col else ''
+            if raw_type in ('credit', 'debit'):
+                txn_type = raw_type
             else:
                 txn_type = "credit" if amount > 0 else "debit"
             amount = abs(amount)
@@ -976,21 +988,112 @@ async def import_transactions(
     await session.commit()
     return imported, skipped, excluded_count, import_log.id
 
-def normalize_amount(amount_str: str | None) -> str:
+# Currency symbols and ISO codes around a number ("R$", "$", "NGN ", " EUR").
+_AMOUNT_EDGE_LEADING = re.compile(r'^[^\d\-+(),.]+')
+_AMOUNT_EDGE_TRAILING = re.compile(r'[^\d\-+(),.]+$')
+_COMMA_DECIMAL_TAIL = re.compile(r',\d{1,2}$')
+_DOT_DECIMAL_TAIL = re.compile(r'\.\d{1,2}$')
+_COMMA_THOUSANDS = re.compile(r'^\d{1,3}(,\d{3})+$')
+_ZERO_COMMA_DECIMAL = re.compile(r'^0,\d+$')
+_DR_CR_SUFFIX = re.compile(r'(?i)(?<![a-z])(dr|cr)\.?$')
+# U+2212 minus, U+2012 figure dash, U+2013 en dash, U+FE63 small and
+# U+FF0D fullwidth hyphen-minus: spreadsheet exports use them as a minus.
+_UNICODE_MINUS = str.maketrans({c: '-' for c in '\u2212\u2012\u2013\ufe63\uff0d'})
+
+
+def _strip_amount_decorations(amount_str: str) -> tuple[str, bool]:
+    """Remove currency symbols, codes, whitespace and sign markers.
+
+    Returns the bare number and whether it was negative. A leading minus
+    (ASCII or a Unicode minus sign), accounting parentheses, e.g. "(12.50)",
+    or a trailing "DR" mark a negative amount; a trailing "CR" marks a
+    positive one.
+    """
+    s = re.sub(r"[\s'\u00a0\u202f]", "", amount_str).translate(_UNICODE_MINUS)
+    # A standalone DR/CR suffix carries the sign, so read it before the edge
+    # strip below would drop it as a currency code. Codes such as "XDR" or
+    # "CRC" do not match.
+    marker = _DR_CR_SUFFIX.search(s)
+    if marker:
+        s = s[: marker.start()]
+    negative = False
+    while True:
+        before = s
+        s = _AMOUNT_EDGE_LEADING.sub("", s)
+        s = _AMOUNT_EDGE_TRAILING.sub("", s)
+        if len(s) >= 2 and s[0] == "(" and s[-1] == ")":
+            negative = not negative
+            s = s[1:-1]
+        elif s[:1] == "-":
+            negative = not negative
+            s = s[1:]
+        elif s[:1] == "+":
+            s = s[1:]
+        if s == before:
+            if marker:
+                negative = marker.group(1).lower() == "dr"
+            return s, negative
+
+
+def infer_decimal_separator(values) -> str | None:
+    """Infer the decimal separator used by a whole column of amounts.
+
+    Returns "." or ",", or None when the values give no clear signal, in
+    which case normalize_amount falls back to deciding cell by cell.
+    """
+    votes: set[str] = set()
+    comma_thousands = False
+    for raw in values:
+        if not raw:
+            continue
+        s, _ = _strip_amount_decorations(str(raw))
+        if not s:
+            continue
+        if ',' in s and '.' in s:
+            votes.add(',' if s.rfind(',') > s.rfind('.') else '.')
+        elif _COMMA_DECIMAL_TAIL.search(s):
+            votes.add(',')
+        elif _DOT_DECIMAL_TAIL.search(s):
+            votes.add('.')
+        elif _COMMA_THOUSANDS.match(s) and not s.startswith('0,'):
+            comma_thousands = True
+    if len(votes) == 1:
+        return votes.pop()
+    if not votes and comma_thousands:
+        return '.'
+    return None
+
+
+def normalize_amount(amount_str: str | None, decimal_separator: str | None = None) -> str:
     """
     Normalize monetary string into a standard decimal format compatible with Decimal.
+
+    Currency symbols and codes around the number are dropped, and accounting
+    parentheses read as a negative amount. When decimal_separator is known
+    for the column ("." or ","), the other separator is treated as grouping;
+    otherwise the separator is guessed from the cell alone.
 
     Example:
         1.442,20 -> 1442.20
         1,442.20 -> 1442.20
+        $40.00 -> 40.00
+        25,000 (decimal_separator=".") -> 25000
     """
     if not amount_str:
         return ""
 
-    # Strip currency prefix and Swiss thousands separators (single quote)
-    amount_str = str(amount_str).replace('R$', '').replace("'", "").strip()
+    amount_str, negative = _strip_amount_decorations(str(amount_str))
+    if not amount_str:
+        return ""
 
-    if ',' in amount_str and '.' in amount_str:
+    if decimal_separator == ',':
+        amount_str = amount_str.replace('.', '').replace(',', '.')
+    elif decimal_separator == '.':
+        if _ZERO_COMMA_DECIMAL.match(amount_str):
+            amount_str = amount_str.replace(',', '.')
+        else:
+            amount_str = amount_str.replace(',', '')
+    elif ',' in amount_str and '.' in amount_str:
         if amount_str.rfind(',') > amount_str.rfind('.'):
             amount_str = amount_str.replace('.', '').replace(',', '.')
         else:
@@ -998,4 +1101,4 @@ def normalize_amount(amount_str: str | None) -> str:
     elif ',' in amount_str:
         amount_str = amount_str.replace(',', '.')
 
-    return amount_str
+    return f"-{amount_str}" if negative else amount_str
