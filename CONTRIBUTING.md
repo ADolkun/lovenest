@@ -141,12 +141,6 @@ cd frontend && npm run lint
 cd frontend && npm run build
 ```
 
-The PostgreSQL report tests run in the same suite when `POSTGRES_TEST_URL` points
-to a disposable PostgreSQL 16 database, for example
-`postgresql+asyncpg://postgres:postgres@localhost:5432/securo_test`. Each test creates
-and drops its own schema; the database user must be allowed to do both. These tests
-skip locally when the URL is absent and fail in CI if it is missing.
-
 ### Adding a migration
 
 Number the file after the current head and chain it there, so
