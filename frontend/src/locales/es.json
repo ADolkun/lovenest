@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Guardar borrador"
+      "saveDraft": "Guardar borrador",
+      "downloadStatement": "Descargar estado de cuenta"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Un precio necesita un importe.",
       "negative_price": "Un precio no puede ser negativo.",
       "invalid_fiscal_refs": "Las referencias fiscales deben ser textos cortos bajo claves simples (letras, dígitos, guion bajo).",
-      "price_key_taken": "Otro precio ya usa esta clave de búsqueda o id externo."
+      "price_key_taken": "Otro precio ya usa esta clave de búsqueda o id externo.",
+      "installments_mismatch": "Las cuotas no suman el total de la factura.",
+      "installments_too_few": "Un calendario necesita al menos dos cuotas.",
+      "installment_amount_not_positive": "Cada cuota debe tener un importe.",
+      "installment_due_required": "Cada cuota necesita una fecha de vencimiento.",
+      "invalid_deduction_kind": "Tipo de deducción desconocido.",
+      "deduction_not_found": "Deducción no encontrada."
     },
     "comingNext": "Cobra a tus clientes y controla lo que ya se pagó y lo que sigue pendiente. Es lo próximo que se está construyendo.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archivar",
         "restore": "Restaurar"
       }
+    },
+    "installments": {
+      "title": "Dividir en cuotas",
+      "splitIn": "Dividir en",
+      "splitHint": "partes iguales, una por mes, desde la fecha de vencimiento",
+      "add": "Añadir cuota",
+      "label": "Etiqueta",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Suma {{total}}.",
+      "mismatch": "Las cuotas suman {{scheduled}}, la factura {{total}}.",
+      "schedule": "Calendario de pagos",
+      "nextDue": "Próximo vencimiento",
+      "dueDerived": "Definido por la última cuota.",
+      "count_one": "{{count}} cuota",
+      "count_other": "{{count}} cuotas",
+      "state": {
+        "open": "Pendiente",
+        "partial": "Parcial",
+        "paid": "Pagada",
+        "overdue": "Vencida",
+        "draft": "Borrador",
+        "void": "Anulada",
+        "uncollectible": "Incobrable"
+      }
+    },
+    "deductions": {
+      "title": "Registrar una deducción",
+      "description": "Cierra parte de lo adeudado sin que entre dinero: el cliente retuvo impuestos, el procesador se quedó con su comisión, la conversión llegó corta. Cuenta como liquidado, nunca como recibido.",
+      "action": "Registrar deducción",
+      "recorded": "Deducción registrada",
+      "removed": "Deducción eliminada",
+      "amount": "Importe",
+      "amountHint": "Hasta el saldo: {{balance}}.",
+      "kindLabel": "Motivo",
+      "taxKind": "Qué impuesto (opcional)",
+      "taxKindPlaceholder": "IRPF, IVA, ISR...",
+      "note": "Nota (opcional)",
+      "settledWithout": "Liquidado sin pago",
+      "kind": {
+        "withholding_tax": "Impuesto retenido por el cliente",
+        "gateway_fee": "Comisión retenida por el procesador",
+        "fx_difference": "Diferencia de cambio",
+        "other": "Otro"
+      },
+      "differenceTitle": "El pago llegó {{difference}} por debajo",
+      "differenceHint": "Registre la diferencia para cerrar la factura",
+      "differenceNone": "No registrar",
+      "figure": "Deducido"
+    },
+    "statement": {
+      "asIssued": "Factura tal como se emitió",
+      "asIssuedHint": "El documento enviado al cliente",
+      "hint": "Pagos y deducciones desde la emisión, y el saldo",
+      "banner": "Este PDF es la factura tal como se emitió. Desde entonces se recibieron {{paid}} y se dedujeron {{deducted}}: el estado de cuenta muestra cada uno y el saldo.",
+      "title": "Estado de cuenta"
     }
   },
   "collections": {

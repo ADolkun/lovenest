@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
-from app.models.invoice import Invoice, InvoiceAllocation
+from app.models.invoice import Invoice, InvoiceAllocation, InvoiceInstallment
 from app.models.invoice_schedule import InvoiceSchedule, InvoiceScheduleTerm
 from app.models.payee import Payee
 from app.models.transaction import Transaction
@@ -850,6 +850,53 @@ class TestFigures:
         assert figures.amount_invoiced == Decimal("6000.00")  # the voided one reads as zero
         assert figures.amount_paid == Decimal("3000.00")
         assert figures.past_due_count == 1  # November, due Nov 15, unpaid
+
+    @pytest.mark.asyncio
+    async def test_past_due_reads_the_first_unpaid_installment(self, session, ws_id, test_user):
+        """An invoice's own due date is the last installment. A client who
+        is late on the first one is late, whatever the last one says."""
+        s = await make_schedule(session, ws_id, test_user.id, start_date=date(2026, 10, 5), payment_terms_days=10)
+        (invoice,) = await svc.generate_due(session, s, today=date(2026, 10, 6))  # 3000, due Oct 15
+        invoice.due_date = date(2026, 12, 20)
+        session.add_all([
+            InvoiceInstallment(
+                invoice_id=invoice.id, workspace_id=ws_id, position=0,
+                due_date=date(2026, 10, 10), amount=Decimal("1000.00"),
+            ),
+            InvoiceInstallment(
+                invoice_id=invoice.id, workspace_id=ws_id, position=1,
+                due_date=date(2026, 12, 20), amount=Decimal("2000.00"),
+            ),
+        ])
+        await session.commit()
+
+        today = date(2026, 12, 1)
+        figures = (await svc.figures_for(session, ws_id, [s.id], today=today))[s.id]
+        assert figures.past_due_count == 1  # the first installment, not the invoice date
+
+        account = Account(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=ws_id, name="PJ", type="checking",
+            currency="USD", balance=Decimal("0"),
+        )
+        session.add(account)
+        await session.flush()
+        tx = Transaction(
+            id=uuid.uuid4(), user_id=test_user.id, workspace_id=ws_id, account_id=account.id,
+            description="PIX", amount=Decimal("1000.00"), currency="USD", date=date(2026, 10, 12),
+            type="credit", source="manual",
+        )
+        session.add(tx)
+        await session.flush()
+        session.add(InvoiceAllocation(
+            invoice_id=invoice.id, workspace_id=ws_id, transaction_id=tx.id, amount=Decimal("1000.00"),
+        ))
+        await session.commit()
+
+        figures = (await svc.figures_for(session, ws_id, [s.id], today=today))[s.id]
+        assert figures.past_due_count == 0  # the late one is covered, the next is not due
+        assert figures.amount_paid == Decimal("1000.00")
+        summary = await svc.summary(session, ws_id, today=today)
+        assert all(c.past_due_count == 0 for c in summary.by_currency)
 
     @pytest.mark.asyncio
     async def test_summary_is_per_currency_and_counts_churn(self, session, ws_id, test_user):

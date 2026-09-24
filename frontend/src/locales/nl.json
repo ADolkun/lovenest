@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Opslaan als concept"
+      "saveDraft": "Opslaan als concept",
+      "downloadStatement": "Rekeningoverzicht downloaden"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Een prijs heeft een bedrag nodig.",
       "negative_price": "Een prijs kan niet negatief zijn.",
       "invalid_fiscal_refs": "Fiscale referenties moeten korte tekstwaarden zijn onder eenvoudige sleutels (letters, cijfers, underscore).",
-      "price_key_taken": "Een andere prijs gebruikt deze zoeksleutel of externe id al."
+      "price_key_taken": "Een andere prijs gebruikt deze zoeksleutel of externe id al.",
+      "installments_mismatch": "De termijnen tellen niet op tot het factuurtotaal.",
+      "installments_too_few": "Een schema heeft minstens twee termijnen nodig.",
+      "installment_amount_not_positive": "Elke termijn moet een bedrag hebben.",
+      "installment_due_required": "Elke termijn heeft een vervaldatum nodig.",
+      "invalid_deduction_kind": "Onbekende soort aftrek.",
+      "deduction_not_found": "Aftrek niet gevonden."
     },
     "comingNext": "Factureer uw klanten en houd bij wat er is betaald en wat er nog open staat. Dit is het volgende dat gebouwd wordt.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archiveren",
         "restore": "Herstellen"
       }
+    },
+    "installments": {
+      "title": "In termijnen splitsen",
+      "splitIn": "Splitsen in",
+      "splitHint": "gelijke delen, een maand uit elkaar, vanaf de vervaldatum",
+      "add": "Termijn toevoegen",
+      "label": "Label",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Telt op tot {{total}}.",
+      "mismatch": "De termijnen tellen op tot {{scheduled}}, de factuur tot {{total}}.",
+      "schedule": "Betalingsschema",
+      "nextDue": "Volgende vervaldatum",
+      "dueDerived": "Bepaald door de laatste termijn.",
+      "count_one": "{{count}} termijn",
+      "count_other": "{{count}} termijnen",
+      "state": {
+        "open": "Open",
+        "partial": "Gedeeltelijk",
+        "paid": "Betaald",
+        "overdue": "Verlopen",
+        "draft": "Concept",
+        "void": "Geannuleerd",
+        "uncollectible": "Oninbaar"
+      }
+    },
+    "deductions": {
+      "title": "Aftrek vastleggen",
+      "description": "Sluit een deel van het verschuldigde bedrag af zonder dat er geld binnenkomt: de klant heeft belasting ingehouden, de betaalprovider heeft zijn kosten ingehouden, de valutaomrekening viel lager uit. Het telt als vereffend, nooit als ontvangen.",
+      "action": "Aftrek vastleggen",
+      "recorded": "Aftrek vastgelegd",
+      "removed": "Aftrek verwijderd",
+      "amount": "Bedrag",
+      "amountHint": "Tot het saldo: {{balance}}.",
+      "kindLabel": "Reden",
+      "taxKind": "Welke belasting (optioneel)",
+      "taxKindPlaceholder": "Loonheffing, btw...",
+      "note": "Notitie (optioneel)",
+      "settledWithout": "Vereffend zonder betaling",
+      "kind": {
+        "withholding_tax": "Belasting ingehouden door de klant",
+        "gateway_fee": "Kosten ingehouden door de betaalprovider",
+        "fx_difference": "Valutaomrekeningsverschil",
+        "other": "Overig"
+      },
+      "differenceTitle": "De betaling is {{difference}} te laag",
+      "differenceHint": "Leg het verschil vast zodat de factuur wordt afgesloten",
+      "differenceNone": "Niet vastleggen",
+      "figure": "Ingehouden"
+    },
+    "statement": {
+      "asIssued": "Factuur zoals uitgegeven",
+      "asIssuedHint": "Het document dat naar de klant is gestuurd",
+      "hint": "Betalingen en inhoudingen sinds uitgifte, en het saldo",
+      "banner": "Deze PDF is de factuur zoals uitgegeven. Sindsdien is {{paid}} ontvangen en {{deducted}} ingehouden: het rekeningoverzicht toont elke post en het saldo.",
+      "title": "Rekeningoverzicht"
     }
   },
   "collections": {

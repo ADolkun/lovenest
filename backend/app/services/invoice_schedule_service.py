@@ -49,7 +49,13 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.invoice import Invoice, InvoiceAllocation, InvoiceSettings
+from app.models.invoice import (
+    Invoice,
+    InvoiceAllocation,
+    InvoiceDeduction,
+    InvoiceInstallment,
+    InvoiceSettings,
+)
 from app.models.invoice_schedule import (
     MAX_CONSECUTIVE_FAILURES,
     PERIODS_PER_YEAR,
@@ -419,17 +425,40 @@ class ScheduleFigures:
     past_due_count: int
 
 
+def _first_unpaid_due(
+    installments: Optional[list[tuple[_date, Decimal]]],
+    settled: Decimal,
+    total: Decimal,
+    due_date: _date,
+) -> Optional[_date]:
+    """`invoice_service.first_unpaid_due` over plain rows instead of a
+    loaded invoice: settled money covers the schedule first to last, and
+    the first installment it does not cover is the one that can be late."""
+    if not installments:
+        return due_date if settled < total else None
+    running = ZERO
+    for due, amount in installments:
+        running += amount
+        if running > settled:
+            return due
+    return None
+
+
 async def figures_for(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     schedule_ids: list[uuid.UUID],
     today: Optional[_date] = None,
 ) -> dict[uuid.UUID, ScheduleFigures]:
-    """The derived money facts for many schedules in two queries.
+    """The derived money facts for many schedules in three queries.
 
     Void and uncollectible invoices count towards nothing here, for the
     same reason they read as zero everywhere else. Drafts are counted as
     invoices but not as money, since nothing is owed yet.
+
+    Past due follows the invoice's own reading: with installments, the
+    first one the settled money does not cover is the one that can be
+    late, not the invoice's due date (which is the last of them).
     """
     today = today or _today()
     empty = ScheduleFigures(0, ZERO, ZERO, 0)
@@ -444,22 +473,44 @@ async def figures_for(
         .group_by(InvoiceAllocation.invoice_id)
         .subquery()
     )
+    deducted = (
+        select(
+            InvoiceDeduction.invoice_id.label("invoice_id"),
+            func.coalesce(func.sum(InvoiceDeduction.amount), 0).label("deducted"),
+        )
+        .group_by(InvoiceDeduction.invoice_id)
+        .subquery()
+    )
     rows = (
         await session.execute(
             select(
+                Invoice.id,
                 Invoice.schedule_id,
                 Invoice.status,
                 Invoice.due_date,
                 Invoice.total,
                 func.coalesce(allocated.c.paid, 0).label("paid"),
+                func.coalesce(deducted.c.deducted, 0).label("deducted"),
             )
             .outerjoin(allocated, allocated.c.invoice_id == Invoice.id)
+            .outerjoin(deducted, deducted.c.invoice_id == Invoice.id)
             .where(
                 Invoice.workspace_id == workspace_id,
                 Invoice.schedule_id.in_(schedule_ids),
             )
         )
     ).all()
+
+    # The schedules of the open invoices, in one query, first to last.
+    open_ids = [row.id for row in rows if row.status == "open"]
+    installments: dict[uuid.UUID, list[tuple[_date, Decimal]]] = {}
+    if open_ids:
+        for invoice_id, due_date, amount in await session.execute(
+            select(InvoiceInstallment.invoice_id, InvoiceInstallment.due_date, InvoiceInstallment.amount)
+            .where(InvoiceInstallment.invoice_id.in_(open_ids))
+            .order_by(InvoiceInstallment.invoice_id, InvoiceInstallment.position)
+        ):
+            installments.setdefault(invoice_id, []).append((due_date, Decimal(str(amount))))
 
     counts: dict[uuid.UUID, dict[str, Any]] = {}
     for row in rows:
@@ -472,9 +523,11 @@ async def figures_for(
             continue
         total = Decimal(str(row.total))
         paid = Decimal(str(row.paid))
+        settled = paid + Decimal(str(row.deducted))
         acc["invoiced"] += total
         acc["paid"] += min(paid, total)
-        if row.due_date < today and paid < total:
+        unpaid_due = _first_unpaid_due(installments.get(row.id), settled, total, row.due_date)
+        if unpaid_due is not None and unpaid_due < today:
             acc["past_due"] += 1
 
     return {

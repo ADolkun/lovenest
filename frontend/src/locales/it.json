@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Salva bozza"
+      "saveDraft": "Salva bozza",
+      "downloadStatement": "Scarica estratto conto"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Un prezzo ha bisogno di un importo.",
       "negative_price": "Un prezzo non può essere negativo.",
       "invalid_fiscal_refs": "I riferimenti fiscali devono essere brevi valori di testo sotto chiavi semplici (lettere, cifre, trattino basso).",
-      "price_key_taken": "Un altro prezzo usa già questa chiave di ricerca o id esterno."
+      "price_key_taken": "Un altro prezzo usa già questa chiave di ricerca o id esterno.",
+      "installments_mismatch": "Le rate non sommano il totale della fattura.",
+      "installments_too_few": "Un piano richiede almeno due rate.",
+      "installment_amount_not_positive": "Ogni rata deve avere un importo.",
+      "installment_due_required": "Ogni rata richiede una data di scadenza.",
+      "invalid_deduction_kind": "Tipo di deduzione sconosciuto.",
+      "deduction_not_found": "Deduzione non trovata."
     },
     "comingNext": "Fattura i tuoi clienti e tieni traccia di cosa è stato pagato e cosa è ancora aperto. È la prossima cosa in costruzione.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archivia",
         "restore": "Ripristina"
       }
+    },
+    "installments": {
+      "title": "Dividi in rate",
+      "splitIn": "Dividi in",
+      "splitHint": "parti uguali, a un mese di distanza, dalla data di scadenza",
+      "add": "Aggiungi rata",
+      "label": "Etichetta",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Totale {{total}}.",
+      "mismatch": "Le rate sommano {{scheduled}}, la fattura {{total}}.",
+      "schedule": "Piano di pagamento",
+      "nextDue": "Prossima scadenza",
+      "dueDerived": "Definita dall'ultima rata.",
+      "count_one": "{{count}} rata",
+      "count_other": "{{count}} rate",
+      "state": {
+        "open": "Aperta",
+        "partial": "Parziale",
+        "paid": "Pagata",
+        "overdue": "Scaduta",
+        "draft": "Bozza",
+        "void": "Annullata",
+        "uncollectible": "Inesigibile"
+      }
+    },
+    "deductions": {
+      "title": "Registra una deduzione",
+      "description": "Chiude parte del dovuto senza che arrivi denaro: il cliente ha trattenuto un'imposta, il processore ha tenuto la sua commissione, la conversione è arrivata più bassa. Conta come saldato, mai come incassato.",
+      "action": "Registra deduzione",
+      "recorded": "Deduzione registrata",
+      "removed": "Deduzione rimossa",
+      "amount": "Importo",
+      "amountHint": "Fino al saldo: {{balance}}.",
+      "kindLabel": "Motivo",
+      "taxKind": "Quale imposta (facoltativo)",
+      "taxKindPlaceholder": "Ritenuta d'acconto, IVA...",
+      "note": "Nota (facoltativo)",
+      "settledWithout": "Saldato senza pagamento",
+      "kind": {
+        "withholding_tax": "Imposta trattenuta dal cliente",
+        "gateway_fee": "Commissione trattenuta dal processore",
+        "fx_difference": "Differenza di cambio",
+        "other": "Altro"
+      },
+      "differenceTitle": "Il pagamento è inferiore di {{difference}}",
+      "differenceHint": "Registra la differenza per chiudere la fattura",
+      "differenceNone": "Non registrare",
+      "figure": "Trattenuto"
+    },
+    "statement": {
+      "asIssued": "Fattura come emessa",
+      "asIssuedHint": "Il documento inviato al cliente",
+      "hint": "Pagamenti e trattenute dall'emissione, e il saldo",
+      "banner": "Questo PDF è la fattura come emessa. Da allora sono stati ricevuti {{paid}} e trattenuti {{deducted}}: l'estratto conto mostra ogni voce e il saldo.",
+      "title": "Estratto conto"
     }
   },
   "collections": {

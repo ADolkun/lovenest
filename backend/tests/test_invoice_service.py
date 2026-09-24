@@ -40,6 +40,10 @@ def build_invoice(**overrides) -> Invoice:
         setattr(invoice, key, value)
     if not hasattr(invoice, "allocations") or invoice.allocations is None:
         invoice.allocations = []
+    if "deductions" not in overrides:
+        invoice.deductions = []
+    if "installments" not in overrides:
+        invoice.installments = []
     return invoice
 
 

@@ -236,7 +236,8 @@
       "downloadPdf": "Baixar PDF",
       "share": "Compartilhar",
       "revokeLink": "Revogar link",
-      "saveDraft": "Salvar rascunho"
+      "saveDraft": "Salvar rascunho",
+      "downloadStatement": "Baixar extrato"
     },
     "settings": {
       "title": "Configurações de cobrança",
@@ -341,7 +342,13 @@
       "unit_price_required": "Um preço precisa de um valor.",
       "negative_price": "Um preço não pode ser negativo.",
       "invalid_fiscal_refs": "Referências fiscais devem ser textos curtos sob chaves simples (letras, dígitos, sublinhado).",
-      "price_key_taken": "Outro preço já usa essa chave de busca ou id externo."
+      "price_key_taken": "Outro preço já usa essa chave de busca ou id externo.",
+      "installments_mismatch": "As parcelas não somam o total da cobrança.",
+      "installments_too_few": "Um parcelamento precisa de pelo menos duas parcelas.",
+      "installment_amount_not_positive": "Toda parcela precisa ter um valor.",
+      "installment_due_required": "Toda parcela precisa de um vencimento.",
+      "invalid_deduction_kind": "Tipo de dedução desconhecido.",
+      "deduction_not_found": "Dedução não encontrada."
     },
     "comingNext": "Cobre seus clientes e acompanhe o que já foi pago e o que continua em aberto. É a próxima coisa sendo construída.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Arquivar",
         "restore": "Restaurar"
       }
+    },
+    "installments": {
+      "title": "Parcelar",
+      "splitIn": "Dividir em",
+      "splitHint": "partes iguais, uma por mês, a partir do vencimento",
+      "add": "Adicionar parcela",
+      "label": "Rótulo",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Soma {{total}}.",
+      "mismatch": "As parcelas somam {{scheduled}}, a cobrança {{total}}.",
+      "schedule": "Cronograma de pagamento",
+      "nextDue": "Próximo vencimento",
+      "dueDerived": "Definido pela última parcela.",
+      "count_one": "{{count}} parcela",
+      "count_other": "{{count}} parcelas",
+      "state": {
+        "open": "Em aberto",
+        "partial": "Parcial",
+        "paid": "Paga",
+        "overdue": "Vencida",
+        "draft": "Rascunho",
+        "void": "Cancelada",
+        "uncollectible": "Perda"
+      }
+    },
+    "deductions": {
+      "title": "Registrar dedução",
+      "description": "Fecha parte do que é devido sem dinheiro entrar: o cliente reteve imposto, o processador ficou com a taxa, a conversão veio menor. Conta como liquidado, nunca como recebido.",
+      "action": "Registrar dedução",
+      "recorded": "Dedução registrada",
+      "removed": "Dedução removida",
+      "amount": "Valor",
+      "amountHint": "Até o saldo: {{balance}}.",
+      "kindLabel": "Motivo",
+      "taxKind": "Qual imposto (opcional)",
+      "taxKindPlaceholder": "IRRF, ISS, INSS...",
+      "note": "Observação (opcional)",
+      "settledWithout": "Liquidado sem pagamento",
+      "kind": {
+        "withholding_tax": "Imposto retido pelo cliente",
+        "gateway_fee": "Taxa retida pelo processador",
+        "fx_difference": "Diferença de câmbio",
+        "other": "Outro"
+      },
+      "differenceTitle": "O pagamento veio {{difference}} menor",
+      "differenceHint": "Registre a diferença para a cobrança fechar",
+      "differenceNone": "Não registrar",
+      "figure": "Deduzido"
+    },
+    "statement": {
+      "asIssued": "Fatura como emitida",
+      "asIssuedHint": "O documento enviado ao cliente",
+      "hint": "Pagamentos e deduções desde a emissão, e o saldo",
+      "banner": "Este PDF é a fatura como foi emitida. Desde então foram recebidos {{paid}} e deduzidos {{deducted}}: o extrato mostra cada um e o saldo.",
+      "title": "Extrato da fatura"
     }
   },
   "collections": {
