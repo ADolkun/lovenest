@@ -329,7 +329,19 @@
       "negative_discount": "Een korting kan niet negatief zijn.",
       "first_term": "De prijs die vanaf het begin geldt, kan niet worden verplaatst of verwijderd. Wijzig hem, of voeg een nieuwe prijs toe vanaf een latere datum.",
       "not_receivable": "Alleen een factuur die u hebt uitgegeven kan bij een afspraak horen.",
-      "period_already_issued": "Deze periode is zojuist uitgegeven. Vernieuw om hem te zien."
+      "period_already_issued": "Deze periode is zojuist uitgegeven. Vernieuw om hem te zien.",
+      "product_not_found": "Product niet gevonden.",
+      "price_not_found": "Prijs niet gevonden bij dit product.",
+      "product_in_use": "Er zijn facturen die dit product noemen. Archiveer het in plaats van het te verwijderen.",
+      "price_in_use": "Er zijn facturen gemaakt met deze prijs. Archiveer hem in plaats van hem te verwijderen.",
+      "invalid_kind": "Onbekend productsoort.",
+      "invalid_billing": "Onbekend factureringstype.",
+      "interval_required": "Een terugkerende prijs heeft een frequentie nodig.",
+      "currency_required": "Een prijs heeft een valuta nodig.",
+      "unit_price_required": "Een prijs heeft een bedrag nodig.",
+      "negative_price": "Een prijs kan niet negatief zijn.",
+      "invalid_fiscal_refs": "Fiscale referenties moeten korte tekstwaarden zijn onder eenvoudige sleutels (letters, cijfers, underscore).",
+      "price_key_taken": "Een andere prijs gebruikt deze zoeksleutel of externe id al."
     },
     "comingNext": "Factureer uw klanten en houd bij wat er is betaald en wat er nog open staat. Dit is het volgende dat gebouwd wordt.",
     "document": {
@@ -563,6 +575,73 @@
         "description": "Eén per periode, op de dag zelf opgesteld. Een met de hand opgestelde factuur kan ook worden gekoppeld.",
         "empty": "Nog geen factuur onder deze afspraak.",
         "emptyNext": "Nog geen factuur. De eerste wordt opgesteld op {{date}}."
+      }
+    },
+    "products": {
+      "title": "Producten",
+      "new": "Nieuw product",
+      "newDescription": "Iets wat je verkoopt, met een prijs per valuta. Kies je het, dan vult het een factuurregel in; de regel blijft daarna van jou om aan te passen.",
+      "editTitle": "Product bewerken",
+      "empty": "Nog geen producten. Voeg toe wat je verkoopt, en elke factuurregel is één klik verwijderd.",
+      "emptyArchived": "Niets gearchiveerd.",
+      "emptyPicker": "Nog geen producten. Voeg ze toe onder Producten.",
+      "noneFound": "Geen product komt overeen.",
+      "searchPlaceholder": "Producten zoeken",
+      "pick": "Kies uit de catalogus",
+      "fromCatalog": "Uit de catalogus",
+      "noPrice": "Geen prijs",
+      "noPriceIn": "geen prijs in {{currency}}",
+      "perUnit": "per {{unit}}",
+      "created": "Product aangemaakt",
+      "saved": "Product opgeslagen",
+      "archived": "Product gearchiveerd. Facturen die het noemen blijven ongewijzigd.",
+      "restored": "Product hersteld",
+      "deleted": "Product verwijderd",
+      "filter": {
+        "active": "Actief",
+        "archived": "Gearchiveerd"
+      },
+      "kind": {
+        "service": "Dienst",
+        "product": "Product"
+      },
+      "billing": {
+        "one_time": "Eenmalig",
+        "every": "Elke {{interval}}"
+      },
+      "per": {
+        "weekly": "week",
+        "biweekly": "2 weken",
+        "monthly": "maand",
+        "quarterly": "kwartaal",
+        "semiannual": "6 maanden",
+        "yearly": "jaar"
+      },
+      "column": {
+        "name": "Naam",
+        "kind": "Soort",
+        "prices": "Prijzen",
+        "invoices": "Facturen"
+      },
+      "field": {
+        "name": "Naam",
+        "namePlaceholder": "Adviesuur, Pro-abonnement, Logo-ontwerp",
+        "kind": "Soort",
+        "description": "Omschrijving",
+        "prices": "Prijzen",
+        "pricesHint": "Eén per valuta. Een terugkerende prijs geeft aan hoe vaak; het is een hint voor terugkerende facturen, er wordt uit zichzelf niets in rekening gebracht.",
+        "addPrice": "Prijs toevoegen",
+        "noPrices": "Geen prijzen. De naam vult de regel toch in; het bedrag typ je zelf.",
+        "nickname": "Label (optioneel)",
+        "fiscalRefs": "Fiscale referenties",
+        "fiscalRefsHint": "Wat een fiscaal document per regel nodig heeft. Voorgesteld op basis van uw jurisdictie; voeg elke andere sleutel toe die u nodig heeft.",
+        "customRefKey": "andere sleutel (bijv. hs_code)",
+        "addRef": "Toevoegen",
+        "fiscalRefsNone": "Niets voorgesteld voor dit type hier. Voeg elke sleutel toe die uw fiscale documenten nodig hebben."
+      },
+      "action": {
+        "archive": "Archiveren",
+        "restore": "Herstellen"
       }
     }
   },
@@ -1945,7 +2024,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Andere landen",
-    "anyCountry": "Ergens anders"
+    "anyCountry": "Ergens anders",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / barcode",
+      "service_code": "Dienstcode (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Gemeentelijke dienstcode",
+      "hs_code": "HS-code",
+      "sat_product_code": "SAT product-/dienstcode",
+      "sat_unit_code": "SAT eenheidscode"
+    }
   },
   "common": {
     "selectTimezone": "Tijdzone kiezen",

@@ -329,7 +329,19 @@
       "negative_discount": "A discount cannot be negative.",
       "first_term": "The price in force from the start cannot be moved or removed. Change it, or add a new price from a later date.",
       "not_receivable": "Only an invoice you issued can belong to an agreement.",
-      "period_already_issued": "This period was just issued. Refresh to see it."
+      "period_already_issued": "This period was just issued. Refresh to see it.",
+      "product_not_found": "Product not found.",
+      "price_not_found": "Price not found on this product.",
+      "product_in_use": "Invoices name this product. Archive it instead of deleting it.",
+      "price_in_use": "Invoices were billed at this price. Archive it instead of deleting it.",
+      "invalid_kind": "Unknown product kind.",
+      "invalid_billing": "Unknown billing kind.",
+      "interval_required": "A recurring price needs a cadence.",
+      "currency_required": "A price needs a currency.",
+      "unit_price_required": "A price needs an amount.",
+      "negative_price": "A price cannot be negative.",
+      "invalid_fiscal_refs": "Fiscal references must be short text values under simple keys (letters, digits, underscore).",
+      "price_key_taken": "Another price already uses this lookup key or external id."
     },
     "comingNext": "Bill your clients and keep track of what has been paid and what is still open. This is the next thing being built.",
     "document": {
@@ -563,6 +575,73 @@
         "description": "One per period, written on the day. An invoice you wrote by hand can be linked too.",
         "empty": "No invoice under this agreement yet.",
         "emptyNext": "No invoice yet. The first one is written on {{date}}."
+      }
+    },
+    "products": {
+      "title": "Products",
+      "new": "New product",
+      "newDescription": "Something you sell, with a price per currency. Picking it fills an invoice line; the line is yours to change after.",
+      "editTitle": "Edit product",
+      "empty": "No products yet. Add what you sell, and every invoice line is one click from it.",
+      "emptyArchived": "Nothing archived.",
+      "emptyPicker": "No products yet. Add them under Products.",
+      "noneFound": "No product matches.",
+      "searchPlaceholder": "Search products",
+      "pick": "Pick from the catalog",
+      "fromCatalog": "From the catalog",
+      "noPrice": "No price",
+      "noPriceIn": "no price in {{currency}}",
+      "perUnit": "per {{unit}}",
+      "created": "Product created",
+      "saved": "Product saved",
+      "archived": "Product archived. Invoices that name it are unchanged.",
+      "restored": "Product restored",
+      "deleted": "Product deleted",
+      "filter": {
+        "active": "Active",
+        "archived": "Archived"
+      },
+      "kind": {
+        "service": "Service",
+        "product": "Product"
+      },
+      "billing": {
+        "one_time": "One-time",
+        "every": "Every {{interval}}"
+      },
+      "per": {
+        "weekly": "week",
+        "biweekly": "2 weeks",
+        "monthly": "month",
+        "quarterly": "quarter",
+        "semiannual": "6 months",
+        "yearly": "year"
+      },
+      "column": {
+        "name": "Name",
+        "kind": "Kind",
+        "prices": "Prices",
+        "invoices": "Invoices"
+      },
+      "field": {
+        "name": "Name",
+        "namePlaceholder": "Consulting hour, Pro plan, Logo design",
+        "kind": "Kind",
+        "description": "Description",
+        "prices": "Prices",
+        "pricesHint": "One per currency. A recurring price says how often; it is a hint for recurring invoices, nothing is charged by itself.",
+        "addPrice": "Add price",
+        "noPrices": "No prices. The name still fills a line; the amount is typed.",
+        "nickname": "Label (optional)",
+        "fiscalRefs": "Fiscal references",
+        "fiscalRefsHint": "What a fiscal document needs per line. Suggested by your jurisdiction; add any other key you need.",
+        "customRefKey": "other key (e.g. hs_code)",
+        "addRef": "Add",
+        "fiscalRefsNone": "Nothing suggested for this kind here. Add any key your fiscal documents need."
+      },
+      "action": {
+        "archive": "Archive",
+        "restore": "Restore"
       }
     }
   },
@@ -1943,7 +2022,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Other countries",
-    "anyCountry": "Anywhere else"
+    "anyCountry": "Anywhere else",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / barcode",
+      "service_code": "Service code (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Municipal service code",
+      "hs_code": "HS code",
+      "sat_product_code": "SAT product/service code",
+      "sat_unit_code": "SAT unit code"
+    }
   },
   "common": {
     "selectTimezone": "Select timezone",

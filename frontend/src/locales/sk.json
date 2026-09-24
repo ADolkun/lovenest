@@ -329,7 +329,19 @@
       "negative_discount": "Zľava nemôže byť záporná.",
       "first_term": "Cenu platnú od začiatku nemožno presunúť ani odstrániť. Zmeňte ju alebo pridajte novú cenu od neskoršieho dátumu.",
       "not_receivable": "K dohode môže patriť iba faktúra, ktorú ste vystavili vy.",
-      "period_already_issued": "Toto obdobie bolo práve vystavené. Obnovte stránku, aby ste ho videli."
+      "period_already_issued": "Toto obdobie bolo práve vystavené. Obnovte stránku, aby ste ho videli.",
+      "product_not_found": "Produkt sa nenašiel.",
+      "price_not_found": "Cena sa pri tomto produkte nenašla.",
+      "product_in_use": "Tento produkt je uvedený vo faktúrach. Namiesto zmazania ho archivujte.",
+      "price_in_use": "Za túto cenu už boli vystavené faktúry. Namiesto zmazania ju archivujte.",
+      "invalid_kind": "Neznámy druh produktu.",
+      "invalid_billing": "Neznámy druh účtovania.",
+      "interval_required": "Opakovaná cena potrebuje frekvenciu.",
+      "currency_required": "Cena potrebuje menu.",
+      "unit_price_required": "Cena potrebuje sumu.",
+      "negative_price": "Cena nemôže byť záporná.",
+      "invalid_fiscal_refs": "Daňové referencie musia byť krátke textové hodnoty pod jednoduchými kľúčmi (písmená, číslice, podčiarknutie).",
+      "price_key_taken": "Iná cena už používa tento vyhľadávací kľúč alebo externé id."
     },
     "comingNext": "Fakturujte klientom a majte prehľad o tom, čo je zaplatené a čo ešte otvorené. Toto sa práve stavia.",
     "document": {
@@ -567,6 +579,73 @@
         "description": "Jedna za obdobie, vystavená v daný deň. Ručne vystavenú faktúru možno tiež priradiť.",
         "empty": "V tejto dohode zatiaľ nie je žiadna faktúra.",
         "emptyNext": "Zatiaľ žiadna faktúra. Prvá sa vystaví {{date}}."
+      }
+    },
+    "products": {
+      "title": "Produkty",
+      "new": "Nový produkt",
+      "newDescription": "Niečo, čo predávate, s cenou pre každú menu. Výber vyplní položku faktúry; položku môžete potom ľubovoľne upraviť.",
+      "editTitle": "Upraviť produkt",
+      "empty": "Zatiaľ žiadne produkty. Pridajte, čo predávate, a každá položka faktúry bude na jedno kliknutie.",
+      "emptyArchived": "Nič nie je archivované.",
+      "emptyPicker": "Zatiaľ žiadne produkty. Pridajte ich v sekcii Produkty.",
+      "noneFound": "Žiadny produkt nezodpovedá.",
+      "searchPlaceholder": "Hľadať produkty",
+      "pick": "Vybrať z katalógu",
+      "fromCatalog": "Z katalógu",
+      "noPrice": "Bez ceny",
+      "noPriceIn": "bez ceny v {{currency}}",
+      "perUnit": "za {{unit}}",
+      "created": "Produkt vytvorený",
+      "saved": "Produkt uložený",
+      "archived": "Produkt archivovaný. Faktúry, ktoré ho uvádzajú, sa nemenia.",
+      "restored": "Produkt obnovený",
+      "deleted": "Produkt zmazaný",
+      "filter": {
+        "active": "Aktívne",
+        "archived": "Archivované"
+      },
+      "kind": {
+        "service": "Služba",
+        "product": "Produkt"
+      },
+      "billing": {
+        "one_time": "Jednorazovo",
+        "every": "Každý {{interval}}"
+      },
+      "per": {
+        "weekly": "týždeň",
+        "biweekly": "2 týždne",
+        "monthly": "mesiac",
+        "quarterly": "štvrťrok",
+        "semiannual": "6 mesiacov",
+        "yearly": "rok"
+      },
+      "column": {
+        "name": "Názov",
+        "kind": "Druh",
+        "prices": "Ceny",
+        "invoices": "Faktúry"
+      },
+      "field": {
+        "name": "Názov",
+        "namePlaceholder": "Hodina konzultácie, Plán Pro, Návrh loga",
+        "kind": "Druh",
+        "description": "Popis",
+        "prices": "Ceny",
+        "pricesHint": "Jedna na menu. Opakovaná cena určuje, ako často; je to nápoveda pre opakované faktúry, nič sa neúčtuje samo od seba.",
+        "addPrice": "Pridať cenu",
+        "noPrices": "Žiadne ceny. Názov aj tak vyplní položku; suma sa zadáva ručne.",
+        "nickname": "Označenie (voliteľné)",
+        "fiscalRefs": "Daňové referencie",
+        "fiscalRefsHint": "Čo daňový doklad potrebuje pre každú položku. Navrhnuté podľa vašej jurisdikcie; pridajte akýkoľvek ďalší kľúč, ktorý potrebujete.",
+        "customRefKey": "iný kľúč (napr. hs_code)",
+        "addRef": "Pridať",
+        "fiscalRefsNone": "Pre tento druh tu nie je nič navrhnuté. Pridajte akýkoľvek kľúč, ktorý vaše daňové doklady potrebujú."
+      },
+      "action": {
+        "archive": "Archivovať",
+        "restore": "Obnoviť"
       }
     }
   },
@@ -2063,7 +2142,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Ostatné krajiny",
-    "anyCountry": "Kdekoľvek inde"
+    "anyCountry": "Kdekoľvek inde",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / čiarový kód",
+      "service_code": "Kód služby (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Obecný kód služby",
+      "hs_code": "Kód HS",
+      "sat_product_code": "Kód produktu/služby SAT",
+      "sat_unit_code": "Kód jednotky SAT"
+    }
   },
   "common": {
     "selectTimezone": "Vyberte časové pásmo",

@@ -39,6 +39,7 @@ const AgentConnectionsPage = lazy(() => import('@/pages/agent-connections'))
 const InvoicesPage = lazy(() => import('@/pages/invoices'))
 const InvoiceSchedulesPage = lazy(() => import('@/pages/invoice-schedules'))
 const InvoiceScheduleDetailPage = lazy(() => import('@/pages/invoice-schedule-detail'))
+const ProductsPage = lazy(() => import('@/pages/products'))
 const InvoiceDetailPage = lazy(() => import('@/pages/invoice-detail'))
 const SharedInvoicePage = lazy(() => import('@/pages/shared-invoice'))
 const WorkspaceSettingsPage = lazy(() => import('@/pages/workspace-settings'))
@@ -114,6 +115,7 @@ function App() {
                   {/* Declared before `/invoices/:id`, which would otherwise take "schedules" for an id. */}
                   <Route path="/invoices/schedules" element={<ModuleRoute module="invoices"><InvoiceSchedulesPage /></ModuleRoute>} />
                   <Route path="/invoices/schedules/:id" element={<ModuleRoute module="invoices"><InvoiceScheduleDetailPage /></ModuleRoute>} />
+                  <Route path="/invoices/products" element={<ModuleRoute module="invoices"><ProductsPage /></ModuleRoute>} />
                   <Route path="/invoices/:id" element={<ModuleRoute module="invoices"><InvoiceDetailPage /></ModuleRoute>} />
                   <Route path="/workspace/settings" element={<WorkspaceSettingsPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />

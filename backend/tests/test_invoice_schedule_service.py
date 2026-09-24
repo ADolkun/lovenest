@@ -282,9 +282,9 @@ class TestCreate:
             await make_schedule(session, ws_id, test_user.id, origin="imported")
         assert exc.value.code == "external_source_required"
         s = await make_schedule(
-            session, ws_id, test_user.id, origin="imported", external_source="stripe", external_id="sub_1"
+            session, ws_id, test_user.id, origin="imported", external_source="gateway", external_id="sub_1"
         )
-        found = await svc.find_by_external_id(session, ws_id, "stripe", "sub_1")
+        found = await svc.find_by_external_id(session, ws_id, "gateway", "sub_1")
         assert found is not None and found.id == s.id
 
     @pytest.mark.asyncio
@@ -439,7 +439,7 @@ class TestGeneration:
         await svc.end_schedule(session, ended, reason="canceled_by_client", today=TODAY)
         imported = await make_schedule(
             session, ws_id, test_user.id, start_date=date(2026, 10, 5),
-            origin="imported", external_source="stripe", external_id="sub_x",
+            origin="imported", external_source="gateway", external_id="sub_x",
         )
         for s in (paused, ended, imported):
             assert await svc.generate_due(session, s, today=date(2027, 1, 1)) == []
@@ -689,7 +689,10 @@ class TestLinking:
             session, inv, test_user.id, {"frequency": "quarterly", "name": "Hosting"}, today=TODAY
         )
         assert s.terms[0].lines == [
-            {"description": "Hosting", "quantity": "1", "unit": None, "unit_price": "1500.00", "tax_rate": None}
+            {
+                "description": "Hosting", "quantity": "1", "unit": None, "unit_price": "1500.00",
+                "tax_rate": None, "product_id": None, "price_id": None, "fiscal_refs": None,
+            }
         ]
         assert s.terms[0].total == Decimal("1500.00")
 

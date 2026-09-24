@@ -329,7 +329,19 @@
       "negative_discount": "割引を負の値にすることはできません。",
       "first_term": "開始時から有効な料金は移動も削除もできません。変更するか、より後の日付から新しい料金を追加してください。",
       "not_receivable": "契約に含められるのは、あなたが発行した請求書のみです。",
-      "period_already_issued": "この期間はたった今発行されました。更新して確認してください。"
+      "period_already_issued": "この期間はたった今発行されました。更新して確認してください。",
+      "product_not_found": "商品が見つかりません。",
+      "price_not_found": "この商品にその価格はありません。",
+      "product_in_use": "この商品を含む請求書があります。削除する代わりにアーカイブしてください。",
+      "price_in_use": "この価格で発行された請求書があります。削除する代わりにアーカイブしてください。",
+      "invalid_kind": "不明な商品の種類です。",
+      "invalid_billing": "不明な請求の種類です。",
+      "interval_required": "定期価格には頻度が必要です。",
+      "currency_required": "価格には通貨が必要です。",
+      "unit_price_required": "価格には金額が必要です。",
+      "negative_price": "価格をマイナスにはできません。",
+      "invalid_fiscal_refs": "税務参照コードは、シンプルなキー(英字、数字、アンダースコア)の下にある短いテキスト値である必要があります。",
+      "price_key_taken": "別の価格がすでにこの検索キーまたは外部IDを使用しています。"
     },
     "comingNext": "クライアントに請求し、支払い済みのものと未払いのものを管理します。現在開発中の次の機能です。",
     "document": {
@@ -563,6 +575,73 @@
         "description": "期間ごとに1件、当日に作成されます。手動で作成した請求書も紐付けできます。",
         "empty": "この契約の請求書はまだありません。",
         "emptyNext": "請求書はまだありません。最初の請求書は{{date}}に作成されます。"
+      }
+    },
+    "products": {
+      "title": "商品",
+      "new": "新しい商品",
+      "newDescription": "販売しているもので、通貨ごとに価格を持ちます。選ぶと請求書の明細行が埋まり、その後は自由に変更できます。",
+      "editTitle": "商品を編集",
+      "empty": "まだ商品がありません。販売しているものを登録すると、請求書の明細行はワンクリックで入力できます。",
+      "emptyArchived": "アーカイブはありません。",
+      "emptyPicker": "まだ商品がありません。「商品」で登録してください。",
+      "noneFound": "一致する商品がありません。",
+      "searchPlaceholder": "商品を検索",
+      "pick": "カタログから選ぶ",
+      "fromCatalog": "カタログから",
+      "noPrice": "価格なし",
+      "noPriceIn": "{{currency}}の価格なし",
+      "perUnit": "{{unit}}あたり",
+      "created": "商品を作成しました",
+      "saved": "商品を保存しました",
+      "archived": "商品をアーカイブしました。この商品を含む請求書は変わりません。",
+      "restored": "商品を復元しました",
+      "deleted": "商品を削除しました",
+      "filter": {
+        "active": "有効",
+        "archived": "アーカイブ済み"
+      },
+      "kind": {
+        "service": "サービス",
+        "product": "商品"
+      },
+      "billing": {
+        "one_time": "単発",
+        "every": "{{interval}}ごと"
+      },
+      "per": {
+        "weekly": "週",
+        "biweekly": "2週間",
+        "monthly": "月",
+        "quarterly": "四半期",
+        "semiannual": "6か月",
+        "yearly": "年"
+      },
+      "column": {
+        "name": "名前",
+        "kind": "種類",
+        "prices": "価格",
+        "invoices": "請求書"
+      },
+      "field": {
+        "name": "名前",
+        "namePlaceholder": "コンサルティング1時間、Proプラン、ロゴデザイン",
+        "kind": "種類",
+        "description": "説明",
+        "prices": "価格",
+        "pricesHint": "通貨ごとに1つ。定期価格は頻度を示します。定期請求書のためのヒントであり、それだけで請求されることはありません。",
+        "addPrice": "価格を追加",
+        "noPrices": "価格がありません。名前は明細行に入りますが、金額は手入力になります。",
+        "nickname": "ラベル(任意)",
+        "fiscalRefs": "税務参照コード",
+        "fiscalRefsHint": "税務書類が明細ごとに必要とする項目です。お住まいの管轄区域に基づいて提案されます。必要な他のキーも追加できます。",
+        "customRefKey": "その他のキー(例: hs_code)",
+        "addRef": "追加",
+        "fiscalRefsNone": "この種類にはここでの提案はありません。税務書類に必要なキーを追加してください。"
+      },
+      "action": {
+        "archive": "アーカイブ",
+        "restore": "復元"
       }
     }
   },
@@ -1943,7 +2022,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "その他の国",
-    "anyCountry": "その他すべての国"
+    "anyCountry": "その他すべての国",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / バーコード",
+      "service_code": "サービスコード(LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "市町村サービスコード",
+      "hs_code": "HSコード",
+      "sat_product_code": "SAT製品/サービスコード",
+      "sat_unit_code": "SAT単位コード"
+    }
   },
   "common": {
     "selectTimezone": "タイムゾーンを選択",

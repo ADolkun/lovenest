@@ -574,7 +574,25 @@ def _build_line(invoice: Invoice, line: dict[str, Any], position: int) -> Invoic
         tax_rate=Decimal(str(line["tax_rate"])) if line.get("tax_rate") is not None else None,
         total=_line_total(quantity, unit_price),
         position=position,
+        # Provenance, checked by `product_service.resolve_lines` before
+        # this is called. Null on a line typed by hand.
+        product_id=line.get("product_id"),
+        price_id=line.get("price_id"),
+        fiscal_refs=line.get("fiscal_refs") or None,
     )
+
+
+async def _resolved_lines(
+    session: AsyncSession, workspace_id: uuid.UUID, lines: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Lines with their catalog ids checked against this workspace.
+
+    Imported lazily: the catalog reads this module's error type, and a
+    top-level import each way would be a cycle.
+    """
+    from app.services import product_service
+
+    return await product_service.resolve_lines(session, workspace_id, lines)
 
 
 async def create_invoice(
@@ -586,7 +604,7 @@ async def create_invoice(
     settings = await get_settings(session, workspace_id)
     await _assert_payee(session, data.get("payee_id"), workspace_id)
 
-    lines_data = data.pop("lines", None) or []
+    lines_data = await _resolved_lines(session, workspace_id, data.pop("lines", None) or [])
     if settings.document_required and not lines_data:
         raise InvoiceError(
             "lines_required", "This workspace requires invoices to carry line items"
@@ -710,6 +728,7 @@ async def update_invoice(session: AsyncSession, invoice: Invoice, data: dict[str
                 setattr(invoice, field, data[field])
 
         if lines_data is not None:
+            lines_data = await _resolved_lines(session, invoice.workspace_id, lines_data)
             for line in list(invoice.lines):
                 await session.delete(line)
             await session.flush()

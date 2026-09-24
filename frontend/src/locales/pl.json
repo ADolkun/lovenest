@@ -329,7 +329,19 @@
       "negative_discount": "Rabat nie może być ujemny.",
       "first_term": "Ceny obowiązującej od początku nie można przesunąć ani usunąć. Zmień ją lub dodaj nową cenę od późniejszej daty.",
       "not_receivable": "Do umowy może należeć tylko faktura wystawiona przez Ciebie.",
-      "period_already_issued": "Ten okres został właśnie wystawiony. Odśwież, aby go zobaczyć."
+      "period_already_issued": "Ten okres został właśnie wystawiony. Odśwież, aby go zobaczyć.",
+      "product_not_found": "Nie znaleziono produktu.",
+      "price_not_found": "Nie znaleziono ceny w tym produkcie.",
+      "product_in_use": "Faktury wymieniają ten produkt. Zarchiwizuj go zamiast usuwać.",
+      "price_in_use": "Faktury zostały wystawione po tej cenie. Zarchiwizuj ją zamiast usuwać.",
+      "invalid_kind": "Nieznany rodzaj produktu.",
+      "invalid_billing": "Nieznany rodzaj rozliczenia.",
+      "interval_required": "Cena cykliczna wymaga częstotliwości.",
+      "currency_required": "Cena wymaga waluty.",
+      "unit_price_required": "Cena wymaga kwoty.",
+      "negative_price": "Cena nie może być ujemna.",
+      "invalid_fiscal_refs": "Odniesienia podatkowe muszą być krótkimi wartościami tekstowymi pod prostymi kluczami (litery, cyfry, podkreślenie).",
+      "price_key_taken": "Inna cena już używa tego klucza wyszukiwania lub zewnętrznego identyfikatora."
     },
     "comingNext": "Wystawiaj faktury klientom i śledź, co zostało zapłacone, a co wciąż jest otwarte. To następna rzecz w budowie.",
     "document": {
@@ -567,6 +579,73 @@
         "description": "Jedna na okres, wystawiana w wyznaczonym dniu. Fakturę wystawioną ręcznie też można powiązać.",
         "empty": "W tej umowie nie ma jeszcze faktury.",
         "emptyNext": "Nie ma jeszcze faktury. Pierwsza zostanie wystawiona {{date}}."
+      }
+    },
+    "products": {
+      "title": "Produkty",
+      "new": "Nowy produkt",
+      "newDescription": "Coś, co sprzedajesz, z ceną dla każdej waluty. Wybranie go wypełnia pozycję faktury; pozycję można potem dowolnie zmienić.",
+      "editTitle": "Edytuj produkt",
+      "empty": "Nie ma jeszcze produktów. Dodaj to, co sprzedajesz, a każda pozycja faktury będzie o jedno kliknięcie.",
+      "emptyArchived": "Nic nie zarchiwizowano.",
+      "emptyPicker": "Nie ma jeszcze produktów. Dodaj je w sekcji Produkty.",
+      "noneFound": "Żaden produkt nie pasuje.",
+      "searchPlaceholder": "Szukaj produktów",
+      "pick": "Wybierz z katalogu",
+      "fromCatalog": "Z katalogu",
+      "noPrice": "Brak ceny",
+      "noPriceIn": "brak ceny w {{currency}}",
+      "perUnit": "za {{unit}}",
+      "created": "Produkt utworzony",
+      "saved": "Produkt zapisany",
+      "archived": "Produkt zarchiwizowany. Faktury, które go wymieniają, pozostają bez zmian.",
+      "restored": "Produkt przywrócony",
+      "deleted": "Produkt usunięty",
+      "filter": {
+        "active": "Aktywne",
+        "archived": "Zarchiwizowane"
+      },
+      "kind": {
+        "service": "Usługa",
+        "product": "Produkt"
+      },
+      "billing": {
+        "one_time": "Jednorazowo",
+        "every": "Co {{interval}}"
+      },
+      "per": {
+        "weekly": "tydzień",
+        "biweekly": "2 tygodnie",
+        "monthly": "miesiąc",
+        "quarterly": "kwartał",
+        "semiannual": "6 miesięcy",
+        "yearly": "rok"
+      },
+      "column": {
+        "name": "Nazwa",
+        "kind": "Rodzaj",
+        "prices": "Ceny",
+        "invoices": "Faktury"
+      },
+      "field": {
+        "name": "Nazwa",
+        "namePlaceholder": "Godzina konsultacji, Plan Pro, Projekt logo",
+        "kind": "Rodzaj",
+        "description": "Opis",
+        "prices": "Ceny",
+        "pricesHint": "Jedna na walutę. Cena cykliczna określa, jak często; to podpowiedź dla faktur cyklicznych, nic nie jest naliczane samo z siebie.",
+        "addPrice": "Dodaj cenę",
+        "noPrices": "Brak cen. Nazwa i tak wypełni pozycję; kwotę wpisuje się ręcznie.",
+        "nickname": "Etykieta (opcjonalnie)",
+        "fiscalRefs": "Odniesienia podatkowe",
+        "fiscalRefsHint": "Czego dokument podatkowy wymaga w każdej pozycji. Sugerowane przez Twoją jurysdykcję; dodaj dowolny inny potrzebny klucz.",
+        "customRefKey": "inny klucz (np. hs_code)",
+        "addRef": "Dodaj",
+        "fiscalRefsNone": "Brak sugestii dla tego rodzaju. Dodaj dowolny klucz, którego potrzebują Twoje dokumenty podatkowe."
+      },
+      "action": {
+        "archive": "Archiwizuj",
+        "restore": "Przywróć"
       }
     }
   },
@@ -2034,7 +2113,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Inne kraje",
-    "anyCountry": "Gdziekolwiek indziej"
+    "anyCountry": "Gdziekolwiek indziej",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / kod kreskowy",
+      "service_code": "Kod usługi (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Gminny kod usługi",
+      "hs_code": "Kod HS",
+      "sat_product_code": "Kod produktu/usługi SAT",
+      "sat_unit_code": "Kod jednostki SAT"
+    }
   },
   "common": {
     "selectTimezone": "Wybierz strefę czasową",

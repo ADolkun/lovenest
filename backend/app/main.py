@@ -37,6 +37,7 @@ from app.api.fiscal import router as fiscal_router
 from app.api.invoice_attachments import router as invoice_attachments_router
 from app.api.invoice_schedules import router as invoice_schedules_router
 from app.api.invoices import router as invoices_router
+from app.api.products import router as products_router
 from app.api.public_invoices import router as public_invoices_router
 from app.api.payees import router as payees_router
 from app.api.settings import router as settings_router
@@ -200,6 +201,7 @@ app.include_router(invoices_router)
 app.include_router(invoice_attachments_router)
 app.include_router(invoice_schedules_router)
 app.include_router(public_invoices_router)
+app.include_router(products_router)
 app.include_router(settings_router)
 app.include_router(workspaces_router)
 app.include_router(admin_router)

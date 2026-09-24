@@ -329,7 +329,19 @@
       "negative_discount": "Une remise ne peut pas être négative.",
       "first_term": "Le prix en vigueur depuis le début ne peut être ni déplacé ni supprimé. Modifiez-le, ou ajoutez un nouveau prix à partir d'une date ultérieure.",
       "not_receivable": "Seule une facture que vous avez émise peut appartenir à un accord.",
-      "period_already_issued": "Cette période vient d'être émise. Actualisez pour la voir."
+      "period_already_issued": "Cette période vient d'être émise. Actualisez pour la voir.",
+      "product_not_found": "Produit introuvable.",
+      "price_not_found": "Prix introuvable sur ce produit.",
+      "product_in_use": "Des factures mentionnent ce produit. Archivez-le plutôt que de le supprimer.",
+      "price_in_use": "Des factures ont été émises à ce prix. Archivez-le plutôt que de le supprimer.",
+      "invalid_kind": "Type de produit inconnu.",
+      "invalid_billing": "Type de facturation inconnu.",
+      "interval_required": "Un prix récurrent a besoin d'une fréquence.",
+      "currency_required": "Un prix a besoin d'une devise.",
+      "unit_price_required": "Un prix a besoin d'un montant.",
+      "negative_price": "Un prix ne peut pas être négatif.",
+      "invalid_fiscal_refs": "Les références fiscales doivent être de courtes valeurs texte sous des clés simples (lettres, chiffres, tiret bas).",
+      "price_key_taken": "Un autre prix utilise déjà cette clé de recherche ou cet identifiant externe."
     },
     "comingNext": "Facturez vos clients et suivez ce qui a été payé et ce qui reste ouvert. C'est la prochaine chose en construction.",
     "document": {
@@ -563,6 +575,73 @@
         "description": "Une par période, rédigée le jour même. Une facture rédigée à la main peut aussi être liée.",
         "empty": "Aucune facture sous cet accord pour l'instant.",
         "emptyNext": "Aucune facture pour l'instant. La première sera rédigée le {{date}}."
+      }
+    },
+    "products": {
+      "title": "Produits",
+      "new": "Nouveau produit",
+      "newDescription": "Quelque chose que vous vendez, avec un prix par devise. Le choisir remplit une ligne de facture ; la ligne reste à vous pour la modifier ensuite.",
+      "editTitle": "Modifier le produit",
+      "empty": "Aucun produit pour l'instant. Ajoutez ce que vous vendez, et chaque ligne de facture sera à un clic.",
+      "emptyArchived": "Rien d'archivé.",
+      "emptyPicker": "Aucun produit pour l'instant. Ajoutez-les dans Produits.",
+      "noneFound": "Aucun produit ne correspond.",
+      "searchPlaceholder": "Rechercher des produits",
+      "pick": "Choisir dans le catalogue",
+      "fromCatalog": "Depuis le catalogue",
+      "noPrice": "Aucun prix",
+      "noPriceIn": "aucun prix en {{currency}}",
+      "perUnit": "par {{unit}}",
+      "created": "Produit créé",
+      "saved": "Produit enregistré",
+      "archived": "Produit archivé. Les factures qui le mentionnent restent inchangées.",
+      "restored": "Produit restauré",
+      "deleted": "Produit supprimé",
+      "filter": {
+        "active": "Actifs",
+        "archived": "Archivés"
+      },
+      "kind": {
+        "service": "Service",
+        "product": "Produit"
+      },
+      "billing": {
+        "one_time": "Ponctuel",
+        "every": "Chaque {{interval}}"
+      },
+      "per": {
+        "weekly": "semaine",
+        "biweekly": "2 semaines",
+        "monthly": "mois",
+        "quarterly": "trimestre",
+        "semiannual": "6 mois",
+        "yearly": "an"
+      },
+      "column": {
+        "name": "Nom",
+        "kind": "Type",
+        "prices": "Prix",
+        "invoices": "Factures"
+      },
+      "field": {
+        "name": "Nom",
+        "namePlaceholder": "Heure de conseil, Forfait Pro, Création de logo",
+        "kind": "Type",
+        "description": "Description",
+        "prices": "Prix",
+        "pricesHint": "Un par devise. Un prix récurrent indique la fréquence ; c'est une indication pour les factures récurrentes, rien n'est facturé tout seul.",
+        "addPrice": "Ajouter un prix",
+        "noPrices": "Aucun prix. Le nom remplit quand même la ligne ; le montant est saisi à la main.",
+        "nickname": "Libellé (facultatif)",
+        "fiscalRefs": "Références fiscales",
+        "fiscalRefsHint": "Ce qu'un document fiscal exige par ligne. Suggéré par votre juridiction ; ajoutez toute autre clé dont vous avez besoin.",
+        "customRefKey": "autre clé (ex. hs_code)",
+        "addRef": "Ajouter",
+        "fiscalRefsNone": "Rien n'est suggéré pour ce type ici. Ajoutez toute clé dont vos documents fiscaux ont besoin."
+      },
+      "action": {
+        "archive": "Archiver",
+        "restore": "Restaurer"
       }
     }
   },
@@ -1944,7 +2023,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Autres pays",
-    "anyCountry": "Ailleurs"
+    "anyCountry": "Ailleurs",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / code-barres",
+      "service_code": "Code de service (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Code de service municipal",
+      "hs_code": "Code SH (HS)",
+      "sat_product_code": "Code produit/service SAT",
+      "sat_unit_code": "Code d'unité SAT"
+    }
   },
   "common": {
     "selectTimezone": "Choisir un fuseau horaire",

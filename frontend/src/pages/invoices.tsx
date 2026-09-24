@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Calendar as CalendarIcon,
   ChevronDown,
+  Package,
   Plus,
   Receipt,
   Repeat,
@@ -160,15 +161,26 @@ export default function InvoicesPage() {
             {/* Only on the receivable side: an agreement is something we
                 bill, and the payable ledger has nothing to emit. */}
             {direction === 'receivable' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate('/invoices/schedules')}
-                data-testid="invoice-schedules-button"
-              >
-                <Repeat className="h-4 w-4 mr-1.5" />
-                {t('invoices.schedules.title')}
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/invoices/products')}
+                  data-testid="invoice-products-button"
+                >
+                  <Package className="h-4 w-4 mr-1.5" />
+                  {t('invoices.products.title')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/invoices/schedules')}
+                  data-testid="invoice-schedules-button"
+                >
+                  <Repeat className="h-4 w-4 mr-1.5" />
+                  {t('invoices.schedules.title')}
+                </Button>
+              </>
             )}
             <Button
               variant="outline"
@@ -602,11 +614,13 @@ function CreateInvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Widens once there are line items: a table of five columns in a
-          narrow dialog is the cramped row of boxes this used to be. */}
+          narrow dialog is the cramped row of boxes this used to be. The
+          document preset opens with a line row already showing, so it
+          starts wide. */}
       <DialogContent
         className={cn(
           'flex flex-col max-h-[calc(100dvh-2rem)]',
-          lines.length ? 'sm:max-w-3xl' : 'sm:max-w-lg',
+          lines.length || settings?.document_required ? 'sm:max-w-3xl' : 'sm:max-w-lg',
         )}
       >
         <DialogHeader>

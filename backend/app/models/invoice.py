@@ -86,7 +86,7 @@ INVOICE_DOCUMENT_TYPES = ("invoice", "credit_note")
 INVOICE_DIRECTIONS = ("receivable", "payable")
 
 #: Who authored the document. `imported` rows are reconstructed from an
-#: external system (Stripe, Asaas, a CSV): that system owns the document,
+#: external system (a payment gateway, a CSV): that system owns the document,
 #: and Securo owns the cash that settled it.
 INVOICE_ORIGINS = ("local", "imported")
 
@@ -118,7 +118,7 @@ class Invoice(Base):
             "workspace_id", "series", "number", name="uq_invoices_workspace_series_number"
         ),
         # An imported document is identified by its source's own id, so
-        # two syncs of the same Stripe invoice converge on one row.
+        # two syncs of the same gateway invoice converge on one row.
         UniqueConstraint(
             "workspace_id",
             "external_source",
@@ -353,6 +353,20 @@ class InvoiceLine(Base):
     tax_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=7, scale=4), nullable=True)
     total: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=Decimal("0"))
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Where the line came from, when it came from the catalog. Provenance
+    # only: the fields above are the line's own copy, and neither id
+    # takes part in the arithmetic. SET NULL because the line is part of
+    # a document and outlives the catalog entry.
+    product_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    price_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("product_prices.id", ondelete="SET NULL"), nullable=True
+    )
+    # The product's fiscal references as they stood when the line was
+    # written (NCM, service code, HS code...). The line's own copy, for
+    # the same reason as every other value on it.
+    fiscal_refs: Mapped[Optional[dict[str, str]]] = mapped_column(JSON, nullable=True)
 
     invoice: Mapped["Invoice"] = relationship(back_populates="lines")
 

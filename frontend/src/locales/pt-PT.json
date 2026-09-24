@@ -329,7 +329,19 @@
       "negative_discount": "Um desconto não pode ser negativo.",
       "first_term": "O preço em vigor desde o início não pode ser movido nem removido. Altere-o ou adicione um novo preço a partir de uma data posterior.",
       "not_receivable": "Só uma cobrança emitida por si pode pertencer a um acordo.",
-      "period_already_issued": "Este período acabou de ser emitido. Atualize a página para o ver."
+      "period_already_issued": "Este período acabou de ser emitido. Atualize a página para o ver.",
+      "product_not_found": "Produto não encontrado.",
+      "price_not_found": "Preço não encontrado neste produto.",
+      "product_in_use": "Há cobranças que mencionam este produto. Arquive-o em vez de o excluir.",
+      "price_in_use": "Há cobranças emitidas com este preço. Arquive-o em vez de o excluir.",
+      "invalid_kind": "Tipo de produto desconhecido.",
+      "invalid_billing": "Tipo de cobrança desconhecido.",
+      "interval_required": "Um preço recorrente precisa de uma frequência.",
+      "currency_required": "Um preço precisa de uma moeda.",
+      "unit_price_required": "Um preço precisa de um valor.",
+      "negative_price": "Um preço não pode ser negativo.",
+      "invalid_fiscal_refs": "As referências fiscais devem ser textos curtos sob chaves simples (letras, dígitos, sublinhado).",
+      "price_key_taken": "Outro preço já usa esta chave de pesquisa ou id externo."
     },
     "comingNext": "Cobra os teus clientes e acompanha o que já foi pago e o que continua em aberto. É a próxima coisa a ser construída.",
     "document": {
@@ -563,6 +575,73 @@
         "description": "Uma por período, gerada no dia. Uma cobrança emitida à mão também pode ser associada.",
         "empty": "Ainda não há cobranças neste acordo.",
         "emptyNext": "Ainda não há cobranças. A primeira será gerada a {{date}}."
+      }
+    },
+    "products": {
+      "title": "Produtos",
+      "new": "Novo produto",
+      "newDescription": "Algo que você vende, com um preço por moeda. Escolhê-lo preenche uma linha da cobrança; a linha continua sua para alterar depois.",
+      "editTitle": "Editar produto",
+      "empty": "Ainda não há produtos. Adicione o que você vende, e cada linha de cobrança fica a um clique.",
+      "emptyArchived": "Nada arquivado.",
+      "emptyPicker": "Ainda não há produtos. Adicione-os em Produtos.",
+      "noneFound": "Nenhum produto corresponde.",
+      "searchPlaceholder": "Pesquisar produtos",
+      "pick": "Escolher do catálogo",
+      "fromCatalog": "Do catálogo",
+      "noPrice": "Sem preço",
+      "noPriceIn": "sem preço em {{currency}}",
+      "perUnit": "por {{unit}}",
+      "created": "Produto criado",
+      "saved": "Produto guardado",
+      "archived": "Produto arquivado. As cobranças que o mencionam não mudam.",
+      "restored": "Produto restaurado",
+      "deleted": "Produto excluído",
+      "filter": {
+        "active": "Ativos",
+        "archived": "Arquivados"
+      },
+      "kind": {
+        "service": "Serviço",
+        "product": "Produto"
+      },
+      "billing": {
+        "one_time": "Pontual",
+        "every": "A cada {{interval}}"
+      },
+      "per": {
+        "weekly": "semana",
+        "biweekly": "2 semanas",
+        "monthly": "mês",
+        "quarterly": "trimestre",
+        "semiannual": "6 meses",
+        "yearly": "ano"
+      },
+      "column": {
+        "name": "Nome",
+        "kind": "Tipo",
+        "prices": "Preços",
+        "invoices": "Cobranças"
+      },
+      "field": {
+        "name": "Nome",
+        "namePlaceholder": "Hora de consultoria, Plano Pro, Criação de logótipo",
+        "kind": "Tipo",
+        "description": "Descrição",
+        "prices": "Preços",
+        "pricesHint": "Um por moeda. Um preço recorrente indica a frequência; é uma sugestão para cobranças recorrentes, nada é cobrado por si só.",
+        "addPrice": "Adicionar preço",
+        "noPrices": "Sem preços. O nome preenche a linha na mesma; o valor é escrito à mão.",
+        "nickname": "Rótulo (opcional)",
+        "fiscalRefs": "Referências fiscais",
+        "fiscalRefsHint": "O que um documento fiscal precisa por linha. Sugerido pela sua jurisdição; adicione qualquer outra chave de que precise.",
+        "customRefKey": "outra chave (ex.: hs_code)",
+        "addRef": "Adicionar",
+        "fiscalRefsNone": "Nada sugerido para este tipo aqui. Adicione qualquer chave de que os seus documentos fiscais precisem."
+      },
+      "action": {
+        "archive": "Arquivar",
+        "restore": "Restaurar"
       }
     }
   },
@@ -1944,7 +2023,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Outros países",
-    "anyCountry": "Qualquer outro lugar"
+    "anyCountry": "Qualquer outro lugar",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / código de barras",
+      "service_code": "Código de serviço (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Código de serviço municipal",
+      "hs_code": "Código HS",
+      "sat_product_code": "Código de produto/serviço SAT",
+      "sat_unit_code": "Código de unidade SAT"
+    }
   },
   "common": {
     "selectTimezone": "Selecionar fuso horário",

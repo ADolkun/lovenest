@@ -329,7 +329,19 @@
       "negative_discount": "Ein Rabatt kann nicht negativ sein.",
       "first_term": "Der Preis, der ab Beginn gilt, kann weder verschoben noch entfernt werden. Ändern Sie ihn oder fügen Sie einen neuen Preis ab einem späteren Datum hinzu.",
       "not_receivable": "Nur eine von Ihnen ausgestellte Rechnung kann zu einer Vereinbarung gehören.",
-      "period_already_issued": "Dieser Zeitraum wurde gerade ausgestellt. Aktualisieren Sie die Seite, um ihn zu sehen."
+      "period_already_issued": "Dieser Zeitraum wurde gerade ausgestellt. Aktualisieren Sie die Seite, um ihn zu sehen.",
+      "product_not_found": "Produkt nicht gefunden.",
+      "price_not_found": "Preis bei diesem Produkt nicht gefunden.",
+      "product_in_use": "Rechnungen nennen dieses Produkt. Archivieren Sie es, statt es zu löschen.",
+      "price_in_use": "Rechnungen wurden zu diesem Preis gestellt. Archivieren Sie ihn, statt ihn zu löschen.",
+      "invalid_kind": "Unbekannte Produktart.",
+      "invalid_billing": "Unbekannte Abrechnungsart.",
+      "interval_required": "Ein wiederkehrender Preis braucht einen Rhythmus.",
+      "currency_required": "Ein Preis braucht eine Währung.",
+      "unit_price_required": "Ein Preis braucht einen Betrag.",
+      "negative_price": "Ein Preis kann nicht negativ sein.",
+      "invalid_fiscal_refs": "Steuerliche Referenzen müssen kurze Textwerte unter einfachen Schlüsseln sein (Buchstaben, Ziffern, Unterstrich).",
+      "price_key_taken": "Ein anderer Preis verwendet diesen Suchschlüssel oder diese externe ID bereits."
     },
     "comingNext": "Stelle deinen Kunden Rechnungen und behalte im Blick, was bezahlt ist und was offen bleibt. Das ist das Nächste, was gebaut wird.",
     "document": {
@@ -563,6 +575,73 @@
         "description": "Eine pro Periode, am Stichtag erstellt. Eine von Hand erstellte Rechnung kann ebenfalls verknüpft werden.",
         "empty": "Noch keine Rechnung unter dieser Vereinbarung.",
         "emptyNext": "Noch keine Rechnung. Die erste wird am {{date}} erstellt."
+      }
+    },
+    "products": {
+      "title": "Produkte",
+      "new": "Neues Produkt",
+      "newDescription": "Etwas, das Sie verkaufen, mit einem Preis pro Währung. Die Auswahl füllt eine Rechnungsposition aus; die Position können Sie danach frei ändern.",
+      "editTitle": "Produkt bearbeiten",
+      "empty": "Noch keine Produkte. Legen Sie an, was Sie verkaufen, und jede Rechnungsposition ist nur einen Klick entfernt.",
+      "emptyArchived": "Nichts archiviert.",
+      "emptyPicker": "Noch keine Produkte. Legen Sie sie unter Produkte an.",
+      "noneFound": "Kein Produkt passt.",
+      "searchPlaceholder": "Produkte suchen",
+      "pick": "Aus dem Katalog wählen",
+      "fromCatalog": "Aus dem Katalog",
+      "noPrice": "Kein Preis",
+      "noPriceIn": "kein Preis in {{currency}}",
+      "perUnit": "pro {{unit}}",
+      "created": "Produkt erstellt",
+      "saved": "Produkt gespeichert",
+      "archived": "Produkt archiviert. Rechnungen, die es nennen, bleiben unverändert.",
+      "restored": "Produkt wiederhergestellt",
+      "deleted": "Produkt gelöscht",
+      "filter": {
+        "active": "Aktiv",
+        "archived": "Archiviert"
+      },
+      "kind": {
+        "service": "Dienstleistung",
+        "product": "Produkt"
+      },
+      "billing": {
+        "one_time": "Einmalig",
+        "every": "Pro {{interval}}"
+      },
+      "per": {
+        "weekly": "Woche",
+        "biweekly": "2 Wochen",
+        "monthly": "Monat",
+        "quarterly": "Quartal",
+        "semiannual": "6 Monate",
+        "yearly": "Jahr"
+      },
+      "column": {
+        "name": "Name",
+        "kind": "Art",
+        "prices": "Preise",
+        "invoices": "Rechnungen"
+      },
+      "field": {
+        "name": "Name",
+        "namePlaceholder": "Beratungsstunde, Pro-Tarif, Logo-Design",
+        "kind": "Art",
+        "description": "Beschreibung",
+        "prices": "Preise",
+        "pricesHint": "Einer pro Währung. Ein wiederkehrender Preis gibt an, wie oft; er ist ein Hinweis für wiederkehrende Rechnungen, von selbst wird nichts berechnet.",
+        "addPrice": "Preis hinzufügen",
+        "noPrices": "Keine Preise. Der Name füllt die Position trotzdem aus; der Betrag wird eingetippt.",
+        "nickname": "Bezeichnung (optional)",
+        "fiscalRefs": "Steuerliche Referenzen",
+        "fiscalRefsHint": "Was ein Steuerbeleg pro Position braucht. Von Ihrer Steuerzone vorgeschlagen; fügen Sie jeden weiteren Schlüssel hinzu, den Sie brauchen.",
+        "customRefKey": "anderer Schlüssel (z. B. hs_code)",
+        "addRef": "Hinzufügen",
+        "fiscalRefsNone": "Für diese Art wird hier nichts vorgeschlagen. Fügen Sie jeden Schlüssel hinzu, den Ihre Steuerbelege benötigen."
+      },
+      "action": {
+        "archive": "Archivieren",
+        "restore": "Wiederherstellen"
       }
     }
   },
@@ -1944,7 +2023,18 @@
       "uscc": "USCC"
     },
     "otherCountries": "Andere Länder",
-    "anyCountry": "Anderswo"
+    "anyCountry": "Anderswo",
+    "productField": {
+      "ncm": "NCM",
+      "cest": "CEST",
+      "gtin": "GTIN / Barcode",
+      "service_code": "Dienstleistungscode (LC 116)",
+      "nbs": "NBS",
+      "municipal_service_code": "Kommunaler Dienstleistungscode",
+      "hs_code": "HS-Code",
+      "sat_product_code": "SAT-Produkt-/Dienstleistungscode",
+      "sat_unit_code": "SAT-Einheitencode"
+    }
   },
   "common": {
     "selectTimezone": "Zeitzone wählen",

@@ -201,7 +201,16 @@ def _term_totals(lines: list[dict[str, Any]], discount: Decimal) -> tuple[Decima
 
 
 def _normalise_lines(lines: Any) -> list[dict[str, Any]]:
-    """Lines as they will be stored: plain JSON, decimals as strings."""
+    """Lines as they will be stored: plain JSON, decimals as strings.
+
+    Fiscal references are cleaned here, when a person can fix them, and
+    not only at emission: a bad key stored on a term would fail every
+    period until the job paused the agreement.
+    """
+    # Lazy: the catalog reads this module's neighbours, and a top-level
+    # import each way would be a cycle.
+    from app.services.product_service import clean_fiscal_refs
+
     if not lines:
         raise InvoiceError("term_lines_required", "A term needs at least one line")
     out: list[dict[str, Any]] = []
@@ -218,6 +227,12 @@ def _normalise_lines(lines: Any) -> list[dict[str, Any]]:
                 "tax_rate": (
                     str(Decimal(str(line["tax_rate"]))) if line.get("tax_rate") is not None else None
                 ),
+                # Catalog provenance, kept as text. Checked when the
+                # period is emitted, not here: a product archived or
+                # deleted later must not stop the agreement from billing.
+                "product_id": str(line["product_id"]) if line.get("product_id") else None,
+                "price_id": str(line["price_id"]) if line.get("price_id") else None,
+                "fiscal_refs": clean_fiscal_refs(line.get("fiscal_refs")),
             }
         )
     return out
@@ -815,7 +830,7 @@ async def link_invoice(
 
     The retroactive door: someone who billed a retainer by hand from
     March to August and only now created the schedule gets their
-    history, and a Stripe import lands its invoices the same way. The
+    history, and a gateway import lands its invoices the same way. The
     date has to be a real period boundary, the period has to be free,
     and the invoice has to be the same money (currency, and client when
     both say one).
@@ -880,6 +895,9 @@ def _lines_from_invoice(invoice: Invoice, fallback_description: str) -> list[dic
                 "unit": line.unit,
                 "unit_price": line.unit_price,
                 "tax_rate": line.tax_rate,
+                "product_id": line.product_id,
+                "price_id": line.price_id,
+                "fiscal_refs": line.fiscal_refs,
             }
             for line in invoice.lines
         ]
@@ -983,6 +1001,13 @@ async def _emit(
     if term is None:
         raise InvoiceError("no_term", "No term is in force for this period")
     terms_days = await _payment_terms(session, schedule)
+    # The term may name a product that has since been deleted. The line
+    # has its own values, so the id is dropped and the period is billed.
+    from app.services import product_service
+
+    lines = await product_service.resolve_lines(
+        session, schedule.workspace_id, [dict(line) for line in term.lines], strict=False
+    )
     if schedule.user_id is None:
         # The ledger stamps who created each invoice. An agreement whose
         # author left the workspace keeps emitting, and the invoice is
@@ -999,7 +1024,7 @@ async def _emit(
             "competence_date": start,
             "currency": schedule.currency,
             "discount": Decimal(term.discount),
-            "lines": [dict(line) for line in term.lines],
+            "lines": lines,
             "notes": schedule.notes,
             "custom_fields": schedule.custom_fields,
         },
