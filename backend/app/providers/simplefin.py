@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # initial sync (since=None) we walk backwards in chunks of this size; for
 # follow-up syncs the sync layer's typical 30-90 day window fits in one call.
 SIMPLEFIN_MAX_WINDOW_DAYS = 90
-SIMPLEFIN_DEFAULT_HISTORY_DAYS = 45
+SIMPLEFIN_DEFAULT_HISTORY_DAYS = 45  # routine overlap, not the per-request cap
 SIMPLEFIN_INITIAL_HISTORY_DAYS = 365  # ~1 year backfill on first connect
 SIMPLEFIN_HTTP_TIMEOUT = 60.0
 

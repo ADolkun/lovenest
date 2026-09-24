@@ -93,6 +93,13 @@ import type {
   HistoryCollectionSummary,
   TraceRequest,
   TraceResult,
+  ReconciliationNode,
+  ReconciliationPolicyFile,
+  ReconciliationRule,
+  ReconciliationRuleDraft,
+  ReconciliationRulePatch,
+  ReconciliationSuggestion,
+  ReconciliationHistoryEvent,
 } from '@/types'
 
 const api = axios.create({
@@ -1015,6 +1022,118 @@ export const rules = {
 }
 
 // Recurring Transactions
+// Reconciliation: the rules matching follows, and the matches it was
+// not confident enough to make on its own.
+export const reconciliation = {
+  rules: async (): Promise<ReconciliationNode[]> => {
+    const { data } = await api.get('/reconciliation/rules')
+    return data
+  },
+  updateRule: async (
+    node: string,
+    id: string,
+    patch: ReconciliationRulePatch,
+  ): Promise<ReconciliationRule> => {
+    const { data } = await api.patch(
+      `/reconciliation/rules/${encodeURIComponent(node)}/${encodeURIComponent(id)}`,
+      patch,
+    )
+    return data
+  },
+  /** Set the order rules are tried in. Names every rule in the set: the
+   *  first match wins, so a half-implicit order rearranges itself the day
+   *  a new default ships. */
+  reorderRules: async (
+    node: string,
+    order: string[],
+  ): Promise<ReconciliationRule[]> => {
+    const { data } = await api.put(
+      `/reconciliation/rules/${encodeURIComponent(node)}/order`,
+      { order },
+    )
+    return data
+  },
+  createRule: async (rule: ReconciliationRuleDraft): Promise<ReconciliationRule> => {
+    const { data } = await api.post('/reconciliation/rules', rule)
+    return data
+  },
+  /** Get rid of a rule, whoever wrote it: ours included. What happens
+   *  underneath differs (a rule of your own is a row and goes; one of
+   *  ours ships in the image, so a tombstone records that this workspace
+   *  does not run it) but that is our problem, not something to make a
+   *  person learn. */
+  deleteRule: async (node: string, id: string): Promise<void> => {
+    await api.delete(
+      `/reconciliation/rules/${encodeURIComponent(node)}/${encodeURIComponent(id)}`,
+    )
+  },
+  /** Forget everything this workspace did to one of our rules (a moved
+   *  threshold, a place in the order, a deletion), and go back to
+   *  whatever we ship today. */
+  resetRule: async (node: string, id: string): Promise<void> => {
+    await api.post(
+      `/reconciliation/rules/${encodeURIComponent(node)}/${encodeURIComponent(id)}/reset`,
+    )
+  },
+  /** `node` narrows the file to one set. Each set is its own card with
+   *  its own button, and a button under one heading that hands over
+   *  another set's rules is a button that lies. */
+  exportRules: async (node?: string): Promise<void> => {
+    const { data } = await api.get('/reconciliation/rules/export', {
+      responseType: 'blob',
+      params: node ? { node } : undefined,
+    })
+    const blob = new Blob([data], { type: 'application/json;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // The set in the filename, so two exports do not overwrite each
+    // other in the downloads folder on the same day.
+    const set = node ? `-${node.split('.').pop()}` : ''
+    a.download = `securo-reconciliation-rules${set}-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+  /** Replaces rather than merges: order is the mechanism here, and there
+   *  is no correct way to interleave two orderings. Hence `overwrite`. */
+  importRules: async (
+    payload: ReconciliationPolicyFile,
+    overwrite = false,
+    node?: string,
+  ): Promise<{ imported: number; skipped: number }> => {
+    const { data } = await api.post(
+      '/reconciliation/rules/import',
+      { payload, overwrite },
+      { params: node ? { node } : undefined },
+    )
+    return data
+  },
+  /** What matching did, newest first. `expectationId` narrows it to
+   *  everything that ever happened to one invoice. */
+  history: async (
+    expectationId?: string,
+  ): Promise<ReconciliationHistoryEvent[]> => {
+    const { data } = await api.get('/reconciliation/history', {
+      params: expectationId ? { expectation_id: expectationId } : undefined,
+    })
+    return data
+  },
+  suggestions: async (): Promise<ReconciliationSuggestion[]> => {
+    const { data } = await api.get('/reconciliation/suggestions')
+    return data
+  },
+  accept: async (id: string): Promise<ReconciliationSuggestion> => {
+    const { data } = await api.post(`/reconciliation/suggestions/${id}/accept`)
+    return data
+  },
+  decline: async (id: string): Promise<ReconciliationSuggestion> => {
+    const { data } = await api.post(`/reconciliation/suggestions/${id}/decline`)
+    return data
+  },
+}
+
 export const recurring = {
   list: async (): Promise<RecurringTransaction[]> => {
     const { data } = await api.get('/recurring-transactions')
@@ -1497,11 +1616,20 @@ export const collections = {
 
 // Reports
 export const reports = {
-  netWorth: async (months = 12, interval = 'monthly', accountIds?: string[], assetGroupIds?: string[], period?: 'ytd'): Promise<ReportResponse> => {
+  netWorth: async (
+    months = 12,
+    interval = 'monthly',
+    accountIds?: string[],
+    assetGroupIds?: string[],
+    period?: 'ytd',
+    startDate?: string,
+    endDate?: string,
+  ): Promise<ReportResponse> => {
     const hasFilter = (accountIds && accountIds.length > 0) || (assetGroupIds && assetGroupIds.length > 0)
     const { data } = await api.get('/reports/net-worth', {
       params: {
         months, interval, period,
+        ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
         ...(accountIds && accountIds.length > 0 ? { account_ids: accountIds } : {}),
         ...(assetGroupIds && assetGroupIds.length > 0 ? { asset_group_ids: assetGroupIds } : {}),
       },
@@ -1510,10 +1638,27 @@ export const reports = {
     return data
   },
   // `days` requests an exact rolling window ending today, instead of the
-  // month-aligned window `months` produces.
-  incomeExpenses: async (months = 12, interval = 'monthly', accountIds?: string[], period?: 'ytd', days?: number): Promise<ReportResponse> => {
+  // month-aligned window `months` produces. `startDate`/`endDate` (both
+  // required together) pin the window to an explicit calendar range and
+  // override the preset selectors on the backend.
+  incomeExpenses: async (
+    months = 12,
+    interval = 'monthly',
+    accountIds?: string[],
+    period?: 'ytd',
+    days?: number,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<ReportResponse> => {
     const extra = acctIdsParam(accountIds)
-    const { data } = await api.get('/reports/income-expenses', { params: { months, interval, period, days, ...(extra.params ?? {}) }, ...(extra.paramsSerializer ? { paramsSerializer: extra.paramsSerializer } : {}) })
+    const { data } = await api.get('/reports/income-expenses', {
+      params: {
+        months, interval, period, days,
+        ...(startDate && endDate ? { start_date: startDate, end_date: endDate } : {}),
+        ...(extra.params ?? {}),
+      },
+      ...(extra.paramsSerializer ? { paramsSerializer: extra.paramsSerializer } : {}),
+    })
     return data
   },
   cashFlow: async (months = 6, interval = 'daily', baseline = false, accountIds?: string[]): Promise<ReportResponse> => {

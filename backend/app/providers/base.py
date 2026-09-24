@@ -132,6 +132,7 @@ class AccountData:
     # abstention: answering False there would tell the user an investment
     # account holds nothing.
     has_holdings: Optional[bool] = None
+    shared_balance_group: Optional[str] = None
     # Per-account institution override (SimpleFIN — issue #345). None = same
     # as connection. The external id is the provider's stable org id
     # (SimpleFIN conn_id) so a renamed bank updates its row instead of

@@ -233,16 +233,19 @@ def counts_on_bill():
         category — those leave the account balance too, so dropping them
         from the bill keeps the card's two numbers telling one story.
 
-    Kept in, and this is the whole point of the helper:
-      - `treat_as_transfer` categories. Buying an investment with the
-        card still lands on the statement; the category says how to
-        report the purchase, not whether the bank billed for it.
-      - rows flagged `exclude_from_pnl`. Its canonical use is a work
-        expense paid on a personal card and reimbursed later — and the
-        bank bills the whole card either way.
+    `treat_as_transfer` categories stay in, and this is the whole point of
+    the helper: buying an investment or paying a consortium installment
+    with the card still lands on the statement, so a charge doesn't stop
+    being owed to the bank because of how it was tagged afterwards (issue
+    #647).
 
-    The rule both share: a bill honors "make this disappear" and
-    ignores "report this differently".
+    Credits the payment classifier recognizes are dropped even when
+    unpaired (the payer's account isn't connected, the amount doesn't match
+    exactly, or it was a partial payment): letting one through would net a
+    repayment against new debt. Upstream (#649) keys this on the credit's
+    `treat_as_transfer` category because it cannot tell a refund from an
+    unpaired payment; Lovenest can, so a refund filed under a transfer-like
+    category still shrinks the bill, exactly as it does in P&L.
 
     Deliberately spelled out rather than defined as "`counts_as_pnl`
     minus a clause": a filter for what a *report* excludes will keep
@@ -250,16 +253,15 @@ def counts_on_bill():
     and a bill total must not inherit those. Every clause here is one
     somebody chose for the bill.
     """
+    ignored_category = Transaction.category_id.in_(
+        select(Category.id).where(Category.is_ignored.is_(True))
+    )
     return and_(
         not_(has_valid_transfer_pair()),
         Transaction.is_ignored.is_(False),
         ~and_(Transaction.source == "settlement", Transaction.type == "debit"),
-        or_(
-            Transaction.category_id.is_(None),
-            Transaction.category_id.not_in(
-                select(Category.id).where(Category.is_ignored.is_(True))
-            ),
-        ),
+        or_(Transaction.category_id.is_(None), ~ignored_category),
+        or_(Transaction.type == "debit", not_(credit_card_payment_filter())),
     )
 
 

@@ -35,7 +35,13 @@ export function accountAggregate(accounts: Account[], currency: string, workspac
   let total = 0
   let known = 0
   let incomplete = false
+  const sharedGroups = new Set<string>()
   for (const account of accounts) {
+    // Cards drawing on one shared credit line each report that line's balance.
+    if (account.shared_balance_group) {
+      if (sharedGroups.has(account.shared_balance_group)) continue
+      sharedGroups.add(account.shared_balance_group)
+    }
     const detail = scopedExplanation(account, workspaceId)
     const native = accountBalance(account, workspaceId)
     const amount = native === null ? null : account.currency === currency ? native : null

@@ -1,11 +1,11 @@
 import { useState } from 'react'
+import type { AxiosError } from 'axios'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
-import type { AxiosError } from 'axios'
-import { isServerUnreachable } from '@/lib/auth-errors'
 import { useAuth } from '@/contexts/auth-context'
 import { auth } from '@/lib/api'
+import { isServerUnreachable } from '@/lib/auth-errors'
 import {
   Dialog,
   DialogContent,
@@ -85,9 +85,10 @@ export function TwoFactorSetup({ open, onClose, localAuthEnabled = true }: TwoFa
       handleClose()
     } catch (err) {
       const detail = (err as AxiosError<{ detail?: string }>).response?.data?.detail
-      setError(t(isServerUnreachable(err) ? 'auth.serverError'
-        : detail === 'Invalid password' ? 'auth.currentPasswordWrong'
-        : detail === 'Invalid 2FA code' ? 'auth.invalid2faCode' : 'common.error'))
+      if (isServerUnreachable(err)) setError(t('auth.serverError'))
+      else if (detail === 'Invalid password') setError(t('auth.currentPasswordWrong'))
+      else if (detail === 'Invalid 2FA code') setError(t('auth.invalid2faCode'))
+      else setError(t('common.error'))
     } finally {
       setDisableLoading(false)
     }
@@ -140,7 +141,11 @@ export function TwoFactorSetup({ open, onClose, localAuthEnabled = true }: TwoFa
                 required
               />
             </div>
-            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleClose}>
                 {t('common.cancel')}
@@ -155,6 +160,9 @@ export function TwoFactorSetup({ open, onClose, localAuthEnabled = true }: TwoFa
     )
   }
 
+  // Enrollment is a local-credential feature: with local auth off the backend
+  // refuses /2fa/setup, so the dialog exists only to let an already-enrolled
+  // user disable 2FA.
   if (!localAuthEnabled) return null
 
   // Enable flow

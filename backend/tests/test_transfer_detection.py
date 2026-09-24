@@ -7,9 +7,11 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.reconciliation import ReconciliationSuggestion
 from app.models.transaction import Transaction
 from app.services.transfer_detection_service import (
     detect_transfer_pairs,
@@ -127,7 +129,13 @@ async def test_detect_no_credits(session: AsyncSession, test_user, test_workspac
 
 @pytest.mark.asyncio
 async def test_detect_respects_date_tolerance(session: AsyncSession, test_user, test_workspace):
-    """Only pairs transactions within date_tolerance_days."""
+    """Only pairs transactions inside the window the rules ask for.
+
+    The window used to be an argument to this function and is now a
+    condition on a rule somebody can read and change. Two days is what
+    ships, and what this asserts, because the point of moving it was to
+    keep the behaviour and expose the number.
+    """
     acc1 = await _make_account(session, test_user.id, "Tol A")
     acc2 = await _make_account(session, test_user.id, "Tol B")
     today = date.today()
@@ -136,7 +144,7 @@ async def test_detect_respects_date_tolerance(session: AsyncSession, test_user, 
     # Credit too far away (5 days)
     await _add_txn(session, test_user.id, acc2.id, 300, "credit", today + timedelta(days=5))
 
-    pairs = await detect_transfer_pairs(session, test_workspace.id, date_tolerance_days=2)
+    pairs = await detect_transfer_pairs(session, test_workspace.id)
     assert pairs == 0
 
 
@@ -150,7 +158,7 @@ async def test_detect_within_tolerance(session: AsyncSession, test_user, test_wo
     debit = await _add_txn(session, test_user.id, acc1.id, 400, "debit", today)
     credit = await _add_txn(session, test_user.id, acc2.id, 400, "credit", today + timedelta(days=1))
 
-    pairs = await detect_transfer_pairs(session, test_workspace.id, date_tolerance_days=2)
+    pairs = await detect_transfer_pairs(session, test_workspace.id)
     await session.commit()
     assert pairs == 1
 
@@ -638,3 +646,64 @@ async def test_both_sides_imported_together(session: AsyncSession, test_user, te
     await session.refresh(debit)
     await session.refresh(credit)
     assert debit.transfer_pair_id == credit.transfer_pair_id
+
+
+async def _suggestions(session: AsyncSession, workspace_id) -> list[ReconciliationSuggestion]:
+    result = await session.execute(
+        select(ReconciliationSuggestion).where(
+            ReconciliationSuggestion.workspace_id == workspace_id
+        )
+    )
+    return list(result.scalars().all())
+
+
+@pytest.mark.asyncio
+async def test_uncorroborated_pair_is_neither_linked_nor_suggested(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """Upstream's rules would link or ask; Lovenest's evidence gate removes
+    the candidate before any rule sees it."""
+    checking = await _make_account(session, test_user.id, "Checking")
+    card = await _make_account(session, test_user.id, "Card", acc_type="credit_card")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, checking.id, 40, "debit", today, description="VENMO 40.00",
+    )
+    credit = await _add_txn(
+        session, test_user.id, card.id, 40, "credit", today + timedelta(days=1),
+        description="AMAZON REFUND 40.00",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert debit.transfer_pair_id is None
+    assert credit.transfer_pair_id is None
+    assert await _suggestions(session, test_workspace.id) == []
+
+
+@pytest.mark.asyncio
+async def test_corroborated_leg_wins_over_an_uncorroborated_rival(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """An evidence-less rival must not make the corroborated pair ambiguous."""
+    first = await _make_account(session, test_user.id, "Shaire")
+    second = await _make_account(session, test_user.id, "Chase College")
+    third = await _make_account(session, test_user.id, "Payroll Checking")
+    today = date.today()
+    debit = await _add_txn(
+        session, test_user.id, first.id, 50, "debit", today,
+        description="Zelle payment to XIAYIRE Conf# uoza6w78x",
+    )
+    credit = await _add_txn(
+        session, test_user.id, second.id, 50, "credit", today,
+        description="Zelle payment from MAIMAITIAIZEZI XIAYIRE BACuoza6w78x",
+    )
+    rival = await _add_txn(
+        session, test_user.id, third.id, 50, "credit", today,
+        description="PAYROLL DEPOSIT",
+    )
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 1
+    assert debit.transfer_pair_id is not None
+    assert debit.transfer_pair_id == credit.transfer_pair_id
+    assert rival.transfer_pair_id is None
+    assert await _suggestions(session, test_workspace.id) == []

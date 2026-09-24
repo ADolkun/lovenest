@@ -30,6 +30,12 @@ describe('balance explanation contract', () => {
     expect(accountAggregate([{ ...account, balance_explanation: { ...account.balance_explanation!, coverage: 'partial' } }], 'USD')).toEqual({ amount: 120, incomplete: true })
   })
 
+  it('counts a credit line shared by several cards once', () => {
+    const card = { id: 'card-a', type: 'credit_card', current_balance: -300, currency: 'USD', shared_balance_group: 'line' } as Account
+    const sibling = { ...card, id: 'card-b' }
+    expect(accountAggregate([card, sibling, { ...card, id: 'solo', shared_balance_group: null }], 'USD')).toEqual({ amount: -600, incomplete: false })
+  })
+
   it('only consumes compatible explicit cash and preserves the nonnegative floor', () => {
     expect(walletCash(wallet, 'USD')).toBe(50)
     expect(walletCash(wallet, 'EUR')).toBeNull()

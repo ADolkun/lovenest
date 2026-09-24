@@ -1,6 +1,6 @@
 [project]
 name = "securo-backend"
-version = "0.15.1"
+version = "0.16.1"
 description = "Securo API - Personal Finance Manager"
 requires-python = ">=3.11"
 # These ranges express intent; CI and Docker install uv.lock with uv sync --locked.
@@ -55,8 +55,8 @@ dev = [
     "pytest-xdist>=3.8.0",
     "aiosqlite>=0.19.0",
     # Upgrade these checks deliberately: new releases can change diagnostics.
-    "ruff==0.16.6",
-    "ty==0.0.78",
+    "ruff==0.16.8",
+    "ty==0.0.82",
 ]
 
 [build-system]
