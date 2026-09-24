@@ -10,13 +10,13 @@ the person, so they stay and only the reference is cleared:
 - reconciliation_suggestions.resolved_by -> ON DELETE SET NULL
 - reconciliation_events.user_id          -> ON DELETE SET NULL
 
-Revision ID: 095
-Revises: 094
+Revision ID: 096
+Revises: 095
 """
 from alembic import op
 
-revision = "095"
-down_revision = "094"
+revision = "096"
+down_revision = "095"
 branch_labels = None
 depends_on = None
 
