@@ -19,6 +19,8 @@ import type {
   Transaction,
   Payee,
   PayeeSummary,
+  DeductionKind,
+  InstallmentInput,
   Invoice,
   InvoiceDirection,
   InvoiceDocumentPayload,
@@ -1960,6 +1962,8 @@ export interface InvoiceWritePayload {
   internal_notes?: string | null
   custom_fields?: Record<string, string> | null
   lines?: InvoiceLineInput[]
+  /** More than one due date. Must add up to the total; an empty list clears it. */
+  installments?: InstallmentInput[]
 }
 
 export interface MakeRecurringPayload {
@@ -2133,6 +2137,18 @@ export const invoices = {
     })
     return data
   },
+  /** Close part of the debt without money: tax withheld, a fee kept. */
+  deduct: async (
+    id: string,
+    payload: { kind: DeductionKind; amount: string; tax_kind?: string | null; note?: string | null; transaction_id?: string | null },
+  ): Promise<Invoice> => {
+    const { data } = await api.post(`/invoices/${id}/deductions`, payload)
+    return data
+  },
+  undeduct: async (id: string, deductionId: string): Promise<Invoice> => {
+    const { data } = await api.delete(`/invoices/${id}/deductions/${deductionId}`)
+    return data
+  },
   unallocate: async (id: string, allocationId: string): Promise<Invoice> => {
     const { data } = await api.delete(`/invoices/${id}/allocations/${allocationId}`)
     return data
@@ -2166,6 +2182,11 @@ export const invoices = {
    *  adds, which a plain <a href> would not carry. */
   pdf: async (id: string): Promise<Blob> => {
     const { data } = await api.get(`/invoices/${id}/pdf`, { responseType: 'blob' })
+    return data
+  },
+  /** The statement of account: payments and deductions since issue. */
+  statement: async (id: string): Promise<Blob> => {
+    const { data } = await api.get(`/invoices/${id}/statement`, { responseType: 'blob' })
     return data
   },
   share: async (id: string): Promise<InvoiceShareLink> => {

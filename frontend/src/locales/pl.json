@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Zapisz szkic"
+      "saveDraft": "Zapisz szkic",
+      "downloadStatement": "Pobierz wyciąg"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Cena wymaga kwoty.",
       "negative_price": "Cena nie może być ujemna.",
       "invalid_fiscal_refs": "Odniesienia podatkowe muszą być krótkimi wartościami tekstowymi pod prostymi kluczami (litery, cyfry, podkreślenie).",
-      "price_key_taken": "Inna cena już używa tego klucza wyszukiwania lub zewnętrznego identyfikatora."
+      "price_key_taken": "Inna cena już używa tego klucza wyszukiwania lub zewnętrznego identyfikatora.",
+      "installments_mismatch": "Raty nie sumują się do kwoty faktury.",
+      "installments_too_few": "Harmonogram wymaga co najmniej dwóch rat.",
+      "installment_amount_not_positive": "Każda rata musi mieć kwotę.",
+      "installment_due_required": "Każda rata wymaga terminu płatności.",
+      "invalid_deduction_kind": "Nieznany rodzaj potrącenia.",
+      "deduction_not_found": "Nie znaleziono potrącenia."
     },
     "comingNext": "Wystawiaj faktury klientom i śledź, co zostało zapłacone, a co wciąż jest otwarte. To następna rzecz w budowie.",
     "document": {
@@ -647,6 +654,61 @@
         "archive": "Archiwizuj",
         "restore": "Przywróć"
       }
+    },
+    "installments": {
+      "title": "Podziel na raty",
+      "splitIn": "Podziel na",
+      "splitHint": "równych części, co miesiąc, od terminu płatności",
+      "add": "Dodaj ratę",
+      "label": "Etykieta",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Suma: {{total}}.",
+      "mismatch": "Raty sumują się do {{scheduled}}, faktura do {{total}}.",
+      "schedule": "Harmonogram płatności",
+      "nextDue": "Najbliższy termin",
+      "dueDerived": "Ustalany przez ostatnią ratę.",
+      "count_one": "{{count}} rata",
+      "count_other": "Raty: {{count}}",
+      "state": {
+        "open": "Otwarta",
+        "partial": "Częściowa",
+        "paid": "Opłacona",
+        "overdue": "Przeterminowana",
+        "draft": "Szkic",
+        "void": "Anulowana",
+        "uncollectible": "Nieściągalna"
+      }
+    },
+    "deductions": {
+      "title": "Zarejestruj potrącenie",
+      "description": "Zamyka część należności bez wpływu pieniędzy: klient potrącił podatek, operator płatności zatrzymał prowizję, przewalutowanie wyszło niżej. Liczy się jako rozliczone, nigdy jako otrzymane.",
+      "action": "Zarejestruj potrącenie",
+      "recorded": "Potrącenie zarejestrowane",
+      "removed": "Potrącenie usunięte",
+      "amount": "Kwota",
+      "amountHint": "Do wysokości salda: {{balance}}.",
+      "kindLabel": "Powód",
+      "taxKind": "Jaki podatek (opcjonalnie)",
+      "taxKindPlaceholder": "PIT, VAT, podatek u źródła...",
+      "note": "Notatka (opcjonalnie)",
+      "settledWithout": "Rozliczone bez płatności",
+      "kind": {
+        "withholding_tax": "Podatek potrącony przez klienta",
+        "gateway_fee": "Prowizja zatrzymana przez operatora płatności",
+        "fx_difference": "Różnica kursowa",
+        "other": "Inne"
+      },
+      "differenceTitle": "Płatność jest niższa o {{difference}}",
+      "differenceHint": "Zarejestruj różnicę, aby zamknąć fakturę",
+      "differenceNone": "Nie rejestruj",
+      "figure": "Potrącono"
+    },
+    "statement": {
+      "asIssued": "Faktura w wystawionej postaci",
+      "asIssuedHint": "Dokument wysłany do klienta",
+      "hint": "Płatności i potrącenia od wystawienia oraz saldo",
+      "banner": "Ten PDF to faktura w wystawionej postaci. Od tego czasu otrzymano {{paid}} i potrącono {{deducted}}: wyciąg pokazuje każdą pozycję i saldo.",
+      "title": "Wyciąg z konta"
     }
   },
   "collections": {

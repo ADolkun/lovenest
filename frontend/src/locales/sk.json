@@ -236,7 +236,8 @@
       "downloadPdf": "Stiahnuť PDF",
       "share": "Zdieľať odkaz",
       "revokeLink": "Zrušiť odkaz",
-      "saveDraft": "Uložiť ako koncept"
+      "saveDraft": "Uložiť ako koncept",
+      "downloadStatement": "Stiahnuť výpis"
     },
     "settings": {
       "title": "Nastavenia faktúr",
@@ -341,7 +342,13 @@
       "unit_price_required": "Cena potrebuje sumu.",
       "negative_price": "Cena nemôže byť záporná.",
       "invalid_fiscal_refs": "Daňové referencie musia byť krátke textové hodnoty pod jednoduchými kľúčmi (písmená, číslice, podčiarknutie).",
-      "price_key_taken": "Iná cena už používa tento vyhľadávací kľúč alebo externé id."
+      "price_key_taken": "Iná cena už používa tento vyhľadávací kľúč alebo externé id.",
+      "installments_mismatch": "Splátky nedávajú spolu sumu faktúry.",
+      "installments_too_few": "Splátkový kalendár potrebuje aspoň dve splátky.",
+      "installment_amount_not_positive": "Každá splátka musí mať sumu.",
+      "installment_due_required": "Každá splátka potrebuje dátum splatnosti.",
+      "invalid_deduction_kind": "Neznámy typ zrážky.",
+      "deduction_not_found": "Zrážka sa nenašla."
     },
     "comingNext": "Fakturujte klientom a majte prehľad o tom, čo je zaplatené a čo ešte otvorené. Toto sa práve stavia.",
     "document": {
@@ -647,6 +654,61 @@
         "archive": "Archivovať",
         "restore": "Obnoviť"
       }
+    },
+    "installments": {
+      "title": "Rozdeliť na splátky",
+      "splitIn": "Rozdeliť na",
+      "splitHint": "rovnakých častí, s mesačným odstupom, od dátumu splatnosti",
+      "add": "Pridať splátku",
+      "label": "Označenie",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Spolu {{total}}.",
+      "mismatch": "Splátky dávajú spolu {{scheduled}}, faktúra {{total}}.",
+      "schedule": "Splátkový kalendár",
+      "nextDue": "Najbližšia splatnosť",
+      "dueDerived": "Určená poslednou splátkou.",
+      "count_one": "{{count}} splátka",
+      "count_other": "Splátky: {{count}}",
+      "state": {
+        "open": "Otvorená",
+        "partial": "Čiastočná",
+        "paid": "Uhradená",
+        "overdue": "Po splatnosti",
+        "draft": "Koncept",
+        "void": "Stornovaná",
+        "uncollectible": "Nevymožiteľná"
+      }
+    },
+    "deductions": {
+      "title": "Zaznamenať zrážku",
+      "description": "Uzavrie časť pohľadávky bez toho, aby prišli peniaze: klient zrazil daň, platobná brána si nechala poplatok, prepočet meny vyšiel nižšie. Počíta sa ako vyrovnané, nikdy ako prijaté.",
+      "action": "Zaznamenať zrážku",
+      "recorded": "Zrážka zaznamenaná",
+      "removed": "Zrážka odstránená",
+      "amount": "Suma",
+      "amountHint": "Najviac do výšky zostatku: {{balance}}.",
+      "kindLabel": "Dôvod",
+      "taxKind": "Ktorá daň (voliteľné)",
+      "taxKindPlaceholder": "Zrážková daň, DPH...",
+      "note": "Poznámka (voliteľné)",
+      "settledWithout": "Vyrovnané bez platby",
+      "kind": {
+        "withholding_tax": "Daň zrazená klientom",
+        "gateway_fee": "Poplatok, ktorý si nechala platobná brána",
+        "fx_difference": "Kurzový rozdiel",
+        "other": "Iné"
+      },
+      "differenceTitle": "Platba je o {{difference}} nižšia",
+      "differenceHint": "Zaznamenajte rozdiel, aby sa faktúra uzavrela",
+      "differenceNone": "Nezaznamenať",
+      "figure": "Zrazené"
+    },
+    "statement": {
+      "asIssued": "Faktúra v vystavenej podobe",
+      "asIssuedHint": "Dokument odoslaný klientovi",
+      "hint": "Platby a zrážky od vystavenia a zostatok",
+      "banner": "Toto PDF je faktúra vo vystavenej podobe. Odvtedy bolo prijatých {{paid}} a zrazených {{deducted}}: výpis ukazuje každú položku a zostatok.",
+      "title": "Výpis z účtu"
     }
   },
   "collections": {

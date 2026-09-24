@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Save as draft"
+      "saveDraft": "Save as draft",
+      "downloadStatement": "Download statement"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "A price needs an amount.",
       "negative_price": "A price cannot be negative.",
       "invalid_fiscal_refs": "Fiscal references must be short text values under simple keys (letters, digits, underscore).",
-      "price_key_taken": "Another price already uses this lookup key or external id."
+      "price_key_taken": "Another price already uses this lookup key or external id.",
+      "installments_mismatch": "The installments do not add up to the invoice total.",
+      "installments_too_few": "A schedule needs at least two installments.",
+      "installment_amount_not_positive": "Every installment must be worth something.",
+      "installment_due_required": "Every installment needs a due date.",
+      "invalid_deduction_kind": "Unknown deduction kind.",
+      "deduction_not_found": "Deduction not found."
     },
     "comingNext": "Bill your clients and keep track of what has been paid and what is still open. This is the next thing being built.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archive",
         "restore": "Restore"
       }
+    },
+    "installments": {
+      "title": "Split into installments",
+      "splitIn": "Split in",
+      "splitHint": "equal parts, a month apart, from the due date",
+      "add": "Add installment",
+      "label": "Label",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Adds up to {{total}}.",
+      "mismatch": "The installments add up to {{scheduled}}, the invoice to {{total}}.",
+      "schedule": "Payment schedule",
+      "nextDue": "Next due",
+      "dueDerived": "Set by the last installment.",
+      "count_one": "{{count}} installment",
+      "count_other": "{{count}} installments",
+      "state": {
+        "open": "Open",
+        "partial": "Partial",
+        "paid": "Paid",
+        "overdue": "Overdue",
+        "draft": "Draft",
+        "void": "Void",
+        "uncollectible": "Uncollectible"
+      }
+    },
+    "deductions": {
+      "title": "Record a deduction",
+      "description": "Close part of what is owed without money arriving: the client withheld tax, the processor kept its fee, the conversion landed short. It counts as settled, never as received.",
+      "action": "Record deduction",
+      "recorded": "Deduction recorded",
+      "removed": "Deduction removed",
+      "amount": "Amount",
+      "amountHint": "Up to the balance: {{balance}}.",
+      "kindLabel": "Reason",
+      "taxKind": "Which tax (optional)",
+      "taxKindPlaceholder": "IRRF, ISS, IRPF...",
+      "note": "Note (optional)",
+      "settledWithout": "Settled without payment",
+      "kind": {
+        "withholding_tax": "Tax withheld by the client",
+        "gateway_fee": "Fee kept by the processor",
+        "fx_difference": "Currency conversion difference",
+        "other": "Other"
+      },
+      "differenceTitle": "The payment is {{difference}} short",
+      "differenceHint": "Record the difference so the invoice closes",
+      "differenceNone": "Do not record",
+      "figure": "Deducted"
+    },
+    "statement": {
+      "asIssued": "Invoice as issued",
+      "asIssuedHint": "The document sent to the client",
+      "hint": "Payments and deductions since issue, and the balance",
+      "banner": "This PDF is the invoice as issued. Since then {{paid}} was received and {{deducted}} deducted: the statement of account shows each one and the balance.",
+      "title": "Statement of account"
     }
   },
   "collections": {

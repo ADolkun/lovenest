@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Enregistrer le brouillon"
+      "saveDraft": "Enregistrer le brouillon",
+      "downloadStatement": "Télécharger le relevé"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Un prix a besoin d'un montant.",
       "negative_price": "Un prix ne peut pas être négatif.",
       "invalid_fiscal_refs": "Les références fiscales doivent être de courtes valeurs texte sous des clés simples (lettres, chiffres, tiret bas).",
-      "price_key_taken": "Un autre prix utilise déjà cette clé de recherche ou cet identifiant externe."
+      "price_key_taken": "Un autre prix utilise déjà cette clé de recherche ou cet identifiant externe.",
+      "installments_mismatch": "Les échéances ne totalisent pas le montant de la facture.",
+      "installments_too_few": "Un échéancier nécessite au moins deux échéances.",
+      "installment_amount_not_positive": "Chaque échéance doit avoir un montant.",
+      "installment_due_required": "Chaque échéance nécessite une date d'échéance.",
+      "invalid_deduction_kind": "Type de déduction inconnu.",
+      "deduction_not_found": "Déduction introuvable."
     },
     "comingNext": "Facturez vos clients et suivez ce qui a été payé et ce qui reste ouvert. C'est la prochaine chose en construction.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archiver",
         "restore": "Restaurer"
       }
+    },
+    "installments": {
+      "title": "Fractionner en échéances",
+      "splitIn": "Fractionner en",
+      "splitHint": "parts égales, à un mois d'intervalle, à partir de la date d'échéance",
+      "add": "Ajouter une échéance",
+      "label": "Libellé",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Total : {{total}}.",
+      "mismatch": "Les échéances totalisent {{scheduled}}, la facture {{total}}.",
+      "schedule": "Échéancier de paiement",
+      "nextDue": "Prochaine échéance",
+      "dueDerived": "Définie par la dernière échéance.",
+      "count_one": "{{count}} échéance",
+      "count_other": "{{count}} échéances",
+      "state": {
+        "open": "En attente",
+        "partial": "Partielle",
+        "paid": "Payée",
+        "overdue": "En retard",
+        "draft": "Brouillon",
+        "void": "Annulée",
+        "uncollectible": "Irrécouvrable"
+      }
+    },
+    "deductions": {
+      "title": "Enregistrer une déduction",
+      "description": "Solde une partie du montant dû sans qu'aucun argent n'arrive : le client a retenu un impôt, le prestataire de paiement a gardé ses frais, la conversion est arrivée en dessous. Elle compte comme réglée, jamais comme encaissée.",
+      "action": "Enregistrer la déduction",
+      "recorded": "Déduction enregistrée",
+      "removed": "Déduction supprimée",
+      "amount": "Montant",
+      "amountHint": "Jusqu'au solde : {{balance}}.",
+      "kindLabel": "Motif",
+      "taxKind": "Quel impôt (facultatif)",
+      "taxKindPlaceholder": "Retenue à la source, TVA...",
+      "note": "Note (facultatif)",
+      "settledWithout": "Réglé sans paiement",
+      "kind": {
+        "withholding_tax": "Impôt retenu par le client",
+        "gateway_fee": "Frais retenus par le prestataire de paiement",
+        "fx_difference": "Écart de conversion de devise",
+        "other": "Autre"
+      },
+      "differenceTitle": "Il manque {{difference}} au paiement",
+      "differenceHint": "Enregistrez la différence pour que la facture soit soldée",
+      "differenceNone": "Ne pas enregistrer",
+      "figure": "Déduit"
+    },
+    "statement": {
+      "asIssued": "Facture telle qu'émise",
+      "asIssuedHint": "Le document envoyé au client",
+      "hint": "Paiements et déductions depuis l'émission, et le solde",
+      "banner": "Ce PDF est la facture telle qu'émise. Depuis, {{paid}} ont été reçus et {{deducted}} déduits : le relevé de compte détaille chacun et le solde.",
+      "title": "Relevé de compte"
     }
   },
   "collections": {

@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Als Entwurf speichern"
+      "saveDraft": "Als Entwurf speichern",
+      "downloadStatement": "Kontoauszug herunterladen"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Ein Preis braucht einen Betrag.",
       "negative_price": "Ein Preis kann nicht negativ sein.",
       "invalid_fiscal_refs": "Steuerliche Referenzen müssen kurze Textwerte unter einfachen Schlüsseln sein (Buchstaben, Ziffern, Unterstrich).",
-      "price_key_taken": "Ein anderer Preis verwendet diesen Suchschlüssel oder diese externe ID bereits."
+      "price_key_taken": "Ein anderer Preis verwendet diesen Suchschlüssel oder diese externe ID bereits.",
+      "installments_mismatch": "Die Raten ergeben nicht den Rechnungsbetrag.",
+      "installments_too_few": "Ein Zahlungsplan braucht mindestens zwei Raten.",
+      "installment_amount_not_positive": "Jede Rate muss einen Betrag haben.",
+      "installment_due_required": "Jede Rate braucht ein Fälligkeitsdatum.",
+      "invalid_deduction_kind": "Unbekannte Abzugsart.",
+      "deduction_not_found": "Abzug nicht gefunden."
     },
     "comingNext": "Stelle deinen Kunden Rechnungen und behalte im Blick, was bezahlt ist und was offen bleibt. Das ist das Nächste, was gebaut wird.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Archivieren",
         "restore": "Wiederherstellen"
       }
+    },
+    "installments": {
+      "title": "In Raten aufteilen",
+      "splitIn": "Aufteilen in",
+      "splitHint": "gleiche Teile, im Monatsabstand, ab dem Fälligkeitsdatum",
+      "add": "Rate hinzufügen",
+      "label": "Bezeichnung",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Ergibt {{total}}.",
+      "mismatch": "Die Raten ergeben {{scheduled}}, die Rechnung {{total}}.",
+      "schedule": "Zahlungsplan",
+      "nextDue": "Nächste Fälligkeit",
+      "dueDerived": "Wird von der letzten Rate bestimmt.",
+      "count_one": "{{count}} Rate",
+      "count_other": "{{count}} Raten",
+      "state": {
+        "open": "Offen",
+        "partial": "Teilweise",
+        "paid": "Bezahlt",
+        "overdue": "Überfällig",
+        "draft": "Entwurf",
+        "void": "Storniert",
+        "uncollectible": "Uneinbringlich"
+      }
+    },
+    "deductions": {
+      "title": "Abzug erfassen",
+      "description": "Schließt einen Teil der Forderung, ohne dass Geld eingeht: der Kunde hat Steuern einbehalten, der Zahlungsdienstleister seine Gebühr, die Umrechnung fiel geringer aus. Es zählt als beglichen, nie als erhalten.",
+      "action": "Abzug erfassen",
+      "recorded": "Abzug erfasst",
+      "removed": "Abzug entfernt",
+      "amount": "Betrag",
+      "amountHint": "Bis zum offenen Saldo: {{balance}}.",
+      "kindLabel": "Grund",
+      "taxKind": "Welche Steuer (optional)",
+      "taxKindPlaceholder": "Quellensteuer, Bauabzugsteuer...",
+      "note": "Notiz (optional)",
+      "settledWithout": "Ohne Zahlung beglichen",
+      "kind": {
+        "withholding_tax": "Vom Kunden einbehaltene Steuer",
+        "gateway_fee": "Vom Zahlungsdienstleister einbehaltene Gebühr",
+        "fx_difference": "Währungsumrechnungsdifferenz",
+        "other": "Sonstiges"
+      },
+      "differenceTitle": "Die Zahlung ist {{difference}} zu niedrig",
+      "differenceHint": "Erfassen Sie die Differenz, damit die Rechnung geschlossen wird",
+      "differenceNone": "Nicht erfassen",
+      "figure": "Abgezogen"
+    },
+    "statement": {
+      "asIssued": "Rechnung wie ausgestellt",
+      "asIssuedHint": "Das an den Kunden gesendete Dokument",
+      "hint": "Zahlungen und Abzüge seit Ausstellung, und der Saldo",
+      "banner": "Dieses PDF ist die Rechnung wie ausgestellt. Seitdem wurden {{paid}} erhalten und {{deducted}} abgezogen: der Kontoauszug zeigt jeden Posten und den Saldo.",
+      "title": "Kontoauszug"
     }
   },
   "collections": {

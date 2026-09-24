@@ -236,7 +236,8 @@
       "downloadPdf": "PDFをダウンロード",
       "share": "リンクを共有",
       "revokeLink": "リンクを失効",
-      "saveDraft": "下書き保存"
+      "saveDraft": "下書き保存",
+      "downloadStatement": "明細書をダウンロード"
     },
     "settings": {
       "title": "請求書設定",
@@ -341,7 +342,13 @@
       "unit_price_required": "価格には金額が必要です。",
       "negative_price": "価格をマイナスにはできません。",
       "invalid_fiscal_refs": "税務参照コードは、シンプルなキー(英字、数字、アンダースコア)の下にある短いテキスト値である必要があります。",
-      "price_key_taken": "別の価格がすでにこの検索キーまたは外部IDを使用しています。"
+      "price_key_taken": "別の価格がすでにこの検索キーまたは外部IDを使用しています。",
+      "installments_mismatch": "分割の合計が請求書の合計と一致しません。",
+      "installments_too_few": "分割払いには2回以上の分割が必要です。",
+      "installment_amount_not_positive": "各分割には金額が必要です。",
+      "installment_due_required": "各分割には期日が必要です。",
+      "invalid_deduction_kind": "不明な控除の種類です。",
+      "deduction_not_found": "控除が見つかりません。"
     },
     "comingNext": "クライアントに請求し、支払い済みのものと未払いのものを管理します。現在開発中の次の機能です。",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "アーカイブ",
         "restore": "復元"
       }
+    },
+    "installments": {
+      "title": "分割払いにする",
+      "splitIn": "分割数",
+      "splitHint": "回に均等分割、1か月間隔、支払期日から",
+      "add": "分割を追加",
+      "label": "ラベル",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "合計 {{total}}。",
+      "mismatch": "分割の合計は {{scheduled}}、請求書は {{total}} です。",
+      "schedule": "支払いスケジュール",
+      "nextDue": "次回期日",
+      "dueDerived": "最後の分割で決まります。",
+      "count_one": "{{count}} 回払い",
+      "count_other": "{{count}} 回払い",
+      "state": {
+        "open": "未回収",
+        "partial": "一部入金",
+        "paid": "入金済み",
+        "overdue": "延滞",
+        "draft": "下書き",
+        "void": "無効",
+        "uncollectible": "回収不能"
+      }
+    },
+    "deductions": {
+      "title": "控除を記録",
+      "description": "入金なしで債権の一部を消し込みます。取引先が源泉徴収した、決済業者が手数料を差し引いた、為替換算で目減りした、といった場合です。回収済みではなく、精算済みとして扱われます。",
+      "action": "控除を記録",
+      "recorded": "控除を記録しました",
+      "removed": "控除を削除しました",
+      "amount": "金額",
+      "amountHint": "残高まで: {{balance}}。",
+      "kindLabel": "理由",
+      "taxKind": "税の種類(任意)",
+      "taxKindPlaceholder": "源泉所得税、消費税...",
+      "note": "メモ(任意)",
+      "settledWithout": "入金なしで精算",
+      "kind": {
+        "withholding_tax": "取引先による源泉徴収",
+        "gateway_fee": "決済業者が差し引いた手数料",
+        "fx_difference": "為替換算差額",
+        "other": "その他"
+      },
+      "differenceTitle": "入金が {{difference}} 不足しています",
+      "differenceHint": "差額を記録すると請求書が完了します",
+      "differenceNone": "記録しない",
+      "figure": "控除額"
+    },
+    "statement": {
+      "asIssued": "発行時の請求書",
+      "asIssuedHint": "顧客に送付した書類",
+      "hint": "発行後の入金と控除、および残高",
+      "banner": "このPDFは発行時の請求書です。その後 {{paid}} が入金され、{{deducted}} が控除されました。明細書で各項目と残高を確認できます。",
+      "title": "取引明細書"
     }
   },
   "collections": {
