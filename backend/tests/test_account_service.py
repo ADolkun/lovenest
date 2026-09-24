@@ -940,10 +940,10 @@ async def test_get_account_summary_bill_unpaired_payment_credit_still_nets_out(
     session: AsyncSession, test_user, test_workspace
 ):
     """An unpaired card payment (no matching transfer leg — the paying
-    account isn't connected, or the amount doesn't match exactly) is
-    normally filed under a transfer-like category. That category tag must
-    keep netting it against the bill, or a real repayment would count as
-    new debt. Lovenest recognizes the payment by its description."""
+    account isn't connected, or the amount doesn't match exactly) must
+    still net against the bill, or a real repayment would count as new
+    debt. Lovenest recognizes the payment by its description, not by the
+    transfer-like category it is usually filed under."""
     account = await _make_account(session, test_user.id, "CC Bill Payment", acc_type="credit_card")
     today = date.today()
     transfer_cat = await _make_category(session, test_user.id, treat_as_transfer=True)

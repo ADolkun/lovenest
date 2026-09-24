@@ -233,11 +233,17 @@ def counts_on_bill():
         category — those leave the account balance too, so dropping them
         from the bill keeps the card's two numbers telling one story.
 
-    `treat_as_transfer` categories stay in, and this is the whole point of
-    the helper: buying an investment or paying a consortium installment
-    with the card still lands on the statement, so a charge doesn't stop
-    being owed to the bank because of how it was tagged afterwards (issue
-    #647).
+    Kept in, and this is the whole point of the helper:
+      - `treat_as_transfer` categories. Buying an investment or paying a
+        consortium installment with the card still lands on the statement,
+        so a charge doesn't stop being owed to the bank because of how it
+        was tagged afterwards (issue #647).
+      - rows flagged `exclude_from_pnl`. Its canonical use is a work
+        expense paid on a personal card and reimbursed later — and the
+        bank bills the whole card either way.
+
+    The rule both share: a bill honors "make this disappear" and
+    ignores "report this differently".
 
     Credits the payment classifier recognizes are dropped even when
     unpaired (the payer's account isn't connected, the amount doesn't match

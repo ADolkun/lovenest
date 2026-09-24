@@ -2098,6 +2098,20 @@ async def _find_existing_connected_account(
             candidate for candidate in candidates
             if candidate.institution_id == institution.id
         ]
+        if candidates and not matched_institution:
+            # Re-linking a bank in SimpleFIN Bridge sends a new conn_id, so
+            # _resolve_institution minted a fresh row; the account still
+            # points at the old row, which only the name ties to this one.
+            same_name_ids = set((await session.execute(
+                select(Institution.id).where(
+                    Institution.connection_id == connection.id,
+                    Institution.name == institution.name,
+                )
+            )).scalars())
+            matched_institution = [
+                candidate for candidate in candidates
+                if candidate.institution_id in same_name_ids
+            ]
         if matched_institution:
             candidates = matched_institution
         else:
@@ -3034,7 +3048,7 @@ async def sync_connection(
             if not import_pending:
                 transactions_data = [t for t in transactions_data if t.status != "pending"]
 
-            incoming_external_ids = {txn.external_id for txn in transactions_data}
+            incoming_txn_external_ids = {txn.external_id for txn in transactions_data}
             for txn_data in transactions_data:
                 existing = await session.execute(
                     select(Transaction)
@@ -3107,7 +3121,7 @@ async def sync_connection(
                 # status, fingerprint match collapses it instead of letting
                 # both rows land.
                 synced_dup = await _find_synced_duplicate(
-                    session, account.id, txn_data, incoming_external_ids
+                    session, account.id, txn_data, incoming_txn_external_ids
                 )
                 if synced_dup:
                     if synced_dup.status == "posted" and txn_data.status == "pending":

@@ -1253,6 +1253,152 @@ async def test_simplefin_rekey_prefers_the_open_account_over_a_closed_duplicate(
     assert closed_duplicate.external_id == "old-closed"
 
 
+async def _sync_simplefin_accounts(
+    session: AsyncSession, conn: BankConnection, workspace_id, user_id,
+    provider_accounts: list[AccountData],
+) -> list[Account]:
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=provider_accounts)
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_holdings = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[])
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, workspace_id, user_id)
+    return list((await session.execute(
+        select(Account).where(Account.connection_id == conn.id)
+    )).scalars().all())
+
+
+def _simplefin_account(external_id: str, name: str, **institution) -> AccountData:
+    return AccountData(
+        external_id=external_id, name=name, type="savings",
+        balance=Decimal("100"), currency="USD", **institution,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("incoming_institution", "rekeyed"),
+    [("Example Bank", True), ("Other Bank", False)],
+)
+async def test_simplefin_relink_rekeys_by_institution_name(
+    session: AsyncSession, test_user, test_workspace, incoming_institution, rekeyed,
+):
+    """Re-linking a bank in SimpleFIN Bridge changes its conn_id, so the
+    account's Institution row no longer matches; the same institution name
+    still identifies it, a different one does not."""
+    conn = await _make_simplefin_connection(session, test_user.id)
+    old_institution = Institution(
+        connection_id=conn.id, external_id="c1", name="Example Bank"
+    )
+    session.add(old_institution)
+    await session.flush()
+    existing = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=old_institution.id,
+        external_id="acct-old",
+        name="High Yield Savings Account (9402)",
+        display_name="Emergency Fund",
+        type="savings",
+        balance=Decimal("100"),
+        currency="USD",
+    )
+    session.add(existing)
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [_simplefin_account(
+            "acct-new", "High Yield Savings Account (9402)",
+            institution_external_id="c2", institution_name=incoming_institution,
+        )],
+    )
+
+    if rekeyed:
+        assert [(a.id, a.external_id, a.display_name) for a in accounts] == [
+            (existing.id, "acct-new", "Emergency Fund")
+        ]
+    else:
+        assert len(accounts) == 2
+        assert existing.external_id == "acct-old"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_of_accounts_synced_later_in_the_loop(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_simplefin_connection(session, test_user.id)
+    savings, later = (
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            external_id=external_id,
+            name=name,
+            type="savings",
+            balance=Decimal("100"),
+            currency="USD",
+        )
+        for external_id, name in (("sav", "Savings"), ("later", "Checking"))
+    )
+    session.add_all([savings, later])
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [
+            _simplefin_account("sav", "Savings"),
+            _simplefin_account("new-b", "Checking"),
+            _simplefin_account("later", "Checking"),
+        ],
+    )
+
+    assert len(accounts) == 3
+    assert {a.external_id for a in accounts} == {"later", "new-b", "sav"}
+    assert later.external_id == "later"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_of_accounts_outside_the_allowlist(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_simplefin_connection(session, test_user.id)
+    conn.settings = {"account_allowlist": ["q", "p1-new"]}
+    queued, excluded = (
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            external_id=external_id,
+            name=name,
+            type="savings",
+            balance=Decimal("100"),
+            currency="USD",
+        )
+        for external_id, name in (("q", "Savings"), ("p2", "Checking"))
+    )
+    session.add_all([queued, excluded])
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [
+            _simplefin_account("q", "Savings"),
+            _simplefin_account("p1-new", "Checking"),
+            _simplefin_account("p2", "Checking"),
+        ],
+    )
+
+    assert len(accounts) == 3
+    assert {a.external_id for a in accounts} == {"p1-new", "p2", "q"}
+    assert excluded.external_id == "p2"
+
+
 @pytest.mark.asyncio
 async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
     session: AsyncSession, test_user, test_workspace,

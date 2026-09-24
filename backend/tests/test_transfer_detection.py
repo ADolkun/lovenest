@@ -280,16 +280,16 @@ async def test_detect_does_not_treat_counterparty_name_as_reference(
 async def test_detect_zelle_bac_and_confirmation_reference(
     session: AsyncSession, test_user, test_workspace,
 ):
-    first = await _make_account(session, test_user.id, "Shaire")
-    second = await _make_account(session, test_user.id, "Chase College")
+    first = await _make_account(session, test_user.id, "Joint Checking")
+    second = await _make_account(session, test_user.id, "Student Checking")
     today = date.today()
     debit = await _add_txn(
         session, test_user.id, first.id, 50, "debit", today,
-        description="Zelle payment to XIAYIRE Conf# uoza6w78x",
+        description="Zelle payment to DOE Conf# fake1234x",
     )
     credit = await _add_txn(
         session, test_user.id, second.id, 50, "credit", today,
-        description="Zelle payment from MAIMAITIAIZEZI XIAYIRE BACuoza6w78x",
+        description="Zelle payment from JANE DOE BACfake1234x",
     )
 
     assert await detect_transfer_pairs(session, test_workspace.id) == 1
@@ -685,17 +685,17 @@ async def test_corroborated_leg_wins_over_an_uncorroborated_rival(
     session: AsyncSession, test_user, test_workspace,
 ):
     """An evidence-less rival must not make the corroborated pair ambiguous."""
-    first = await _make_account(session, test_user.id, "Shaire")
-    second = await _make_account(session, test_user.id, "Chase College")
+    first = await _make_account(session, test_user.id, "Joint Checking")
+    second = await _make_account(session, test_user.id, "Student Checking")
     third = await _make_account(session, test_user.id, "Payroll Checking")
     today = date.today()
     debit = await _add_txn(
         session, test_user.id, first.id, 50, "debit", today,
-        description="Zelle payment to XIAYIRE Conf# uoza6w78x",
+        description="Zelle payment to DOE Conf# fake1234x",
     )
     credit = await _add_txn(
         session, test_user.id, second.id, 50, "credit", today,
-        description="Zelle payment from MAIMAITIAIZEZI XIAYIRE BACuoza6w78x",
+        description="Zelle payment from JANE DOE BACfake1234x",
     )
     rival = await _add_txn(
         session, test_user.id, third.id, 50, "credit", today,
