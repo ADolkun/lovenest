@@ -2101,7 +2101,7 @@ async def sync_connection(
             if not import_pending:
                 transactions_data = [t for t in transactions_data if t.status != "pending"]
 
-            incoming_external_ids = {txn.external_id for txn in transactions_data}
+            incoming_txn_external_ids = {txn.external_id for txn in transactions_data}
             for txn_data in transactions_data:
                 existing = await session.execute(
                     select(Transaction)
@@ -2165,7 +2165,7 @@ async def sync_connection(
                 # status, fingerprint match collapses it instead of letting
                 # both rows land.
                 synced_dup = await _find_synced_duplicate(
-                    session, account.id, txn_data, incoming_external_ids
+                    session, account.id, txn_data, incoming_txn_external_ids
                 )
                 if synced_dup:
                     if synced_dup.original_description is None:
