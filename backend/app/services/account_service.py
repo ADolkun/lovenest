@@ -205,6 +205,7 @@ def serialize_account(
         "minimum_payment": float(acc.minimum_payment) if acc.minimum_payment is not None else None,
         "card_brand": acc.card_brand,
         "card_level": acc.card_level,
+        "shared_balance_group": acc.shared_balance_group,
         "institution_name": institution_name,
         "institution_logo_url": institution_logo_url,
         "available_credit": None,
@@ -882,8 +883,8 @@ async def get_account_summary(
     # Expenses = SUM of debit transactions in window (same exclusions).
     # For credit-card accounts, NET refund credits against debits so the
     # cycle's "Total da fatura" matches the bank's bill (refunds reduce the
-    # invoice amount). `summary_filter` already excludes paired transfers,
-    # so bill payments are not double-counted.
+    # invoice amount). Paired transfers are dropped by `transfer_pair_id`;
+    # unpaired card payments by the payment classifier in `counts_on_bill`.
     if account.type == "credit_card":
         signed_for_bill = case(
             (Transaction.type == "credit", -func.abs(effective_amount)),

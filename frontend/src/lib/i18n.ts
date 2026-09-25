@@ -75,7 +75,7 @@ export type SupportedLang =
   | 'ja'
 
 // Single source of truth for language pickers. When adding a locale, register
-// the bundle above and add one entry here; every picker stays in sync instead
+// a locale JSON file and add one entry here; every picker stays in sync instead
 // of each hand-rolling its own list (the setup screen's button row broke a
 // little more with every translation PR before this existed).
 export const SUPPORTED_LANGS: { code: SupportedLang; label: string }[] = [

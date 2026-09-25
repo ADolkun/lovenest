@@ -15,6 +15,8 @@ it('loads a selected locale on demand and keeps English fallback keys', async ()
   expect(i18n.hasResourceBundle('hi', 'translation')).toBe(true)
   expect(i18n.t('nav.assets')).toBe((await import('./hi.json')).default.nav.assets)
   expect(i18n.t('nav.trace')).toBe((await import('./en.json')).default.nav.trace)
+  i18n.addResource('en', 'translation', 'testOnlyFallback', 'English fallback')
+  expect(i18n.t('testOnlyFallback')).toBe('English fallback')
   expect(document.documentElement.lang).toBe('hi')
 })
 

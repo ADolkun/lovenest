@@ -1940,6 +1940,37 @@ class TestBillTotalIgnoresReportingExclusions:
         assert summary["monthly_expenses"] == 50.0
 
     @pytest.mark.asyncio
+    async def test_transfer_like_credit_does_not_shrink_the_bill(
+        self, session, test_user, test_workspace, cc_account, transfer_category
+    ):
+        """An unpaired card payment (no matching transfer leg) is normally
+        filed under a transfer-like category. Unlike a debit in that same
+        category, the credit must not net against the bill or an ordinary
+        repayment would read as new debt shrinking, cycle after cycle.
+        Lovenest recognizes the payment by its description (upstream #649
+        keys on the category alone)."""
+        await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 4, 3), Decimal("100"), tx_type="debit",
+        )
+        payment = await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 4, 8), Decimal("50"), tx_type="credit",
+            category_id=transfer_category.id,
+        )
+        payment.description = "AUTOMATIC PAYMENT - THANK"
+        await session.commit()
+
+        summary = await account_service.get_account_summary(
+            session, cc_account.id, test_workspace.id,
+            date_from=date(2026, 4, 1), date_to=date(2026, 4, 30),
+        )
+
+        assert summary is not None
+        assert summary["monthly_income"] == 0.0
+        assert summary["monthly_expenses"] == 100.0
+
+    @pytest.mark.asyncio
     async def test_ignored_category_purchase_also_leaves_the_bill(
         self, session, test_user, test_workspace, cc_account
     ):

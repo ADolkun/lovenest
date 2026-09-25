@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -12,6 +13,7 @@ from app.models.asset import Asset
 from app.models.bank_connection import BankConnection
 from app.models.category import Category
 from app.models.import_log import ImportLog
+from app.models.institution import Institution
 from app.models.transaction import Transaction
 from app.schemas.rule import RuleAction, RuleCondition, RuleCreate
 from app.providers.base import (
@@ -24,8 +26,9 @@ from app.providers.base import (
     ProviderUserActionRequired,
     TransactionData,
 )
+from app.services.text_similarity import token_overlap
 from app.services.connection_service import (
-    _description_similarity,
+    _find_existing_connected_account,
     _merge_sync_metadata,
     _match_pluggy_category,
     _set_sync_status_if_current,
@@ -83,16 +86,16 @@ async def _make_category(
 
 
 def test_description_similarity_identical():
-    assert _description_similarity("hello world", "hello world") == 1.0
+    assert token_overlap("hello world", "hello world") == 1.0
 
 
 def test_description_similarity_partial():
-    score = _description_similarity("hello world foo", "hello world bar")
+    score = token_overlap("hello world foo", "hello world bar")
     assert 0.0 < score < 1.0
 
 
 def test_description_similarity_no_overlap():
-    assert _description_similarity("abc", "xyz") == 0.0
+    assert token_overlap("abc", "xyz") == 0.0
 
 
 def test_merge_sync_metadata_repairs_invalid_epoch_date():
@@ -122,19 +125,48 @@ def test_merge_sync_metadata_repairs_invalid_epoch_date():
     assert tx.effective_date == date(2026, 6, 27)
 
 
+def test_merge_sync_metadata_rekey_preserves_old_raw_fields():
+    tx = Transaction(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        account_id=uuid.uuid4(),
+        external_id="old-id",
+        description="Coffee",
+        amount=Decimal("5"),
+        date=date(2026, 6, 27),
+        type="debit",
+        source="sync",
+        status="posted",
+        raw_data={"posted": 1, "old_only": True},
+    )
+    txn_data = TransactionData(
+        external_id="new-id",
+        description="Coffee",
+        amount=Decimal("5"),
+        date=date(2026, 6, 27),
+        type="debit",
+        raw_data={"posted": 2, "new_only": True},
+    )
+
+    _merge_sync_metadata(tx, txn_data, replace_external_id=True)
+
+    assert tx.external_id == "new-id"
+    assert tx.raw_data == {"posted": 2, "old_only": True, "new_only": True}
+
+
 def test_description_similarity_none():
-    assert _description_similarity(None, "hello") == 0.0
-    assert _description_similarity("hello", None) == 0.0
-    assert _description_similarity(None, None) == 0.0
+    assert token_overlap(None, "hello") == 0.0
+    assert token_overlap("hello", None) == 0.0
+    assert token_overlap(None, None) == 0.0
 
 
 def test_description_similarity_empty():
-    assert _description_similarity("", "hello") == 0.0
-    assert _description_similarity("hello", "") == 0.0
+    assert token_overlap("", "hello") == 0.0
+    assert token_overlap("hello", "") == 0.0
 
 
 def test_description_similarity_case_insensitive():
-    score = _description_similarity("Hello World", "hello world")
+    score = token_overlap("Hello World", "hello world")
     assert score == 1.0
 
 
@@ -1032,6 +1064,342 @@ async def test_sync_connection_simplefin_rekey_does_not_duplicate_account_or_tx(
 
 
 @pytest.mark.asyncio
+async def test_simplefin_rekey_respects_institution_and_closed_account(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    bank_a = Institution(
+        connection_id=conn.id, external_id="bank-a", name="Bank A"
+    )
+    bank_b = Institution(
+        connection_id=conn.id, external_id="bank-b", name="Bank B"
+    )
+    session.add_all([bank_a, bank_b])
+    await session.flush()
+    closed_bank_a = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=bank_a.id,
+        external_id="old-bank-a",
+        name="Checking",
+        type="checking",
+        balance=Decimal("10"),
+        currency="USD",
+        is_closed=True,
+    )
+    customized_bank_b = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=bank_b.id,
+        external_id="old-bank-b",
+        name="Checking",
+        display_name="My Bank B",
+        type="checking",
+        balance=Decimal("20"),
+        currency="USD",
+    )
+    session.add_all([closed_bank_a, customized_bank_b])
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="new-bank-a",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+            institution_external_id="bank-a",
+            institution_name="Bank A",
+        ),
+        bank_a,
+        {"new-bank-a"},
+    )
+
+    assert matched is closed_bank_a
+    assert closed_bank_a.external_id == "new-bank-a"
+    assert customized_bank_b.external_id == "old-bank-b"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_from_later_accounts(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    later_account = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        external_id="later-account-id",
+        name="Checking",
+        type="checking",
+        balance=Decimal("10"),
+        currency="USD",
+    )
+    session.add(later_account)
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="new-account-id",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+        ),
+        None,
+        {"new-account-id", "later-account-id"},
+    )
+
+    assert matched is None
+    assert later_account.external_id == "later-account-id"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_refuses_same_institution_ambiguity(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    institution = Institution(
+        connection_id=conn.id, external_id="bank-a", name="Bank A"
+    )
+    session.add(institution)
+    await session.flush()
+    accounts = [
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            institution_id=institution.id,
+            external_id=f"old-{index}",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+        )
+        for index in range(2)
+    ]
+    session.add_all(accounts)
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="rotated-id",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+            institution_external_id="bank-a",
+            institution_name="Bank A",
+        ),
+        institution,
+        {"rotated-id"},
+    )
+
+    assert matched is None
+    assert {account.external_id for account in accounts} == {"old-0", "old-1"}
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_prefers_the_open_account_over_a_closed_duplicate(
+    session: AsyncSession, test_user, test_workspace,
+):
+    """Fork-era duplicates were closed by hand; they must not block the rekey."""
+    conn = await _make_connection(session, test_user.id, "SimpleFIN")
+    conn.provider = "simplefin"
+    open_account, closed_duplicate = (
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            external_id=external_id,
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+            is_closed=is_closed,
+        )
+        for external_id, is_closed in (("old-open", False), ("old-closed", True))
+    )
+    session.add_all([open_account, closed_duplicate])
+    await session.flush()
+
+    matched = await _find_existing_connected_account(
+        session,
+        conn,
+        AccountData(
+            external_id="rotated-id",
+            name="Checking",
+            type="checking",
+            balance=Decimal("10"),
+            currency="USD",
+        ),
+        None,
+        {"rotated-id"},
+    )
+
+    assert matched is open_account
+    assert open_account.external_id == "rotated-id"
+    assert closed_duplicate.external_id == "old-closed"
+
+
+async def _sync_simplefin_accounts(
+    session: AsyncSession, conn: BankConnection, workspace_id, user_id,
+    provider_accounts: list[AccountData],
+) -> list[Account]:
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=provider_accounts)
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+    mock_provider.get_holdings = AsyncMock(return_value=[])
+    mock_provider.get_bills = AsyncMock(return_value=[])
+    p1, p2, p3 = _patch_sync_helpers()
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         p1, p2, p3:
+        await sync_connection(session, conn.id, workspace_id, user_id)
+    return list((await session.execute(
+        select(Account).where(Account.connection_id == conn.id)
+    )).scalars().all())
+
+
+def _simplefin_account(external_id: str, name: str, **institution) -> AccountData:
+    return AccountData(
+        external_id=external_id, name=name, type="savings",
+        balance=Decimal("100"), currency="USD", **institution,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("incoming_institution", "rekeyed"),
+    [("Example Bank", True), ("Other Bank", False)],
+)
+async def test_simplefin_relink_rekeys_by_institution_name(
+    session: AsyncSession, test_user, test_workspace, incoming_institution, rekeyed,
+):
+    """Re-linking a bank in SimpleFIN Bridge changes its conn_id, so the
+    account's Institution row no longer matches; the same institution name
+    still identifies it, a different one does not."""
+    conn = await _make_simplefin_connection(session, test_user.id)
+    old_institution = Institution(
+        connection_id=conn.id, external_id="c1", name="Example Bank"
+    )
+    session.add(old_institution)
+    await session.flush()
+    existing = Account(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        connection_id=conn.id,
+        institution_id=old_institution.id,
+        external_id="acct-old",
+        name="High Yield Savings Account (9402)",
+        display_name="Emergency Fund",
+        type="savings",
+        balance=Decimal("100"),
+        currency="USD",
+    )
+    session.add(existing)
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [_simplefin_account(
+            "acct-new", "High Yield Savings Account (9402)",
+            institution_external_id="c2", institution_name=incoming_institution,
+        )],
+    )
+
+    if rekeyed:
+        assert [(a.id, a.external_id, a.display_name) for a in accounts] == [
+            (existing.id, "acct-new", "Emergency Fund")
+        ]
+    else:
+        assert len(accounts) == 2
+        assert existing.external_id == "acct-old"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_of_accounts_synced_later_in_the_loop(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_simplefin_connection(session, test_user.id)
+    savings, later = (
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            external_id=external_id,
+            name=name,
+            type="savings",
+            balance=Decimal("100"),
+            currency="USD",
+        )
+        for external_id, name in (("sav", "Savings"), ("later", "Checking"))
+    )
+    session.add_all([savings, later])
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [
+            _simplefin_account("sav", "Savings"),
+            _simplefin_account("new-b", "Checking"),
+            _simplefin_account("later", "Checking"),
+        ],
+    )
+
+    assert len(accounts) == 3
+    assert {a.external_id for a in accounts} == {"later", "new-b", "sav"}
+    assert later.external_id == "later"
+
+
+@pytest.mark.asyncio
+async def test_simplefin_rekey_reserves_ids_of_accounts_outside_the_allowlist(
+    session: AsyncSession, test_user, test_workspace,
+):
+    conn = await _make_simplefin_connection(session, test_user.id)
+    conn.settings = {"account_allowlist": ["q", "p1-new"]}
+    queued, excluded = (
+        Account(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            connection_id=conn.id,
+            external_id=external_id,
+            name=name,
+            type="savings",
+            balance=Decimal("100"),
+            currency="USD",
+        )
+        for external_id, name in (("q", "Savings"), ("p2", "Checking"))
+    )
+    session.add_all([queued, excluded])
+    await session.commit()
+
+    accounts = await _sync_simplefin_accounts(
+        session, conn, test_workspace.id, test_user.id,
+        [
+            _simplefin_account("q", "Savings"),
+            _simplefin_account("p1-new", "Checking"),
+            _simplefin_account("p2", "Checking"),
+        ],
+    )
+
+    assert len(accounts) == 3
+    assert {a.external_id for a in accounts} == {"p1-new", "p2", "q"}
+    assert excluded.external_id == "p2"
+
+
+@pytest.mark.asyncio
 async def test_sync_upserts_matching_csv_import_without_overwriting_user_fields(
     session: AsyncSession, test_user, test_workspace,
 ):
@@ -1279,10 +1647,34 @@ async def test_sync_connection_tolerates_duplicate_transaction_rows(
     assert any(row.status == "posted" for row in rows)
 
 
+
 @pytest.mark.asyncio
 async def test_sync_connection_not_found(session: AsyncSession, test_user, test_workspace):
-    with pytest.raises(ValueError, match="not found"):
-        await sync_connection(session, uuid.uuid4(), test_workspace.id, test_user.id)
+    connection_id = uuid.uuid4()
+    with patch(
+        "app.services.connection_service.get_connection", wraps=get_connection
+    ) as locked_get_connection:
+        with pytest.raises(ValueError, match="not found"):
+            await sync_connection(session, connection_id, test_workspace.id, test_user.id)
+    locked_get_connection.assert_awaited_once_with(
+        session, connection_id, test_workspace.id, for_update=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_connection_can_lock_row_for_update():
+    session = AsyncMock(spec=AsyncSession)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+
+    await get_connection(
+        session, uuid.uuid4(), uuid.uuid4(), for_update=True
+    )
+
+    statement = session.execute.await_args.args[0]
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+    assert sql.rstrip().endswith("FOR UPDATE")
 
 
 @pytest.mark.asyncio
@@ -1512,6 +1904,131 @@ async def test_incremental_sync_rule_category_wins_over_provider_category(
         )
     ).scalar_one()
     assert transaction.category_id == consorcio_category.id
+
+
+@pytest.mark.asyncio
+async def test_incremental_sync_reuses_latest_installment_category_when_provider_categories_disabled(
+    session: AsyncSession, test_user, test_workspace
+):
+    """A category corrected on a prior parcel follows the purchase series.
+
+    This inheritance is independent of the provider-category setting. A
+    regular charge in the same sync remains uncategorized when that setting is
+    disabled, while the next installment takes the most recently selected
+    category from its own series.
+    """
+    conn = await _make_connection(session, test_user.id, "Installment Category Bank")
+    older_category = await _make_category(session, test_user.id, "Compras antigas")
+    latest_category = await _make_category(session, test_user.id, "Casa")
+    await _make_category(session, test_user.id, "Alimentação")
+
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="installment-category-acc-1",
+            name="Credit Card",
+            type="credit_card",
+            balance=Decimal("0"),
+            currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    account = (await session.execute(
+        select(Account).where(Account.external_id == "installment-category-acc-1")
+    )).scalar_one()
+    purchase_date = date(2026, 1, 15)
+    for number, tx_date, category in (
+        (1, date(2026, 1, 15), older_category),
+        (2, date(2026, 2, 15), latest_category),
+    ):
+        session.add(Transaction(
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            account_id=account.id,
+            external_id=f"existing-installment-{number}",
+            description=f"LOJA EXEMPLO {number}/06",
+            original_description=f"LOJA EXEMPLO {number}/06",
+            amount=Decimal("100.00"),
+            currency="BRL",
+            date=tx_date,
+            effective_date=tx_date,
+            type="debit",
+            source="sync",
+            status="posted",
+            category_id=category.id,
+            installment_number=number,
+            total_installments=6,
+            installment_total_amount=Decimal("600.00"),
+            installment_purchase_date=purchase_date,
+        ))
+    await session.commit()
+
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="new-installment-3",
+            description="LOJA EXEMPLO 3/06",
+            amount=Decimal("100.00"),
+            date=date(2026, 3, 15),
+            type="debit",
+            currency="BRL",
+            pluggy_category="Eating out",
+            installment_number=3,
+            total_installments=6,
+            installment_total_amount=Decimal("600.00"),
+            installment_purchase_date=purchase_date,
+        ),
+        TransactionData(
+            external_id="new-regular-charge",
+            description="RESTAURANTE AVULSO",
+            amount=Decimal("25.00"),
+            date=date(2026, 3, 16),
+            type="debit",
+            currency="BRL",
+            pluggy_category="Eating out",
+        ),
+        TransactionData(
+            external_id="new-other-installment",
+            description="OUTRA LOJA 3/06",
+            amount=Decimal("100.00"),
+            date=date(2026, 3, 17),
+            type="debit",
+            currency="BRL",
+            pluggy_category="Eating out",
+            installment_number=3,
+            total_installments=6,
+            installment_total_amount=Decimal("600.00"),
+            installment_purchase_date=date(2026, 1, 16),
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.admin_service.use_provider_categories", new_callable=AsyncMock, return_value=False), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_workspace.id, test_user.id)
+
+    imported = (await session.execute(
+        select(Transaction).where(
+            Transaction.external_id.in_([
+                "new-installment-3",
+                "new-regular-charge",
+                "new-other-installment",
+            ])
+        )
+    )).scalars().all()
+    by_external_id = {tx.external_id: tx for tx in imported}
+    assert by_external_id["new-installment-3"].category_id == latest_category.id
+    assert by_external_id["new-regular-charge"].category_id is None
+    assert by_external_id["new-other-installment"].category_id is None
 
 
 @pytest.mark.asyncio
@@ -3182,7 +3699,7 @@ async def test_sync_keeps_genuine_same_day_repeats(
             Transaction.source == "sync",
         )
     )).scalars().all()
-    assert len(rows) == 2, "identical-description same-day repeats must be kept"
+    assert {row.external_id for row in rows} == {"uber-1", "uber-2"}
 
 
 # ---------------------------------------------------------------------------

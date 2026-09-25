@@ -20,7 +20,7 @@ from app.models.category import Category
 from app.models.rule import Rule
 from app.models.transaction import Transaction
 from app.schemas.transaction import TransactionImport, FailedRow
-from app.services import recurring_match_service
+from app.services import reconciliation_service, recurring_match_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.category_service import get_hidden_category_ids
 from app.services.rule_engine import apply_rule_actions, evaluate_conditions, merge_notes
@@ -792,6 +792,7 @@ async def import_transactions(
     }
 
     imported = 0
+    landed: list[Transaction] = []
     skipped = 0
     matched_existing_ids: set[uuid.UUID] = set()
     effective_format = (detected_format or source or "").lower()
@@ -808,21 +809,26 @@ async def import_transactions(
             # both descriptions because rules may have changed the displayed one.
             if txn_data.external_id:
                 existing_statement = select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.external_id == txn_data.external_id,
-                        Transaction.date == txn_data.date,
-                    )
+                    Transaction.account_id == account_id,
+                    Transaction.external_id == txn_data.external_id,
+                    Transaction.date == txn_data.date,
+                )
             else:
                 existing_statement = select(Transaction).where(
-                        Transaction.account_id == account_id,
-                        Transaction.date == txn_data.date,
-                        Transaction.amount == txn_data.amount,
-                        Transaction.type == txn_data.type,
-                        or_(
-                            Transaction.description == txn_data.description,
-                            Transaction.original_description == txn_data.description,
-                        ),
-                    )
+                    Transaction.account_id == account_id,
+                    Transaction.date == txn_data.date,
+                    Transaction.amount == txn_data.amount,
+                    Transaction.type == txn_data.type,
+                    or_(
+                        Transaction.description == txn_data.description,
+                        Transaction.original_description == txn_data.description,
+                    ),
+                )
+            # `.first()` rather than `.scalar_one_or_none()`: the dedup key can
+            # legitimately match more than one row (e.g. a prior sync/import race
+            # left a duplicate, or a bank reuses one FITID across statements),
+            # and we only need to know whether *any* match exists. Requiring
+            # exactly one would raise MultipleResultsFound and abort the import.
             if matched_existing_ids and not txn_data.external_id:
                 existing_statement = existing_statement.where(
                     Transaction.id.not_in(matched_existing_ids)
@@ -831,7 +837,7 @@ async def import_transactions(
                 existing_statement.order_by(Transaction.created_at, Transaction.id)
             )
             duplicate = existing.scalars().first()
-            if not duplicate and not txn_data.external_id:
+            if not duplicate:
                 duplicate = await find_unique_transaction_match(
                     session,
                     account_id,
@@ -840,8 +846,7 @@ async def import_transactions(
                     exclude_ids=matched_existing_ids,
                 )
             if duplicate:
-                if not txn_data.external_id:
-                    matched_existing_ids.add(duplicate.id)
+                matched_existing_ids.add(duplicate.id)
                 skipped += 1
                 continue
 
@@ -855,7 +860,7 @@ async def import_transactions(
             import_payee_id = import_payee_entity.id
 
         user_category_id = txn_data.category_id
-        suggested_cat_id = txn_data.suggested_category_id
+        suggested_category_id = txn_data.suggested_category_id
         csv_category_id = (
             category_map.get(txn_data.category_name.strip().lower())
             if txn_data.category_name
@@ -864,7 +869,7 @@ async def import_transactions(
         category_id = (
             None
             if txn_data.force_uncategorized
-            else user_category_id or suggested_cat_id or csv_category_id
+            else user_category_id or suggested_category_id
         )
 
         incoming = Transaction(
@@ -892,6 +897,8 @@ async def import_transactions(
             incoming,
             skip_category_rules=txn_data.force_uncategorized,
         )
+        if preview.category_id is None and not txn_data.force_uncategorized:
+            preview.category_id = csv_category_id
 
         # Normalize a detached candidate before either recurring match. If a
         # generated placeholder already represents this occurrence, upgrade it
@@ -960,14 +967,23 @@ async def import_transactions(
             incoming,
             skip_category_rules=txn_data.force_uncategorized,
         )
+        if incoming.category_id is None and not txn_data.force_uncategorized:
+            incoming.category_id = csv_category_id
 
         if not txn_data.fx_rate:
             await stamp_primary_amount(session, user_id, incoming)
 
         imported += 1
+        landed.append(incoming)
 
     # Update import log with actual imported count
     import_log.transaction_count = imported
+
+    # Invoices last, and as one batch. Unlike the recurring match above:
+    # which upgrades a placeholder in place and so must happen before the
+    # row is written: settling an invoice creates an allocation pointing
+    # at a transaction, which has to exist first.
+    await reconciliation_service.match_incoming(session, workspace_id, landed)
 
     await session.commit()
     return imported, skipped, excluded_count, import_log.id

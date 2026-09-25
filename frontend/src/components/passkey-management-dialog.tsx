@@ -48,6 +48,9 @@ function PasskeyManagementSession({ open, onClose, localAuthEnabled = true }: Pa
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
+  // The blocker only explains why registration is unavailable. With local auth
+  // off there is no registration form to explain, so the warning would be noise
+  // on top of the cleanup copy.
   const blocker = localAuthEnabled ? passkeyBlocker() : null
 
   const loadPasskeys = useCallback((signal?: AbortSignal) => {

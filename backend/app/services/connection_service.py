@@ -48,7 +48,8 @@ from app.schemas.bank_connection import ProviderAccountRead
 from app.services import asset_transaction_service
 from app.services import oauth_state
 from app.services import admin_service
-from app.services import recurring_match_service
+from app.services import reconciliation_service, recurring_match_service
+from app.services.text_similarity import token_overlap
 from app.services.account_service import (
     _simplefin_to_internal_balance,
     sync_opening_balance_for_connected_account,
@@ -1448,6 +1449,48 @@ async def _match_pluggy_category(
     return result.scalars().first()
 
 
+async def _find_installment_category(
+    session: AsyncSession,
+    account_id: uuid.UUID,
+    txn_data,
+) -> Optional[uuid.UUID]:
+    """Reuse the latest user-selected category from an earlier installment.
+
+    Pluggy gives every parcel the original purchase date, installment count,
+    and total purchase amount. Together with the card account and transaction
+    type, those fields identify the purchase series without relying on the
+    description (whose ``03/12`` suffix changes every month).
+
+    Only earlier synced parcels qualify. This keeps manual installment series
+    separate and lets a user's most recent category correction become the
+    source of truth for the next imported parcel.
+    """
+    if (
+        txn_data.installment_number is None
+        or txn_data.total_installments is None
+        or txn_data.installment_total_amount is None
+        or txn_data.installment_purchase_date is None
+    ):
+        return None
+
+    result = await session.execute(
+        select(Transaction.category_id)
+        .where(
+            Transaction.account_id == account_id,
+            Transaction.source == "sync",
+            Transaction.category_id.is_not(None),
+            Transaction.installment_purchase_date == txn_data.installment_purchase_date,
+            Transaction.total_installments == txn_data.total_installments,
+            Transaction.installment_total_amount == txn_data.installment_total_amount,
+            Transaction.type == txn_data.type,
+            Transaction.installment_number < txn_data.installment_number,
+        )
+        .order_by(Transaction.installment_number.desc(), Transaction.date.desc())
+        .limit(1)
+    )
+    return result.scalars().first()
+
+
 async def get_connections(session: AsyncSession, workspace_id: uuid.UUID) -> list[BankConnection]:
     result = await session.execute(
         select(BankConnection)
@@ -1816,6 +1859,10 @@ async def handle_oauth_callback(
             minimum_payment=acc_data.minimum_payment if is_cc else None,
             card_brand=acc_data.card_brand if is_cc else None,
             card_level=acc_data.card_level if is_cc else None,
+            shared_balance_group=(
+                f"{connection.id}:{acc_data.shared_balance_group}"
+                if acc_data.shared_balance_group else None
+            ),
             institution_id=institution.id if institution else None,
         )
         session.add(account)
@@ -1881,9 +1928,16 @@ async def handle_oauth_callback(
                     )
                 continue
 
-            category_id = await _match_pluggy_category(
-                session, workspace_id, txn_data.pluggy_category, enabled=use_provider_cats
+            category_id = await _find_installment_category(
+                session, account.id, txn_data
             )
+            if category_id is None:
+                category_id = await _match_pluggy_category(
+                    session,
+                    workspace_id,
+                    txn_data.pluggy_category,
+                    enabled=use_provider_cats,
+                )
             # Resolve payee entity from raw payee text
             payee_id = None
             if txn_data.payee:
@@ -1939,6 +1993,19 @@ async def handle_oauth_callback(
     # Detect transfer pairs among newly synced transactions
     await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
 
+    # And settle what this money was promised against, once the rows exist.
+    if new_tx_ids:
+        landed = list(
+            (
+                await session.execute(
+                    select(Transaction).where(Transaction.id.in_(new_tx_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        await reconciliation_service.match_incoming(session, workspace_id, landed)
+
     # Investment holdings live on /investments — separate endpoint from
     # /accounts. Pulled after account setup when enabled so holdings are
     # available on the Assets page immediately after the widget closes.
@@ -1977,45 +2044,6 @@ async def handle_oauth_callback(
     return connection
 
 
-def _description_similarity(a: str | None, b: str | None) -> float:
-    """Token overlap ratio between two descriptions."""
-    if not a or not b:
-        return 0.0
-    tokens_a = set(a.lower().split())
-    tokens_b = set(b.lower().split())
-    if not tokens_a or not tokens_b:
-        return 0.0
-    intersection = tokens_a & tokens_b
-    return len(intersection) / max(len(tokens_a), len(tokens_b))
-
-
-def _sync_duplicate_description_match(a: str | None, b: str | None) -> bool:
-    """Match stable merchant text across posting suffix/reference changes."""
-    if not a or not b:
-        return False
-    left = " ".join(a.casefold().split())
-    right = " ".join(b.casefold().split())
-    if not left or not right:
-        return False
-    if _description_similarity(left, right) >= 0.9:
-        return True
-    left_tokens = left.split()
-    right_tokens = right.split()
-    if (
-        len(left_tokens) == len(right_tokens)
-        and len(left_tokens) > 1
-        and left_tokens[:-1] == right_tokens[:-1]
-        and left_tokens[-1].removeprefix("#").isdigit()
-        and right_tokens[-1].removeprefix("#").isdigit()
-    ):
-        return True
-    shorter, longer = sorted((left, right), key=len)
-    if not longer.startswith(shorter):
-        return False
-    suffix = longer.removeprefix(shorter).lstrip()
-    return bool(suffix) and not suffix[0].isalnum()
-
-
 def _normalized_account_name(name: str | None) -> str:
     """Normalize provider account names for fallback matching.
 
@@ -2029,6 +2057,8 @@ async def _find_existing_connected_account(
     session: AsyncSession,
     connection: BankConnection,
     acc_data: AccountData,
+    institution: Optional[Institution],
+    incoming_external_ids: set[str],
 ) -> Optional[Account]:
     """Find an existing account for incoming provider account data.
 
@@ -2060,25 +2090,79 @@ async def _find_existing_connected_account(
     candidates = [
         candidate
         for candidate in candidates_result.scalars().all()
-        if not candidate.is_closed
+        if candidate.external_id not in incoming_external_ids
         and _normalized_account_name(candidate.name) == normalized_name
     ]
-    if not candidates:
+    if institution is not None:
+        matched_institution = [
+            candidate for candidate in candidates
+            if candidate.institution_id == institution.id
+        ]
+        if candidates and not matched_institution:
+            # Re-linking a bank in SimpleFIN Bridge sends a new conn_id, so
+            # _resolve_institution minted a fresh row; the account still
+            # points at the old row, which only the name ties to this one.
+            same_name_ids = set((await session.execute(
+                select(Institution.id).where(
+                    Institution.connection_id == connection.id,
+                    Institution.name == institution.name,
+                )
+            )).scalars())
+            matched_institution = [
+                candidate for candidate in candidates
+                if candidate.institution_id in same_name_ids
+            ]
+        if matched_institution:
+            candidates = matched_institution
+        else:
+            candidates = [
+                candidate for candidate in candidates
+                if candidate.institution_id is None
+            ]
+    else:
+        candidates = [
+            candidate for candidate in candidates
+            if candidate.institution_id is None
+        ]
+    # A duplicate the user closed must not make the surviving open account
+    # ambiguous; a lone closed match still wins, so a re-keyed closed account
+    # is not recreated as a new active one (#90).
+    open_candidates = [candidate for candidate in candidates if not candidate.is_closed]
+    if open_candidates:
+        candidates = open_candidates
+    if len(candidates) != 1:
         return None
 
-    # Prefer the user's established/customized account over a freshly-created
-    # duplicate: it usually has a display name, corrected type, and history.
-    candidates.sort(
-        key=lambda candidate: (
-            candidate.display_name is not None,
-            candidate.type != acc_data.type,
-            candidate.external_id is not None,
-        ),
-        reverse=True,
-    )
     account = candidates[0]
     account.external_id = acc_data.external_id
     return account
+
+
+def _sync_duplicate_description_match(a: str | None, b: str | None) -> bool:
+    """Match stable merchant text across posting suffix/reference changes."""
+    if not a or not b:
+        return False
+    left = " ".join(a.casefold().split())
+    right = " ".join(b.casefold().split())
+    if not left or not right:
+        return False
+    if token_overlap(left, right) >= 0.9:
+        return True
+    left_tokens = left.split()
+    right_tokens = right.split()
+    if (
+        len(left_tokens) == len(right_tokens)
+        and len(left_tokens) > 1
+        and left_tokens[:-1] == right_tokens[:-1]
+        and left_tokens[-1].removeprefix("#").isdigit()
+        and right_tokens[-1].removeprefix("#").isdigit()
+    ):
+        return True
+    shorter, longer = sorted((left, right), key=len)
+    if not longer.startswith(shorter):
+        return False
+    suffix = longer.removeprefix(shorter).lstrip()
+    return bool(suffix) and not suffix[0].isalnum()
 
 
 async def _fuzzy_match_manual(
@@ -2108,7 +2192,7 @@ async def _fuzzy_match_manual(
     best_match = None
     best_score = 0.0
     for candidate in candidates:
-        score = _description_similarity(
+        score = token_overlap(
             candidate.original_description or candidate.description,
             txn_data.description,
         )
@@ -2137,14 +2221,14 @@ def _merge_sync_metadata(
     if txn_data.external_id and (replace_external_id or not transaction.external_id):
         transaction.external_id = txn_data.external_id
     if txn_data.raw_data:
-        if replace_external_id and transaction.source == "sync":
-            transaction.raw_data = txn_data.raw_data
-        elif not transaction.raw_data:
+        if not transaction.raw_data:
             transaction.raw_data = txn_data.raw_data
         elif isinstance(transaction.raw_data, dict) and isinstance(txn_data.raw_data, dict):
-            merged = {**txn_data.raw_data, **transaction.raw_data}
+            merged = {**transaction.raw_data, **txn_data.raw_data}
             if merged != transaction.raw_data:
                 transaction.raw_data = merged
+    if transaction.original_description is None:
+        transaction.original_description = txn_data.description
     if txn_data.payee and not transaction.payee:
         transaction.payee = txn_data.payee
 
@@ -2191,6 +2275,9 @@ async def _promote_synced_transaction(
     _merge_sync_metadata(
         transaction, txn_data, replace_external_id=replace_external_id
     )
+    # Posted truth wins outright: a merge would keep pending-only keys.
+    if replace_external_id and transaction.source == "sync" and txn_data.raw_data:
+        transaction.raw_data = txn_data.raw_data
     transaction.amount = txn_data.amount
     transaction.date = txn_data.date
     transaction.status = "posted"
@@ -2443,7 +2530,7 @@ async def _cleanup_phantom_duplicates(
             )
         )
         for sibling in sibling_result.scalars():
-            if _description_similarity(
+            if token_overlap(
                 sibling.original_description or sibling.description,
                 tx.original_description or tx.description,
             ) >= 0.9:
@@ -2787,6 +2874,10 @@ async def sync_connection(
         # read. Providers that don't expose an on-demand refresh return
         # "skipped" via the default implementation and we proceed normally.
         if trigger_provider_refresh:
+            connection.settings = {
+                **conn_settings,
+                "last_provider_refresh_at": datetime.now(timezone.utc).isoformat(),
+            }
             outcome = await provider.trigger_refresh(credentials)
             if outcome == "needs_user_action":
                 # Surfacing reconnect immediately is better than silently
@@ -2812,11 +2903,19 @@ async def sync_connection(
         provider_accounts = await provider.get_accounts(credentials)
         _record_seen_accounts(connection, provider_accounts)
         accounts_data, synced_account_ids = _syncable_accounts(connection, provider_accounts)
+        incoming_external_ids = {acc.external_id for acc in provider_accounts}
         institution_cache: dict[str, Institution] = {}
         for acc_data in accounts_data:
             syncing_account_id = None
+            institution = await _resolve_institution(
+                session, connection.id, institution_cache, acc_data
+            )
             account = await _find_existing_connected_account(
-                session, connection, acc_data
+                session,
+                connection,
+                acc_data,
+                institution,
+                incoming_external_ids,
             )
 
             if account is not None:
@@ -2835,10 +2934,6 @@ async def sync_connection(
                     .where(CreditCardBill.account_id == account.id)
                     .values(user_id=user_id, workspace_id=connection.workspace_id)
                 )
-
-            institution = await _resolve_institution(
-                session, connection.id, institution_cache, acc_data
-            )
 
             # Honor user intent: a closed connected account stays closed and is
             # not touched by sync. The row is left alone (no balance/name
@@ -2893,6 +2988,10 @@ async def sync_connection(
                         account.card_brand = acc_data.card_brand
                     if acc_data.card_level is not None:
                         account.card_level = acc_data.card_level
+                    account.shared_balance_group = (
+                        f"{connection.id}:{acc_data.shared_balance_group}"
+                        if acc_data.shared_balance_group else None
+                    )
             else:
                 if acc_data.balance is None:
                     continue
@@ -2913,6 +3012,10 @@ async def sync_connection(
                     minimum_payment=acc_data.minimum_payment if is_cc else None,
                     card_brand=acc_data.card_brand if is_cc else None,
                     card_level=acc_data.card_level if is_cc else None,
+                    shared_balance_group=(
+                        f"{connection.id}:{acc_data.shared_balance_group}"
+                        if acc_data.shared_balance_group else None
+                    ),
                     institution_id=institution.id if institution else None,
                 )
                 session.add(account)
@@ -2945,7 +3048,7 @@ async def sync_connection(
             if not import_pending:
                 transactions_data = [t for t in transactions_data if t.status != "pending"]
 
-            incoming_external_ids = {txn.external_id for txn in transactions_data}
+            incoming_txn_external_ids = {txn.external_id for txn in transactions_data}
             for txn_data in transactions_data:
                 existing = await session.execute(
                     select(Transaction)
@@ -2968,8 +3071,6 @@ async def sync_connection(
                     # a re-sync can't revive a transaction the user hid.
                     if existing_tx.is_ignored:
                         continue
-                    if existing_tx.original_description is None:
-                        existing_tx.original_description = txn_data.description
                     if existing_tx.status == "pending" and txn_data.status == "posted":
                         await _promote_synced_transaction(
                             session, user_id, existing_tx, txn_data,
@@ -3011,8 +3112,6 @@ async def sync_connection(
                         continue
                     _merge_sync_metadata(fuzzy_match, txn_data)
                     fuzzy_match.source = "sync"
-                    if fuzzy_match.original_description is None:
-                        fuzzy_match.original_description = txn_data.description
                     merged_count += 1
                     continue
 
@@ -3022,7 +3121,7 @@ async def sync_connection(
                 # status, fingerprint match collapses it instead of letting
                 # both rows land.
                 synced_dup = await _find_synced_duplicate(
-                    session, account.id, txn_data, incoming_external_ids
+                    session, account.id, txn_data, incoming_txn_external_ids
                 )
                 if synced_dup:
                     if synced_dup.status == "posted" and txn_data.status == "pending":
@@ -3065,12 +3164,16 @@ async def sync_connection(
                 incoming_currency = (
                     txn_data.currency or acc_data.currency or user_currency
                 )
-                category_id = await _match_pluggy_category(
-                    session,
-                    workspace_id,
-                    txn_data.pluggy_category,
-                    enabled=use_provider_cats,
+                category_id = await _find_installment_category(
+                    session, account.id, txn_data
                 )
+                if category_id is None:
+                    category_id = await _match_pluggy_category(
+                        session,
+                        workspace_id,
+                        txn_data.pluggy_category,
+                        enabled=use_provider_cats,
+                    )
 
                 sync_payee_id = None
                 if txn_data.payee:
@@ -3199,6 +3302,25 @@ async def sync_connection(
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:
             await detect_transfer_pairs(session, workspace_id, candidate_ids=new_tx_ids)
+
+            # Then settle whatever this money was promised against. It runs
+            # after the rows are written, not inside the loop: the recurring
+            # match upgrades a placeholder in place, while an invoice link is
+            # a row pointing at a transaction that has to exist first. It is
+            # also a single batch, so the candidate invoices are loaded once
+            # per sync rather than once per transaction.
+            landed = list(
+                (
+                    await session.execute(
+                        select(Transaction).where(Transaction.id.in_(new_tx_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            await reconciliation_service.match_incoming(
+                session, workspace_id, landed
+            )
 
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired

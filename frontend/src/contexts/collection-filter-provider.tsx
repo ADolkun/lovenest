@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { collections as collectionsApi } from '@/lib/api'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { CollectionFilterContext, type CollectionFilterValue } from '@/contexts/collection-filter-context'
 
-import { CollectionFilterContext } from '@/contexts/collection-filter-context'
-import type { CollectionFilterValue } from '@/contexts/collection-filter-context'
 const STORAGE_PREFIX = 'securo.activeCollection.'
 
 export function CollectionFilterProvider({ children }: { children: ReactNode }) {

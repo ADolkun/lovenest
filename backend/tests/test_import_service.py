@@ -2630,6 +2630,48 @@ async def test_import_tolerates_duplicate_external_id_rows(
     assert len(remaining) == 2
 
 
+@pytest.mark.asyncio
+async def test_import_external_id_reconciles_matching_synced_transaction(
+    session: AsyncSession, test_user: User, test_workspace, test_account: Account,
+):
+    from app.models.transaction import Transaction
+    from app.schemas.transaction import TransactionImport
+
+    session.add(Transaction(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        account_id=test_account.id,
+        external_id="provider-id",
+        description="Music subscription",
+        original_description="SPOTIFY",
+        amount=Decimal("23.90"),
+        date=date(2026, 1, 15),
+        type="debit",
+        source="sync",
+    ))
+    await session.commit()
+
+    imported, skipped, _, _ = await import_transactions(
+        session,
+        test_workspace.id,
+        test_user.id,
+        test_account.id,
+        [TransactionImport(
+            external_id="ofx-fitid",
+            description="SPOTIFY",
+            amount=Decimal("23.90"),
+            date=date(2026, 1, 15),
+            type="debit",
+        )],
+        "ofx",
+        detected_format="ofx",
+    )
+
+    assert imported == 0
+    assert skipped == 1
+
+
 def test_normalize_amount_swiss_single_quotes():
     from app.services.import_service import normalize_amount
     assert normalize_amount("1'050.45") == "1050.45"

@@ -3,7 +3,7 @@ import { Building2, PiggyBank, CreditCard, TrendingUp, Wallet } from 'lucide-rea
 
 // Account-type → icon/color, the fallback shown when an account has no bank
 // logo (manual accounts, and connected accounts whose provider exposes none).
-const ACCOUNT_TYPE_CONFIG: Record<
+export const ACCOUNT_TYPE_CONFIG: Record<
   string,
   { icon: ElementType; color: string; bg: string; label: string }
 > = {

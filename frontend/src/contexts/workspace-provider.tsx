@@ -4,7 +4,6 @@ import { useAuth } from '@/contexts/auth-context'
 import { workspaces as workspacesApi, WORKSPACE_STORAGE_KEY } from '@/lib/api'
 import type { ModuleId } from '@/lib/modules'
 import type { Workspace } from '@/types'
-
 import { WorkspaceContext } from '@/contexts/workspace-context'
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {

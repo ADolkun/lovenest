@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.12.10 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.17 AS uv
 
 FROM node:24-slim AS assets
 

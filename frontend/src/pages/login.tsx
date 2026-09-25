@@ -145,7 +145,10 @@ export default function LoginPage() {
           options.options,
           abortController.signal,
         )
+        // A challenge is one-shot server-side: verifying one the user already
+        // walked away from burns it and answers a ceremony nobody is watching.
         if (abortController.signal.aborted) return
+
         const result = await authApi.verifyPasskeyAuthentication(options.challenge_id, credential)
         if (abortController.signal.aborted) return
 
