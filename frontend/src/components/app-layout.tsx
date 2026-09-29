@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { useSidebarState } from '@/contexts/sidebar-state-context'
 import { CollectionSelector } from '@/components/collection-selector'
 import { auth as authApi, admin as adminApi } from '@/lib/api'
 import { resolveSupportedLang } from '@/lib/i18n'
@@ -66,8 +67,6 @@ import { formatCurrency } from '@/lib/format'
 
 const QuickAddTransaction = lazy(() => import('@/components/quick-add-transaction'))
 
-const SIDEBAR_COLLAPSED_STORAGE_KEY = 'securo.sidebar.collapsed'
-
 /** Placeholder rows shown while the workspace's module list is in flight. */
 function NavSkeleton() {
   return (
@@ -99,9 +98,7 @@ export function AppLayout() {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [quickAddOpen, setQuickAddOpen] = useState(false)
-  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(
-    () => localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true',
-  )
+  const { collapsed: desktopSidebarCollapsed, toggleCollapsed: toggleDesktopSidebar } = useSidebarState()
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const [accountsShowAll, setAccountsShowAll] = useState(false)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
@@ -186,13 +183,6 @@ export function AppLayout() {
     : typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-color-scheme: dark)').matches
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
-  const toggleDesktopSidebar = () => {
-    setDesktopSidebarCollapsed((collapsed) => {
-      const next = !collapsed
-      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next))
-      return next
-    })
-  }
 
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
