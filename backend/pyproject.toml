@@ -1,6 +1,6 @@
 [project]
 name = "securo-backend"
-version = "0.16.1"
+version = "0.16.3"
 description = "Securo API - Personal Finance Manager"
 requires-python = ">=3.11"
 # These ranges express intent; CI and Docker install uv.lock with uv sync --locked.
@@ -45,6 +45,8 @@ dependencies = [
     # agents feature pay zero cost (the package is installed but never
     # imported).
     "fastembed>=0.4.0",
+    # Resolve the host's IANA timezone when no app setting or TZ override exists.
+    "tzlocal>=5.0.0",
 ]
 
 [dependency-groups]
@@ -55,8 +57,8 @@ dev = [
     "pytest-xdist>=3.8.0",
     "aiosqlite>=0.19.0",
     # Upgrade these checks deliberately: new releases can change diagnostics.
-    "ruff==0.16.8",
-    "ty==0.0.82",
+    "ruff==0.16.9",
+    "ty==0.0.84",
 ]
 
 [build-system]

@@ -310,6 +310,7 @@ describe('i18n locale files', () => {
   it('contains imported-description normalization labels in every locale', () => {
     const required = [
       'transactions.originalDescription',
+      'transactions.restoreOriginalDescription',
       'rules.setDescription',
       'rules.descriptionValuePlaceholder',
       'rules.invalidDescriptionValue',

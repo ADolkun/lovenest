@@ -39,6 +39,7 @@ import { TokenConnectDialog } from '@/components/token-connect-dialog'
 import { ConnectionSettingsDialog } from '@/components/connection-settings-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { formatCurrency } from '@/lib/format'
 
@@ -92,6 +93,11 @@ export default function AccountsPage() {
   const { user } = useAuth()
   const { canWrite, hasModule, current } = useWorkspace()
   const { onchainEnabled } = useFeatureFlags()
+  const { activeAccountIds } = useCollectionFilter()
+  // The "Viewing" bar sits directly above this page, so its scope has to reach
+  // the lists too — the sidebar was already filtered, this page was not.
+  // null = no active collection = every account.
+  const inActiveCollection = (a: Account) => !activeAccountIds || activeAccountIds.includes(a.id)
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -175,7 +181,7 @@ export default function AccountsPage() {
     queryKey: ['accounts', 'closed'],
     queryFn: () => accounts.list(true),
   })
-  const closedAccounts = closedAccountsList?.filter((a) => a.is_closed) ?? []
+  const closedAccounts = closedAccountsList?.filter((a) => a.is_closed && inActiveCollection(a)) ?? []
 
   const syncMutation = useMutation({
     mutationFn: (id: string) => connections.sync(id),
@@ -261,8 +267,8 @@ export default function AccountsPage() {
   })
 
   const isLoading = accountsLoading || connectionsLoading
-  const manualAccounts = accountsList?.filter((a) => a.connection_id === null) ?? []
-  const bankAccounts = accountsList?.filter((a) => a.connection_id !== null) ?? []
+  const manualAccounts = accountsList?.filter((a) => a.connection_id === null && inActiveCollection(a)) ?? []
+  const bankAccounts = accountsList?.filter((a) => a.connection_id !== null && inActiveCollection(a)) ?? []
 
   return (
     <div className="space-y-6">
@@ -363,7 +369,9 @@ export default function AccountsPage() {
               </div>
             ) : (
               <div className="px-5 py-8 text-center">
-                <p className="text-sm text-muted-foreground">{t('accounts.noManualAccounts')}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t(activeAccountIds ? 'accounts.emptyFiltered' : 'accounts.noManualAccounts')}
+                </p>
               </div>
             )}
           </div>
@@ -538,7 +546,9 @@ export default function AccountsPage() {
                       </div>
                     ) : (
                       <div className="px-5 py-4">
-                        <p className="text-sm text-muted-foreground">{t('accounts.noAccountsFound')}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {t(activeAccountIds ? 'accounts.emptyFiltered' : 'accounts.noAccountsFound')}
+                        </p>
                       </div>
                     )}
                   </div>

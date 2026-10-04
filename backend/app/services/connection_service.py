@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.app_clock import app_today
 from app.core.config import get_settings
 from app.core.connection_settings import (
     account_status,
@@ -138,9 +139,11 @@ async def _resolve_institution(
     Matched by the provider's stable org id when it sends one, so a bank
     renamed on the provider side updates its row in place instead of minting
     a new one (review on #654); name identity is the fallback for servers
-    that only send a name. Providers without per-account hints
-    (Pluggy/Enable — one institution per connection) return None, and
-    serialization falls back to the connection's own fields.
+    that only send a name. Most Pluggy/Enable connections are one
+    institution and never send this hint (returns None, serialization falls
+    back to the connection's own fields) — the exception is a Pluggy
+    connection spanning a banking group's brokerage arm (issue #723), which
+    the provider detects and hints the same way SimpleFIN already does.
     """
     name = _clean_institution_name(acc_data.institution_name)
     if not name:
@@ -471,7 +474,7 @@ async def _sync_holdings(
         return False
 
     source = connection.provider
-    today = date.today()
+    today = app_today()
 
     # Deny by default: with an allowlist configured, a holding the provider
     # can't attribute to an account (Pluggy's item-level investments carry no
@@ -1849,6 +1852,7 @@ async def handle_oauth_callback(
             connection_id=connection.id,
             external_id=acc_data.external_id,
             name=acc_data.name,
+            display_name=institution.name if institution else None,
             masked_number=acc_data.masked_number,
             type=acc_data.type,
             balance=acc_data.balance,
@@ -2483,7 +2487,7 @@ async def _find_synced_duplicate(
 async def _cleanup_phantom_duplicates(
     session: AsyncSession,
     account_ids: list[uuid.UUID],
-) -> int:
+) -> set[uuid.UUID]:
     """Delete synced transactions that are phantom duplicates.
 
     Some providers (or sandbox data) report the same payment twice with
@@ -2500,9 +2504,12 @@ async def _cleanup_phantom_duplicates(
     Scoped to the accounts the run actually synced, never every account on the
     connection: this deletes rows, and an account the allowlist excludes (or
     the user closed) must come out of a sync exactly as it went in.
+
+    Returns the ids of the accounts that lost a row, so the caller can
+    reconcile their opening balances against what is left.
     """
     if not account_ids:
-        return 0
+        return set()
 
     unmatched_result = await session.execute(
         select(Transaction).where(
@@ -2513,7 +2520,7 @@ async def _cleanup_phantom_duplicates(
     )
     unmatched = list(unmatched_result.scalars().all())
 
-    deleted = 0
+    touched: set[uuid.UUID] = set()
     for tx in unmatched:
         date_lo = tx.date - timedelta(days=1)
         date_hi = tx.date + timedelta(days=1)
@@ -2535,10 +2542,10 @@ async def _cleanup_phantom_duplicates(
                 tx.original_description or tx.description,
             ) >= 0.9:
                 await session.delete(tx)
-                deleted += 1
+                touched.add(tx.account_id)
                 break
 
-    return deleted
+    return touched
 
 
 # Finance-charge `additionalInfo` strings that Pluggy emits but which would
@@ -2968,6 +2975,10 @@ async def sync_connection(
                 # Backfills existing accounts on next sync (issue #345).
                 if institution is not None:
                     account.institution_id = institution.id
+                    # Only when the user hasn't named the account themselves —
+                    # never overwrite a manual display_name.
+                    if account.display_name is None:
+                        account.display_name = institution.name
                 if acc_data.type == "credit_card":
                     # Preserve existing CC metadata when the provider doesn't
                     # expose it. Pluggy's creditData fields (limit, close/due
@@ -3002,6 +3013,7 @@ async def sync_connection(
                     connection_id=connection.id,
                     external_id=acc_data.external_id,
                     name=acc_data.name,
+                    display_name=institution.name if institution else None,
                     masked_number=acc_data.masked_number,
                     type=acc_data.type,
                     balance=acc_data.balance,
@@ -3325,9 +3337,24 @@ async def sync_connection(
         # Clean up phantom duplicates: providers occasionally double-report the
         # same payment with different ids. Once transfer detection has paired
         # the real one, the orphan twin gets removed here.
-        await _cleanup_phantom_duplicates(
+        touched_account_ids = await _cleanup_phantom_duplicates(
             session, [a.id for a in synced_account_rows]
         )
+
+        # The opening balances above were reconciled with the phantoms still
+        # counted. Reconcile the open accounts that lost one again, so the
+        # removed amount does not stay behind in their synthetic opening
+        # transaction. Closed accounts stay out, as in the account loop.
+        if touched_account_ids:
+            await session.flush()
+            touched_accounts = await session.execute(
+                select(Account).where(
+                    Account.id.in_(touched_account_ids),
+                    Account.is_closed == False,
+                )
+            )
+            for touched_account in touched_accounts.scalars():
+                await sync_opening_balance_for_connected_account(session, touched_account)
 
         # Refresh investment holdings (brokerage, fixed income, funds,
         # etc.) when enabled for this connection. Errors here are logged but

@@ -12,6 +12,7 @@ from sqlalchemy import and_, case, exists, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.app_clock import app_today
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.category import Category
@@ -163,6 +164,22 @@ def is_not_ignored():
             Transaction.category_id.not_in(
                 select(Category.id).where(Category.is_ignored.is_(True))
             ),
+        ),
+    )
+
+
+def is_transfer():
+    """SQL filter: the row is a transfer rather than income or expense.
+
+    Either both legs were matched (`transfer_pair_id` set), or the row sits
+    in a category flagged `treat_as_transfer` (one-sided movements such as
+    an investment application). Same reading the transactions calendar uses
+    when it marks a day as having a transfer.
+    """
+    return or_(
+        Transaction.transfer_pair_id.is_not(None),
+        Transaction.category_id.in_(
+            select(Category.id).where(Category.treat_as_transfer.is_(True))
         ),
     )
 
@@ -349,7 +366,7 @@ async def owner_split_offset_pnl(
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
             *(
-                [Transaction.status == "posted", date_col <= date.today()]
+                [Transaction.status == "posted", date_col <= app_today()]
                 if posted_only
                 else []
             ),
@@ -433,7 +450,7 @@ async def owner_split_offset_by_category(
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
             *(
-                [Transaction.status == "posted", date_col <= date.today()]
+                [Transaction.status == "posted", date_col <= app_today()]
                 if posted_only
                 else []
             ),
@@ -521,7 +538,7 @@ async def viewer_shared_pnl(
             Transaction.user_id != user_id,
             Transaction.source != "opening_balance",
             *(
-                [Transaction.status == "posted", date_col <= date.today()]
+                [Transaction.status == "posted", date_col <= app_today()]
                 if posted_only
                 else []
             ),
@@ -604,7 +621,7 @@ async def viewer_shared_spending_by_category(
             Transaction.type == "debit",
             Transaction.source != "opening_balance",
             *(
-                [Transaction.status == "posted", date_col <= date.today()]
+                [Transaction.status == "posted", date_col <= app_today()]
                 if posted_only
                 else []
             ),

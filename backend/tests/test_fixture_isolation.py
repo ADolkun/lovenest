@@ -86,9 +86,15 @@ def test_password_fixture_preserves_verification_upgrade_and_production_defaults
     hashed = helper.hash("synthetic-password")
     parameters = argon2.extract_parameters(hashed)
     assert (parameters.time_cost, parameters.memory_cost, parameters.parallelism) == (1, 8, 1)
+    assert parameters.hash_len == argon2.DEFAULT_HASH_LENGTH
+    assert parameters.salt_len == argon2.DEFAULT_RANDOM_SALT_LENGTH
     assert helper.verify_and_update("synthetic-password", hashed) == (True, None)
     assert helper.verify_and_update("wrong-password", hashed) == (False, None)
 
+    assert bcrypt.gensalt().startswith(b"$2b$04$")
+    assert bcrypt.gensalt(5).startswith(b"$2b$05$")
+    assert bcrypt.gensalt(rounds=5, prefix=b"2a").startswith(b"$2a$05$")
+    assert bcrypt.gensalt(prefix=b"2a").startswith(b"$2a$12$")
     legacy = bcrypt.hashpw(b"synthetic-password", bcrypt.gensalt()).decode()
     valid, upgraded = helper.verify_and_update("synthetic-password", legacy)
     assert valid and upgraded is not None and upgraded.startswith("$argon2id$")
@@ -109,7 +115,9 @@ def test_password_fixture_preserves_verification_upgrade_and_production_defaults
     subprocess.run(
         [sys.executable, "-c", """
 import argon2
+import bcrypt
 from fastapi_users.password import PasswordHelper
+assert bcrypt.gensalt().startswith(b"$2b$12$")
 helper = PasswordHelper()
 hashed = helper.hash('synthetic-password')
 parameters = argon2.extract_parameters(hashed)
