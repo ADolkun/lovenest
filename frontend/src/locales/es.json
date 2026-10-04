@@ -973,7 +973,7 @@
     "statusCleared": "Conciliada",
     "sortAsc": "Orden ascendente",
     "sortDesc": "Orden descendente",
-    "syncedInfo": "Transacción sincronizada con el banco — el importe, la fecha y la cuenta no se pueden editar",
+    "syncedInfo": "Transacción sincronizada con el banco: el importe, la fecha y la cuenta no se pueden editar",
     "uncategorized": "Sin categorizar",
     "selected": "seleccionado",
     "summaryCount": "{{count}} transacciones",

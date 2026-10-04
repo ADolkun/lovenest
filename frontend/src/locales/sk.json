@@ -991,7 +991,7 @@
     "statusCleared": "Zaúčtovaná",
     "sortAsc": "Zoradiť vzostupne",
     "sortDesc": "Zoradiť zostupne",
-    "syncedInfo": "Transakcia synchronizovaná z banky — sumu, dátum a účet nemožno upraviť",
+    "syncedInfo": "Transakcia synchronizovaná z banky: sumu, dátum a účet nemožno upraviť",
     "uncategorized": "Bez kategórie",
     "selected": "vybraných",
     "summaryCount": "{{count}} transakcií",

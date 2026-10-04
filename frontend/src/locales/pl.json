@@ -988,7 +988,7 @@
     "statusCleared": "Rozliczona",
     "sortAsc": "Sortuj rosnąco",
     "sortDesc": "Sortuj malejąco",
-    "syncedInfo": "Transakcja zsynchronizowana z bankiem — kwoty, daty i konta nie można edytować",
+    "syncedInfo": "Transakcja zsynchronizowana z bankiem: kwoty, daty i konta nie można edytować",
     "uncategorized": "Nieskategoryzowane",
     "selected": "zaznaczono",
     "summaryCount_one": "{{count}} transakcja",

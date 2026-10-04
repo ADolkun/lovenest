@@ -973,7 +973,7 @@
     "statusCleared": "Compensada",
     "sortAsc": "Ordem crescente",
     "sortDesc": "Ordem decrescente",
-    "syncedInfo": "Transação sincronizada — valor, data e conta não podem ser editados",
+    "syncedInfo": "Transação sincronizada: valor, data e conta não podem ser editados",
     "uncategorized": "Sem categoria",
     "selected": "selecionadas",
     "summaryCount": "{{count}} transações",

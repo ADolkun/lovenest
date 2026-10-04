@@ -973,7 +973,7 @@
     "statusCleared": "Rapprochée",
     "sortAsc": "Trier par ordre croissant",
     "sortDesc": "Trier par ordre décroissant",
-    "syncedInfo": "Transaction synchronisée depuis la banque — le montant, la date et le compte ne peuvent pas être modifiés",
+    "syncedInfo": "Transaction synchronisée depuis la banque : le montant, la date et le compte ne peuvent pas être modifiés",
     "uncategorized": "Non catégorisée",
     "selected": "sélectionnée(s)",
     "summaryCount": "{{count}} transactions",

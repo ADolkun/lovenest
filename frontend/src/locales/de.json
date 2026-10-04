@@ -971,7 +971,7 @@
     "statusCleared": "Abgewickelt",
     "sortAsc": "Aufsteigend sortieren",
     "sortDesc": "Absteigend sortieren",
-    "syncedInfo": "Bank-synchronisierte Transaktion — Betrag, Datum und Konto können nicht bearbeitet werden",
+    "syncedInfo": "Bank-synchronisierte Transaktion: Betrag, Datum und Konto können nicht bearbeitet werden",
     "uncategorized": "Nicht kategorisiert",
     "selected": "ausgewählt",
     "summaryCount": "{{count}} Transaktionen",

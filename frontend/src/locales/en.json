@@ -971,7 +971,7 @@
     "statusCleared": "Cleared",
     "sortAsc": "Sort ascending",
     "sortDesc": "Sort descending",
-    "syncedInfo": "Bank-synced transaction — amount, date and account can't be edited",
+    "syncedInfo": "Bank-synced transaction: amount, date and account can't be edited",
     "uncategorized": "Uncategorized",
     "selected": "selected",
     "summaryCount": "{{count}} transactions",
