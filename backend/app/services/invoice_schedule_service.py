@@ -14,9 +14,8 @@ the frequency, day of month clamped in shorter months and recovered
 afterwards, and ends the day before period `n + 1` starts. That is all
 the calendar there is: no separate "next run" date to drift, no
 timezone column to disagree with the anchor. The job compares period
-starts against the UTC date; a retainer due on the 1st is emitted on
-the 1st UTC, which is the same day everywhere that matters for a
-document dated by the day.
+starts against the workspace's calendar, using the same timezone as
+invoice dates and the rest of its books.
 
 ## Terms
 
@@ -49,6 +48,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.models.invoice import (
     Invoice,
     InvoiceAllocation,
@@ -87,7 +87,7 @@ _MAX_WALK = 1000
 
 
 def _today() -> _date:
-    return datetime.now(timezone.utc).date()
+    return app_today()
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +238,10 @@ def _normalise_lines(lines: Any) -> list[dict[str, Any]]:
                 # deleted later must not stop the agreement from billing.
                 "product_id": str(line["product_id"]) if line.get("product_id") else None,
                 "price_id": str(line["price_id"]) if line.get("price_id") else None,
-                "fiscal_refs": clean_fiscal_refs(line.get("fiscal_refs")),
+                **(
+                    {"fiscal_refs": clean_fiscal_refs(line["fiscal_refs"])}
+                    if "fiscal_refs" in line else {}
+                ),
             }
         )
     return out
@@ -1061,11 +1064,8 @@ async def _emit(
     lines = await product_service.resolve_lines(
         session, schedule.workspace_id, [dict(line) for line in term.lines], strict=False
     )
-    if schedule.user_id is None:
-        # The ledger stamps who created each invoice. An agreement whose
-        # author left the workspace keeps emitting, and the invoice is
-        # then authored by nobody in particular rather than not at all.
-        raise InvoiceError("no_author", "This agreement has no author to issue invoices as")
+    # The agreement belongs to the workspace. If its author was deleted,
+    # its invoices keep billing with the same nullable attribution.
     invoice = await invoice_service.create_invoice(
         session,
         schedule.workspace_id,
