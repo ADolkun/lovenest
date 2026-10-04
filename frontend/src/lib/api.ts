@@ -10,6 +10,7 @@ import type {
   AppSetting,
   Category,
   CategoryRuleUsage,
+  CategoryUsage,
   CategoryGroup,
   BankConnection,
   ConnectionSettings,
@@ -21,10 +22,23 @@ import type {
   Transaction,
   Payee,
   PayeeSummary,
+  DeductionKind,
+  InstallmentInput,
   Invoice,
   InvoiceDirection,
   InvoiceDocumentPayload,
   InvoiceFacets,
+  InvoiceSchedule,
+  InvoiceScheduleEndReason,
+  InvoiceScheduleEndType,
+  InvoiceScheduleFrequency,
+  InvoiceSchedulePeriod,
+  InvoiceScheduleStatus,
+  InvoiceScheduleSummary,
+  Product,
+  ProductFieldSpec,
+  ProductKind,
+  PriceBilling,
   InvoiceLineInput,
   InvoiceShareLink,
   IssuerProfile,
@@ -164,7 +178,7 @@ export const workspaces = {
     id: string,
     payload: Partial<
       Pick<Workspace, 'name' | 'icon' | 'color' | 'default_currency' | 'locale'>
-    > & { tax_jurisdiction?: string | null },
+    > & { tax_jurisdiction?: string | null; timezone?: string | null },
   ): Promise<Workspace> => {
     const { data } = await api.patch(`/workspaces/${id}`, payload)
     return data
@@ -337,8 +351,14 @@ export const categories = {
     const { data } = await api.get(`/categories/${id}/rule-usage`)
     return data
   },
-  delete: async (id: string): Promise<void> => {
-    await api.delete(`/categories/${id}`)
+  usage: async (id: string): Promise<CategoryUsage> => {
+    const { data } = await api.get(`/categories/${id}/usage`)
+    return data
+  },
+  delete: async (id: string, transferToId?: string): Promise<void> => {
+    await api.delete(`/categories/${id}`, {
+      params: transferToId ? { transfer_to_category_id: transferToId } : undefined,
+    })
   },
 }
 
@@ -777,6 +797,11 @@ export const fiscal = {
     const { data } = await api.get('/fiscal/tax-id-kinds')
     return data
   },
+  /** Fiscal references the workspace's jurisdiction suggests on a product. */
+  productFields: async (): Promise<{ jurisdiction: string | null; fields: ProductFieldSpec[] }> => {
+    const { data } = await api.get('/fiscal/product-fields')
+    return data
+  },
 }
 
 export interface PayeeWritePayload {
@@ -791,6 +816,67 @@ export interface PayeeWritePayload {
   is_favorite?: boolean
   /** Replaces the whole set. Omit to leave documents untouched. */
   tax_ids?: PayeeTaxId[]
+}
+
+export interface PricePayload {
+  currency: string
+  unit_price: string
+  tax_rate?: string | null
+  billing?: PriceBilling
+  interval?: InvoiceScheduleFrequency | null
+  nickname?: string | null
+  lookup_key?: string | null
+}
+
+export interface ProductPayload {
+  name?: string
+  description?: string | null
+  kind?: ProductKind
+  unit?: string | null
+  active?: boolean
+  fiscal_refs?: Record<string, string> | null
+  prices?: PricePayload[]
+}
+
+/** The catalog: what the workspace sells. Gated like invoices. */
+export const products = {
+  list: async (params?: { active?: boolean | null; kind?: ProductKind; q?: string }): Promise<Product[]> => {
+    const { data } = await api.get('/products', {
+      params: {
+        ...(params?.active === undefined ? {} : { active: params.active }),
+        ...(params?.kind ? { kind: params.kind } : {}),
+        ...(params?.q ? { q: params.q } : {}),
+      },
+    })
+    return data
+  },
+  get: async (id: string): Promise<Product> => {
+    const { data } = await api.get(`/products/${id}`)
+    return data
+  },
+  create: async (payload: ProductPayload): Promise<Product> => {
+    const { data } = await api.post('/products', payload)
+    return data
+  },
+  update: async (id: string, payload: ProductPayload): Promise<Product> => {
+    const { data } = await api.patch(`/products/${id}`, payload)
+    return data
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/products/${id}`)
+  },
+  addPrice: async (id: string, payload: PricePayload): Promise<Product> => {
+    const { data } = await api.post(`/products/${id}/prices`, payload)
+    return data
+  },
+  updatePrice: async (id: string, priceId: string, payload: Partial<PricePayload> & { active?: boolean }): Promise<Product> => {
+    const { data } = await api.patch(`/products/${id}/prices/${priceId}`, payload)
+    return data
+  },
+  removePrice: async (id: string, priceId: string): Promise<Product> => {
+    const { data } = await api.delete(`/products/${id}/prices/${priceId}`)
+    return data
+  },
 }
 
 export const payees = {
@@ -1802,6 +1888,23 @@ export const backup = {
 }
 
 // Admin
+export interface TimezoneSetting {
+  /** The timezone in use, after fallbacks. */
+  timezone: string
+  /** What an administrator saved, valid or not; null when nothing is saved. */
+  saved: string | null
+  /** Where the application lands without a saved value. */
+  fallback: string
+  available: string[]
+}
+
+export const timezones = {
+  list: async (): Promise<{ default: string; available: string[] }> => {
+    const { data } = await api.get('/timezones')
+    return data
+  },
+}
+
 export const admin = {
   listUsers: async (params?: { search?: string; page?: number; limit?: number }): Promise<AdminUserList> => {
     const { data } = await api.get('/admin/users', { params })
@@ -1828,6 +1931,13 @@ export const admin = {
   },
   updateSetting: async (key: string, value: string): Promise<AppSetting> => {
     const { data } = await api.patch(`/admin/settings/${key}`, { value })
+    return data
+  },
+  deleteSetting: async (key: string): Promise<void> => {
+    await api.delete(`/admin/settings/${key}`)
+  },
+  timezone: async (): Promise<TimezoneSetting> => {
+    const { data } = await api.get('/admin/timezone')
     return data
   },
   registrationStatus: async (): Promise<{ enabled: boolean }> => {
@@ -2155,6 +2265,111 @@ export interface InvoiceWritePayload {
   internal_notes?: string | null
   custom_fields?: Record<string, string> | null
   lines?: InvoiceLineInput[]
+  /** More than one due date. Must add up to the total; an empty list clears it. */
+  installments?: InstallmentInput[]
+}
+
+export interface MakeRecurringPayload {
+  frequency: InvoiceScheduleFrequency
+  start_date?: string
+  name?: string
+  end_type?: InvoiceScheduleEndType
+  end_date?: string | null
+  end_count?: number | null
+  payment_terms_days?: number | null
+}
+
+export interface InvoiceScheduleWritePayload {
+  name?: string
+  payee_id?: string | null
+  frequency?: InvoiceScheduleFrequency
+  start_date?: string
+  end_type?: InvoiceScheduleEndType
+  end_date?: string | null
+  end_count?: number | null
+  payment_terms_days?: number | null
+  currency?: string
+  notes?: string | null
+  custom_fields?: Record<string, string> | null
+  /** Create only: the first term, in force from `start_date`. */
+  lines?: InvoiceLineInput[]
+  discount?: string | null
+}
+
+export interface InvoiceScheduleTermPayload {
+  effective_from?: string
+  lines?: InvoiceLineInput[]
+  discount?: string | null
+}
+
+/** Recurring invoices: an agreement that emits one invoice per period.
+ *  Its own prefix, because `/invoices/{id}` would swallow `schedules`. */
+export const invoiceSchedules = {
+  list: async (params?: { status?: InvoiceScheduleStatus; payee_id?: string }): Promise<InvoiceSchedule[]> => {
+    const { data } = await api.get('/invoice-schedules', { params })
+    return data
+  },
+  summary: async (): Promise<InvoiceScheduleSummary> => {
+    const { data } = await api.get('/invoice-schedules/summary')
+    return data
+  },
+  get: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.get(`/invoice-schedules/${id}`)
+    return data
+  },
+  invoices: async (id: string): Promise<Invoice[]> => {
+    const { data } = await api.get(`/invoice-schedules/${id}/invoices`)
+    return data
+  },
+  periods: async (id: string, ahead = 3): Promise<InvoiceSchedulePeriod[]> => {
+    const { data } = await api.get(`/invoice-schedules/${id}/periods`, { params: { ahead } })
+    return data
+  },
+  create: async (payload: InvoiceScheduleWritePayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post('/invoice-schedules', payload)
+    return data
+  },
+  update: async (id: string, payload: InvoiceScheduleWritePayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.patch(`/invoice-schedules/${id}`, payload)
+    return data
+  },
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/invoice-schedules/${id}`)
+  },
+  pause: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/pause`)
+    return data
+  },
+  resume: async (id: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/resume`)
+    return data
+  },
+  end: async (id: string, payload: { reason: InvoiceScheduleEndReason; ended_at?: string }): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/end`, payload)
+    return data
+  },
+  /** Emit the next period now, whether or not its date has come. */
+  generate: async (id: string): Promise<Invoice[]> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/generate`)
+    return data
+  },
+  addTerm: async (id: string, payload: InvoiceScheduleTermPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/terms`, payload)
+    return data
+  },
+  updateTerm: async (id: string, termId: string, payload: InvoiceScheduleTermPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.patch(`/invoice-schedules/${id}/terms/${termId}`, payload)
+    return data
+  },
+  removeTerm: async (id: string, termId: string): Promise<InvoiceSchedule> => {
+    const { data } = await api.delete(`/invoice-schedules/${id}/terms/${termId}`)
+    return data
+  },
+  /** Say an existing invoice answers for a period of this agreement. */
+  link: async (id: string, payload: { invoice_id: string; period_start: string }): Promise<Invoice> => {
+    const { data } = await api.post(`/invoice-schedules/${id}/link`, payload)
+    return data
+  },
 }
 
 export const invoices = {
@@ -2164,7 +2379,7 @@ export const invoices = {
     })
     return data
   },
-  list: async (params?: { state?: string; year?: number; direction?: InvoiceDirection; payee_id?: string; q?: string } | Record<string, unknown>): Promise<Invoice[]> => {
+  list: async (params?: { state?: string; year?: number; direction?: InvoiceDirection; payee_id?: string; schedule_id?: string; q?: string; limit?: number } | Record<string, unknown>): Promise<Invoice[]> => {
     const cleanParams = params && !('queryKey' in params) ? params : undefined
     const { data } = await api.get('/invoices', { params: cleanParams })
     return data
@@ -2190,6 +2405,16 @@ export const invoices = {
   remove: async (id: string): Promise<void> => {
     await api.delete(`/invoices/${id}`)
   },
+  /** Turn this invoice into period one of a new agreement that repeats it. */
+  makeRecurring: async (id: string, payload: MakeRecurringPayload): Promise<InvoiceSchedule> => {
+    const { data } = await api.post(`/invoices/${id}/make-recurring`, payload)
+    return data
+  },
+  /** The invoice stops answering for a period. It stays as it is. */
+  unlinkSchedule: async (id: string): Promise<Invoice> => {
+    const { data } = await api.delete(`/invoices/${id}/schedule`)
+    return data
+  },
   // The decisions. Each is its own call for the same reason it is its own
   // route on the server: a status change always has a cause.
   issue: async (id: string): Promise<Invoice> => {
@@ -2213,6 +2438,18 @@ export const invoices = {
       transaction_id: transactionId,
       ...(amount ? { amount } : {}),
     })
+    return data
+  },
+  /** Close part of the debt without money: tax withheld, a fee kept. */
+  deduct: async (
+    id: string,
+    payload: { kind: DeductionKind; amount: string; tax_kind?: string | null; note?: string | null; transaction_id?: string | null },
+  ): Promise<Invoice> => {
+    const { data } = await api.post(`/invoices/${id}/deductions`, payload)
+    return data
+  },
+  undeduct: async (id: string, deductionId: string): Promise<Invoice> => {
+    const { data } = await api.delete(`/invoices/${id}/deductions/${deductionId}`)
     return data
   },
   unallocate: async (id: string, allocationId: string): Promise<Invoice> => {
@@ -2248,6 +2485,11 @@ export const invoices = {
    *  adds, which a plain <a href> would not carry. */
   pdf: async (id: string): Promise<Blob> => {
     const { data } = await api.get(`/invoices/${id}/pdf`, { responseType: 'blob' })
+    return data
+  },
+  /** The statement of account: payments and deductions since issue. */
+  statement: async (id: string): Promise<Blob> => {
+    const { data } = await api.get(`/invoices/${id}/statement`, { responseType: 'blob' })
     return data
   },
   share: async (id: string): Promise<InvoiceShareLink> => {

@@ -30,21 +30,6 @@ os.environ["OIDC_EXISTING_USER_LINK_MODE"] = "disabled"
 # pgvector unchanged.
 import sqlalchemy.types  # noqa: E402
 import pgvector.sqlalchemy as _pgv  # noqa: E402
-import bcrypt as _bcrypt  # noqa: E402
-
-
-# bcrypt's production-safe default work factor is intentionally expensive.
-# Most tests only need a valid password hash for login/auth fixtures, not a
-# password hashing benchmark. Keep explicit rounds untouched, but make implicit
-# test salts cheap so API tests don't spend minutes doing CPU-bound bcrypt.
-_ORIGINAL_BCRYPT_GENSALT = _bcrypt.gensalt
-
-
-def _fast_test_gensalt(rounds: int = 4, prefix: bytes = b"2b") -> bytes:
-    return _ORIGINAL_BCRYPT_GENSALT(rounds=rounds, prefix=prefix)
-
-
-setattr(_bcrypt, "gensalt", _fast_test_gensalt)
 
 
 class _VectorJSON(sqlalchemy.types.JSON):
@@ -200,8 +185,16 @@ async def clean_db(session: AsyncSession):
 
 @pytest.fixture(scope="session", autouse=True)
 def _fast_password_hashes():
-    """Exercise real Argon2 hash/verify/upgrade at test-only work costs."""
+    """Exercise real password hashing, verification and upgrades at test-only costs."""
+    import bcrypt
     from pwdlib.hashers.argon2 import Argon2Hasher
+
+    gensalt = bcrypt.gensalt
+
+    def _test_gensalt(*args, **kwargs):
+        if args or kwargs:
+            return gensalt(*args, **kwargs)
+        return gensalt(rounds=4)
 
     def _test_argon2_hasher(*args, **kwargs):
         # Explicit constructor calls retain all production parameter defaults.
@@ -209,13 +202,17 @@ def _fast_password_hashes():
             return Argon2Hasher(*args, **kwargs)
         return Argon2Hasher(time_cost=1, memory_cost=8, parallelism=1)
 
-    with patch("fastapi_users.password.Argon2Hasher", _test_argon2_hasher):
+    with patch("bcrypt.gensalt", _test_gensalt), \
+         patch("fastapi_users.password.Argon2Hasher", _test_argon2_hasher):
         yield
 
 
 async def override_get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    from app.core.app_clock import use_timezone
+
     async with TestSessionLocal() as session:
-        yield session
+        async with use_timezone(session):
+            yield session
 
 
 # Override the dependency
@@ -677,6 +674,16 @@ async def test_user_with_2fa(session: AsyncSession, clean_db) -> User:
     await session.commit()
     await session.refresh(user)
     return user
+
+
+@pytest.fixture(autouse=True)
+def _fresh_timezone_cache():
+    """One test's saved timezone must never leak into the next through the cache."""
+    from app.core.app_clock import invalidate_timezone_cache
+
+    invalidate_timezone_cache()
+    yield
+    invalidate_timezone_cache()
 
 
 @pytest.fixture(autouse=True)

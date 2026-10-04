@@ -351,14 +351,9 @@ async def test_pending_and_future_rows_are_current_vs_projected(
     client, auth_headers, monkeypatch
 ):
     """Pending and future rows affect the forecast, never a manual current balance."""
-    class FixedDate(date):
-        @classmethod
-        def today(cls):
-            return cls(2026, 8, 15)
-
-    monkeypatch.setattr("app.services.account_service._Date", FixedDate)
-    monkeypatch.setattr("app.services.dashboard_service.date", FixedDate)
-    today = FixedDate.today()
+    today = date(2026, 8, 15)
+    monkeypatch.setattr("app.services.account_service.app_today", lambda: today)
+    monkeypatch.setattr("app.services.dashboard_service.app_today", lambda: today)
     acc_resp = await client.post(
         "/api/accounts",
         json={"name": "Forecast split", "type": "checking", "balance": 1000.00, "currency": "BRL"},

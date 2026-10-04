@@ -1,7 +1,7 @@
 import { AccountBalanceAmount, AccountBalanceBasis } from '@/components/balance-details'
 import { accountAggregate, accountBalance } from '@/lib/balance-explanation'
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import { getAccountName } from '@/lib/account-utils'
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
+import { getAccountName, sortAccountsByAbsoluteBalance } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale } from '@/hooks/use-display-locale'
@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { useSidebarState } from '@/contexts/sidebar-state-context'
 import { CollectionSelector } from '@/components/collection-selector'
 import { auth as authApi, admin as adminApi } from '@/lib/api'
 import { resolveSupportedLang } from '@/lib/i18n'
@@ -61,12 +62,12 @@ import { CommandPalette } from '@/components/command-palette'
 import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
 import { GlobalChatPanel } from '@/components/global-chat-panel'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
-import { Bot, Search, Sparkles } from 'lucide-react'
+import { Bot, Plus, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
 import { useLocalAuthEnabled } from '@/hooks/use-local-auth'
 import { formatCurrency } from '@/lib/format'
 
-const SIDEBAR_COLLAPSED_STORAGE_KEY = 'securo.sidebar.collapsed'
+const QuickAddTransaction = lazy(() => import('@/components/quick-add-transaction'))
 
 /** Placeholder rows shown while the workspace's module list is in flight. */
 function NavSkeleton() {
@@ -98,9 +99,8 @@ export function AppLayout() {
   const { theme, setTheme, resolvedTheme } = useTheme()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(
-    () => localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true',
-  )
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const { collapsed: desktopSidebarCollapsed, toggleCollapsed: toggleDesktopSidebar } = useSidebarState()
   const [accountsExpanded, setAccountsExpanded] = useState(true)
   const [accountsShowAll, setAccountsShowAll] = useState(false)
   const { privacyMode, togglePrivacyMode, mask } = usePrivacyMode()
@@ -185,13 +185,6 @@ export function AppLayout() {
     : typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-color-scheme: dark)').matches
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
-  const toggleDesktopSidebar = () => {
-    setDesktopSidebarCollapsed((collapsed) => {
-      const next = !collapsed
-      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next))
-      return next
-    })
-  }
 
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
@@ -215,7 +208,7 @@ export function AppLayout() {
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="text-sidebar-muted hover:text-sidebar-foreground transition-colors"
-          aria-label="Toggle menu"
+          aria-label={t('app.toggleMenu')}
         >
           <Menu size={20} />
         </button>
@@ -444,6 +437,7 @@ export function AppLayout() {
                   ? location.pathname === '/'
                   : location.pathname.startsWith(item.path)
               const Icon = item.icon
+              const showQuickAdd = item.key === 'transactions' && canWrite
               const navClass = cn(
                 'flex items-center gap-3 text-[13px] font-medium transition-all rounded-lg px-3 py-2',
                 isActive
@@ -479,7 +473,7 @@ export function AppLayout() {
                   </a>
                 )
               }
-              return (
+              const link = (
                 <Link
                   key={item.key}
                   to={item.path}
@@ -491,6 +485,27 @@ export function AppLayout() {
                 >
                   {content}
                 </Link>
+              )
+              if (!showQuickAdd) return link
+              return (
+                <div key={item.key} className="relative flex items-center">
+                  <div className="min-w-0 flex-1">{link}</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSidebarOpen(false)
+                      setQuickAddOpen(true)
+                    }}
+                    title={t('transactions.addManual')}
+                    aria-label={t('transactions.addManual')}
+                    className={cn(
+                      'absolute right-2 flex h-6 w-6 items-center justify-center rounded-md border border-sidebar-border bg-sidebar text-sidebar-muted transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                      desktopSidebarCollapsed && 'lg:hidden',
+                    )}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
               )
             })}
           </nav>
@@ -523,7 +538,7 @@ export function AppLayout() {
               <p className="px-3 pb-1 text-[10px] text-sidebar-muted" title={t('balanceExplanation.aggregateHint')}>{t(aggregate.incomplete ? 'balanceExplanation.aggregatePartial' : 'balanceExplanation.aggregateHint')}</p>
               {accountsExpanded && (
                 <div className="mt-1 space-y-0.5">
-                  {[...visibleAccounts].sort((a, b) => Math.abs(Number(b.current_balance)) - Math.abs(Number(a.current_balance))).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
+                  {sortAccountsByAbsoluteBalance(visibleAccounts, (a) => accountBalance(a, current?.id)).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
                     const balance = accountBalance(acc, current?.id)
                     const typeKey = acc.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())
 
@@ -635,6 +650,11 @@ export function AppLayout() {
         localAuthEnabled={localAuthEnabled}
       />
       <BackupDialog open={backupOpen} onClose={() => setBackupOpen(false)} />
+      {quickAddOpen && (
+        <Suspense fallback={null}>
+          <QuickAddTransaction open={quickAddOpen} onClose={() => setQuickAddOpen(false)} />
+        </Suspense>
+      )}
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {/* Slide-over global chat — opened from the sidebar pill or via
           ⌘J. The previous floating bottom-right button was removed

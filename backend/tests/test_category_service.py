@@ -293,13 +293,13 @@ async def test_delete_custom_category(session: AsyncSession, test_user, test_wor
 
 
 @pytest.mark.asyncio
-async def test_delete_system_category_rejected(session: AsyncSession, test_user, test_workspace):
+async def test_delete_system_category(session: AsyncSession, test_user, test_workspace):
     categories = await create_default_categories(session, test_user.id)
     system_cat = categories[0]
 
     assert system_cat.is_system is True
-    assert await delete_category(session, system_cat.id, test_workspace.id) is False
-    assert await get_category(session, system_cat.id, test_workspace.id) is not None
+    assert await delete_category(session, system_cat.id, test_workspace.id) is True
+    assert await get_category(session, system_cat.id, test_workspace.id) is None
 
 
 @pytest.mark.asyncio

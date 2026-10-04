@@ -454,7 +454,7 @@ export function TransactionAttachments({
                               : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                           }`}
                           onClick={(e) => { e.stopPropagation(); handlePreview(att as Attachment) }}
-                          title="Preview"
+                          title={t('common.preview')}
                         >
                           <Eye size={14} />
                         </button>
@@ -470,7 +470,7 @@ export function TransactionAttachments({
                           type="button"
                           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer transition-colors"
                           onClick={(e) => { e.stopPropagation(); handleDownload(att as Attachment) }}
-                          title="Download"
+                          title={t('common.download')}
                         >
                           <Download size={14} />
                         </button>

@@ -221,7 +221,9 @@ export function TransactionsFilterBar({
       ? t('transactions.income')
       : filterType === 'debit'
         ? t('transactions.expense')
-        : ''
+        : filterType === 'transfer'
+          ? t('transactions.transfer')
+          : ''
 
   const statusLabel =
     filterStatus === 'pending'
@@ -721,7 +723,7 @@ export function TransactionsFilterBar({
                   </DropdownMenuPortal>
                 </DropdownMenuSub>
 
-                {/* Type submenu (single — income vs expense) */}
+                {/* Type submenu (single: income, expense or transfer) */}
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger className="gap-2 text-[13px]">
                     <ArrowUpDown size={14} className="text-muted-foreground" />
@@ -741,6 +743,7 @@ export function TransactionsFilterBar({
                         { value: '', label: t('transactions.all') },
                         { value: 'credit', label: t('transactions.income') },
                         { value: 'debit', label: t('transactions.expense') },
+                        { value: 'transfer', label: t('transactions.transfer') },
                       ].map((opt) => (
                         <DropdownMenuItem
                           key={opt.value || 'all'}

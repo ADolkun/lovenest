@@ -16,9 +16,9 @@ def git(*args):
 
 
 def changed_jobs():
-    # Every push validates the integrated product, including documentation pushes.
+    # Every push validates the integrated codebase, including documentation pushes.
     if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
-        return True, True
+        return True, True, True
 
     try:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_bytes())
@@ -34,26 +34,29 @@ def changed_jobs():
                    "HEAD^1", "HEAD", "--")
         if not diff.endswith(b"\0"):
             raise ValueError("empty or incomplete changed-file list")
-        backend = frontend = False
+        backend = frontend = helm = False
         for path in diff[:-1].split(b"\0"):
             if path.startswith(b"backend/"):
                 backend = True
             elif path.startswith(b"frontend/"):
                 frontend = True
+            elif path.startswith(b"charts/securo/"):
+                helm = True
             elif path in PROSE or (path.startswith(b"docs/") and path.endswith(b".md")):
                 continue
             else:
-                # Unknown/shared paths (including workflows and this script) run both.
-                return True, True
-        return backend, frontend
+                # Unknown/shared paths (including workflows and this script) run everything.
+                return True, True, True
+        return backend, frontend, helm
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
-        print(f"Cannot determine PR relevance ({type(error).__name__}); running both suites.")
-        return True, True
+        print(f"Cannot determine PR relevance ({type(error).__name__}); running all suites.")
+        return True, True, True
 
 
 if __name__ == "__main__":
-    backend, frontend = changed_jobs()
-    outputs = f"run_backend={str(backend).lower()}\nrun_frontend={str(frontend).lower()}\n"
+    backend, frontend, helm = changed_jobs()
+    outputs = (f"run_backend={str(backend).lower()}\n"
+               f"run_frontend={str(frontend).lower()}\nrun_helm={str(helm).lower()}\n")
     # Failure to publish is a failed step, never a successful skip.
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(outputs)

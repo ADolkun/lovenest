@@ -10,7 +10,7 @@ Two things these tests exist to pin down, beyond the usual CRUD:
      UI does, computed from allocations and the due date.
 """
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -26,18 +26,11 @@ from app.models.transaction import Transaction
 _TEST_TODAY = date(2026, 8, 15)
 
 
-class _FrozenDateTime(datetime):
-    @classmethod
-    def now(cls, tz=None):
-        value = cls(2026, 8, 15, 12, tzinfo=timezone.utc)
-        return value.replace(tzinfo=None) if tz is None else value.astimezone(tz)
-
-
 @pytest.fixture(autouse=True)
 def _freeze_invoice_clock(monkeypatch):
     from app.services import invoice_service
 
-    monkeypatch.setattr(invoice_service, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(invoice_service, "app_today", lambda: _TEST_TODAY)
 
 
 @pytest.fixture

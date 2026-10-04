@@ -17,7 +17,7 @@ import { toast } from 'sonner'
 import type { CreditCardBill, ProjectedTransaction, Rule, RuleAction, RuleCondition, Transaction } from '@/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, ArrowLeftRight, CalendarClock, ChevronLeft, ChevronRight, Clock, EyeClosed, HelpCircle, Paperclip, Pencil, X } from 'lucide-react'
+import { ArrowLeft, ArrowLeftRight, CalendarClock, ChevronLeft, ChevronRight, Clock, EyeClosed, HelpCircle, Paperclip, Pencil, Plus, X } from 'lucide-react'
 import { MobileTransactionRow } from '@/components/mobile-transaction-row'
 import { CategoryIcon } from '@/components/category-icon'
 import { ProjectedTransactionBadge } from '@/components/projected-transaction-badge'
@@ -36,6 +36,7 @@ import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
+import { useCreateTransaction } from '@/hooks/use-create-transaction'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
 import { formatCurrency } from '@/lib/format'
 import {
@@ -302,6 +303,19 @@ export default function AccountDetailPage() {
   const [createRuleOpen, setCreateRuleOpen] = useState(false)
   const [createRuleInitialData, setCreateRuleInitialData] = useState<RuleDialogInitialData | undefined>(undefined)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+  const {
+    mutation: createMutation,
+    create: createTransaction,
+    duplicateDraft,
+    setDuplicateDraft,
+    formResetKey,
+    resetForm,
+  } = useCreateTransaction({ onDone: () => setDialogOpen(false) })
+  const openCreateDialog = () => {
+    setEditingTx(null)
+    resetForm(null)
+    setDialogOpen(true)
+  }
   const [filterFrom, setFilterFrom] = useState(defaultFrom)
   const [filterTo, setFilterTo] = useState(defaultTo)
   const [showPrimary, setShowPrimary] = useState(false)
@@ -991,15 +1005,21 @@ export default function AccountDetailPage() {
             </div>
           </div>
           {!account.is_closed && canWrite && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => setTransferDialogOpen(true)}
-            >
-              <ArrowLeftRight className="h-4 w-4 mr-1" />
-              {t('transactions.transfer')}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTransferDialogOpen(true)}
+              >
+                <ArrowLeftRight className="h-4 w-4 mr-1" />
+                {t('transactions.transfer')}
+              </Button>
+              <Button size="sm" onClick={openCreateDialog}>
+                <Plus className="h-4 w-4 mr-1" />
+                <span className="sm:hidden">{t('common.add')}</span>
+                <span className="hidden sm:inline">{t('transactions.addManual')}</span>
+              </Button>
+            </div>
           )}
         </div>
         {showHoldings && (
@@ -1802,14 +1822,24 @@ export default function AccountDetailPage() {
 
       <TransactionDialog
         open={dialogOpen}
-        onClose={() => { setDialogOpen(false); setEditingTx(null) }}
+        onClose={() => {
+          setDialogOpen(false)
+          setEditingTx(null)
+          setDuplicateDraft(null)
+          createMutation.reset()
+        }}
         transaction={editingTx}
+        duplicateDraft={duplicateDraft}
+        formResetKey={formResetKey}
+        defaultAccountId={id}
         categories={categoriesList ?? []}
         categoryGroups={categoryGroupsList ?? []}
         accounts={accountsList ?? []}
-        onSave={(data) => {
+        onSave={(data, recurringData, installmentData, pendingFiles, action) => {
           if (editingTx) {
             updateMutation.mutate({ id: editingTx.id, ...data })
+          } else {
+            createTransaction(data, recurringData, installmentData, pendingFiles, action)
           }
         }}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
@@ -1819,8 +1849,8 @@ export default function AccountDetailPage() {
           setEditingTx(null)
           handleCreateRuleFromTransaction(tx)
         }}
-        loading={updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
-        error={updateMutation.error ? extractApiError(updateMutation.error) : null}
+        loading={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
+        error={createMutation.error ? extractApiError(createMutation.error) : updateMutation.error ? extractApiError(updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}
       />
 
