@@ -745,7 +745,7 @@ export default function DashboardPage() {
             onClick={() => setDrillDown({
               title: t('dashboard.drillDownIncome', { month: monthLabelStr }),
               sort: 'amount',
-              type: 'credit',
+              pnl_group: 'income',
               from: monthStart,
               to: monthEnd,
             })}
@@ -774,7 +774,7 @@ export default function DashboardPage() {
             onClick={() => setDrillDown({
               title: t('dashboard.drillDownExpenses', { month: monthLabelStr }),
               sort: 'amount',
-              type: 'debit',
+              pnl_group: 'expenses',
               from: monthStart,
               to: monthEnd,
             })}
@@ -949,7 +949,7 @@ export default function DashboardPage() {
                       onClick={() => setDrillDown({
                         title: t('dashboard.drillDownCategory', { category: item.category_name, month: monthLabelStr }),
                         category_id: item.category_id,
-                        type: 'debit',
+                        pnl_group: 'expenses',
                         from: monthStart,
                         to: monthEnd,
                       })}

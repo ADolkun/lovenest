@@ -4,6 +4,7 @@
  * tested without standing up the panel.
  */
 export type DrillDownTotalsItem = {
+  type: 'debit' | 'credit'
   amount: number
   amountPrimary: number | null
   currency: string
@@ -12,7 +13,7 @@ export type DrillDownTotalsItem = {
 }
 
 export type DrillDownTotals = {
-  absTotal: number
+  total: number
   postedTotal: number
   pendingTotal: number
   projectedTotal: number
@@ -22,12 +23,17 @@ export type DrillDownTotals = {
  * Split the rows the panel is showing into the buckets the footer reports.
  *
  * Every row lands in exactly one of posted, pending or projected, so the
- * three always add back up to `absTotal`. That invariant is the point: the
+ * three always add back up to `total`. That invariant is the point: the
  * footer labels its bottom line "total shown", and a row the user can see in
  * the list has to be inside it. Bucketing on the row's own `isPending` and
  * `isProjected` flags, rather than on a persisted status, is what keeps
  * projections from falling through the gaps: they have no transaction behind
  * them, so a status test can never place them.
+ *
+ * With `netOf`, rows of the other type count against the total instead of
+ * toward it. An expenses panel lists refunds and reimbursements beside the
+ * debits they offset, and its total has to come out net, as the dashboard
+ * figure it opened from does. Without it every row adds its magnitude.
  *
  * Foreign-currency rows are converted through `amountPrimary`; when that is
  * missing the row is skipped rather than added as if its raw amount were
@@ -37,21 +43,23 @@ export type DrillDownTotals = {
 export function sumDrillDownTotals(
   items: DrillDownTotalsItem[],
   userCurrency: string,
+  netOf?: 'debit' | 'credit',
 ): DrillDownTotals {
   return items.reduce<DrillDownTotals>(
     (totals, item) => {
-      const amount = item.currency === userCurrency
+      const magnitude = item.currency === userCurrency
         ? Math.abs(item.amount)
         : item.amountPrimary != null
           ? Math.abs(item.amountPrimary)
           : 0
+      const amount = netOf && item.type !== netOf ? -magnitude : magnitude
 
-      totals.absTotal += amount
+      totals.total += amount
       if (item.isProjected) totals.projectedTotal += amount
       else if (item.isPending) totals.pendingTotal += amount
       else totals.postedTotal += amount
       return totals
     },
-    { absTotal: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
+    { total: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
   )
 }

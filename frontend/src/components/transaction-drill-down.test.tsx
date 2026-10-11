@@ -79,4 +79,65 @@ describe('TransactionDrillDown', () => {
     const label = await screen.findByText(t('dashboard.drillDownShownTotal'))
     expect(within(label.parentElement!).getByText('$35.00')).toBeInTheDocument()
   })
+
+  it('shows an expenses group with its offsetting credits as money in, netted from the total', async () => {
+    const row = (overrides: Partial<Transaction>) => ({
+      date: '2026-09-04',
+      effective_date: '2026-09-04',
+      effective_bill_date: null,
+      amount_primary: null,
+      currency: 'USD',
+      category: null,
+      status: 'posted',
+      attachment_count: 0,
+      ...overrides,
+    }) as Transaction
+    api.transactions.list.mockResolvedValue({
+      items: [
+        row({ id: 'dinner', description: 'Team dinner', type: 'debit', amount: 120 }),
+        row({ id: 'reimbursement', description: 'Employer reimbursement', type: 'credit', amount: 45 }),
+      ],
+    })
+    const projected = {
+      account_id: null,
+      date: '2026-09-20',
+      amount_primary: null,
+      currency: 'USD',
+      category_id: 'dining',
+      category_name: 'Dining',
+      category_icon: null,
+      category_color: null,
+    }
+    api.dashboard.projectedTransactions.mockResolvedValue([
+      { ...projected, recurring_id: 'r-debit', description: 'Projected dinner', type: 'debit', amount: 25 },
+      { ...projected, recurring_id: 'r-credit', description: 'Projected refund', type: 'credit', amount: 300 },
+    ])
+
+    renderWithProviders(
+      <TooltipProvider>
+        <TransactionDrillDown
+          filter={{
+            title: 'Dining',
+            category_id: 'dining',
+            pnl_group: 'expenses',
+            from: '2026-09-01',
+            to: '2026-09-30',
+          }}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>,
+    )
+
+    const credit = await screen.findByText('+$45.00')
+    expect(credit).toHaveClass('text-emerald-600')
+    expect(screen.getByText('-$120.00')).toHaveClass('text-rose-500')
+    expect(screen.queryByText('Projected refund')).not.toBeInTheDocument()
+
+    const label = await screen.findByText(t('dashboard.drillDownShownTotal'))
+    expect(within(label.parentElement!).getByText('$100.00')).toBeInTheDocument()
+
+    const params = api.transactions.list.mock.calls[0][0]
+    expect(params).toMatchObject({ pnl_group: 'expenses', user_pnl_only: true })
+    expect(params.type).toBeUndefined()
+  })
 })
