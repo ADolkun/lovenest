@@ -37,11 +37,36 @@ def has_valid_transfer_pair():
     )
 
 
+def spending_offset_filter():
+    """SQL predicate for a credit that gives money back on spending.
+
+    The category the user chose decides: a credit filed under any category
+    not flagged `is_income` (a refund, an employer reimbursement, a friend
+    paying back their half) nets against that category. Uncategorized credits
+    have no such signal, so only card refunds offset; the rest stay income.
+    """
+    return and_(
+        Transaction.type == "credit",
+        ~credit_card_payment_filter(),
+        or_(
+            # The IS NOT NULL guard keeps this two-valued: a bare NULL IN (...)
+            # is NULL, and negating it would drop the credit from income too.
+            and_(
+                Transaction.category_id.is_not(None),
+                Transaction.category_id.in_(
+                    select(Category.id).where(Category.is_income.is_(False))
+                ),
+            ),
+            and_(Transaction.category_id.is_(None), credit_card_refund_filter()),
+        ),
+    )
+
+
 def user_pnl_income_amount(amount_expr):
-    """Income amount with card refunds kept out of income."""
+    """Income amount, leaving out credits that offset spending."""
     return case(
         (
-            and_(Transaction.type == "credit", ~credit_card_refund_filter()),
+            and_(Transaction.type == "credit", ~spending_offset_filter()),
             func.abs(amount_expr),
         ),
         else_=0,
@@ -49,18 +74,18 @@ def user_pnl_income_amount(amount_expr):
 
 
 def user_pnl_expense_amount(amount_expr):
-    """Expense amount with card refunds reducing, rather than inflating, spend."""
+    """Expense amount, with spending offsets reducing rather than inflating it."""
     return case(
         (Transaction.type == "debit", func.abs(amount_expr)),
-        (credit_card_refund_filter(), -func.abs(amount_expr)),
+        (spending_offset_filter(), -func.abs(amount_expr)),
         else_=0,
     )
 
 
 def user_pnl_group():
-    """Map refund credits into the expense group for category reporting."""
+    """Map spending-offset credits into the expense group for category reporting."""
     return case(
-        (credit_card_refund_filter(), "expenses"),
+        (spending_offset_filter(), "expenses"),
         (Transaction.type == "credit", "income"),
         else_="expenses",
     )

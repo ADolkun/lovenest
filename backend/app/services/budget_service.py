@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import select, func, and_, case
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -17,6 +17,7 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     owner_split_offset_by_category,
     reporting_date_col,
+    user_pnl_expense_amount,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import (
@@ -265,19 +266,12 @@ async def get_budget_vs_actual(
     accounting_mode = await get_credit_card_accounting_mode(session)
     report_date = reporting_date_col(accounting_mode)
 
-    # Get actual spending by category for this month (exclude transfer pairs)
-    # Net spending = Debits - Credits (refunds offset expenses)
-    # Use amount_primary for multi-currency support
+    # Same spending definition as the dashboard, so a budget bar and the
+    # category's spending figure never disagree about a credit.
     spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(
-                case(
-                    (Transaction.type == "debit", func.abs(_primary_amount_expr())),
-                    (Transaction.type == "credit", -func.abs(_primary_amount_expr())),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
         )
         .where(
             Transaction.workspace_id == workspace_id,
@@ -359,19 +353,10 @@ async def get_budget_vs_actual(
             )
         projected_spending_map[cat_id] = projected_spending_map.get(cat_id, Decimal("0")) + converted
 
-    # Get previous month spending by category (exclude transfer pairs)
-    # Net spending = Debits - Credits (refunds offset expenses)
-    # Use amount_primary for multi-currency support
     prev_spending_result = await session.execute(
         select(
             Transaction.category_id,
-            func.sum(
-                case(
-                    (Transaction.type == "debit", func.abs(_primary_amount_expr())),
-                    (Transaction.type == "credit", -func.abs(_primary_amount_expr())),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
         )
         .where(
             Transaction.workspace_id == workspace_id,

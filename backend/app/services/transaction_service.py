@@ -2,7 +2,7 @@ import re
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 from sqlalchemy import CursorResult, case, delete, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,9 +31,10 @@ from app.services._query_filters import (
     is_not_ignored,
     is_transfer,
     reporting_date_col,
+    spending_offset_filter,
+    user_pnl_group,
 )
 from app.services.recurring_transaction_service import _advance_date
-from app.services.transaction_semantics import credit_card_refund_filter
 
 
 async def _ensure_category_in_workspace(
@@ -130,6 +131,7 @@ async def get_transactions(
     status: Optional[str] = None,
     include_summary: bool = False,
     user_pnl_only: bool = False,
+    pnl_group: Optional[Literal["income", "expenses"]] = None,
     exclude_ignored: bool = False,
 ) -> tuple[list[Transaction], int, Optional[dict]]:
     """List transactions for a workspace.
@@ -265,6 +267,8 @@ async def get_transactions(
         base_query = base_query.where(Transaction.transfer_pair_id.is_(None))
     if user_pnl_only:
         base_query = base_query.where(Account.is_closed == False, counts_as_user_pnl())
+    if pnl_group:
+        base_query = base_query.where(user_pnl_group() == pnl_group)
     if exclude_ignored:
         # Only drops rows; the summary below keeps computing over the same
         # filtered set, so the totals a hidden list shows stay the totals of
@@ -430,7 +434,7 @@ async def get_transactions(
         # custom) and ignored items are kept OUT of income/expense.
         pnl_filter = counts_as_user_pnl()
         pnl_subq = (
-            base_query.add_columns(credit_card_refund_filter().label("is_card_refund"))
+            base_query.add_columns(spending_offset_filter().label("is_spending_offset"))
             .where(pnl_filter)
             .subquery()
         )
@@ -443,7 +447,7 @@ async def get_transactions(
                             case(
                                 (
                                     (pnl_subq.c.type == "credit")
-                                    & ~pnl_subq.c.is_card_refund,
+                                    & ~pnl_subq.c.is_spending_offset,
                                     func.abs(amount_norm),
                                 ),
                                 else_=0,
@@ -455,7 +459,7 @@ async def get_transactions(
                         func.sum(
                             case(
                                 (pnl_subq.c.type == "debit", func.abs(amount_norm)),
-                                (pnl_subq.c.is_card_refund, -func.abs(amount_norm)),
+                                (pnl_subq.c.is_spending_offset, -func.abs(amount_norm)),
                                 else_=0,
                             )
                         ),

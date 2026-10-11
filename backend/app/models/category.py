@@ -40,5 +40,10 @@ class Category(Base):
     # for income/expense calculations.
     is_ignored: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
+    # A credit filed here is income. A credit filed under any other category
+    # is money back on that category's spending (a refund, a reimbursement)
+    # and nets against it — see `spending_offset_filter`.
+    is_income: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     user: Mapped["User"] = relationship(back_populates="categories")
     group: Mapped[Optional["CategoryGroup"]] = relationship(back_populates="categories")

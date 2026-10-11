@@ -127,10 +127,11 @@ async def _add_txn(
 
 async def _make_category(
     session: AsyncSession, user_id: uuid.UUID, name: str, color: str = "#123456",
+    *, is_income: bool = False,
 ) -> Category:
     cat = Category(
         id=uuid.uuid4(), user_id=user_id, name=name, icon="tag",
-        color=color, is_system=False,
+        color=color, is_system=False, is_income=is_income,
     )
     session.add(cat)
     await session.commit()
@@ -180,7 +181,7 @@ async def test_to_char_udf_registered(session: AsyncSession):
 async def test_income_expenses_basic_structure(session, test_user, test_workspace):
     """Income + expense actuals flow through into summary, trend, composition."""
     cat_food = await _make_category(session, test_user.id, "Food", color="#F00")
-    cat_salary = await _make_category(session, test_user.id, "Salary", color="#0F0")
+    cat_salary = await _make_category(session, test_user.id, "Salary", color="#0F0", is_income=True)
     acct = await _make_account(session, test_user.id, "IE Acct")
     today = date.today()
 
@@ -614,7 +615,7 @@ async def test_income_expenses_owner_split_offset(session, test_user, test_works
 
 async def test_income_expenses_trend_points_have_per_period_composition(session, test_user, test_workspace):
     """Each income/expenses trend DataPoint carries per-period composition items."""
-    cat_wages = await _make_category(session, test_user.id, "Wages", color="#0E0")
+    cat_wages = await _make_category(session, test_user.id, "Wages", color="#0E0", is_income=True)
     cat_groceries = await _make_category(session, test_user.id, "Groceries", color="#E00")
     acct = await _make_account(session, test_user.id, "IE Trend Acct")
     today = date.today()
@@ -800,7 +801,7 @@ async def test_custom_income_expenses_only_include_in_range_actuals(
     start = end.replace(day=10)
     currency = test_user.primary_currency
     account = await _make_account(session, test_user.id, 'Custom actuals', currency=currency)
-    category = await _make_category(session, test_user.id, 'Actual category')
+    category = await _make_category(session, test_user.id, 'Actual category', is_income=True)
     for amount, kind, day, status in [
         (100, 'credit', start, 'posted'),
         (-30, 'debit', end, 'posted'),
