@@ -13,9 +13,9 @@ from datetime import timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
-from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.core.app_clock import app_today
 from app.models.category import Category
@@ -24,7 +24,12 @@ from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.transaction_reimbursement import TransactionReimbursement
 from app.models.transaction_split import TransactionSplit
-from app.services._query_filters import has_valid_transfer_pair
+from app.services._query_filters import (
+    counts_as_user_pnl,
+    has_valid_transfer_pair,
+    on_open_account,
+    reimbursement_link_side_counts,
+)
 from app.services.transaction_semantics import credit_card_payment_filter
 
 CENT = Decimal("0.01")
@@ -33,7 +38,8 @@ CANDIDATE_DAYS_AFTER = 14
 
 # Fields whose change can leave a row's links pointing at something the
 # eligibility rules would refuse. Everything else (category, description,
-# flags) is safe to edit while linked.
+# flags) is safe to edit while linked: a row that leaves user P&L only makes
+# its links inert (`reimbursement_link_side_counts`).
 _LINK_SENSITIVE_FIELDS = frozenset({"amount", "type", "currency", "status", "date"})
 
 
@@ -58,6 +64,8 @@ def _eligible_row():
         ~has_valid_transfer_pair(),
         ~credit_card_payment_filter(),
         ~_has_group_splits(),
+        counts_as_user_pnl(),
+        on_open_account(),
     )
 
 
@@ -70,6 +78,8 @@ async def _eligibility_flags(
             has_valid_transfer_pair().label("paired"),
             credit_card_payment_filter().label("card_payment"),
             _has_group_splits().label("split"),
+            counts_as_user_pnl().label("counts"),
+            on_open_account().label("open_account"),
         ).where(Transaction.id.in_(transaction_ids))
     )
     return {row.id: row for row in result.all()}
@@ -94,6 +104,14 @@ def _ineligibility(tx: Transaction, flags: Any) -> Optional[str]:
             "is split with a group. Use a group settlement to record what "
             "others paid back."
         )
+    if tx.is_ignored:
+        return "is ignored."
+    if tx.exclude_from_pnl:
+        return "is excluded from income and expenses."
+    if not flags.counts:
+        return "is filed under a category left out of income and expenses."
+    if not flags.open_account:
+        return "is on a closed account."
     return None
 
 
@@ -125,9 +143,26 @@ async def linked_totals(
     return dict(totals)
 
 
+async def lock_rows(session: AsyncSession, transaction_ids: list[uuid.UUID]) -> None:
+    """Hold these rows until commit, so a link edit can't land between a
+    caller's check and its write. Id order, as `replace_reimbursements`
+    takes them, so the two can't deadlock."""
+    if not transaction_ids:
+        return
+    await session.execute(
+        select(Transaction.id)
+        .where(Transaction.id.in_(transaction_ids))
+        .order_by(Transaction.id)
+        .with_for_update()
+    )
+
+
 async def ensure_unlinked(
     session: AsyncSession, transaction_ids: list[uuid.UUID], message: str
 ) -> None:
+    """Refuse when any of these rows is linked, and keep them unlinked until
+    the caller commits."""
+    await lock_rows(session, transaction_ids)
     if await linked_totals(session, transaction_ids):
         raise ReimbursementError(message)
 
@@ -136,7 +171,10 @@ async def links_for_transactions(
     session: AsyncSession, workspace_id: uuid.UUID, transaction_ids: list[uuid.UUID]
 ) -> dict[uuid.UUID, list[dict[str, Any]]]:
     """Each row's links, read from that row's side. One query per side for a
-    whole page, so the transaction list never turns into an N+1."""
+    whole page, so the transaction list never turns into an N+1.
+
+    `in_effect` is whether reporting applies the link right now, which it
+    does only while both rows count (`reimbursement_link_side_counts`)."""
     if not transaction_ids:
         return {}
     links: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
@@ -144,6 +182,8 @@ async def links_for_transactions(
         (TransactionReimbursement.reimbursement_id, TransactionReimbursement.expense_id),
         (TransactionReimbursement.expense_id, TransactionReimbursement.reimbursement_id),
     )
+    own = aliased(Transaction)
+    in_effect = and_(reimbursement_link_side_counts(), reimbursement_link_side_counts(own))
     for own_side, counterpart_side in sides:
         result = await session.execute(
             select(
@@ -155,9 +195,11 @@ async def links_for_transactions(
                 Transaction.date,
                 Transaction.currency,
                 Category.name,
+                in_effect,
             )
             .select_from(TransactionReimbursement)
             .join(Transaction, Transaction.id == counterpart_side)
+            .join(own, own.id == own_side)
             .outerjoin(Category, Category.id == Transaction.category_id)
             .where(
                 TransactionReimbursement.workspace_id == workspace_id,
@@ -167,6 +209,7 @@ async def links_for_transactions(
         )
         for (
             own_id, link_id, amount, counterpart_id, description, on, currency, category_name,
+            applies,
         ) in result.all():
             links[own_id].append(
                 {
@@ -177,6 +220,7 @@ async def links_for_transactions(
                     "counterpart_category_name": category_name,
                     "amount": float(amount),
                     "currency": currency,
+                    "in_effect": bool(applies),
                 }
             )
     return dict(links)
@@ -236,13 +280,26 @@ async def replace_reimbursements(
     if any(expense_id not in locked for expense_id in requested):
         raise ReimbursementError("One of the expenses no longer exists in this workspace.")
 
+    existing_result = await session.execute(
+        select(TransactionReimbursement).where(
+            TransactionReimbursement.reimbursement_id == credit.id
+        )
+    )
+    existing = {link.expense_id: link for link in existing_result.scalars().all()}
+    # Eligibility gates making a link. One made earlier stays editable after
+    # a side leaves user P&L or its account closes; reporting ignores it
+    # meanwhile, so keeping or resizing it can't move a figure.
+    new_expense_ids = [expense_id for expense_id in requested if expense_id not in existing]
+
     if requested:
-        flags = await _eligibility_flags(session, list(locked))
-        reason = _ineligibility(credit, flags[credit.id])
-        if reason:
-            raise ReimbursementError(
-                f"This credit can't be linked as a reimbursement: it {reason}"
-            )
+        flags = {}
+        if new_expense_ids:
+            flags = await _eligibility_flags(session, [credit.id, *new_expense_ids])
+            reason = _ineligibility(credit, flags[credit.id])
+            if reason:
+                raise ReimbursementError(
+                    f"This credit can't be linked as a reimbursement: it {reason}"
+                )
         for expense_id in requested:
             expense = locked[expense_id]
             if expense.type != "debit":
@@ -255,7 +312,7 @@ async def replace_reimbursements(
                     f"in {credit.currency}. A reimbursement can only link transactions "
                     "in the same currency."
                 )
-            reason = _ineligibility(expense, flags[expense_id])
+            reason = _ineligibility(expense, flags[expense_id]) if expense_id in flags else None
             if reason:
                 raise ReimbursementError(
                     f'"{expense.description}" can\'t be reimbursed: it {reason}'
@@ -291,12 +348,6 @@ async def replace_reimbursements(
                     f"to reimburse, less than the {_money(amount, expense.currency)} asked for."
                 )
 
-    existing_result = await session.execute(
-        select(TransactionReimbursement).where(
-            TransactionReimbursement.reimbursement_id == credit.id
-        )
-    )
-    existing = {link.expense_id: link for link in existing_result.scalars().all()}
     for expense_id, link in existing.items():
         if expense_id not in requested:
             await session.delete(link)
@@ -404,8 +455,9 @@ async def reimbursement_candidates(
             Transaction.date <= credit.date + timedelta(days=CANDIDATE_DAYS_AFTER),
         )
 
-    # Expenses repaid later are the common case, so the ones on or before
-    # the credit's date come first, nearest first; the few days after follow.
+    # What this credit already repays comes first, so editing a link starts
+    # from it. Then expenses repaid later, the common case: the ones on or
+    # before the credit's date, nearest first; the few days after follow.
     on_or_before = Transaction.date <= credit.date
     same_category = (
         case((Transaction.category_id == credit.category_id, 0), else_=1)
@@ -413,6 +465,7 @@ async def reimbursement_candidates(
         else None
     )
     ordering = [
+        case((allocated_here > 0, 0), else_=1),
         *([same_category] if same_category is not None else []),
         case((on_or_before, 0), else_=1),
         case((on_or_before, Transaction.date)).desc(),
@@ -508,3 +561,44 @@ async def fit_links_to_amount(session: AsyncSession, transaction: Transaction) -
             link.amount = fitted
         else:
             await session.delete(link)
+
+
+async def rehome_links_for_account(session: AsyncSession, account_id: uuid.UUID) -> None:
+    """Bring the links on this account's rows along after rows moved workspace.
+
+    A link is read, edited and deleted from its rows' workspace, so one left
+    behind would keep shaping reports while nobody can see it. A link whose
+    rows now sit in two workspaces is dropped: neither can see both sides.
+    """
+    link = aliased(TransactionReimbursement)
+    reimbursement = aliased(Transaction)
+    expense = aliased(Transaction)
+    touched = (
+        select(link.id)
+        .join(reimbursement, reimbursement.id == link.reimbursement_id)
+        .join(expense, expense.id == link.expense_id)
+        .where(or_(reimbursement.account_id == account_id, expense.account_id == account_id))
+    )
+    await session.execute(
+        delete(TransactionReimbursement)
+        .where(
+            TransactionReimbursement.id.in_(
+                touched.where(reimbursement.workspace_id != expense.workspace_id)
+            )
+        )
+        .execution_options(synchronize_session="fetch")
+    )
+    await session.execute(
+        update(TransactionReimbursement)
+        .where(
+            TransactionReimbursement.id.in_(
+                touched.where(link.workspace_id != reimbursement.workspace_id)
+            )
+        )
+        .values(
+            workspace_id=select(Transaction.workspace_id)
+            .where(Transaction.id == TransactionReimbursement.reimbursement_id)
+            .scalar_subquery()
+        )
+        .execution_options(synchronize_session="fetch")
+    )

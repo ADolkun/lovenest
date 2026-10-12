@@ -42,6 +42,11 @@ type ExpenseRow = {
 
 type Pick = { row: ExpenseRow; input: string }
 
+/** A prefilled amount always shows its cents, so 10.6 reads as 10.60. */
+function centsInput(value: number, locale: string): string {
+  return formatAmountInput(value, locale, 2, 2)
+}
+
 function candidateRow(candidate: ReimbursementCandidate): ExpenseRow {
   const tx = candidate.transaction
   return {
@@ -124,7 +129,7 @@ function LinkReimbursementBody({
   const [picks, setPicks] = useState<Map<string, Pick>>(() => new Map(
     links.map((link) => [
       link.counterpart_id,
-      { row: linkRow(link), input: formatAmountInput(Number(link.amount), locale) },
+      { row: linkRow(link), input: centsInput(Number(link.amount), locale) },
     ]),
   ))
 
@@ -192,7 +197,7 @@ function LinkReimbursementBody({
       }
       const left = roundCents(creditAmount - allocatedIn(prev))
       const amount = Math.max(0, Math.min(row.capacity ?? left, left))
-      next.set(row.id, { row, input: amount > 0 ? formatAmountInput(amount, locale) : '' })
+      next.set(row.id, { row, input: amount > 0 ? centsInput(amount, locale) : '' })
       return next
     })
   }

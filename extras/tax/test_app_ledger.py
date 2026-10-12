@@ -23,7 +23,11 @@ SEMANTICS = (
 WS = str(uuid.uuid4())
 
 SCHEMA = """
-CREATE TEMP TABLE accounts (id uuid PRIMARY KEY, type text NOT NULL);
+CREATE TEMP TABLE accounts (
+    id uuid PRIMARY KEY,
+    type text NOT NULL,
+    is_closed boolean NOT NULL DEFAULT false
+);
 CREATE TEMP TABLE category_groups (id uuid PRIMARY KEY, name text NOT NULL);
 CREATE TEMP TABLE categories (
     id uuid PRIMARY KEY,
@@ -74,6 +78,9 @@ class CardPaymentMarkersTest(unittest.TestCase):
             and node.targets[0].id.endswith("_PAYMENT_MARKERS")
         }
         self.assertEqual(backend["_CARD_CREDIT_PAYMENT_MARKERS"], app._CARD_CREDIT_PAYMENT_MARKERS)
+        self.assertEqual(
+            backend["_BANK_DEBIT_CARD_PAYMENT_MARKERS"], app._BANK_DEBIT_CARD_PAYMENT_MARKERS
+        )
 
 
 @unittest.skipUnless(TEST_DB, "set TAX_TEST_DATABASE_URL to a disposable Postgres")
@@ -169,6 +176,41 @@ class LedgerQueryTest(unittest.TestCase):
         writeoffs = self._call(app.writeoffs)
         self.assertEqual(writeoffs["schedule_c"][0]["category"], "Travel")
         self.assertEqual([i["amount"] for i in writeoffs["schedule_c"][0]["items"]], [80, 260])
+
+    def test_a_link_counts_only_while_both_rows_are_in_user_pnl(self):
+        """ADR 0012: a link whose other row left user P&L, or sits on a closed
+        account, moves nothing, so the credit is income in full again."""
+        moves = self._row("categories", name="Moves", treat_as_transfer=True)
+        hidden = self._row("categories", name="Hidden", is_ignored=True)
+        closed = self._row("accounts", type="checking", is_closed=True)
+        expenses = [
+            self._txn("debit", 10, self.dining, is_ignored=True),
+            self._txn("debit", 10, self.dining, exclude_from_pnl=True),
+            self._txn("debit", 10, moves),
+            self._txn("debit", 10, hidden),
+            self._txn("debit", 10, self.dining, description="CHASE CREDIT CRD AUTOPAY 4410"),
+            self._txn("debit", 10, self.dining, source="settlement"),
+            self._txn("debit", 10, self.dining, account=closed),
+        ]
+        for expense in expenses:
+            self._link(self._txn("credit", 10, description="ACME PAYROLL EXPENSES"), expense, 10)
+        counted = self._txn("debit", 10, self.dining)
+        self._link(self._txn("credit", 10, description="ACME PAYROLL EXPENSES"), counted, 10)
+
+        self.assertEqual(self._call(app.prefill)["total_income"], 70)
+
+    def test_writeoffs_keep_the_full_expense_when_its_link_is_inert(self):
+        """Both directions: a repaying credit out of user P&L, and a deductible
+        expense user P&L leaves out, each leave the other row whole."""
+        moves = self._row("categories", name="Moves", treat_as_transfer=True)
+        flight = self._txn("debit", 200, self.travel)
+        self._link(self._txn("credit", 200, is_ignored=True), flight, 200)
+        fee = self._txn("debit", 40, moves, notes="#ded")
+        self._link(self._txn("credit", 40, self.salary), fee, 40)
+
+        writeoffs = self._call(app.writeoffs)
+        self.assertEqual(writeoffs["totals"], {"schedule_c_total": 200, "ded_total": 40})
+        self.assertEqual(self._call(app.prefill)["total_income"], 40)
 
     def test_writeoffs_net_refunds_and_drop_what_was_paid_back(self):
         self._txn("debit", 300, self.software, self.card, date="2026-02-01")

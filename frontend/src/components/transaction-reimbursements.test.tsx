@@ -34,6 +34,7 @@ const link = (overrides: Partial<ReimbursementLink> = {}): ReimbursementLink => 
   counterpart_category_name: 'Subscriptions',
   amount: '22.99',
   currency: 'USD',
+  in_effect: true,
   ...overrides,
 })
 

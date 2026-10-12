@@ -268,10 +268,12 @@ export function formatAmountInput(
   value: number,
   locale = 'en-US',
   maximumFractionDigits = 2,
+  minimumFractionDigits = 0,
 ): string {
   try {
     return new Intl.NumberFormat(locale, {
       useGrouping: false,
+      minimumFractionDigits,
       maximumFractionDigits,
     }).format(value)
   } catch {

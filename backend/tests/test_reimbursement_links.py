@@ -6,12 +6,14 @@ dashboard card, the category breakdown, the list footer and the budget bar.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -21,10 +23,17 @@ from app.models.transaction import Transaction
 from app.models.transaction_reimbursement import TransactionReimbursement
 from app.models.workspace import Workspace
 from app.schemas.budget import BudgetCreate
+from app.schemas.category import CategoryUpdate
 from app.schemas.group import GroupCreate, GroupMemberCreate
 from app.schemas.transaction import TransactionUpdate
 from app.schemas.transaction_split import TransactionSplitInput, TransactionSplitsInput
-from app.services import group_service, reimbursement_service, split_service, transaction_service
+from app.services import (
+    category_service,
+    group_service,
+    reimbursement_service,
+    split_service,
+    transaction_service,
+)
 from app.services.budget_service import create_budget, get_budget_vs_actual
 from app.services.connection_service import _sync_bill_finance_charges
 from app.services.dashboard_service import get_spending_by_category, get_summary
@@ -88,8 +97,6 @@ async def _spending(session, workspace, user, month) -> dict[str | None, float]:
 
 
 async def _net(session, workspace, user, month) -> tuple[float, float]:
-    # The primary-currency pair, because `monthly_expenses` is reported as an
-    # absolute value and would hide a month whose spending nets negative.
     summary = await get_summary(session, workspace.id, user.id, month=month)
     return summary.monthly_income_primary, summary.monthly_expenses_primary
 
@@ -262,6 +269,7 @@ async def test_put_replaces_the_whole_set_and_reads_from_either_side(
         "id": by_counterpart[str(a.id)]["id"], "counterpart_id": str(a.id),
         "counterpart_description": "Lunch A", "counterpart_date": "2025-09-01",
         "counterpart_category_name": "Dining", "amount": 30.0, "currency": "BRL",
+        "in_effect": True,
     }
     b_link_id = by_counterpart[str(b.id)]["id"]
 
@@ -486,6 +494,354 @@ async def test_candidates_rank_by_category_then_date_and_report_remaining(
     assert on_debit.status_code == 400
 
 
+# --- a link applies only while both sides count ------------------------------
+
+
+@dataclass
+class _Repaid:
+    """A September subscription repaid by an October Zelle, as in the probe."""
+
+    expense: Transaction
+    credit: Transaction
+
+
+async def _repaid_subscription(
+    session: AsyncSession, user, workspace, *, credit_on_card: bool = False,
+) -> _Repaid:
+    spending = await _account(session, user.id, "Spending")
+    receiving = await _account(
+        session, user.id, "Card" if credit_on_card else "Checking",
+        acc_type="credit_card" if credit_on_card else "checking",
+    )
+    subscriptions = await _category(session, user.id, "Subscriptions")
+    family = await _category(session, user.id, "Family")
+    await create_budget(
+        session, workspace.id, user.id,
+        BudgetCreate(category_id=subscriptions.id, amount=Decimal("300"), month=SEPT),
+    )
+    expense = await _txn(
+        session, user.id, spending, "100", "debit", date(2025, 9, 5),
+        category=subscriptions, description="STREAMING PLAN",
+    )
+    credit = await _txn(
+        session, user.id, receiving, "100", "credit", date(2025, 10, 6),
+        category=family, description="ZELLE FROM SISTER",
+    )
+    return _Repaid(expense, credit)
+
+
+async def _figures(session, workspace, user) -> list:
+    """Every reporting figure the link can move, for both months."""
+    figures: list = []
+    for month in (SEPT, OCT):
+        figures.append((
+            await _net(session, workspace, user, month),
+            await _footer(session, workspace, user, month),
+            await _spending(session, workspace, user, month),
+        ))
+    figures.append({
+        c.category_name: c.actual_amount
+        for c in await get_budget_vs_actual(session, workspace.id, user.id, month=SEPT)
+    })
+    return figures
+
+
+def _net_cash_flow(figures: list) -> float:
+    return sum(income - expenses for (income, expenses), _, _ in figures[:2])
+
+
+async def _transfer_category(session, workspace, user, row):
+    moved = await _category(session, user.id, "Moved money")
+    moved.treat_as_transfer = True
+    await session.commit()
+    await transaction_service.update_transaction(
+        session, row.id, workspace.id, user.id, TransactionUpdate(category_id=moved.id),
+    )
+
+
+async def _transfer_category_in_bulk(session, workspace, user, row):
+    moved = await _category(session, user.id, "Moved money")
+    moved.treat_as_transfer = True
+    await session.commit()
+    await transaction_service.bulk_update_category(session, workspace.id, [row.id], moved.id)
+
+
+async def _ignored_category(session, workspace, user, row):
+    hidden = await _category(session, user.id, "Not mine")
+    hidden.is_ignored = True
+    await session.commit()
+    await transaction_service.update_transaction(
+        session, row.id, workspace.id, user.id, TransactionUpdate(category_id=hidden.id),
+    )
+
+
+async def _category_turned_into_transfers(session, workspace, user, row):
+    await category_service.update_category(
+        session, row.category_id, workspace.id, CategoryUpdate(treat_as_transfer=True),
+    )
+
+
+async def _category_turned_ignored(session, workspace, user, row):
+    await category_service.update_category(
+        session, row.category_id, workspace.id, CategoryUpdate(is_ignored=True),
+    )
+
+
+async def _ignored(session, workspace, user, row):
+    await transaction_service.toggle_ignore_transaction(session, row.id, workspace.id)
+
+
+async def _excluded_from_pnl(session, workspace, user, row):
+    await transaction_service.update_transaction(
+        session, row.id, workspace.id, user.id, TransactionUpdate(exclude_from_pnl=True),
+    )
+
+
+async def _card_payment_description(session, workspace, user, row):
+    marker = "CHASE CREDIT CRD AUTOPAY 4410" if row.type == "debit" else "AUTOMATIC PAYMENT - THANK"
+    await transaction_service.update_transaction(
+        session, row.id, workspace.id, user.id, TransactionUpdate(description=marker),
+    )
+
+
+async def _settlement(session, workspace, user, row):
+    await session.execute(
+        update(Transaction).where(Transaction.id == row.id).values(source="settlement")
+    )
+    await session.commit()
+
+
+async def _account_closed(session, workspace, user, row):
+    await session.execute(
+        update(Account).where(Account.id == row.account_id).values(is_closed=True)
+    )
+    await session.commit()
+
+
+_LEAVING_USER_PNL = [
+    _transfer_category,
+    _transfer_category_in_bulk,
+    _ignored_category,
+    _category_turned_into_transfers,
+    _category_turned_ignored,
+    _ignored,
+    _excluded_from_pnl,
+    _card_payment_description,
+    _settlement,
+    _account_closed,
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("side", ["expense", "credit"])
+@pytest.mark.parametrize("leave", _LEAVING_USER_PNL, ids=lambda f: f.__name__.strip("_"))
+async def test_a_side_leaving_user_pnl_leaves_every_figure_as_if_unlinked(
+    session: AsyncSession, test_user, test_workspace, side, leave,
+):
+    repaid = await _repaid_subscription(
+        session, test_user, test_workspace,
+        credit_on_card=leave is _card_payment_description and side == "credit",
+    )
+    await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "100"))
+    assert _net_cash_flow(await _figures(session, test_workspace, test_user)) == pytest.approx(0)
+
+    await leave(session, test_workspace, test_user, getattr(repaid, side))
+    linked = await _figures(session, test_workspace, test_user)
+    links = await reimbursement_service.links_for_transactions(
+        session, test_workspace.id, [repaid.credit.id, repaid.expense.id]
+    )
+    assert [link["in_effect"] for row_links in links.values() for link in row_links] == [False, False]
+
+    await _link(session, test_workspace.id, repaid.credit)
+    unlinked = await _figures(session, test_workspace, test_user)
+    assert linked == unlinked
+    assert _net_cash_flow(linked) == pytest.approx(_net_cash_flow(unlinked))
+
+
+@pytest.mark.asyncio
+async def test_the_probe_a_zelle_moved_to_a_transfer_category_keeps_net_at_minus_100(
+    session: AsyncSession, test_user, test_workspace,
+):
+    repaid = await _repaid_subscription(session, test_user, test_workspace)
+    await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "100"))
+    await _transfer_category(session, test_workspace, test_user, repaid.credit)
+
+    assert await _net(session, test_workspace, test_user, SEPT) == (pytest.approx(0), pytest.approx(100))
+    assert await _net(session, test_workspace, test_user, OCT) == (pytest.approx(0), pytest.approx(0))
+
+
+@pytest.mark.asyncio
+async def test_a_link_comes_back_into_effect_when_its_side_counts_again(
+    session: AsyncSession, test_user, test_workspace,
+):
+    repaid = await _repaid_subscription(session, test_user, test_workspace)
+    await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "60"))
+    in_effect = await _figures(session, test_workspace, test_user)
+
+    await _ignored(session, test_workspace, test_user, repaid.credit)
+    assert await _spending(session, test_workspace, test_user, SEPT) == {"Subscriptions": pytest.approx(100)}
+    await _ignored(session, test_workspace, test_user, repaid.credit)
+
+    assert await _figures(session, test_workspace, test_user) == in_effect
+    assert await _spending(session, test_workspace, test_user, SEPT) == {"Subscriptions": pytest.approx(40)}
+
+
+@pytest.mark.asyncio
+async def test_only_the_links_whose_other_side_left_go_inert(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _account(session, test_user.id)
+    subscriptions = await _category(session, test_user.id, "Subscriptions")
+    plan = await _txn(session, test_user.id, checking, "40", "debit", date(2025, 9, 5), category=subscriptions)
+    sister = await _txn(session, test_user.id, checking, "10", "credit", date(2025, 10, 6), category=subscriptions)
+    brother = await _txn(session, test_user.id, checking, "10", "credit", date(2025, 10, 7), category=subscriptions)
+    await _link(session, test_workspace.id, sister, (plan, "10"))
+    await _link(session, test_workspace.id, brother, (plan, "10"))
+
+    await _ignored(session, test_workspace, test_user, brother)
+
+    assert await _spending(session, test_workspace, test_user, SEPT) == {"Subscriptions": pytest.approx(30)}
+    assert await _spending(session, test_workspace, test_user, OCT) == {}
+    assert await _net(session, test_workspace, test_user, SEPT) == (pytest.approx(0), pytest.approx(30))
+    assert await _net(session, test_workspace, test_user, OCT) == (pytest.approx(0), pytest.approx(0))
+
+
+@pytest.mark.asyncio
+async def test_rows_out_of_user_pnl_or_on_closed_accounts_cannot_be_newly_linked(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _account(session, test_user.id)
+    closed = await _account(session, test_user.id, "Old card")
+    moved = await _category(session, test_user.id, "Moved money")
+    moved.treat_as_transfer = True
+    hidden = await _category(session, test_user.id, "Not mine")
+    hidden.is_ignored = True
+    closed.is_closed = True
+    await session.commit()
+    day = date(2025, 9, 10)
+    credit = await _txn(session, test_user.id, checking, "100", "credit", date(2025, 9, 30))
+    ignored = await _txn(session, test_user.id, checking, "10", "debit", day, description="Ignored")
+    ignored.is_ignored = True
+    excluded = await _txn(session, test_user.id, checking, "10", "debit", day, description="Excluded")
+    excluded.exclude_from_pnl = True
+    await session.commit()
+    in_transfers = await _txn(session, test_user.id, checking, "10", "debit", day, category=moved, description="Moved")
+    in_hidden = await _txn(session, test_user.id, checking, "10", "debit", day, category=hidden, description="Hidden")
+    on_closed = await _txn(session, test_user.id, closed, "10", "debit", day, description="Closed")
+    fine = await _txn(session, test_user.id, checking, "10", "debit", day, description="Fine")
+
+    for row, reason in [
+        (ignored, '"Ignored" can\'t be reimbursed: it is ignored.'),
+        (excluded, '"Excluded" can\'t be reimbursed: it is excluded from income and expenses.'),
+        (in_transfers, '"Moved" can\'t be reimbursed: it is filed under a category left out'),
+        (in_hidden, '"Hidden" can\'t be reimbursed: it is filed under a category left out'),
+        (on_closed, '"Closed" can\'t be reimbursed: it is on a closed account.'),
+    ]:
+        with pytest.raises(ValueError, match=reason):
+            await _link(session, test_workspace.id, credit, (row, "5"))
+
+    candidates = await reimbursement_service.reimbursement_candidates(session, test_workspace.id, credit.id)
+    assert [tx.id for tx, _, _ in candidates] == [fine.id]
+
+    zelle = await _txn(session, test_user.id, closed, "10", "credit", day)
+    with pytest.raises(ValueError, match="This credit can't be linked as a reimbursement: it is on a closed account"):
+        await _link(session, test_workspace.id, zelle, (fine, "5"))
+
+
+@pytest.mark.asyncio
+async def test_a_link_made_before_its_side_left_stays_editable(
+    session: AsyncSession, test_user, test_workspace,
+):
+    repaid = await _repaid_subscription(session, test_user, test_workspace)
+    other = await _txn(
+        session, test_user.id, await _account(session, test_user.id, "Other"), "30", "debit",
+        date(2025, 9, 20), description="Other plan",
+    )
+    await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "60"))
+    await _account_closed(session, test_workspace, test_user, repaid.expense)
+
+    links = await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "70"), (other, "30"))
+    assert {(link["counterpart_id"], link["amount"], link["in_effect"]) for link in links} == {
+        (repaid.expense.id, 70.0, False), (other.id, 30.0, True),
+    }
+
+
+@pytest.mark.asyncio
+async def test_candidates_list_what_this_credit_already_repays_first(
+    session: AsyncSession, test_user, test_workspace,
+):
+    checking = await _account(session, test_user.id)
+    dining = await _category(session, test_user.id, "Dining")
+    travel = await _category(session, test_user.id, "Travel")
+    credit = await _txn(session, test_user.id, checking, "100", "credit", date(2025, 10, 5), category=dining)
+    nearest = await _txn(session, test_user.id, checking, "40", "debit", date(2025, 10, 4), category=dining)
+    linked_far = await _txn(session, test_user.id, checking, "30", "debit", date(2025, 6, 1), category=travel)
+    linked_after = await _txn(session, test_user.id, checking, "20", "debit", date(2025, 10, 9), category=dining)
+    await _link(session, test_workspace.id, credit, (linked_far, "10"), (linked_after, "5"))
+
+    candidates = await reimbursement_service.reimbursement_candidates(session, test_workspace.id, credit.id)
+    assert [(tx.id, here) for tx, _, here in candidates] == [
+        (linked_after.id, Decimal("5")),
+        (linked_far.id, Decimal("10")),
+        (nearest.id, Decimal("0")),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_sync_moving_an_account_takes_its_links_along(
+    session: AsyncSession, test_user, test_workspace,
+):
+    from tests.test_sync_account_allowlist import (
+        _account as _provider_account,
+        _fake_provider,
+        _make_connection,
+        _sync,
+    )
+    from app.providers.base import TransactionData
+
+    day = date.today() - timedelta(days=2)
+
+    def synced(external_id: str, amount: str, txn_type: str) -> TransactionData:
+        return TransactionData(
+            external_id=external_id, description=external_id.upper(), amount=Decimal(amount),
+            date=day, type=txn_type, currency="BRL",
+        )
+
+    connection = await _make_connection(session, test_user.id, test_workspace.id)
+    provider = _fake_provider(
+        [_provider_account("acc-1")],
+        {"acc-1": [synced("gym", "50", "debit"), synced("refund", "20", "credit")]},
+    )
+    await _sync(session, connection, test_workspace, test_user, provider)
+    rows = {
+        tx.external_id: tx
+        for tx in (await session.execute(select(Transaction).where(Transaction.source == "sync"))).scalars()
+    }
+    gym, refund = rows["gym"], rows["refund"]
+    cash = await _account(session, test_user.id, "Cash")
+    handout = await _txn(session, test_user.id, cash, "15", "credit", day, workspace_id=test_workspace.id)
+    await _link(session, test_workspace.id, refund, (gym, "20"))
+    await _link(session, test_workspace.id, handout, (gym, "15"))
+
+    shared = Workspace(
+        id=uuid.uuid4(), name="Shared", kind="personal",
+        created_by_user_id=test_user.id, default_currency="BRL", locale="en",
+    )
+    session.add(shared)
+    connection.workspace_id = shared.id
+    await session.commit()
+    await _sync(session, connection, shared, test_user, provider)
+    await session.commit()
+
+    remaining = (await session.execute(
+        select(TransactionReimbursement.reimbursement_id, TransactionReimbursement.workspace_id)
+    )).all()
+    assert remaining == [(refund.id, shared.id)]
+    assert [link["counterpart_id"] for link in await reimbursement_service.get_reimbursements(
+        session, shared.id, gym.id
+    )] == [refund.id]
+
+
 # --- cross-feature guards ----------------------------------------------------
 
 
@@ -545,6 +901,34 @@ async def test_transfer_detection_skips_linked_rows(
     assert await detect_transfer_pairs(session, test_workspace.id) == 0
     await session.refresh(into)
     assert into.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_transfer_detection_rechecks_links_made_after_it_read_the_pool(
+    session: AsyncSession, test_user, test_workspace, monkeypatch,
+):
+    from app.services import transfer_detection_service
+
+    a = await _account(session, test_user.id, "A")
+    b = await _account(session, test_user.id, "B")
+    day = date(2025, 9, 10)
+    out = await _txn(session, test_user.id, a, "500", "debit", day, description="Transfer debit 500 REF50000")
+    into = await _txn(session, test_user.id, b, "500", "credit", day, description="Transfer credit 500 REF50000")
+    repay = await _txn(session, test_user.id, a, "500", "credit", date(2025, 9, 20))
+    read_pool = transfer_detection_service._pool
+
+    async def pool_then_link(*args, **kwargs):
+        pool = await read_pool(*args, **kwargs)
+        session.add(TransactionReimbursement(
+            workspace_id=test_workspace.id, reimbursement_id=repay.id, expense_id=out.id,
+            amount=Decimal("500"),
+        ))
+        return pool
+
+    monkeypatch.setattr(transfer_detection_service, "_pool", pool_then_link)
+
+    assert await detect_transfer_pairs(session, test_workspace.id) == 0
+    assert out.transfer_pair_id is None and into.transfer_pair_id is None
 
 
 @pytest.mark.asyncio
@@ -687,9 +1071,9 @@ async def test_postgres_cascade_and_reporting(postgres_sessions):
             session, workspace.id, credit.id
         )
         assert [(tx.id, remaining, here) for tx, remaining, here in candidates] == [
-            (later.id, Decimal("30"), Decimal("0")),
             (other.id, Decimal("20"), Decimal("20")),
             (trip.id, Decimal("117.09"), Decimal("117.09")),
+            (later.id, Decimal("30"), Decimal("0")),
         ]
         trip_id, credit_id = trip.id, credit.id
         with pytest.raises(ValueError, match="can't go below that"):
@@ -707,3 +1091,87 @@ async def test_postgres_cascade_and_reporting(postgres_sessions):
         await session.execute(delete(Transaction).where(Transaction.id == credit_id))
         await session.commit()
         assert (await session.execute(select(TransactionReimbursement))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "leave, side",
+    [
+        (_transfer_category, "credit"),
+        (_category_turned_ignored, "expense"),
+        (_card_payment_description, "expense"),
+        (_settlement, "credit"),
+        (_account_closed, "expense"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else value.__name__.strip("_"),
+)
+async def test_postgres_a_side_leaving_user_pnl_leaves_every_figure_as_if_unlinked(
+    postgres_sessions, leave, side,
+):
+    async with postgres_sessions() as session:
+        user, workspace = await _pg_user(session)
+        repaid = await _repaid_subscription(session, user, workspace)
+        await _link(session, workspace.id, repaid.credit, (repaid.expense, "100"))
+
+        await leave(session, workspace, user, getattr(repaid, side))
+        linked = await _figures(session, workspace, user)
+        await _link(session, workspace.id, repaid.credit)
+
+        assert linked == await _figures(session, workspace, user)
+
+
+@pytest.mark.asyncio
+async def test_postgres_splitting_a_row_holds_it_against_a_concurrent_link(postgres_sessions):
+    async with postgres_sessions() as splitter, postgres_sessions() as linker:
+        user, workspace = await _pg_user(splitter)
+        checking = await _account(splitter, user.id)
+        expense = await _txn(splitter, user.id, checking, "60", "debit", date(2025, 9, 10))
+        credit = await _txn(splitter, user.id, checking, "60", "credit", date(2025, 9, 20))
+        group = await group_service.create_group(splitter, workspace.id, user.id, GroupCreate(name="Trip"))
+        member = await group_service.create_member(splitter, group.id, workspace.id, GroupMemberCreate(name="Bo"))
+        assert member is not None
+        await split_service.replace_splits(
+            splitter, expense,
+            TransactionSplitsInput(share_type="equal", splits=[TransactionSplitInput(group_member_id=member.id)]),
+            user.id,
+        )
+
+        await linker.execute(text("SET lock_timeout = '300ms'"))
+        with pytest.raises(DBAPIError, match="lock timeout"):
+            await _link(linker, workspace.id, credit, (expense, "60"))
+        await linker.rollback()
+        await splitter.commit()
+
+        with pytest.raises(ValueError, match="Use a group settlement"):
+            await _link(linker, workspace.id, credit, (expense, "60"))
+
+
+@pytest.mark.asyncio
+async def test_postgres_rehoming_links_after_an_account_moves_workspace(postgres_sessions):
+    async with postgres_sessions() as session:
+        user, workspace = await _pg_user(session)
+        moving = await _account(session, user.id, "Moving")
+        staying = await _account(session, user.id, "Staying")
+        day = date(2025, 9, 10)
+        gym = await _txn(session, user.id, moving, "50", "debit", day, source="sync")
+        refund = await _txn(session, user.id, moving, "20", "credit", day, source="sync")
+        handout = await _txn(session, user.id, staying, "15", "credit", day)
+        await _link(session, workspace.id, refund, (gym, "20"))
+        await _link(session, workspace.id, handout, (gym, "15"))
+        elsewhere = Workspace(
+            id=uuid.uuid4(), name="Elsewhere", kind="personal",
+            created_by_user_id=user.id, default_currency="BRL", locale="en",
+        )
+        session.add(elsewhere)
+        await session.commit()
+
+        await session.execute(
+            update(Transaction).where(Transaction.account_id == moving.id).values(workspace_id=elsewhere.id)
+        )
+        await reimbursement_service.rehome_links_for_account(session, moving.id)
+        await session.commit()
+
+        remaining = (await session.execute(
+            select(TransactionReimbursement.reimbursement_id, TransactionReimbursement.workspace_id)
+        )).all()
+        assert remaining == [(refund.id, elsewhere.id)]

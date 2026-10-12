@@ -118,6 +118,8 @@ export function TransactionDrillDown({
     const items: DisplayItem[] = []
 
     for (const tx of data?.items ?? []) {
+      // An inert link moves no figure, so the panel leaves it out too.
+      const linksInEffect = tx.reimbursement_links.filter((link) => link.in_effect)
       items.push({
         key: tx.id,
         description: tx.description,
@@ -125,8 +127,8 @@ export function TransactionDrillDown({
         orderDate: transactionOrderDate(tx, isAccrual),
         type: tx.type as 'debit' | 'credit',
         amount: Number(tx.amount),
-        linkedAmount: linkedTotal(tx.reimbursement_links),
-        linkCount: tx.reimbursement_links.length,
+        linkedAmount: linkedTotal(linksInEffect),
+        linkCount: linksInEffect.length,
         amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
         currency: tx.currency,
         categoryIcon: tx.category?.icon ?? null,

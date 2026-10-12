@@ -18,6 +18,7 @@ const link = (amount: string): ReimbursementLink => ({
   counterpart_category_name: null,
   amount,
   currency: 'USD',
+  in_effect: true,
 })
 
 const tx = (type: 'credit' | 'debit', links: ReimbursementLink[]) => ({

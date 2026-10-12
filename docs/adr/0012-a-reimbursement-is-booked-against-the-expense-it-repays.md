@@ -27,6 +27,17 @@ refused, and a sync that re-reports a smaller amount shrinks the links
 proportionally to fit. Links are never grown to follow a larger amount — the
 money that changed hands is what the user linked.
 
+It also holds only while both rows are counted. So a link is in effect only
+while both of its rows are in user P&L (`counts_as_user_pnl`) and on open
+accounts (`reimbursement_link_side_counts`); while either is not, the link is
+inert on both sides and each row counts as if it were unlinked. This is
+decided in the reporting SQL rather than by guarding edits, because a row
+leaves user P&L in many ways — a recategorization (single, bulk or by a
+rule), a category flagged ignored or as a transfer, the row ignored or
+excluded, its description rewritten into a card payment, its account closed —
+and a guard missed on any one of them would move net cash flow. The link
+itself is kept, and comes back into effect when the row counts again.
+
 ## The unlinked remainder follows ADR 0011
 
 A $259 credit with $117.09 linked contributes its remaining $141.91 exactly as
@@ -39,7 +50,10 @@ counted, never what the rest of the credit means.
 Both rows sit in the same workspace and the same currency (cross-currency
 links are refused in this version), are posted and dated today or earlier,
 and are neither group settlements, opening balances, transfers nor card
-payments. Link amounts are in that shared currency; when its FX rate moved
+payments. A new link also needs both rows in user P&L and on open accounts,
+so the user is told why instead of making a link that would be inert from
+the start. A link made earlier stays editable after one of its rows has left:
+reporting ignores it meanwhile. Link amounts are in that shared currency; when its FX rate moved
 between the two dates, primary-currency totals are conserved only
 approximately. Cash-flow reports are left alone: they report when cash moved,
 and a link does not move cash.
@@ -51,11 +65,18 @@ row that is both split and reimbursed would have its cost reduced twice, so a
 row with splits cannot be linked and a linked row cannot be split, made into a
 transfer, or picked up by automatic transfer detection.
 
+## A link lives in its rows' workspace
+
+Links are read, edited and deleted from the workspace their rows are in. When
+a bank sync moves a connected account's rows to another workspace, the links
+whose rows both moved follow them; a link that would join rows in two
+workspaces is deleted, since neither workspace can see both of its sides.
+
 ## Consequences
 
-An expense marked ignored or excluded from P&L after it was linked takes the
-linked part of its credit with it, which is the honest reading: the credit
-repaid something the user chose not to count. Projected figures in accrual
+An expense marked ignored or excluded from P&L after it was linked leaves its
+credit counting in full again: the credit repaid something the user chose
+not to count, and keeping it reduced would change net cash flow. Projected figures in accrual
 mode still count a linked, not-yet-due card purchase at its full amount until
 its due date, because the forecast paths read rows in Python and do not apply
 the share.

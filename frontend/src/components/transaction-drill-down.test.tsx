@@ -152,6 +152,7 @@ describe('TransactionDrillDown', () => {
       counterpart_category_name: 'Dining',
       amount: '45.00',
       currency: 'USD',
+      in_effect: true,
       ...overrides,
     })
     const row = (overrides: Partial<Transaction>) => ({
@@ -222,5 +223,49 @@ describe('TransactionDrillDown', () => {
     // 120 - 45 reimbursed, the Ford credit spent in full, 54.02 of Zelle left over.
     const label = await screen.findByText(t('dashboard.drillDownTotal', { count: 3, total: '$20.98' }))
     expect(label).toBeInTheDocument()
+  })
+
+  it('counts a row in full when its links are not in effect', async () => {
+    api.transactions.list.mockResolvedValue({
+      items: [
+        {
+          id: 'dinner',
+          description: 'Team dinner',
+          type: 'debit',
+          amount: 120,
+          date: '2026-09-04',
+          effective_date: '2026-09-04',
+          effective_bill_date: null,
+          amount_primary: null,
+          currency: 'USD',
+          category: null,
+          status: 'posted',
+          attachment_count: 0,
+          reimbursement_links: [{
+            id: 'l1',
+            counterpart_id: 'ford',
+            counterpart_description: 'FORD MOTOR COMPA PAYMENTS',
+            counterpart_date: '2026-09-05',
+            counterpart_category_name: null,
+            amount: '45.00',
+            currency: 'USD',
+            in_effect: false,
+          }],
+        } as unknown as Transaction,
+      ],
+    })
+    api.dashboard.projectedTransactions.mockResolvedValue([])
+
+    renderWithProviders(
+      <TooltipProvider>
+        <TransactionDrillDown
+          filter={{ title: 'Dining', category_id: 'dining', pnl_group: 'expenses', from: '2026-09-01', to: '2026-09-30' }}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>,
+    )
+
+    expect(await screen.findByText(t('dashboard.drillDownTotal', { count: 1, total: '$120.00' }))).toBeInTheDocument()
+    expect(screen.queryByText(t('transactions.reimbursedAmount', { amount: '$45.00' }))).not.toBeInTheDocument()
   })
 })

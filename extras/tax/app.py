@@ -43,8 +43,19 @@ INDEX_HTML = os.path.join(HERE, "index.html")
 DED_TAG_RE = re.compile(r"#ded(?:-[a-z0-9_]+)?(?![a-z0-9_-])", re.IGNORECASE)
 
 # Copied from backend/app/services/transaction_semantics.py, which decides which
-# card credits repay the card rather than refund a purchase; test_app_ledger
-# fails when the two drift apart.
+# rows repay a card rather than buy or refund something; test_app_ledger fails
+# when the two drift apart.
+_BANK_DEBIT_CARD_PAYMENT_MARKERS = (
+    ("CHASE CREDIT CRD", "AUTOPAY"),
+    ("CAPITAL ONE", "CRCARDPMT"),
+    ("BANK OF AMERICA", "PAYMENT"),
+    ("BK OF AMER VISA", "PMT"),
+    ("AMERICAN EXPRESS", "ACH PMT"),
+    ("APPLECARD GSBANK", "PAYMENT"),
+    ("WELLS FARGO CARD", "CCPYMT"),
+    ("WF CREDIT CARD", "AUTO PAY"),
+)
+
 _CARD_CREDIT_PAYMENT_MARKERS = (
     ("ACH DEPOSIT INTERNET TRANSFER FROM ACCOUNT",),
     ("AUTOMATIC PAYMENT",),
@@ -57,17 +68,59 @@ _CARD_CREDIT_PAYMENT_MARKERS = (
     ("PENDING PAYMENT",),
 )
 _LEDGER_PARAMS = {
-    f"card_pmt_{i}": [f"%{marker}%" for marker in group]
-    for i, group in enumerate(_CARD_CREDIT_PAYMENT_MARKERS)
+    **{
+        f"card_pmt_{i}": [f"%{marker}%" for marker in group]
+        for i, group in enumerate(_CARD_CREDIT_PAYMENT_MARKERS)
+    },
+    **{
+        f"bank_pmt_{i}": [f"%{marker}%" for marker in group]
+        for i, group in enumerate(_BANK_DEBIT_CARD_PAYMENT_MARKERS)
+    },
 }
-_CARD_PAYMENT_MATCH = " OR ".join(f"t.description ILIKE ALL (%({key})s)" for key in _LEDGER_PARAMS)
 
-# Ledger query fragments over transactions t, accounts a and categories c,
-# mirroring backend/app/services/_query_filters.py.
-_CARD_PAYMENT_SQL = f"""(
-    a.type = 'credit_card' AND t.type = 'credit'
-    AND ({_CARD_PAYMENT_MATCH} OR UPPER(TRIM(t.description)) = 'BILL PAYMENT')
+
+def _matches_any(t, prefix):
+    return " OR ".join(
+        f"{t}.description ILIKE ALL (%({key})s)" for key in _LEDGER_PARAMS if key.startswith(prefix)
+    )
+
+
+# Ledger query fragments over a transaction alias, its account and its
+# category (LEFT JOINed), mirroring backend/app/services/_query_filters.py.
+def _card_payment_sql(t, a):
+    return f"""(
+    ({a}.type = 'credit_card' AND {t}.type = 'credit'
+     AND ({_matches_any(t, "card_pmt_")} OR UPPER(TRIM({t}.description)) = 'BILL PAYMENT'))
+    OR ({a}.type <> 'credit_card' AND {t}.type = 'debit' AND (
+        {_matches_any(t, "bank_pmt_")}
+        OR UPPER(TRIM({t}.description)) = 'CAPITAL ONE'
+        OR ({t}.description ILIKE '%%BILT CARD%%' AND {t}.description ILIKE '%%PMT%%'
+            AND {t}.description NOT ILIKE '%%HOUSING%%' AND {t}.description NOT ILIKE '%%RENT%%')
+    ))
 )"""
+
+
+def _counts_as_user_pnl_sql(t, a, c):
+    """`counts_as_user_pnl`: not a matched transfer, ignored, excluded, a card
+    payment or a settlement, and not filed under an ignored or transfer-like
+    category, except that a card refund still counts under the latter."""
+    return f"""(
+    NOT EXISTS (
+        SELECT 1 FROM transactions {t}_pair
+        WHERE {t}_pair.transfer_pair_id = {t}.transfer_pair_id AND {t}_pair.id <> {t}.id
+    )
+    AND {t}.is_ignored = false
+    AND NOT {_card_payment_sql(t, a)}
+    AND {t}.exclude_from_pnl = false
+    AND {t}.source <> 'settlement'
+    AND ({t}.category_id IS NULL OR (
+        {c}.is_ignored = false
+        AND ({c}.treat_as_transfer = false OR ({a}.type = 'credit_card' AND {t}.type = 'credit'))
+    ))
+)"""
+
+
+_CARD_PAYMENT_SQL = _card_payment_sql("t", "a")
 
 # ADR 0011: a credit filed under a non-income category, or an uncategorized
 # card refund, is money back on spending rather than income.
@@ -78,11 +131,27 @@ _SPENDING_OFFSET_SQL = f"""(
     )
 )"""
 
-_LINKS_JOIN = """
+
+# ADR 0012: a link is in effect only while both of its rows are in user P&L on
+# open accounts. The backend checks only the row's own account, since every
+# report there already drops a row outside user P&L; write-offs keep such
+# rows, so here both sides are checked in full.
+def _link_side_counts_sql(t, a, c):
+    return f"({_counts_as_user_pnl_sql(t, a, c)} AND {a}.is_closed = false)"
+
+
+_LINKS_JOIN = f"""
     LEFT JOIN LATERAL (
         SELECT SUM(r.amount) AS amount
         FROM transaction_reimbursements r
+        JOIN transactions o ON o.id = CASE
+            WHEN r.reimbursement_id = t.id THEN r.expense_id ELSE r.reimbursement_id
+        END
+        JOIN accounts oa ON oa.id = o.account_id
+        LEFT JOIN categories oc ON oc.id = o.category_id
         WHERE t.id IN (r.reimbursement_id, r.expense_id)
+          AND {_link_side_counts_sql("o", "oa", "oc")}
+          AND {_link_side_counts_sql("t", "a", "c")}
     ) linked ON true
 """
 
@@ -475,18 +544,8 @@ def prefill(auth=Depends(require_auth)):
                 {_LINKS_JOIN}
                 WHERE t.type = 'credit'
                   AND t.status = 'posted'
-                  AND t.is_ignored = false
-                  AND t.exclude_from_pnl = false
-                  AND t.source NOT IN ('settlement', 'opening_balance')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM transactions pair
-                      WHERE pair.transfer_pair_id = t.transfer_pair_id AND pair.id <> t.id
-                  )
-                  AND NOT {_CARD_PAYMENT_SQL}
-                  AND (t.category_id IS NULL OR (
-                      c.is_ignored = false
-                      AND (c.treat_as_transfer = false OR a.type = 'credit_card')
-                  ))
+                  AND t.source <> 'opening_balance'
+                  AND {_counts_as_user_pnl_sql("t", "a", "c")}
                   AND NOT {_SPENDING_OFFSET_SQL}
                   AND t.date >= %(start)s
                   AND t.date < %(end)s

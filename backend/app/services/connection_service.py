@@ -2999,6 +2999,7 @@ async def sync_connection(
                     )
                     .values(user_id=user_id, workspace_id=connection.workspace_id)
                 )
+                await reimbursement_service.rehome_links_for_account(session, account.id)
                 await session.execute(
                     update(CreditCardBill)
                     .where(CreditCardBill.account_id == account.id)

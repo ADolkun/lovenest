@@ -81,9 +81,9 @@ describe('LinkReimbursementDialog', () => {
     const { user } = renderDialog()
 
     await user.click(await screen.findByRole('checkbox', { name: 'Groceries' }))
-    expect(amountInput('Groceries')).toHaveValue('80')
+    expect(amountInput('Groceries')).toHaveValue('80.00')
     await user.click(screen.getByRole('checkbox', { name: 'YouTube September' }))
-    expect(amountInput('YouTube September')).toHaveValue('20')
+    expect(amountInput('YouTube September')).toHaveValue('20.00')
     expect(screen.getByTestId('reimbursement-unallocated')).toHaveTextContent('$0.00')
 
     await user.click(screen.getByRole('checkbox', { name: 'Groceries' }))
@@ -135,6 +135,7 @@ describe('LinkReimbursementDialog', () => {
         counterpart_category_name: 'Subscriptions',
         amount: '22.99',
         currency: 'USD',
+        in_effect: true,
       },
       {
         id: 'link-2',
@@ -144,6 +145,7 @@ describe('LinkReimbursementDialog', () => {
         counterpart_category_name: 'Health',
         amount: '10.00',
         currency: 'USD',
+        in_effect: false,
       },
     ]
     const { user, onOpenChange } = renderDialog(links)
@@ -152,7 +154,7 @@ describe('LinkReimbursementDialog', () => {
     expect(screen.getByRole('checkbox', { name: 'YouTube September' })).toBeChecked()
     expect(amountInput('YouTube September')).toHaveValue('22.99')
     expect(screen.getByRole('checkbox', { name: 'Pharmacy' })).toBeChecked()
-    expect(amountInput('Pharmacy')).toHaveValue('10')
+    expect(amountInput('Pharmacy')).toHaveValue('10.00')
 
     await user.click(groceriesBox)
     expect(amountInput('Groceries')).toHaveValue('67.01')
@@ -165,6 +167,29 @@ describe('LinkReimbursementDialog', () => {
     ]))
     expect(toast.success).toHaveBeenCalledWith(t('transactions.reimbursementsSaved'))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('prefills amounts with their cents', async () => {
+    vi.mocked(transactions.reimbursements.candidates).mockResolvedValue([
+      candidate('gas', 'Gas', '10.60', '10.60'),
+      candidate('yt-sep', 'YouTube September', '40.00', '40.00', '31.70'),
+    ])
+    const { user } = renderDialog([
+      {
+        id: 'link-1',
+        counterpart_id: 'yt-sep',
+        counterpart_description: 'YouTube September',
+        counterpart_date: '2026-09-03',
+        counterpart_category_name: 'Subscriptions',
+        amount: 31.7,
+        currency: 'USD',
+        in_effect: true,
+      },
+    ])
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Gas' }))
+    expect(amountInput('Gas')).toHaveValue('10.60')
+    expect(amountInput('YouTube September')).toHaveValue('31.70')
   })
 
   it('searches candidates once typing pauses', async () => {

@@ -1842,6 +1842,7 @@ async def bulk_add_to_group(
         .options(selectinload(Transaction.splits))
     )
     txs = txs_result.scalars().all()
+    await reimbursement_service.lock_rows(session, [tx.id for tx in txs])
     reimbursement_linked = await reimbursement_service.linked_totals(
         session, [tx.id for tx in txs]
     )
