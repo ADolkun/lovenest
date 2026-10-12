@@ -38,6 +38,15 @@ its figure alongside the debits that made it.
 Per-account statistics are not user P&L — they track cash through one account —
 and keep their own rule.
 
+## Split shares follow their parent
+
+A group split reduces the owner's figures to their own share by subtracting
+the other members' shares, and adds a linked member's share to theirs. Each
+share is classified by the same helpers as the transaction it belongs to, so
+the others' part of a refund on a shared expense comes back out of the owner's
+netting, and a linked member nets only their part of it. A share of an income
+credit still adjusts income.
+
 ## Consequences
 
 A category is not born knowing it is income. The default salary category is
@@ -46,5 +55,9 @@ carrying a default income-group name. A category the user creates for income
 has to be flagged, or its credits will read as offsets — visible as spending
 that shrinks or goes negative, which is a louder failure than income that
 silently inflates. A category's spending can now come out negative in a month
-where a reimbursement lands after the expense it repays; the breakdown drops
-categories that net to zero or less.
+where a reimbursement lands after the expense it repays. The dashboard
+breakdown keeps such a category, shown as money in and left out of the
+spending percentages, so its rows still add up to the expenses card; only a
+category that nets to exactly zero is dropped. Budget bars still stop at zero,
+and the report's charts, which cannot draw a negative slice, show only
+categories with spending left.

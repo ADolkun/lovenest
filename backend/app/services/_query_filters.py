@@ -342,7 +342,12 @@ async def owner_split_offset_pnl(
     from the owner's full-amount aggregations so only their own share
     remains. We sum every split share that belongs to a non-owner
     member; subtracting that from the parent's full amount leaves the
-    owner's share."""
+    owner's share.
+
+    A share is classified exactly as its parent is, so the others' part
+    of a refund on a shared expense is a *negative* expense offset: the
+    parent nets the whole refund against spending, and subtracting this
+    leaves the owner netting only their own part of it."""
     from app.models.group import Group, GroupMember
     from app.models.transaction_split import TransactionSplit
 
@@ -367,19 +372,10 @@ async def owner_split_offset_pnl(
     result = await session.execute(
         select(
             Transaction.currency,
-            func.sum(
-                case(
-                    (Transaction.type == "credit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
-            func.sum(
-                case(
-                    (Transaction.type == "debit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_income_amount(TransactionSplit.share_amount)),
+            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
         )
+        .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .where(
             Transaction.user_id == user_id,
@@ -437,8 +433,10 @@ async def owner_split_offset_by_category(
     workspace_id: Optional[uuid.UUID] = None,
     posted_only: bool = True,
 ) -> dict:
-    """Per-category, sum of non-owner shares on owner-side debit splits —
-    subtract from full owner debits to get the owner's category share."""
+    """Per-category expense offset from non-owner shares, signed like
+    `owner_split_offset_pnl`'s: debits add, spending-offset credits
+    subtract. Subtract it from the category's net spending to get the
+    owner's share."""
     from app.models.group import Group, GroupMember
     from app.models.transaction_split import TransactionSplit
 
@@ -461,8 +459,9 @@ async def owner_split_offset_by_category(
         select(
             Transaction.category_id,
             Transaction.currency,
-            func.sum(TransactionSplit.share_amount),
+            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
         )
+        .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .where(
             Transaction.user_id == user_id,
@@ -471,7 +470,7 @@ async def owner_split_offset_by_category(
                 if workspace_id is not None
                 else []
             ),
-            Transaction.type == "debit",
+            user_pnl_group() == "expenses",
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
             Transaction.source != "opening_balance",
             *(
@@ -518,6 +517,8 @@ async def viewer_shared_pnl(
 
     Concert tickets paid by a friend show up as the viewer's share in
     their own spending picture — without inflating account balances.
+    Shares follow the parent's classification, so the viewer's part of a
+    refund on that expense comes back as negative expense, not income.
 
     When `primary_currency` is given, mixed-currency shares are
     converted to that currency via the FX service. Otherwise, sums
@@ -543,19 +544,10 @@ async def viewer_shared_pnl(
     result = await session.execute(
         select(
             Transaction.currency,
-            func.sum(
-                case(
-                    (Transaction.type == "credit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
-            func.sum(
-                case(
-                    (Transaction.type == "debit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_income_amount(TransactionSplit.share_amount)),
+            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
         )
+        .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .where(
             TransactionSplit.group_member_id.in_(member_ids),
@@ -613,7 +605,8 @@ async def viewer_shared_spending_by_category(
     posted_only: bool = True,
 ) -> dict:
     """Return {category_id (uuid|None): total_share_expense_float} for
-    transactions where the viewer participates via a group split.
+    transactions where the viewer participates via a group split. A share
+    of a spending-offset credit counts negative, as in `viewer_shared_pnl`.
 
     With `primary_currency`, totals are FX-converted; otherwise raw
     nominal sums (single-currency only)."""
@@ -637,13 +630,14 @@ async def viewer_shared_spending_by_category(
         select(
             Transaction.category_id,
             Transaction.currency,
-            func.sum(TransactionSplit.share_amount),
+            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
         )
+        .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .where(
             TransactionSplit.group_member_id.in_(member_ids),
             Transaction.user_id != user_id,
-            Transaction.type == "debit",
+            user_pnl_group() == "expenses",
             Transaction.source != "opening_balance",
             *(
                 [Transaction.status == "posted", date_col <= app_today()]

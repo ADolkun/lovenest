@@ -844,6 +844,7 @@
     "sortHighest": "Maior gasto",
     "sortLowest": "Menor gasto",
     "spendingByCategory": "Gastos por Categoria",
+    "categoryMoneyBack": "Mais dinheiro devolvido do que gasto",
     "monthlyTrend": "Tendência Mensal",
     "budgetVsActual": "Orçamento vs Realizado",
     "balanceFlow": "Evolução do Saldo",

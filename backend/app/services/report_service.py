@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import String, select, func, case
+from sqlalchemy import String, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -518,18 +518,8 @@ async def get_income_expenses_report(
         select(
             label_expr,
             Transaction.currency,
-            func.sum(
-                case(
-                    (Transaction.type == "credit", _TS_.share_amount),
-                    else_=0,
-                )
-            ),
-            func.sum(
-                case(
-                    (Transaction.type == "debit", _TS_.share_amount),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_income_amount(_TS_.share_amount)),
+            func.sum(user_pnl_expense_amount(_TS_.share_amount)),
         )
         .select_from(_TS_)
         .join(Transaction, _TS_.transaction_id == Transaction.id)
@@ -546,23 +536,25 @@ async def get_income_expenses_report(
         .group_by(label_expr, Transaction.currency)
     )
     for row in (owner_offset_result.all() if not filtered else []):
-        period, currency, raw_credit, raw_debit = row
+        period, currency, raw_income, raw_expense = row
         sub_inc = 0.0
         sub_exp = 0.0
-        if raw_credit:
+        if raw_income:
             inc_pri, _ = await fx_convert(
-                session, Decimal(str(raw_credit)), currency, primary_currency
+                session, Decimal(str(raw_income)), currency, primary_currency
             )
             sub_inc = float(inc_pri)
-        if raw_debit:
+        if raw_expense:
             exp_pri, _ = await fx_convert(
-                session, Decimal(str(raw_debit)), currency, primary_currency
+                session, Decimal(str(raw_expense)), currency, primary_currency
             )
-            sub_exp = abs(float(exp_pri))
+            sub_exp = float(exp_pri)
         existing_income, existing_expenses = data_map.get(period, (0.0, 0.0))
+        # Expenses are not clamped: a period where money back outweighs
+        # spending is legitimately negative, as on the dashboard card.
         data_map[period] = (
             max(0.0, existing_income - sub_inc),
-            max(0.0, existing_expenses - sub_exp),
+            existing_expenses - sub_exp,
         )
 
     # Layer in the viewer's share from group splits — concert tickets
@@ -582,18 +574,8 @@ async def get_income_expenses_report(
         select(
             label_expr,
             Transaction.currency,
-            func.sum(
-                case(
-                    (Transaction.type == "credit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
-            func.sum(
-                case(
-                    (Transaction.type == "debit", TransactionSplit.share_amount),
-                    else_=0,
-                )
-            ),
+            func.sum(user_pnl_income_amount(TransactionSplit.share_amount)),
+            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
@@ -611,19 +593,19 @@ async def get_income_expenses_report(
     )
     from app.services.fx_rate_service import convert as fx_convert
     for row in (shared_result.all() if not filtered else []):
-        period, currency, raw_credit, raw_debit = row
+        period, currency, raw_income, raw_expense = row
         share_income_pri = 0.0
         share_expenses_pri = 0.0
-        if raw_credit:
+        if raw_income:
             inc_pri, _ = await fx_convert(
-                session, Decimal(str(raw_credit)), currency, primary_currency
+                session, Decimal(str(raw_income)), currency, primary_currency
             )
             share_income_pri = float(inc_pri)
-        if raw_debit:
+        if raw_expense:
             exp_pri, _ = await fx_convert(
-                session, Decimal(str(raw_debit)), currency, primary_currency
+                session, Decimal(str(raw_expense)), currency, primary_currency
             )
-            share_expenses_pri = abs(float(exp_pri))
+            share_expenses_pri = float(exp_pri)
         existing_income, existing_expenses = data_map.get(period, (0.0, 0.0))
         data_map[period] = (
             existing_income + share_income_pri,
@@ -833,20 +815,17 @@ async def get_income_expenses_report(
     comp_map: dict[tuple[str, str], dict] = {}
     for row in cat_result.all():
         cat_id, cat_name, cat_color, txn_type, total_amount = row
-        amount = float(total_amount or 0)
-        if amount <= 0:
-            continue
         cat_key = str(cat_id) if cat_id else "uncategorized"
         group = txn_type
         comp_map[(cat_key, group)] = {
             "label": cat_name if cat_name else "Uncategorized",
             "color": cat_color if cat_color else "#6B7280",
-            "value": amount,
+            "value": float(total_amount or 0),
         }
 
-    # Subtract non-owner shares of own splits from composition (debit only —
-    # owner_split_offset_by_category is debit-only). Keeps the report's
-    # composition consistent with summary totals under share-only model.
+    # Subtract non-owner shares of own splits from the expense side. Applied
+    # to the signed net before anything is dropped: the others' part of a
+    # shared refund can turn a category that netted to zero into real spend.
     full_range_offset = {} if filtered else await owner_split_offset_by_category(
         session, user_id, start, axis_end + timedelta(days=1),
         use_effective_date=accounting_mode == "accrual",
@@ -857,8 +836,8 @@ async def get_income_expenses_report(
         comp_key = (cat_key, "expenses")
         if comp_key in comp_map:
             comp_map[comp_key]["value"] -= offset_total
-            if comp_map[comp_key]["value"] <= 0:
-                comp_map.pop(comp_key)
+    for comp_key in [k for k, v in comp_map.items() if v["value"] <= 0]:
+        comp_map.pop(comp_key)
 
     # Investment-style outflows: transactions in `treat_as_transfer` categories
     # are excluded from P&L by counts_as_user_pnl (an investment application's
@@ -935,9 +914,6 @@ async def get_income_expenses_report(
     cat_trend_map: dict[tuple[str, str], dict] = {}
     for row in cat_trend_result.all():
         period_label, cat_id, cat_name, cat_color, txn_type, total_amount = row
-        amount = float(total_amount or 0)
-        if amount <= 0:
-            continue
         cat_key = str(cat_id) if cat_id else "uncategorized"
         group = txn_type
         map_key = (cat_key, group)
@@ -948,26 +924,27 @@ async def get_income_expenses_report(
                 "total": 0.0,
                 "periods": {},
             }
-        cat_trend_map[map_key]["total"] += amount
         cat_trend_map[map_key]["periods"][period_label] = (
-            cat_trend_map[map_key]["periods"].get(period_label, 0.0) + amount
+            cat_trend_map[map_key]["periods"].get(period_label, 0.0)
+            + float(total_amount or 0)
         )
 
     # Subtract non-owner shares of own splits per (period, category) — keeps
-    # the per-category trend consistent with the share-only summary.
+    # the per-category trend consistent with the share-only summary. Same
+    # signed offset as the composition, applied before clamping.
     cat_offset_result = await session.execute(
         select(
             label_expr,
             Transaction.category_id,
             Transaction.currency,
-            func.sum(_TS_.share_amount),
+            func.sum(user_pnl_expense_amount(_TS_.share_amount)),
         )
         .select_from(_TS_)
         .join(Transaction, _TS_.transaction_id == Transaction.id)
         .where(
             Transaction.user_id == user_id,
             Transaction.workspace_id == workspace_id,
-            Transaction.type == "debit",
+            user_pnl_group() == "expenses",
             _TS_.group_member_id.notin_(own_member_ids_sq),
             report_date >= start,
             report_date <= axis_end,
@@ -988,13 +965,18 @@ async def get_income_expenses_report(
         map_key = (cat_key, "expenses")
         if map_key not in cat_trend_map:
             continue
-        cat_trend_map[map_key]["total"] = max(
-            0.0, cat_trend_map[map_key]["total"] - offset
-        )
         cur_period = cat_trend_map[map_key]["periods"].get(period_label, 0.0)
-        cat_trend_map[map_key]["periods"][period_label] = max(0.0, cur_period - offset)
-    # Drop categories that fully zeroed out
+        cat_trend_map[map_key]["periods"][period_label] = cur_period - offset
+    # The sparklines and per-period donut chart only show amounts above
+    # zero, so a period that netted to money back reads as zero.
     for key in list(cat_trend_map.keys()):
+        periods = {
+            label: amount
+            for label, amount in cat_trend_map[key]["periods"].items()
+            if amount > 0
+        }
+        cat_trend_map[key]["periods"] = periods
+        cat_trend_map[key]["total"] = sum(periods.values())
         if cat_trend_map[key]["total"] <= 0:
             cat_trend_map.pop(key)
 

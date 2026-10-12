@@ -120,6 +120,36 @@ beforeEach(() => {
   api.payees.list.mockResolvedValue([])
 })
 
+describe('Dashboard spending by category', () => {
+  it('shows a category that netted to money back as a negative, money-in amount', async () => {
+    api.dashboard.spendingByCategory.mockResolvedValue([
+      { category_id: 'groceries', category_name: 'Groceries', category_icon: 'tag', category_color: '#000000', total: 100, projected_total: 100, percentage: 100 },
+      { category_id: 'dining', category_name: 'Dining', category_icon: 'tag', category_color: '#000000', total: -30, projected_total: -30, percentage: 0 },
+    ])
+    api.budgets.comparison.mockResolvedValue([
+      { category_id: 'dining', budget_amount: 200, percentage_used: 0, projected_prev_month_amount: 80 },
+    ])
+
+    renderWithProviders(
+      <TooltipProvider delayDuration={0}>
+        <DashboardPage />
+      </TooltipProvider>,
+    )
+
+    const refundAmount = await screen.findByText(formatCurrency(-30, 'USD', 'en-US'))
+    expect(refundAmount).toHaveClass('text-emerald-600')
+    const refundRow = refundAmount.closest('.rounded-lg') as HTMLElement
+    expect(within(refundRow).getByText(t('dashboard.categoryMoneyBack'))).toBeInTheDocument()
+    expect(within(refundRow).queryByText(/%/)).not.toBeInTheDocument()
+    expect(within(refundRow).queryByText(/200/)).not.toBeInTheDocument()
+
+    const spendAmount = screen.getByText(formatCurrency(100, 'USD', 'en-US'))
+    expect(spendAmount).not.toHaveClass('text-emerald-600')
+    const spendRow = spendAmount.closest('.rounded-lg') as HTMLElement
+    expect(within(spendRow).queryByText(t('dashboard.categoryMoneyBack'))).not.toBeInTheDocument()
+  })
+})
+
 describe('Dashboard net worth breakdown', () => {
   it('counts a shared credit line once in the credit card total', async () => {
     const { user } = renderWithProviders(

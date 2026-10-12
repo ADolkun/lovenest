@@ -839,6 +839,7 @@
     "sortHighest": "金額の高い順",
     "sortLowest": "金額の低い順",
     "spendingByCategory": "カテゴリ別支出",
+    "categoryMoneyBack": "支出より払い戻しが多い",
     "monthlyTrend": "月間推移",
     "budgetVsActual": "予算と実績",
     "balanceFlow": "残高推移",

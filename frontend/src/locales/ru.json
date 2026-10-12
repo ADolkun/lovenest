@@ -850,6 +850,7 @@
     "sortHighest": "Сначала по убыванию",
     "sortLowest": "Сначала по возрастанию",
     "spendingByCategory": "Расходы по категориям",
+    "categoryMoneyBack": "Возвратов больше, чем расходов",
     "monthlyTrend": "Месячная динамика",
     "budgetVsActual": "Бюджет vs Факт",
     "balanceFlow": "Динамика баланса",

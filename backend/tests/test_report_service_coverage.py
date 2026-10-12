@@ -613,6 +613,109 @@ async def test_income_expenses_owner_split_offset(session, test_user, test_works
     assert dinner.value == pytest.approx(600.0)
 
 
+async def test_income_expenses_shared_refund_nets_only_owner_share(session, test_user, test_workspace):
+    """The others' share of a refund on a shared expense comes back out of
+    the owner's netting in the summary, composition and category trend."""
+    from app.models.group import Group, GroupMember
+    from app.models.transaction_split import TransactionSplit
+
+    dinner_cat = await _make_category(session, test_user.id, "Dinner", color="#abc")
+    hotel_cat = await _make_category(session, test_user.id, "Hotel", color="#def")
+    acct = await _make_account(session, test_user.id, "IE Shared Refund")
+    today = date.today()
+
+    group = Group(id=uuid.uuid4(), user_id=test_user.id, name="Trip", default_currency="BRL")
+    session.add(group)
+    await session.flush()
+    friend = GroupMember(id=uuid.uuid4(), group_id=group.id, name="Friend")
+    session.add_all([
+        GroupMember(
+            id=uuid.uuid4(), group_id=group.id, name="Me",
+            linked_user_id=test_user.id, is_self=True,
+        ),
+        friend,
+    ])
+    await session.flush()
+
+    async def split(txn, share):
+        session.add(TransactionSplit(
+            id=uuid.uuid4(), transaction_id=txn.id, group_member_id=friend.id,
+            share_amount=Decimal(share), share_type="exact",
+        ))
+        await session.commit()
+
+    await split(await _add_txn(session, test_user.id, acct.id, 1000, "debit", today, category_id=dinner_cat.id), "400")
+    await split(await _add_txn(session, test_user.id, acct.id, 200, "credit", today, category_id=dinner_cat.id), "80")
+    # Nets to zero before offsets; the friend's half of the refund is real
+    # spend left with the owner.
+    await _add_txn(session, test_user.id, acct.id, 300, "debit", today, category_id=hotel_cat.id)
+    await split(await _add_txn(session, test_user.id, acct.id, 300, "credit", today, category_id=hotel_cat.id), "150")
+
+    report = await get_income_expenses_report(
+        session, test_workspace.id, test_user.id, months=2, interval="monthly"
+    )
+
+    bd = {b.key: b.value for b in report.summary.breakdowns}
+    assert bd["expenses"] == pytest.approx(480.0 + 150.0)
+    assert bd["income"] == pytest.approx(0.0)
+    composition = {c.label: c.value for c in report.composition if c.group == "expenses"}
+    assert composition == {"Dinner": pytest.approx(480.0), "Hotel": pytest.approx(150.0)}
+    trend = {c.label: c.total for c in report.category_trend if c.group == "expenses"}
+    assert trend == {"Dinner": pytest.approx(480.0), "Hotel": pytest.approx(150.0)}
+    assert [c for c in report.category_trend if c.group == "income"] == []
+
+
+async def test_income_expenses_viewer_nets_share_of_refunded_expense(session, test_user, test_workspace):
+    from app.models.group import Group, GroupMember
+    from app.models.transaction_split import TransactionSplit
+    from app.models.user import User
+    from app.models.workspace import Workspace, WorkspaceMember
+
+    owner = User(
+        id=uuid.uuid4(), email="report-owner@example.com", hashed_password="x",
+        is_active=True, is_verified=True, preferences={"currency_display": "BRL"},
+    )
+    session.add(owner)
+    await session.flush()
+    owner_ws = Workspace(
+        id=uuid.uuid4(), name="Owner", kind="personal",
+        created_by_user_id=owner.id, default_currency="BRL",
+    )
+    session.add(owner_ws)
+    await session.flush()
+    session.add(WorkspaceMember(
+        id=uuid.uuid4(), workspace_id=owner_ws.id, user_id=owner.id, role="owner",
+    ))
+    await session.commit()
+
+    dining = await _make_category(session, owner.id, "Dining")
+    acct = await _make_account(session, owner.id, "Owner Checking")
+    group = Group(id=uuid.uuid4(), user_id=owner.id, name="Trip", default_currency="BRL")
+    session.add(group)
+    await session.flush()
+    viewer = GroupMember(
+        id=uuid.uuid4(), group_id=group.id, name="Viewer", linked_user_id=test_user.id,
+    )
+    session.add(viewer)
+    await session.flush()
+    today = date.today()
+    for amount, txn_type, share in ((100, "debit", "50"), (40, "credit", "20")):
+        txn = await _add_txn(session, owner.id, acct.id, amount, txn_type, today, category_id=dining.id)
+        session.add(TransactionSplit(
+            id=uuid.uuid4(), transaction_id=txn.id, group_member_id=viewer.id,
+            share_amount=Decimal(share), share_type="exact",
+        ))
+    await session.commit()
+
+    report = await get_income_expenses_report(
+        session, test_workspace.id, test_user.id, months=2, interval="monthly"
+    )
+
+    bd = {b.key: b.value for b in report.summary.breakdowns}
+    assert bd["expenses"] == pytest.approx(30.0)
+    assert bd["income"] == pytest.approx(0.0)
+
+
 async def test_income_expenses_trend_points_have_per_period_composition(session, test_user, test_workspace):
     """Each income/expenses trend DataPoint carries per-period composition items."""
     cat_wages = await _make_category(session, test_user.id, "Wages", color="#0E0", is_income=True)
