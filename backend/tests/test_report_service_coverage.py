@@ -716,6 +716,31 @@ async def test_income_expenses_viewer_nets_share_of_refunded_expense(session, te
     assert bd["income"] == pytest.approx(0.0)
 
 
+async def test_income_expenses_pending_spend_nets_against_money_back(session, test_user, test_workspace):
+    """Dining nets to -60 posted; a 30 pending charge leaves it at -30, so it
+    must not reappear as 30 of spending in the composition or the trends."""
+    dining = await _make_category(session, test_user.id, "Dining", color="#abc")
+    groceries = await _make_category(session, test_user.id, "Groceries", color="#def")
+    acct = await _make_account(session, test_user.id, "IE Pending Offset")
+    today = date.today()
+    await _add_txn(session, test_user.id, acct.id, 40, "debit", today, category_id=dining.id)
+    await _add_txn(session, test_user.id, acct.id, 100, "credit", today, category_id=dining.id)
+    await _add_txn(
+        session, test_user.id, acct.id, 30, "debit", today,
+        category_id=dining.id, status="pending",
+    )
+    await _add_txn(session, test_user.id, acct.id, 50, "debit", today, category_id=groceries.id)
+
+    report = await get_income_expenses_report(
+        session, test_workspace.id, test_user.id, months=2, interval="monthly"
+    )
+
+    assert {c.label: c.value for c in report.composition} == {"Groceries": pytest.approx(50.0)}
+    assert {c.label: c.total for c in report.category_trend} == {"Groceries": pytest.approx(50.0)}
+    current = report.trend[-1]
+    assert {c.label: c.value for c in current.composition} == {"Groceries": pytest.approx(50.0)}
+
+
 async def test_income_expenses_trend_points_have_per_period_composition(session, test_user, test_workspace):
     """Each income/expenses trend DataPoint carries per-period composition items."""
     cat_wages = await _make_category(session, test_user.id, "Wages", color="#0E0", is_income=True)

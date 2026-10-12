@@ -18,6 +18,7 @@ from app.services._query_filters import (
     owner_split_offset_by_category,
     reporting_date_col,
     user_pnl_expense_amount,
+    viewer_shared_spending_by_category,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import (
@@ -224,6 +225,105 @@ async def delete_budget(
     return True
 
 
+async def _category_spending(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    start: date,
+    end: date,
+    *,
+    accounting_mode: str,
+    primary_currency: str,
+) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
+    """Per-category (actual, actual plus forecast) spending for [start, end),
+    in primary currency.
+
+    Both stay signed through every layer and are left for the caller to
+    clamp: a category that nets to zero or less on its own rows can still
+    carry spending once the others' share of a shared refund comes back out,
+    and a negative net has to absorb the viewer's shares and the forecast
+    rather than be reset to zero before them.
+    """
+    report_date = reporting_date_col(accounting_mode)
+    use_effective_date = accounting_mode == "accrual"
+
+    # Same spending definition as the dashboard, so a budget bar and the
+    # category's spending figure never disagree about a credit.
+    result = await session.execute(
+        select(
+            Transaction.category_id,
+            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
+        )
+        .where(
+            Transaction.workspace_id == workspace_id,
+            report_date >= start,
+            report_date < end,
+            Transaction.category_id.isnot(None),
+            report_date <= app_today(),
+            Transaction.status == "posted",
+            counts_as_user_pnl(),
+        )
+        .group_by(Transaction.category_id)
+    )
+    actual: dict[str, Decimal] = {
+        str(cat_uuid): net or Decimal("0") for cat_uuid, net in result.all()
+    }
+
+    # Only the user's share of their own splits counts.
+    own_offset = await owner_split_offset_by_category(
+        session, user_id, start, end,
+        use_effective_date=use_effective_date,
+        primary_currency=primary_currency,
+        workspace_id=workspace_id,
+    )
+    for cat_uuid, total in own_offset.items():
+        if cat_uuid is None:
+            continue
+        cat_id = str(cat_uuid)
+        if cat_id in actual:
+            actual[cat_id] -= Decimal(str(total))
+
+    # Concert tickets paid by a friend are still the user's expense in the
+    # matching category.
+    shared_by_cat = await viewer_shared_spending_by_category(
+        session, user_id, start, end,
+        use_effective_date=use_effective_date,
+        primary_currency=primary_currency,
+    )
+    for cat_uuid, total in shared_by_cat.items():
+        if cat_uuid is None:
+            continue
+        cat_id = str(cat_uuid)
+        actual[cat_id] = actual.get(cat_id, Decimal("0")) + Decimal(str(total))
+
+    projected = dict(actual)
+    for proj in await _get_recurring_projections(session, workspace_id, start, end):
+        if proj["type"] != "debit" or not proj["category_id"]:
+            continue
+        cat_id = str(proj["category_id"])
+        converted, _ = await convert(
+            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
+        )
+        projected[cat_id] = projected.get(cat_id, Decimal("0")) + converted
+
+    forecast_transactions = await _get_forecast_transactions(
+        session, workspace_id, start, end, range_date_col=report_date,
+    )
+    for tx in forecast_transactions:
+        if tx.type != "debit" or not tx.category_id or not _counts_as_user_pnl_row(tx):
+            continue
+        cat_id = str(tx.category_id)
+        if tx.amount_primary is not None:
+            converted = abs(Decimal(str(tx.amount_primary)))
+        else:
+            converted, _ = await convert(
+                session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
+            )
+        projected[cat_id] = projected.get(cat_id, Decimal("0")) + converted
+
+    return actual, projected
+
+
 async def get_budget_vs_actual(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -264,192 +364,30 @@ async def get_budget_vs_actual(
     user = await session.get(User, user_id)
     primary_currency = user.primary_currency if user else get_settings().default_currency
     accounting_mode = await get_credit_card_accounting_mode(session)
-    report_date = reporting_date_col(accounting_mode)
 
-    # Same spending definition as the dashboard, so a budget bar and the
-    # category's spending figure never disagree about a credit.
-    spending_result = await session.execute(
-        select(
-            Transaction.category_id,
-            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
-        )
-        .where(
-            Transaction.workspace_id == workspace_id,
-            report_date >= month_start,
-            report_date < month_end,
-            Transaction.category_id.isnot(None),
-            report_date <= app_today(),
-            Transaction.status == "posted",
-            counts_as_user_pnl(),
-        )
-        .group_by(Transaction.category_id)
+    spending_map, projected_spending_map = await _category_spending(
+        session, workspace_id, user_id, month_start, month_end,
+        accounting_mode=accounting_mode, primary_currency=primary_currency,
     )
-    spending_map: dict[str, Decimal] = {}
-    for row in spending_result.all():
-        net = row[1] or Decimal("0")
-        if net > 0:
-            spending_map[str(row[0])] = net
-
-    # Subtract non-owner shares of own splits — only the user's share counts.
-    own_offset = await owner_split_offset_by_category(
-        session, user_id, month_start, month_end,
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-        workspace_id=workspace_id,
+    # Same layers for the previous month so the trend comparison is
+    # apples-to-apples.
+    prev_spending_map, projected_prev_spending_map = await _category_spending(
+        session, workspace_id, user_id, prev_month_start, prev_month_end,
+        accounting_mode=accounting_mode, primary_currency=primary_currency,
     )
-    for cat_uuid, total in own_offset.items():
-        if cat_uuid is None:
-            continue
-        cat_id = str(cat_uuid)
-        if cat_id in spending_map:
-            spending_map[cat_id] -= Decimal(str(total))
-            if spending_map[cat_id] <= 0:
-                spending_map.pop(cat_id)
 
-    # Layer in the user's share from group splits — concert tickets
-    # paid by a friend are still the user's expense in the budget
-    # picture for the matching category. FX-convert per currency to
-    # match the rest of the budget (everything else is in primary).
-    from app.services._query_filters import viewer_shared_spending_by_category
-
-    shared_by_cat = await viewer_shared_spending_by_category(
-        session, user_id, month_start, month_end,
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-    )
-    for cat_uuid, total in shared_by_cat.items():
-        if cat_uuid is None:
-            continue
-        cat_id = str(cat_uuid)
-        net = spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
-        # A share of a refund can outweigh the month's spending; a budget
-        # bar has no meaning below zero, so the category drops out instead.
-        if net > 0:
-            spending_map[cat_id] = net
-        else:
-            spending_map.pop(cat_id, None)
-
-    projected_spending_map = dict(spending_map)
-
-    # Add projected recurring transactions for this month (converted to primary currency)
-    projections = await _get_recurring_projections(session, workspace_id, month_start, month_end)
-    for proj in projections:
-        if proj["type"] != "debit" or not proj["category_id"]:
-            continue
-        cat_id = str(proj["category_id"])
-        converted, _ = await convert(
-            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
-        )
-        projected_spending_map[cat_id] = projected_spending_map.get(cat_id, Decimal("0")) + converted
-
-    forecast_transactions = await _get_forecast_transactions(
-        session, workspace_id, month_start, month_end,
-        range_date_col=report_date,
-    )
-    for tx in forecast_transactions:
-        if tx.type != "debit" or not tx.category_id or not _counts_as_user_pnl_row(tx):
-            continue
-        cat_id = str(tx.category_id)
-        amount = tx.amount_primary
-        if amount is not None:
-            converted = abs(Decimal(str(amount)))
-        else:
-            converted, _ = await convert(
-                session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-            )
-        projected_spending_map[cat_id] = projected_spending_map.get(cat_id, Decimal("0")) + converted
-
-    prev_spending_result = await session.execute(
-        select(
-            Transaction.category_id,
-            func.sum(user_pnl_expense_amount(_primary_amount_expr())),
-        )
-        .where(
-            Transaction.workspace_id == workspace_id,
-            report_date >= prev_month_start,
-            report_date < prev_month_end,
-            Transaction.category_id.isnot(None),
-            report_date <= app_today(),
-            Transaction.status == "posted",
-            counts_as_user_pnl(),
-        )
-        .group_by(Transaction.category_id)
-    )
-    prev_spending_map: dict[str, Decimal] = {}
-    for row in prev_spending_result.all():
-        net = row[1] or Decimal("0")
-        if net > 0:
-            prev_spending_map[str(row[0])] = net
-
-    prev_own_offset = await owner_split_offset_by_category(
-        session, user_id, prev_month_start, prev_month_end,
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-        workspace_id=workspace_id,
-    )
-    for cat_uuid, total in prev_own_offset.items():
-        if cat_uuid is None:
-            continue
-        cat_id = str(cat_uuid)
-        if cat_id in prev_spending_map:
-            prev_spending_map[cat_id] -= Decimal(str(total))
-            if prev_spending_map[cat_id] <= 0:
-                prev_spending_map.pop(cat_id)
-
-    # Same shared-share layer for the previous month so the trend
-    # comparison is apples-to-apples.
-    prev_shared_by_cat = await viewer_shared_spending_by_category(
-        session, user_id, prev_month_start, prev_month_end,
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-    )
-    for cat_uuid, total in prev_shared_by_cat.items():
-        if cat_uuid is None:
-            continue
-        cat_id = str(cat_uuid)
-        net = prev_spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
-        if net > 0:
-            prev_spending_map[cat_id] = net
-        else:
-            prev_spending_map.pop(cat_id, None)
-
-    projected_prev_spending_map = dict(prev_spending_map)
-
-    # Add projected recurring transactions for previous month (converted to primary currency)
-    prev_projections = await _get_recurring_projections(session, workspace_id, prev_month_start, prev_month_end)
-    for proj in prev_projections:
-        if proj["type"] != "debit" or not proj["category_id"]:
-            continue
-        cat_id = str(proj["category_id"])
-        converted, _ = await convert(
-            session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
-        )
-        projected_prev_spending_map[cat_id] = projected_prev_spending_map.get(cat_id, Decimal("0")) + converted
-
-    prev_forecast_transactions = await _get_forecast_transactions(
-        session, workspace_id, prev_month_start, prev_month_end,
-        range_date_col=report_date,
-    )
-    for tx in prev_forecast_transactions:
-        if tx.type != "debit" or not tx.category_id or not _counts_as_user_pnl_row(tx):
-            continue
-        cat_id = str(tx.category_id)
-        amount = tx.amount_primary
-        if amount is not None:
-            converted = abs(Decimal(str(amount)))
-        else:
-            converted, _ = await convert(
-                session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-            )
-        projected_prev_spending_map[cat_id] = projected_prev_spending_map.get(cat_id, Decimal("0")) + converted
+    def _bar(net_map: dict[str, Decimal], cat_id: str) -> Decimal:
+        # A budget bar has no meaning below zero, so money back that
+        # outweighs the spending reads as nothing spent.
+        return max(net_map.get(cat_id, Decimal("0")), Decimal("0"))
 
     comparisons = []
     for category, group in all_categories:
         cat_id = str(category.id)
-        actual = spending_map.get(cat_id, Decimal("0"))
-        projected = projected_spending_map.get(cat_id, Decimal("0"))
-        prev_actual = prev_spending_map.get(cat_id, Decimal("0"))
-        projected_prev = projected_prev_spending_map.get(cat_id, Decimal("0"))
+        actual = _bar(spending_map, cat_id)
+        projected = _bar(projected_spending_map, cat_id)
+        prev_actual = _bar(prev_spending_map, cat_id)
+        projected_prev = _bar(projected_prev_spending_map, cat_id)
         budget_entry = budget_map.get(cat_id)
         budget_amount = budget_entry[0] if budget_entry else None
         is_recurring = budget_entry[1] if budget_entry else False

@@ -1050,7 +1050,7 @@ async def get_monthly_trend(
 
     trend_map: dict[str, list[float]] = {}
     for row in result.all():
-        trend_map[row[0]] = [float(row[1] or 0), abs(float(row[2] or 0))]
+        trend_map[row[0]] = [float(row[1] or 0), float(row[2] or 0)]
 
     # Keep the dashboard trend's current month useful even when its only
     # activity is still pending or future-dated. Those rows are forecast data,
@@ -1121,11 +1121,13 @@ async def get_monthly_trend(
                 primary_currency=primary_currency,
                 posted_only=False,
             )
+        # Expenses stay signed, like the summary card's: a month where money
+        # back outweighs spending is legitimately negative.
         adjusted.append(
             MonthlyTrend(
                 month=month_str,
                 income=max(0.0, income - own_inc + shared_inc),
-                expenses=max(0.0, expenses - own_exp + shared_exp),
+                expenses=expenses - own_exp + shared_exp,
             )
         )
 

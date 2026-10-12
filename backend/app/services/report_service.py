@@ -836,8 +836,6 @@ async def get_income_expenses_report(
         comp_key = (cat_key, "expenses")
         if comp_key in comp_map:
             comp_map[comp_key]["value"] -= offset_total
-    for comp_key in [k for k, v in comp_map.items() if v["value"] <= 0]:
-        comp_map.pop(comp_key)
 
     # Investment-style outflows: transactions in `treat_as_transfer` categories
     # are excluded from P&L by counts_as_user_pnl (an investment application's
@@ -967,18 +965,6 @@ async def get_income_expenses_report(
             continue
         cur_period = cat_trend_map[map_key]["periods"].get(period_label, 0.0)
         cat_trend_map[map_key]["periods"][period_label] = cur_period - offset
-    # The sparklines and per-period donut chart only show amounts above
-    # zero, so a period that netted to money back reads as zero.
-    for key in list(cat_trend_map.keys()):
-        periods = {
-            label: amount
-            for label, amount in cat_trend_map[key]["periods"].items()
-            if amount > 0
-        }
-        cat_trend_map[key]["periods"] = periods
-        cat_trend_map[key]["total"] = sum(periods.values())
-        if cat_trend_map[key]["total"] <= 0:
-            cat_trend_map.pop(key)
 
     # Add recurring projections to composition and category trend
     cat_cache: dict[str, dict] = {}
@@ -1030,7 +1016,6 @@ async def get_income_expenses_report(
                     "total": 0.0,
                     "periods": {},
                 }
-            cat_trend_map[comp_key]["total"] += proj_amount
             cat_trend_map[comp_key]["periods"][period_label] = (
                 cat_trend_map[comp_key]["periods"].get(period_label, 0.0) + proj_amount
             )
@@ -1084,7 +1069,6 @@ async def get_income_expenses_report(
                     "total": 0.0,
                     "periods": {},
                 }
-            cat_trend_map[comp_key]["total"] += forecast_amount
             cat_trend_map[comp_key]["periods"][forecast_period_label] = (
                 cat_trend_map[comp_key]["periods"].get(forecast_period_label, 0.0)
                 + forecast_amount
@@ -1095,7 +1079,20 @@ async def get_income_expenses_report(
         else:
             cursor2 = date(cursor2.year, cursor2.month + 1, 1)
 
-    # Build final composition list from map
+    # The charts cannot draw a negative slice, so what nets to money back
+    # reads as zero. Clamped only now that the forecast is in: a pending
+    # charge has to net against an earlier refund, not stack on a zero.
+    for key in list(cat_trend_map.keys()):
+        periods = {
+            label: amount
+            for label, amount in cat_trend_map[key]["periods"].items()
+            if amount > 0
+        }
+        cat_trend_map[key]["periods"] = periods
+        cat_trend_map[key]["total"] = sum(periods.values())
+        if cat_trend_map[key]["total"] <= 0:
+            cat_trend_map.pop(key)
+
     composition: list[ReportCompositionItem] = []
     for (cat_key, group), info in comp_map.items():
         if info["value"] <= 0:
