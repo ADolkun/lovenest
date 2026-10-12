@@ -6,7 +6,8 @@ import { transactions as transactionsApi, dashboard, admin } from '@/lib/api'
 import { AlertTriangle, Clock, Info, Paperclip, X } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import { ProjectedTransactionBadge } from '@/components/projected-transaction-badge'
-import { sumDrillDownTotals } from '@/lib/drill-down-totals'
+import { linkedFraction, sumDrillDownTotals } from '@/lib/drill-down-totals'
+import { linkedTotal } from '@/lib/reimbursements'
 import { hasOpenDialog, isInsideOverlayLayer } from '@/lib/overlay-layers'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAuth } from '@/contexts/auth-context'
@@ -42,6 +43,8 @@ type DisplayItem = {
   orderDate: string
   type: 'debit' | 'credit'
   amount: number
+  linkedAmount: number
+  linkCount: number
   amountPrimary: number | null
   currency: string
   categoryIcon: string | null
@@ -122,6 +125,8 @@ export function TransactionDrillDown({
         orderDate: transactionOrderDate(tx, isAccrual),
         type: tx.type as 'debit' | 'credit',
         amount: Number(tx.amount),
+        linkedAmount: linkedTotal(tx.reimbursement_links),
+        linkCount: tx.reimbursement_links.length,
         amountPrimary: tx.amount_primary != null ? Number(tx.amount_primary) : null,
         currency: tx.currency,
         categoryIcon: tx.category?.icon ?? null,
@@ -149,6 +154,8 @@ export function TransactionDrillDown({
         orderDate: transactionOrderDate(pt, isAccrual),
         type: pt.type,
         amount: pt.amount,
+        linkedAmount: 0,
+        linkCount: 0,
         amountPrimary: pt.amount_primary ?? null,
         currency: pt.currency,
         categoryIcon: pt.category_icon,
@@ -267,7 +274,9 @@ export function TransactionDrillDown({
               {displayItems.map((item) => (
                 <div
                   key={item.key}
-                  className={`flex items-center gap-3 px-5 py-3 hover:bg-muted transition-colors ${!item.isProjected ? 'cursor-pointer' : ''}`}
+                  className={`flex items-center gap-3 px-5 py-3 hover:bg-muted transition-colors ${!item.isProjected ? 'cursor-pointer' : ''} ${
+                    item.type === 'credit' && linkedFraction(item.amount, item.linkedAmount) >= 1 ? 'opacity-60' : ''
+                  }`}
                   onClick={() => {
                     if (!item.isProjected && item.transaction) {
                       onTransactionClick?.(item.transaction)
@@ -322,6 +331,15 @@ export function TransactionDrillDown({
                           {mask(formatCurrency(Math.abs(item.amountPrimary), userCurrency, locale))}
                         </span>
                       </div>
+                    )}
+                    {item.linkCount > 0 && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        {item.type === 'credit'
+                          ? t('transactions.appliedToExpenses', { count: item.linkCount })
+                          : t('transactions.reimbursedAmount', {
+                              amount: mask(formatCurrency(item.linkedAmount, item.currency, locale)),
+                            })}
+                      </p>
                     )}
                   </div>
                 </div>

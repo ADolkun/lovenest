@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
-import type { Transaction } from '@/types'
+import type { ReimbursementLink, Transaction } from '@/types'
 
 import { TransactionDrillDown } from '@/components/transaction-drill-down'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -45,7 +45,8 @@ describe('TransactionDrillDown', () => {
         category: null,
         status: 'pending',
         attachment_count: 0,
-      } as Transaction],
+        reimbursement_links: [],
+      } as unknown as Transaction],
     })
     api.dashboard.projectedTransactions.mockResolvedValue([{
       recurring_id: 'recurring-1',
@@ -90,6 +91,7 @@ describe('TransactionDrillDown', () => {
       category: null,
       status: 'posted',
       attachment_count: 0,
+      reimbursement_links: [],
       ...overrides,
     }) as Transaction
     api.transactions.list.mockResolvedValue({
@@ -139,5 +141,86 @@ describe('TransactionDrillDown', () => {
     const params = api.transactions.list.mock.calls[0][0]
     expect(params).toMatchObject({ pnl_group: 'expenses', user_pnl_only: true })
     expect(params.type).toBeUndefined()
+  })
+
+  it('counts linked rows by their unlinked share and says where the money went', async () => {
+    const link = (overrides: Partial<ReimbursementLink>): ReimbursementLink => ({
+      id: 'link',
+      counterpart_id: 'counterpart',
+      counterpart_description: 'Counterpart',
+      counterpart_date: '2026-09-05',
+      counterpart_category_name: 'Dining',
+      amount: '45.00',
+      currency: 'USD',
+      ...overrides,
+    })
+    const row = (overrides: Partial<Transaction>) => ({
+      date: '2026-09-04',
+      effective_date: '2026-09-04',
+      effective_bill_date: null,
+      amount_primary: null,
+      currency: 'USD',
+      category: null,
+      status: 'posted',
+      attachment_count: 0,
+      reimbursement_links: [],
+      ...overrides,
+    }) as Transaction
+    api.transactions.list.mockResolvedValue({
+      items: [
+        row({
+          id: 'dinner',
+          description: 'Team dinner',
+          type: 'debit',
+          amount: 120,
+          reimbursement_links: [link({ id: 'l1', counterpart_id: 'ford' })],
+        }),
+        row({
+          id: 'ford',
+          description: 'FORD MOTOR COMPA PAYMENTS',
+          type: 'credit',
+          amount: 45,
+          reimbursement_links: [link({ id: 'l1', counterpart_id: 'dinner' })],
+        }),
+        row({
+          id: 'zelle',
+          description: 'Zelle from family',
+          type: 'credit',
+          amount: 100,
+          reimbursement_links: [
+            link({ id: 'l2', counterpart_id: 'yt-1', amount: '22.99' }),
+            link({ id: 'l3', counterpart_id: 'yt-2', amount: '22.99' }),
+          ],
+        }),
+      ],
+    })
+    api.dashboard.projectedTransactions.mockResolvedValue([])
+
+    renderWithProviders(
+      <TooltipProvider>
+        <TransactionDrillDown
+          filter={{
+            title: 'Dining',
+            category_id: 'dining',
+            pnl_group: 'expenses',
+            from: '2026-09-01',
+            to: '2026-09-30',
+          }}
+          onClose={vi.fn()}
+        />
+      </TooltipProvider>,
+    )
+
+    expect(await screen.findByText(t('transactions.reimbursedAmount', { amount: '$45.00' }))).toBeInTheDocument()
+    expect(screen.getByText(t('transactions.appliedToExpenses', { count: 1 }))).toBeInTheDocument()
+    expect(screen.getByText(t('transactions.appliedToExpenses', { count: 2 }))).toBeInTheDocument()
+
+    const fullyLinked = screen.getByText('FORD MOTOR COMPA PAYMENTS').closest('.opacity-60')
+    expect(fullyLinked).not.toBeNull()
+    expect(screen.getByText('Zelle from family').closest('.opacity-60')).toBeNull()
+
+    // 120 - 45 reimbursed, the Ford credit spent in full, 54.02 of Zelle left over.
+    const label = await screen.findByText(t('dashboard.drillDownTotal', { count: 3, total: '$20.98' }))
+    expect(label).toBeInTheDocument()
   })
 })
