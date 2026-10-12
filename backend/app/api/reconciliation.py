@@ -60,6 +60,7 @@ from app.schemas.reconciliation import (
 )
 from app.services import (
     invoice_service,
+    reimbursement_service,
     reconciliation_history_service as history,
     reconciliation_portability as portability,
     reconciliation_rule_service as rules,
@@ -543,6 +544,12 @@ async def _settle(
             # link somebody may have chosen deliberately.
             raise invoice_service.InvoiceError(
                 "already_paired", "One of these is already part of a transfer"
+            )
+        if await reimbursement_service.linked_totals(session, [leg.id for leg in legs]):
+            raise invoice_service.InvoiceError(
+                "reimbursement_linked",
+                "One of these is linked as a reimbursement. Remove its reimbursement "
+                "links before marking it as a transfer.",
             )
         if not _transfer_still_holds(moved, counterpart, row):
             # **The rows are not the ones the question was about.** A

@@ -36,6 +36,7 @@ from app.api.currencies import router as currencies_router
 from app.api.export import router as export_router
 from app.api.fx_rates import router as fx_rates_router
 from app.api.attachments import router as attachments_router
+from app.api.reimbursements import router as reimbursements_router
 from app.api.fiscal import router as fiscal_router
 from app.api.invoice_attachments import router as invoice_attachments_router
 from app.api.invoice_schedules import router as invoice_schedules_router
@@ -200,6 +201,7 @@ app.include_router(timezones_router)
 app.include_router(fx_rates_router)
 app.include_router(export_router)
 app.include_router(attachments_router)
+app.include_router(reimbursements_router)
 app.include_router(fiscal_router)
 app.include_router(payees_router)
 app.include_router(invoices_router)

@@ -50,7 +50,7 @@ from app.schemas.bank_connection import ProviderAccountRead
 from app.services import asset_transaction_service
 from app.services import oauth_state
 from app.services import admin_service
-from app.services import reconciliation_service, recurring_match_service
+from app.services import reconciliation_service, recurring_match_service, reimbursement_service
 from app.services.text_similarity import token_overlap
 from app.services.account_service import (
     _simplefin_to_internal_balance,
@@ -2304,6 +2304,9 @@ async def _promote_synced_transaction(
                 ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 allocated += split.share_amount
             splits[-1].share_amount = new_total - allocated
+        # Only a pending row is promoted and a pending row can't be linked,
+        # so this is a backstop for the invariant reporting relies on.
+        await reimbursement_service.fit_links_to_amount(session, transaction)
 
         if pair_id is not None:
             await session.execute(
@@ -2720,7 +2723,10 @@ async def _sync_bill_finance_charges(
         )
 
         if existing:
+            amount_changed = existing.amount != abs(amount)
             existing.amount = abs(amount)
+            if amount_changed:
+                await reimbursement_service.fit_links_to_amount(session, existing)
             existing.description = description
             existing.date = charge_date
             existing.effective_date = bill.due_date

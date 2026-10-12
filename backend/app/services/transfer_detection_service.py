@@ -57,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.transaction import Transaction
 from app.services import reconciliation_policy
+from app.services._query_filters import has_reimbursement_links
 from app.services import reconciliation_rule_service as rule_service
 from app.services import reconciliation_suggestion_service as suggestions
 from app.services.reconciliation_engine import (
@@ -228,10 +229,15 @@ async def _pool(
     excluded: list[dict[str, Any]],
     accounts: dict[uuid.UUID, Account],
 ) -> list[Transaction]:
-    """Every row still looking for its other half."""
+    """Every row still looking for its other half.
+
+    A row linked as a reimbursement already has its counterpart: the expense
+    or credit it is booked against, which is not the other leg of a transfer.
+    """
     query = select(Transaction).where(
         Transaction.workspace_id == workspace_id,
         Transaction.transfer_pair_id.is_(None),
+        ~has_reimbursement_links(),
     )
     if ignored_sources:
         query = query.where(Transaction.source.not_in(ignored_sources))

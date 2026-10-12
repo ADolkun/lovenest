@@ -156,6 +156,22 @@ class TransactionInvoiceLink(BaseModel):
     amount: Decimal
 
 
+class ReimbursementLinkRead(BaseModel):
+    """One reimbursement link, read from the row it was loaded for.
+
+    On a credit the counterpart is an expense it repays; on a debit it is a
+    credit that repaid it. `amount` is in `currency`, which both rows share.
+    """
+
+    id: uuid.UUID
+    counterpart_id: uuid.UUID
+    counterpart_description: str
+    counterpart_date: _Date
+    counterpart_category_name: Optional[str] = None
+    amount: float
+    currency: str
+
+
 class TransactionRead(TransactionBase):
     id: uuid.UUID
     user_id: uuid.UUID
@@ -167,6 +183,7 @@ class TransactionRead(TransactionBase):
     #: payment can settle several — a payout net of fees is the
     #: ordinary case, not the exotic one.
     invoice_links: list[TransactionInvoiceLink] = []
+    reimbursement_links: list[ReimbursementLinkRead] = []
     currency: str = "USD"
     source: str
     status: str = "posted"

@@ -16,9 +16,9 @@ from app.core.workspace_context import (
     current_workspace,
     current_writable_workspace,
 )
-from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, BulkTagsRequest, CreateCounterpartRequest, InstallmentSeriesCreate, LinkTransferRequest, TransactionBulkDeleteRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, ReimbursementLinkRead, BulkTagsRequest, CreateCounterpartRequest, InstallmentSeriesCreate, LinkTransferRequest, TransactionBulkDeleteRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
 from app.schemas.transaction_calendar import TransactionCalendarResponse
-from app.services import transaction_service
+from app.services import reimbursement_service, transaction_service
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.transaction_calendar_service import get_transaction_calendar
 
@@ -52,6 +52,27 @@ async def _attach_invoice_links(session, ctx, items: list) -> None:
         item.invoice_links = [
             TransactionInvoiceLink(**link) for link in links.get(item.id, [])
         ]
+
+
+async def _attach_reimbursement_links(session, ctx, items: list) -> None:
+    """Fill each row's reimbursement links, one query per link side for the
+    whole page."""
+    links = await reimbursement_service.links_for_transactions(
+        session, ctx.workspace.id, [item.id for item in items]
+    )
+    for item in items:
+        item.reimbursement_links = [
+            ReimbursementLinkRead(**link) for link in links.get(item.id, [])
+        ]
+
+
+async def _read(session, ctx, transaction) -> TransactionRead:
+    item = _tag_fx_fallback(
+        TransactionRead.model_validate(transaction, from_attributes=True),
+        ctx.user.primary_currency,
+    )
+    await _attach_reimbursement_links(session, ctx, [item])
+    return item
 
 
 def _tag_fx_fallback(tx: TransactionRead, primary_currency: str) -> TransactionRead:
@@ -164,6 +185,7 @@ async def list_transactions(
     primary_currency = ctx.user.primary_currency
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
     await _attach_invoice_links(session, ctx, items)
+    await _attach_reimbursement_links(session, ctx, items)
     summary_out = (
         TransactionsSummary(**summary, currency=primary_currency)
         if summary is not None
@@ -453,8 +475,7 @@ async def get_transaction(
     transaction = await transaction_service.get_transaction(session, transaction_id, ctx.workspace.id)
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    primary_currency = ctx.user.primary_currency
-    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
+    return await _read(session, ctx, transaction)
 
 
 @router.post("/installments", response_model=list[TransactionRead], status_code=status.HTTP_201_CREATED)
@@ -511,8 +532,7 @@ async def update_transaction(
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
     transaction = await transaction_service.get_transaction(session, transaction.id, ctx.workspace.id)
-    primary_currency = ctx.user.primary_currency
-    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
+    return await _read(session, ctx, transaction)
 
 
 @router.patch("/{transaction_id}/ignore", response_model=TransactionRead)
@@ -526,8 +546,7 @@ async def toggle_ignore_transaction(
     )
     if not transaction:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
-    primary_currency = ctx.user.primary_currency
-    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
+    return await _read(session, ctx, transaction)
 
 
 @router.patch("/{transaction_id}/unlink-recurring", response_model=TransactionRead)
@@ -544,8 +563,7 @@ async def unlink_recurring_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Transaction not found or not linked to a recurring bill",
         )
-    primary_currency = ctx.user.primary_currency
-    return _tag_fx_fallback(TransactionRead.model_validate(transaction, from_attributes=True), primary_currency)
+    return await _read(session, ctx, transaction)
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)

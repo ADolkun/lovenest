@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal, Optional, cast
 
-from sqlalchemy import CursorResult, case, delete, func, not_, or_, select, update
+from sqlalchemy import CursorResult, delete, func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,17 +22,19 @@ from app.schemas.transaction import (
     TransferCreate,
 )
 from app.schemas.transaction_split import TransactionSplitInput, TransactionSplitsInput
-from app.services import reconciliation_service, split_service
+from app.services import reconciliation_service, reimbursement_service, split_service
 from app.services.credit_card_service import apply_effective_date
 from app.services.rule_service import apply_rules_to_transaction
 from app.services.fx_rate_service import stamp_primary_amount, convert as fx_convert
 from app.services._query_filters import (
     counts_as_user_pnl,
+    has_reimbursement_links,
     is_not_ignored,
     is_transfer,
     reporting_date_col,
-    spending_offset_filter,
+    user_pnl_expense_amount,
     user_pnl_group,
+    user_pnl_income_amount,
 )
 from app.services.recurring_transaction_service import _advance_date
 
@@ -433,38 +435,20 @@ async def get_transactions(
         # transfers, `treat_as_transfer` categories (transfers, investments,
         # custom) and ignored items are kept OUT of income/expense.
         pnl_filter = counts_as_user_pnl()
+        amount_norm = func.coalesce(Transaction.amount_primary, Transaction.amount)
         pnl_subq = (
-            base_query.add_columns(spending_offset_filter().label("is_spending_offset"))
+            base_query.add_columns(
+                user_pnl_income_amount(amount_norm).label("pnl_income"),
+                user_pnl_expense_amount(amount_norm).label("pnl_expense"),
+            )
             .where(pnl_filter)
             .subquery()
         )
-        amount_norm = func.coalesce(pnl_subq.c.amount_primary, pnl_subq.c.amount)
         summary_row = (
             await session.execute(
                 select(
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (
-                                    (pnl_subq.c.type == "credit")
-                                    & ~pnl_subq.c.is_spending_offset,
-                                    func.abs(amount_norm),
-                                ),
-                                else_=0,
-                            )
-                        ),
-                        0,
-                    ),
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (pnl_subq.c.type == "debit", func.abs(amount_norm)),
-                                (pnl_subq.c.is_spending_offset, -func.abs(amount_norm)),
-                                else_=0,
-                            )
-                        ),
-                        0,
-                    ),
+                    func.coalesce(func.sum(pnl_subq.c.pnl_income), 0),
+                    func.coalesce(func.sum(pnl_subq.c.pnl_expense), 0),
                 )
             )
         ).one()
@@ -1043,6 +1027,8 @@ async def get_transfer_candidates(
         return []
     if anchor.transfer_pair_id is not None:
         return []
+    if await reimbursement_service.linked_totals(session, [anchor.id]):
+        return []
 
     opposing_type = "credit" if anchor.type == "debit" else "debit"
     from_date = anchor.date - timedelta(days=window_days)
@@ -1059,6 +1045,7 @@ async def get_transfer_candidates(
             Transaction.source != "opening_balance",
             Transaction.date >= from_date,
             Transaction.date <= to_date,
+            ~has_reimbursement_links(),
         )
         .options(
             selectinload(Transaction.category),
@@ -1174,6 +1161,12 @@ async def link_existing_as_transfer(
     for tx in txns:
         if tx.transfer_pair_id is not None:
             raise ValueError("Transaction is already part of a transfer")
+    await reimbursement_service.ensure_unlinked(
+        session,
+        [tx.id for tx in txns],
+        "One of these transactions is linked as a reimbursement. Remove its "
+        "reimbursement links before marking it as a transfer.",
+    )
 
     if txns[0].account_id == txns[1].account_id:
         raise ValueError("Transactions must be in different accounts")
@@ -1217,6 +1210,12 @@ async def create_transfer_counterpart(
         raise ValueError("Transaction not found")
     if anchor.transfer_pair_id is not None:
         raise ValueError("Transaction is already part of a transfer")
+    await reimbursement_service.ensure_unlinked(
+        session,
+        [anchor.id],
+        "This transaction is linked as a reimbursement. Remove its reimbursement "
+        "links before marking it as a transfer.",
+    )
     if anchor.account_id == to_account_id:
         raise ValueError("Counterpart must be in a different account")
 
@@ -1426,6 +1425,8 @@ async def _apply_update_to_row(
     paths behave identically (FX restamp, bill re-link, transfer cascade,
     splits replacement).
     """
+    await reimbursement_service.ensure_update_keeps_links(session, tx, update_data)
+
     has_fx_override = "amount_primary" in update_data or "fx_rate_used" in update_data
     override_amount_primary = update_data.get("amount_primary")
     override_fx_rate = update_data.get("fx_rate_used")
@@ -1778,7 +1779,8 @@ async def bulk_add_to_group(
 
     Conservative semantics (issue #156): transactions that are transfers
     or already have splits are skipped — never overwritten — so the
-    operation can't destroy prior splitting work.
+    operation can't destroy prior splitting work. Rows linked as
+    reimbursements are skipped too: a row is split or reimbursed, not both.
     """
     if share_type not in ("equal", "percent"):
         raise ValueError(
@@ -1840,11 +1842,14 @@ async def bulk_add_to_group(
         .options(selectinload(Transaction.splits))
     )
     txs = txs_result.scalars().all()
+    reimbursement_linked = await reimbursement_service.linked_totals(
+        session, [tx.id for tx in txs]
+    )
 
     updated = 0
     skipped = 0
     for tx in txs:
-        if tx.transfer_pair_id is not None or tx.splits:
+        if tx.transfer_pair_id is not None or tx.splits or tx.id in reimbursement_linked:
             skipped += 1
             continue
         await split_service.replace_splits(session, tx, payload, user_id)

@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, case, exists, func, not_, or_, select
+from sqlalchemy import Numeric, and_, case, exists, func, not_, or_, select, type_coerce
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -17,6 +17,7 @@ from app.models.account import Account
 from app.models.asset import Asset
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.models.transaction_reimbursement import TransactionReimbursement
 from app.services.transaction_semantics import (
     credit_card_payment_filter,
     credit_card_refund_filter,
@@ -35,6 +36,39 @@ def has_valid_transfer_pair():
             )
         ),
     )
+
+
+def _touches_reimbursement_link():
+    return or_(
+        TransactionReimbursement.reimbursement_id == Transaction.id,
+        TransactionReimbursement.expense_id == Transaction.id,
+    )
+
+
+def has_reimbursement_links():
+    """SQL predicate: the row is either side of a reimbursement link."""
+    return exists(select(1).where(_touches_reimbursement_link()))
+
+
+def reimbursement_unlinked_share():
+    """The fraction of a row that reimbursement links leave in user P&L.
+
+    A link takes its amount out of both rows it joins, each in its own month
+    and category (ADR 0012), so a row keeps `1 - linked / |amount|`, never
+    below zero. Unitless, so it scales `amount`, `amount_primary` or any
+    primary-currency expression alike.
+    """
+    linked = func.sum(TransactionReimbursement.amount)
+    magnitude = func.abs(Transaction.amount)
+    # No link rows: SUM is NULL, so the ELSE yields NULL and the share is 1.
+    linked_fraction = (
+        select(case((linked >= magnitude, 1), else_=linked / magnitude))
+        .where(_touches_reimbursement_link())
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    # Typed as Numeric so the helpers it scales keep returning Decimals.
+    return type_coerce(1 - func.coalesce(linked_fraction, 0), Numeric())
 
 
 def spending_offset_filter():
@@ -63,21 +97,29 @@ def spending_offset_filter():
 
 
 def user_pnl_income_amount(amount_expr):
-    """Income amount, leaving out credits that offset spending."""
+    """Income amount, leaving out credits that offset spending and the part
+    of a credit linked to the expenses it repays."""
     return case(
         (
             and_(Transaction.type == "credit", ~spending_offset_filter()),
-            func.abs(amount_expr),
+            func.abs(amount_expr) * reimbursement_unlinked_share(),
         ),
         else_=0,
     )
 
 
 def user_pnl_expense_amount(amount_expr):
-    """Expense amount, with spending offsets reducing rather than inflating it."""
+    """Expense amount, with spending offsets reducing rather than inflating it
+    and reimbursement links taken out of both the expense and the credit."""
     return case(
-        (Transaction.type == "debit", func.abs(amount_expr)),
-        (spending_offset_filter(), -func.abs(amount_expr)),
+        (
+            Transaction.type == "debit",
+            func.abs(amount_expr) * reimbursement_unlinked_share(),
+        ),
+        (
+            spending_offset_filter(),
+            -func.abs(amount_expr) * reimbursement_unlinked_share(),
+        ),
         else_=0,
     )
 
