@@ -321,7 +321,13 @@ async def get_budget_vs_actual(
         if cat_uuid is None:
             continue
         cat_id = str(cat_uuid)
-        spending_map[cat_id] = spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
+        net = spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
+        # A share of a refund can outweigh the month's spending; a budget
+        # bar has no meaning below zero, so the category drops out instead.
+        if net > 0:
+            spending_map[cat_id] = net
+        else:
+            spending_map.pop(cat_id, None)
 
     projected_spending_map = dict(spending_map)
 
@@ -401,7 +407,11 @@ async def get_budget_vs_actual(
         if cat_uuid is None:
             continue
         cat_id = str(cat_uuid)
-        prev_spending_map[cat_id] = prev_spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
+        net = prev_spending_map.get(cat_id, Decimal("0")) + Decimal(str(total))
+        if net > 0:
+            prev_spending_map[cat_id] = net
+        else:
+            prev_spending_map.pop(cat_id, None)
 
     projected_prev_spending_map = dict(prev_spending_map)
 
