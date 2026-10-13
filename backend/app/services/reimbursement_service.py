@@ -9,6 +9,7 @@ conserved.
 """
 import uuid
 from collections import defaultdict
+from collections.abc import Collection
 from datetime import timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Any, Optional
@@ -563,13 +564,22 @@ async def fit_links_to_amount(session: AsyncSession, transaction: Transaction) -
             await session.delete(link)
 
 
-async def rehome_links_for_account(session: AsyncSession, account_id: uuid.UUID) -> None:
-    """Bring the links on this account's rows along after rows moved workspace.
+async def rehome_links_for_accounts(
+    session: AsyncSession, account_ids: Collection[uuid.UUID]
+) -> None:
+    """Bring the links on these accounts' rows along after rows moved workspace.
 
     A link is read, edited and deleted from its rows' workspace, so one left
     behind would keep shaping reports while nobody can see it. A link whose
     rows now sit in two workspaces is dropped: neither can see both sides.
+
+    Call it once, after every account moving together has moved. Called per
+    account, a link between two of them (a card charge repaid from checking
+    on the same connection) would look split while the second account's rows
+    were still in the old workspace, and be dropped.
     """
+    if not account_ids:
+        return
     link = aliased(TransactionReimbursement)
     reimbursement = aliased(Transaction)
     expense = aliased(Transaction)
@@ -577,7 +587,12 @@ async def rehome_links_for_account(session: AsyncSession, account_id: uuid.UUID)
         select(link.id)
         .join(reimbursement, reimbursement.id == link.reimbursement_id)
         .join(expense, expense.id == link.expense_id)
-        .where(or_(reimbursement.account_id == account_id, expense.account_id == account_id))
+        .where(
+            or_(
+                reimbursement.account_id.in_(account_ids),
+                expense.account_id.in_(account_ids),
+            )
+        )
     )
     await session.execute(
         delete(TransactionReimbursement)

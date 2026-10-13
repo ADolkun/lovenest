@@ -71,12 +71,15 @@ Links are read, edited and deleted from the workspace their rows are in. When
 a bank sync moves a connected account's rows to another workspace, the links
 whose rows both moved follow them; a link that would join rows in two
 workspaces is deleted, since neither workspace can see both of its sides.
+The decision is made once every account the sync moves has moved, so a card
+charge repaid from checking on the same connection keeps its link.
 
 ## Consequences
 
 An expense marked ignored or excluded from P&L after it was linked leaves its
 credit counting in full again: the credit repaid something the user chose
-not to count, and keeping it reduced would change net cash flow. Projected figures in accrual
-mode still count a linked, not-yet-due card purchase at its full amount until
-its due date, because the forecast paths read rows in Python and do not apply
-the share.
+not to count, and keeping it reduced would change net cash flow. Projected
+figures read pending and future-dated rows through the same helpers, so a
+linked card purchase that accrual mode books on a bill not yet due counts at
+its unlinked share there too, and projected net cash flow is conserved like
+the actual one.

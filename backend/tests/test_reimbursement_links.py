@@ -842,6 +842,65 @@ async def test_a_sync_moving_an_account_takes_its_links_along(
     )] == [refund.id]
 
 
+@pytest.mark.asyncio
+async def test_a_sync_moving_a_connection_keeps_links_between_its_own_accounts(
+    session: AsyncSession, test_user, test_workspace,
+):
+    from tests.test_sync_account_allowlist import (
+        _account as _provider_account,
+        _fake_provider,
+        _make_connection,
+        _sync,
+    )
+    from app.providers.base import AccountData, TransactionData
+
+    day = date.today() - timedelta(days=2)
+
+    def synced(external_id: str, amount: str, txn_type: str) -> TransactionData:
+        return TransactionData(
+            external_id=external_id, description=external_id.upper(), amount=Decimal(amount),
+            date=day, type=txn_type, currency="BRL",
+        )
+
+    card = AccountData(
+        external_id="card", name="Card", type="credit_card", balance=Decimal("80"), currency="BRL",
+    )
+    connection = await _make_connection(session, test_user.id, test_workspace.id)
+    provider = _fake_provider(
+        [card, _provider_account("checking")],
+        {"card": [synced("charge", "80", "debit")], "checking": [synced("zelle", "50", "credit")]},
+    )
+    await _sync(session, connection, test_workspace, test_user, provider)
+    rows = {
+        tx.external_id: tx
+        for tx in (await session.execute(select(Transaction).where(Transaction.source == "sync"))).scalars()
+    }
+    charge, zelle = rows["charge"], rows["zelle"]
+    cash = await _account(session, test_user.id, "Cash")
+    handout = await _txn(session, test_user.id, cash, "15", "credit", day, workspace_id=test_workspace.id)
+    await _link(session, test_workspace.id, zelle, (charge, "50"))
+    await _link(session, test_workspace.id, handout, (charge, "15"))
+
+    shared = Workspace(
+        id=uuid.uuid4(), name="Shared", kind="personal",
+        created_by_user_id=test_user.id, default_currency="BRL", locale="en",
+    )
+    session.add(shared)
+    connection.workspace_id = shared.id
+    await session.commit()
+    await _sync(session, connection, shared, test_user, provider)
+    await session.commit()
+
+    remaining = (await session.execute(
+        select(
+            TransactionReimbursement.reimbursement_id,
+            TransactionReimbursement.expense_id,
+            TransactionReimbursement.workspace_id,
+        )
+    )).all()
+    assert remaining == [(zelle.id, charge.id, shared.id)]
+
+
 # --- cross-feature guards ----------------------------------------------------
 
 
@@ -1168,7 +1227,7 @@ async def test_postgres_rehoming_links_after_an_account_moves_workspace(postgres
         await session.execute(
             update(Transaction).where(Transaction.account_id == moving.id).values(workspace_id=elsewhere.id)
         )
-        await reimbursement_service.rehome_links_for_account(session, moving.id)
+        await reimbursement_service.rehome_links_for_accounts(session, [moving.id])
         await session.commit()
 
         remaining = (await session.execute(

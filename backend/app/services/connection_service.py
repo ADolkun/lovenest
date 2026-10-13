@@ -2969,6 +2969,7 @@ async def sync_connection(
         user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
         synced_account_rows: list[Account] = []
+        moved_account_ids: list[uuid.UUID] = []
         merged_count = 0
         provider_accounts = await provider.get_accounts(credentials)
         _record_seen_accounts(connection, provider_accounts)
@@ -2999,7 +3000,7 @@ async def sync_connection(
                     )
                     .values(user_id=user_id, workspace_id=connection.workspace_id)
                 )
-                await reimbursement_service.rehome_links_for_account(session, account.id)
+                moved_account_ids.append(account.id)
                 await session.execute(
                     update(CreditCardBill)
                     .where(CreditCardBill.account_id == account.id)
@@ -3374,6 +3375,7 @@ async def sync_connection(
                 )
 
         syncing_account_id = None
+        await reimbursement_service.rehome_links_for_accounts(session, moved_account_ids)
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:

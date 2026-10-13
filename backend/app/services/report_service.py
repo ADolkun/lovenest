@@ -40,8 +40,7 @@ from app.schemas.report import (
 from app.services import invoice_forecast_service
 from app.services.dashboard_service import (
     _account_balance_at,
-    _counts_as_user_pnl_row,
-    _get_forecast_transactions,
+    _get_forecast_pnl_rows,
     _get_open_accounts,
 )
 
@@ -636,34 +635,27 @@ async def get_income_expenses_report(
             proj_amount = float(converted)
             label = _format_date_label(cursor, interval)
             existing_income, existing_expenses = forecast_map.get(label, (0.0, 0.0))
-            if proj["type"] == "credit":
-                forecast_map[label] = (existing_income + proj_amount, existing_expenses)
-            else:
-                forecast_map[label] = (existing_income, existing_expenses + proj_amount)
-        forecast_transactions = await _get_forecast_transactions(
+            forecast_map[label] = (
+                existing_income + proj_amount * proj["income_share"],
+                existing_expenses + proj_amount * proj["expense_share"],
+            )
+        forecast_rows = await _get_forecast_pnl_rows(
             session, workspace_id, max(m_start, start), m_end, account_ids,
             range_date_col=report_date,
         )
-        for tx in forecast_transactions:
-            if not _counts_as_user_pnl_row(tx):
-                continue
-            if tx.amount_primary is not None:
-                amount = abs(float(tx.amount_primary))
-            else:
-                converted, _ = await fx_convert(
-                    session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-                )
-                amount = abs(float(converted))
+        for forecast_row in forecast_rows:
+            tx = forecast_row.transaction
+            magnitude = await forecast_row.magnitude_primary(session, primary_currency)
             tx_report_date = (
                 tx.effective_bill_date
                 or (tx.effective_date if accounting_mode == "accrual" else tx.date)
             )
             label = _format_date_label(tx_report_date, interval)
             existing_income, existing_expenses = forecast_map.get(label, (0.0, 0.0))
-            if tx.type == "credit":
-                forecast_map[label] = (existing_income + amount, existing_expenses)
-            else:
-                forecast_map[label] = (existing_income, existing_expenses + amount)
+            forecast_map[label] = (
+                existing_income + float(magnitude * forecast_row.income_share),
+                existing_expenses + float(magnitude * forecast_row.expense_share),
+            )
 
         # Invoices still owed, at the date they were promised for. Only
         # the unallocated balance, so a claim and the payment that
@@ -975,7 +967,7 @@ async def get_income_expenses_report(
         period_label = _format_date_label(cursor2, interval)
         for proj in projections:
             cat_id_str = str(proj["category_id"]) if proj["category_id"] else "uncategorized"
-            group = "income" if proj["type"] == "credit" else "expenses"
+            group = proj["pnl_group"]
 
             # Fetch category info if needed
             if cat_id_str != "uncategorized" and cat_id_str not in cat_cache:
@@ -995,7 +987,7 @@ async def get_income_expenses_report(
             converted, _ = await fx_convert(
                 session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
             )
-            proj_amount = float(converted)
+            proj_amount = float(converted) * (proj["income_share"] + proj["expense_share"])
 
             # Add to composition map
             comp_key = (cat_id_str, group)
@@ -1020,15 +1012,14 @@ async def get_income_expenses_report(
                 cat_trend_map[comp_key]["periods"].get(period_label, 0.0) + proj_amount
             )
 
-        forecast_transactions = await _get_forecast_transactions(
+        forecast_rows = await _get_forecast_pnl_rows(
             session, workspace_id, m_start, m_end, account_ids,
             range_date_col=report_date,
         )
-        for tx in forecast_transactions:
-            if not _counts_as_user_pnl_row(tx):
-                continue
+        for forecast_row in forecast_rows:
+            tx = forecast_row.transaction
             cat_id_str = str(tx.category_id) if tx.category_id else "uncategorized"
-            group = "income" if tx.type == "credit" else "expenses"
+            group = forecast_row.group
             tx_report_date = (
                 tx.effective_bill_date
                 or (tx.effective_date if accounting_mode == "accrual" else tx.date)
@@ -1046,13 +1037,10 @@ async def get_income_expenses_report(
             info = cat_cache.get(
                 cat_id_str, {"label": "Uncategorized", "color": "#6B7280"}
             )
-            if tx.amount_primary is not None:
-                forecast_amount = abs(float(tx.amount_primary))
-            else:
-                converted, _ = await fx_convert(
-                    session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-                )
-                forecast_amount = abs(float(converted))
+            magnitude = await forecast_row.magnitude_primary(session, primary_currency)
+            forecast_amount = float(
+                magnitude * (forecast_row.income_share + forecast_row.expense_share)
+            )
             comp_key = (cat_id_str, group)
             if comp_key in comp_map:
                 comp_map[comp_key]["value"] += forecast_amount
@@ -1446,12 +1434,15 @@ async def get_cash_flow_report(
     # payable position today, so carry them into the forward projected walk
     # instead of silently dropping them.
     pending_current_delta = 0.0
-    pending_forecast = await _get_forecast_transactions(
-        session, workspace_id, date.min, end + timedelta(days=1), account_ids,
-        range_date_col=flow_date_col,
-    )
+    pending_forecast = [
+        forecast_row.transaction
+        for forecast_row in await _get_forecast_pnl_rows(
+            session, workspace_id, date.min, end + timedelta(days=1), account_ids,
+            range_date_col=flow_date_col,
+        )
+    ]
     for tx in pending_forecast:
-        if tx.status != "pending" or not _counts_as_user_pnl_row(tx):
+        if tx.status != "pending":
             continue
         flow_date = tx.effective_bill_date or (tx.effective_date if accrual else tx.date)
         if flow_date > end:
@@ -1478,7 +1469,7 @@ async def get_cash_flow_report(
     # them and the generic pending handling above is sufficient.
     if accrual:
         for tx in pending_forecast:
-            if tx.status != "posted" or not _counts_as_user_pnl_row(tx):
+            if tx.status != "posted":
                 continue
             if not tx.account or tx.account.type != "credit_card" or tx.date > today:
                 continue
