@@ -132,11 +132,13 @@ async def _budget_row(session, workspace_id, user_id, category: Category, month:
 async def _register_to_char(session: AsyncSession) -> None:
     """The monthly trend buckets with Postgres `to_char`; SQLite needs a stand-in."""
     raw = await session.connection()
-    await raw.run_sync(
-        lambda conn: conn.connection.dbapi_connection.create_function(
+
+    def _install(sync_conn):
+        sync_conn.connection.dbapi_connection.create_function(
             "to_char", 2, lambda value, _fmt: None if value is None else str(value)[:7],
         )
-    )
+
+    await raw.run_sync(_install)
 
 
 async def _dining_with_more_back_than_spent_and_a_viewer_share(
