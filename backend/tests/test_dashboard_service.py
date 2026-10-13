@@ -621,6 +621,19 @@ async def test_spending_by_category_uncategorized(session: AsyncSession, test_us
 
 
 @pytest.mark.asyncio
+async def test_spending_by_category_excludes_opening_balance(session: AsyncSession, test_user, test_workspace):
+    account = await _make_account(session, test_user.id, "Opening Debt")
+    today = date.today()
+
+    await _add_txn(session, test_user.id, account.id, 2500, "debit", today, source="opening_balance")
+    await _add_txn(session, test_user.id, account.id, 40, "debit", today)
+
+    spending = await get_spending_by_category(session, test_workspace.id, test_user.id)
+    uncat = next(s for s in spending if s.category_id is None)
+    assert uncat.total == pytest.approx(40.0)
+
+
+@pytest.mark.asyncio
 async def test_spending_excludes_credits(session: AsyncSession, test_user, test_workspace):
     """An income category's credits stay out of spending by category. An
     unflagged category's credits net against it instead (ADR 0011)."""

@@ -771,6 +771,7 @@ async def get_spending_by_category(
             report_date < month_end,
             report_date <= today,
             Transaction.status == "posted",
+            Transaction.source != "opening_balance",
             counts_as_user_pnl(),
             *acct_filter,
         )
