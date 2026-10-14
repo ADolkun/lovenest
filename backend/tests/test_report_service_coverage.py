@@ -612,6 +612,67 @@ async def test_income_expenses_owner_split_offset(session, test_user, test_works
     assert dinner.value == pytest.approx(600.0)
 
 
+async def test_income_expenses_composition_ignores_splits_in_other_workspaces(
+    session, test_user, test_workspace
+):
+    """A split the user owns in another workspace must not shrink this
+    workspace's composition. Uncategorized is the bucket both workspaces
+    share, since every category belongs to one workspace."""
+    from app.models.group import Group, GroupMember
+    from app.models.transaction_split import TransactionSplit
+    from app.models.workspace import Workspace, WorkspaceMember
+
+    other_ws = Workspace(
+        id=uuid.uuid4(), name="Other", kind="personal",
+        created_by_user_id=test_user.id, default_currency="BRL",
+    )
+    session.add(other_ws)
+    await session.flush()
+    session.add(WorkspaceMember(
+        id=uuid.uuid4(), workspace_id=other_ws.id, user_id=test_user.id, role="owner",
+    ))
+    other_acct = Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=other_ws.id,
+        name="Other Acct", type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    group = Group(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=other_ws.id,
+        name="Trip", kind="shared", default_currency="BRL",
+    )
+    session.add_all([other_acct, group])
+    await session.flush()
+    friend = GroupMember(
+        id=uuid.uuid4(), group_id=group.id, workspace_id=other_ws.id,
+        name="Friend", is_self=False,
+    )
+    session.add(friend)
+    await session.commit()
+
+    today = date.today()
+    acct = await _make_account(session, test_user.id, "Main Acct")
+    await _add_txn(session, test_user.id, acct.id, 500, "debit", today)
+    other_txn = await _add_txn(
+        session, test_user.id, other_acct.id, 1000, "debit", today,
+        workspace_id=other_ws.id,
+    )
+    session.add(TransactionSplit(
+        id=uuid.uuid4(), transaction_id=other_txn.id, workspace_id=other_ws.id,
+        group_member_id=friend.id, share_amount=Decimal("200"), share_type="amount",
+    ))
+    await session.commit()
+
+    report = await get_income_expenses_report(
+        session, test_workspace.id, test_user.id, months=2, interval="monthly"
+    )
+
+    uncategorized = next(
+        (c for c in report.composition if c.key == "uncategorized" and c.group == "expenses"),
+        None,
+    )
+    assert uncategorized is not None
+    assert uncategorized.value == pytest.approx(500.0)
+
+
 async def test_income_expenses_trend_points_have_per_period_composition(session, test_user, test_workspace):
     """Each income/expenses trend DataPoint carries per-period composition items."""
     cat_wages = await _make_category(session, test_user.id, "Wages", color="#0E0")

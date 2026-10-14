@@ -840,6 +840,7 @@ async def get_income_expenses_report(
         session, user_id, start, axis_end + timedelta(days=1),
         use_effective_date=accounting_mode == "accrual",
         primary_currency=primary_currency,
+        workspace_id=workspace_id,
     )
     for cat_uuid, offset_total in full_range_offset.items():
         cat_key = str(cat_uuid) if cat_uuid else "uncategorized"
