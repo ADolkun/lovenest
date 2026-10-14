@@ -6,6 +6,8 @@
 export type DrillDownTotalsItem = {
   type: 'debit' | 'credit'
   amount: number
+  /** Reimbursement links on the row, in its own currency. */
+  linkedAmount: number
   amountPrimary: number | null
   currency: string
   isPending: boolean
@@ -35,6 +37,10 @@ export type DrillDownTotals = {
  * debits they offset, and its total has to come out net, as the dashboard
  * figure it opened from does. Without it every row adds its magnitude.
  *
+ * A row with reimbursement links counts only its unlinked share: an expense
+ * net of what repaid it, a credit net of what it repaid. The share scales
+ * `amountPrimary` too, so the figure stays the one the dashboard computed.
+ *
  * Foreign-currency rows are converted through `amountPrimary`; when that is
  * missing the row is skipped rather than added as if its raw amount were
  * already in the user's currency. This matches how `get_summary` computes
@@ -47,11 +53,12 @@ export function sumDrillDownTotals(
 ): DrillDownTotals {
   return items.reduce<DrillDownTotals>(
     (totals, item) => {
-      const magnitude = item.currency === userCurrency
+      const unlinkedShare = 1 - linkedFraction(item.amount, item.linkedAmount)
+      const magnitude = unlinkedShare * (item.currency === userCurrency
         ? Math.abs(item.amount)
         : item.amountPrimary != null
           ? Math.abs(item.amountPrimary)
-          : 0
+          : 0)
       const amount = netOf && item.type !== netOf ? -magnitude : magnitude
 
       totals.total += amount
@@ -62,4 +69,9 @@ export function sumDrillDownTotals(
     },
     { total: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
   )
+}
+
+export function linkedFraction(amount: number, linkedAmount: number): number {
+  const magnitude = Math.abs(amount)
+  return magnitude > 0 ? Math.min(1, linkedAmount / magnitude) : 0
 }

@@ -42,6 +42,126 @@ INDEX_HTML = os.path.join(HERE, "index.html")
 # bare "#ded".
 DED_TAG_RE = re.compile(r"#ded(?:-[a-z0-9_]+)?(?![a-z0-9_-])", re.IGNORECASE)
 
+# Copied from backend/app/services/transaction_semantics.py, which decides which
+# rows repay a card rather than buy or refund something; test_app_ledger fails
+# when the two drift apart.
+_BANK_DEBIT_CARD_PAYMENT_MARKERS = (
+    ("CHASE CREDIT CRD", "AUTOPAY"),
+    ("CAPITAL ONE", "CRCARDPMT"),
+    ("BANK OF AMERICA", "PAYMENT"),
+    ("BK OF AMER VISA", "PMT"),
+    ("AMERICAN EXPRESS", "ACH PMT"),
+    ("APPLECARD GSBANK", "PAYMENT"),
+    ("WELLS FARGO CARD", "CCPYMT"),
+    ("WF CREDIT CARD", "AUTO PAY"),
+)
+
+_CARD_CREDIT_PAYMENT_MARKERS = (
+    ("ACH DEPOSIT INTERNET TRANSFER FROM ACCOUNT",),
+    ("AUTOMATIC PAYMENT",),
+    ("AUTOPAY PAYMENT",),
+    ("AUTOPAY PYMT",),
+    ("BA ELECTRONIC PAYMENT",),
+    ("CAPITAL ONE MOBILE PYMT",),
+    ("ONLINE/MOBILE PAYMENT",),
+    ("ONLINE/MOBILE RECURRING",),
+    ("PENDING PAYMENT",),
+)
+_LEDGER_PARAMS = {
+    **{
+        f"card_pmt_{i}": [f"%{marker}%" for marker in group]
+        for i, group in enumerate(_CARD_CREDIT_PAYMENT_MARKERS)
+    },
+    **{
+        f"bank_pmt_{i}": [f"%{marker}%" for marker in group]
+        for i, group in enumerate(_BANK_DEBIT_CARD_PAYMENT_MARKERS)
+    },
+}
+
+
+def _matches_any(t, prefix):
+    return " OR ".join(
+        f"{t}.description ILIKE ALL (%({key})s)" for key in _LEDGER_PARAMS if key.startswith(prefix)
+    )
+
+
+# Ledger query fragments over a transaction alias, its account and its
+# category (LEFT JOINed), mirroring backend/app/services/_query_filters.py.
+def _card_payment_sql(t, a):
+    return f"""(
+    ({a}.type = 'credit_card' AND {t}.type = 'credit'
+     AND ({_matches_any(t, "card_pmt_")} OR UPPER(TRIM({t}.description)) = 'BILL PAYMENT'))
+    OR ({a}.type <> 'credit_card' AND {t}.type = 'debit' AND (
+        {_matches_any(t, "bank_pmt_")}
+        OR UPPER(TRIM({t}.description)) = 'CAPITAL ONE'
+        OR ({t}.description ILIKE '%%BILT CARD%%' AND {t}.description ILIKE '%%PMT%%'
+            AND {t}.description NOT ILIKE '%%HOUSING%%' AND {t}.description NOT ILIKE '%%RENT%%')
+    ))
+)"""
+
+
+def _counts_as_user_pnl_sql(t, a, c):
+    """`counts_as_user_pnl`: not a matched transfer, ignored, excluded, a card
+    payment or a settlement, and not filed under an ignored or transfer-like
+    category, except that a card refund still counts under the latter."""
+    return f"""(
+    NOT EXISTS (
+        SELECT 1 FROM transactions {t}_pair
+        WHERE {t}_pair.transfer_pair_id = {t}.transfer_pair_id AND {t}_pair.id <> {t}.id
+    )
+    AND {t}.is_ignored = false
+    AND NOT {_card_payment_sql(t, a)}
+    AND {t}.exclude_from_pnl = false
+    AND {t}.source <> 'settlement'
+    AND ({t}.category_id IS NULL OR (
+        {c}.is_ignored = false
+        AND ({c}.treat_as_transfer = false OR ({a}.type = 'credit_card' AND {t}.type = 'credit'))
+    ))
+)"""
+
+
+_CARD_PAYMENT_SQL = _card_payment_sql("t", "a")
+
+# ADR 0011: a credit filed under a non-income category, or an uncategorized
+# card refund, is money back on spending rather than income.
+_SPENDING_OFFSET_SQL = f"""(
+    t.type = 'credit' AND NOT {_CARD_PAYMENT_SQL} AND (
+        (t.category_id IS NOT NULL AND c.is_income = false)
+        OR (t.category_id IS NULL AND a.type = 'credit_card')
+    )
+)"""
+
+
+# ADR 0012: a link is in effect only while both of its rows are in user P&L on
+# open accounts. The backend checks only the row's own account, since every
+# report there already drops a row outside user P&L; write-offs keep such
+# rows, so here both sides are checked in full.
+def _link_side_counts_sql(t, a, c):
+    return f"({_counts_as_user_pnl_sql(t, a, c)} AND {a}.is_closed = false)"
+
+
+_LINKS_JOIN = f"""
+    LEFT JOIN LATERAL (
+        SELECT SUM(r.amount) AS amount
+        FROM transaction_reimbursements r
+        JOIN transactions o ON o.id = CASE
+            WHEN r.reimbursement_id = t.id THEN r.expense_id ELSE r.reimbursement_id
+        END
+        JOIN accounts oa ON oa.id = o.account_id
+        LEFT JOIN categories oc ON oc.id = o.category_id
+        WHERE t.id IN (r.reimbursement_id, r.expense_id)
+          AND {_link_side_counts_sql("o", "oa", "oc")}
+          AND {_link_side_counts_sql("t", "a", "c")}
+    ) linked ON true
+"""
+
+# A link records how much of one row repaid another, so each side counts only
+# for the part no link explains.
+_PNL_AMOUNT_SQL = """(
+    ABS(COALESCE(t.amount_primary, t.amount))
+    * (1 - LEAST(1, COALESCE(linked.amount / NULLIF(ABS(t.amount), 0), 0)))
+)"""
+
 app = FastAPI(title="Lovenest — Tax & Planning")
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
@@ -165,6 +285,30 @@ def _calculate(fn, body):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _net_groups(rows, key_name):
+    """Group signed (key, amount, item) rows, largest net first.
+
+    A group netting to zero or less is dropped, as in the dashboard's category
+    breakdown: a refund landing a year after its expense is no deduction now
+    and must not shrink the other groups.
+    """
+    groups = {}
+    for key, amount, item in rows:
+        group = groups.setdefault(key, {"total": 0.0, "count": 0, "items": []})
+        group["total"] += amount
+        group["count"] += 1
+        group["items"].append({**item, "amount": round(amount, 2)})
+    return sorted(
+        (
+            {key_name: key, "total": round(g["total"], 2), "count": g["count"], "items": g["items"]}
+            for key, g in groups.items()
+            if round(g["total"], 2) > 0
+        ),
+        key=lambda x: x["total"],
+        reverse=True,
+    )
+
+
 @app.get("/api/writeoffs")
 def writeoffs(auth=Depends(require_auth)):
     """YTD-2026 deductible totals from the Lovenest ledger (read-only).
@@ -172,7 +316,15 @@ def writeoffs(auth=Depends(require_auth)):
     (a) debits in any category under the "Business / Schedule C" group,
         grouped by category name;
     (b) debits whose notes contain a #ded tag, grouped by the exact tag.
-    Only type='debit', is_ignored=false, date >= 2026-01-01.
+    Only posted, non-ignored rows dated from 2026-01-01. A spending-offset
+    credit (refund, reimbursement) filed in the same category or carrying the
+    same tag nets against it, and every row counts only for the part no
+    reimbursement link covers.
+
+    The category or tag is the user's statement that a row is deductible, so
+    the user P&L exclusions (transfers, transfer-like categories,
+    exclude_from_pnl, settlements) deliberately do not apply: a #ded-tagged
+    fee filed under a transfer category is still a deduction.
     """
     empty = {
         "schedule_c": [],
@@ -188,18 +340,19 @@ def writeoffs(auth=Depends(require_auth)):
         return empty
 
     ws_sql, ws_params = _workspace_clause("t", auth.get("X-Workspace-Id", ""))
+    params = {"start": YTD_START, "end": _ytd_end(), **ws_params, **_LEDGER_PARAMS}
+    signed_amount = f"(CASE WHEN t.type = 'debit' THEN 1 ELSE -1 END * {_PNL_AMOUNT_SQL})::float8"
 
     try:
         with db_conn() as conn, conn.cursor() as cur:
-            sched_sql = f"""
-                SELECT c.name AS category,
-                       t.date,
-                       t.description,
-                       COALESCE(t.amount_primary, t.amount)::float8 AS amount
+            cur.execute(f"""
+                SELECT c.name, t.date, t.description, {signed_amount}
                 FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
                 JOIN categories c ON c.id = t.category_id
                 JOIN category_groups g ON g.id = c.group_id
-                WHERE t.type = 'debit'
+                {_LINKS_JOIN}
+                WHERE (t.type = 'debit' OR {_SPENDING_OFFSET_SQL})
                   AND t.is_ignored = false
                   AND t.status = 'posted'
                   AND t.date >= %(start)s
@@ -207,37 +360,24 @@ def writeoffs(auth=Depends(require_auth)):
                   AND g.name = 'Business / Schedule C'
                   {ws_sql}
                 ORDER BY c.name, t.date DESC
-            """
-            cur.execute(sched_sql, {"start": YTD_START, "end": _ytd_end(), **ws_params})
-            sched_agg = {}
-            for category, date, description, amount in cur.fetchall():
-                agg = sched_agg.setdefault(category, {"total": 0.0, "count": 0, "items": []})
-                agg["total"] += amount
-                agg["count"] += 1
-                agg["items"].append({
-                    "date": date.isoformat(),
-                    "description": description or "",
-                    "amount": round(amount, 2),
-                })
-            schedule_c = sorted(
+            """, params)
+            schedule_c = _net_groups(
                 (
-                    {"category": cat, "total": round(v["total"], 2),
-                     "count": v["count"], "items": v["items"]}
-                    for cat, v in sched_agg.items()
+                    (category, amount, {"date": day.isoformat(), "description": description or ""})
+                    for category, day, description, amount in cur.fetchall()
+                    if amount
                 ),
-                key=lambda x: x["total"],
-                reverse=True,
+                "category",
             )
 
-            # Tags live as free text in notes, so aggregate in Python: pull
-            # matching rows, extract each #ded tag, and sum per exact tag.
-            ded_sql = f"""
-                SELECT t.notes,
-                       COALESCE(t.amount_primary, t.amount)::float8,
-                       t.date,
-                       t.description
+            # Tags live as free text in notes, so they are extracted in Python.
+            cur.execute(f"""
+                SELECT t.notes, t.date, t.description, {signed_amount}
                 FROM transactions t
-                WHERE t.type = 'debit'
+                JOIN accounts a ON a.id = t.account_id
+                LEFT JOIN categories c ON c.id = t.category_id
+                {_LINKS_JOIN}
+                WHERE (t.type = 'debit' OR {_SPENDING_OFFSET_SQL})
                   AND t.is_ignored = false
                   AND t.status = 'posted'
                   AND t.date >= %(start)s
@@ -245,38 +385,16 @@ def writeoffs(auth=Depends(require_auth)):
                   AND t.notes ILIKE '%%#ded%%'
                   {ws_sql}
                 ORDER BY t.date DESC
-            """
-            cur.execute(ded_sql, {"start": YTD_START, "end": _ytd_end(), **ws_params})
-
-            tag_totals = {}
-            for notes, amount, date, description in cur.fetchall():
-                seen = set()
-                for m in DED_TAG_RE.findall(notes or ""):
-                    tag = m.lower()
-                    # Count a transaction once per distinct tag even if it
-                    # repeats the tag in its notes.
-                    if tag in seen:
-                        continue
-                    seen.add(tag)
-                    agg = tag_totals.setdefault(tag, {"total": 0.0, "count": 0, "items": []})
-                    agg["total"] += amount
-                    agg["count"] += 1
-                    agg["items"].append({
-                        "date": date.isoformat(),
-                        "description": description or "",
-                        "amount": round(amount, 2),
-                        "notes": notes or "",
-                    })
-
-        deduction_tags = sorted(
-            (
-                {"tag": tag, "total": round(v["total"], 2),
-                 "count": v["count"], "items": v["items"]}
-                for tag, v in tag_totals.items()
-            ),
-            key=lambda x: x["total"],
-            reverse=True,
-        )
+            """, params)
+            tagged = []
+            for notes, day, description, amount in cur.fetchall():
+                if not amount:
+                    continue
+                item = {"date": day.isoformat(), "description": description or "", "notes": notes or ""}
+                # A transaction repeating a tag in its notes counts once toward it.
+                for tag in dict.fromkeys(m.lower() for m in DED_TAG_RE.findall(notes or "")):
+                    tagged.append((tag, amount, item))
+            deduction_tags = _net_groups(tagged, "tag")
 
         return {
             "schedule_c": schedule_c,
@@ -385,7 +503,10 @@ def projection_prefill(auth=Depends(require_auth)):
 def prefill(auth=Depends(require_auth)):
     """Best-effort 2026 YTD figures to seed the estimator form.
 
-    total_income: sum of non-transfer, non-ignored credits.
+    total_income: user P&L income — credits filed under an income category, or
+    uncategorized and not a card refund. Refunds and reimbursements filed
+    under a spending category are money back, not income, and a credit linked
+    to the expense it repaid counts only for the part the link leaves over.
     interest_income: credits in a category named 'Income' or whose description
     mentions 'interest' — heuristic, surfaced as a suggestion only.
     reportable_gain: Realised Gain arising in Taxable Wallets only.
@@ -413,20 +534,27 @@ def prefill(auth=Depends(require_auth)):
 
     try:
         with db_conn() as conn, conn.cursor() as cur:
+            # counts_as_user_pnl for credits, plus the posted / not-opening-
+            # balance filters every user P&L figure adds.
             income_sql = f"""
-                SELECT COALESCE(SUM(COALESCE(t.amount_primary, t.amount)), 0)::float8
+                SELECT COALESCE(SUM({_PNL_AMOUNT_SQL}), 0)::float8
                 FROM transactions t
+                JOIN accounts a ON a.id = t.account_id
                 LEFT JOIN categories c ON c.id = t.category_id
+                {_LINKS_JOIN}
                 WHERE t.type = 'credit'
-                  AND t.is_ignored = false
                   AND t.status = 'posted'
+                  AND t.source <> 'opening_balance'
+                  AND {_counts_as_user_pnl_sql("t", "a", "c")}
+                  AND NOT {_SPENDING_OFFSET_SQL}
                   AND t.date >= %(start)s
                   AND t.date < %(end)s
-                  AND t.transfer_pair_id IS NULL
-                  AND COALESCE(c.treat_as_transfer, false) = false
                   {ws_sql}
             """
-            cur.execute(income_sql, {"start": YTD_START, "end": _ytd_end(), **ws_params})
+            cur.execute(
+                income_sql,
+                {"start": YTD_START, "end": _ytd_end(), **ws_params, **_LEDGER_PARAMS},
+            )
             result["total_income"] = round(cur.fetchone()[0], 2)
 
             interest_sql = f"""

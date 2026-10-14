@@ -262,3 +262,27 @@ async def test_income_expenses_weekly_iso_year_boundary(
     assert buckets["2021-W01"] == 40
     assert sum(buckets.values()) == 70
     assert next(b["value"] for b in data["summary"]["breakdowns"] if b["key"] == "income") == 70
+
+
+async def test_forecasts_net_a_pending_refund_against_its_category(session, test_user, test_workspace):
+    from app.services.dashboard_service import get_monthly_trend
+    from tests.test_forecast_user_pnl import pending_refund
+
+    month, _ = await pending_refund(session, test_user.id)
+    label = f"{month.year}-{month.month:02d}"
+
+    report = await report_service.get_income_expenses_report(
+        session, test_workspace.id, test_user.id, months=1, currency="BRL",
+    )
+    point = next(point for point in report.trend if point.date == label)
+    assert (point.breakdowns["income"], point.breakdowns["expenses"]) == (0, 100)
+    assert (point.breakdowns["projectedIncome"], point.breakdowns["projectedExpenses"]) == (0, -30)
+    assert {(item.label, item.group): item.value for item in report.composition} == {
+        ("Dining", "expenses"): 70
+    }
+    assert [(item.label, item.group, item.total) for item in report.category_trend] == [
+        ("Dining", "expenses", 70)
+    ]
+
+    trend = await get_monthly_trend(session, test_workspace.id, test_user.id, months=1)
+    assert [(row.month, row.income, row.expenses) for row in trend] == [(label, 0, 70)]

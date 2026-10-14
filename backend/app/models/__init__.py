@@ -31,6 +31,7 @@ from app.models.goal import Goal
 from app.models.credit_card_bill import CreditCardBill
 from app.models.group import Group, GroupMember
 from app.models.transaction_split import TransactionSplit
+from app.models.transaction_reimbursement import TransactionReimbursement
 from app.models.group_settlement import GroupSettlement
 from app.models.collection import Collection, collection_accounts, collection_asset_groups
 from app.models.invoice import (
@@ -98,6 +99,7 @@ __all__ = [
     "Group",
     "GroupMember",
     "TransactionSplit",
+    "TransactionReimbursement",
     "GroupSettlement",
     "Collection",
     "Invoice",

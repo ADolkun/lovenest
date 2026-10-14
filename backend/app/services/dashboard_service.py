@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
@@ -21,6 +22,7 @@ from app.services._query_filters import (
     owner_split_offset_pnl,
     reporting_date_col,
     user_pnl_expense_amount,
+    user_pnl_group,
     user_pnl_income_amount,
     viewer_shared_pnl,
     viewer_shared_spending_by_category,
@@ -30,6 +32,7 @@ from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.recurring_transaction_service import get_occurrences_in_range
 from app.services.asset_service import get_asset_values_at
 from app.services.fx_rate_service import _resolve_rate, convert
+from app.services.transaction_semantics import is_credit_card_payment
 from app.models.user import User
 
 
@@ -79,7 +82,10 @@ async def _get_recurring_projections(
     include_transfer_like: bool = False,
 ) -> list[dict]:
     """Compute virtual recurring transaction projections for a month.
-    Pure read — no DB writes. Returns list of dicts with category_id, amount, type, currency.
+    Pure read — no DB writes. Returns list of dicts with category_id, amount,
+    type, currency, date and the occurrence's place in user P&L:
+    ``income_share``/``expense_share`` (multipliers of the amount, shaped like
+    ``ForecastPnlRow``'s) and ``pnl_group``.
 
     When ``account_ids`` is given (Collection filter), only recurring rules on
     those accounts are projected. Empty list → no projections.
@@ -105,14 +111,16 @@ async def _get_recurring_projections(
             Category.treat_as_transfer.is_not(True),
         ))
     stmt = (
-        select(RecurringTransaction)
+        select(RecurringTransaction, Category.is_income, Account.type)
         .outerjoin(Category, RecurringTransaction.category_id == Category.id)
+        .outerjoin(Account, RecurringTransaction.account_id == Account.id)
         .where(*filters)
     )
     if account_ids:
         stmt = stmt.where(RecurringTransaction.account_id.in_(account_ids))
     result = await session.execute(stmt)
-    recurring_list = list(result.scalars().all())
+    rules = result.all()
+    recurring_list = [rec for rec, _, _ in rules]
 
     # A recurrence may already have been materialized without its nominal
     # pointer being advanced yet (for example by generate-ahead workflows).
@@ -127,7 +135,13 @@ async def _get_recurring_projections(
     )
 
     projections = []
-    for rec in recurring_list:
+    for rec, category_is_income, account_type in rules:
+        if rec.type == "debit":
+            income_share, expense_share, pnl_group = 0, 1, "expenses"
+        elif _recurring_credit_offsets_spending(rec, category_is_income, account_type):
+            income_share, expense_share, pnl_group = 0, -1, "expenses"
+        else:
+            income_share, expense_share, pnl_group = 1, 0, "income"
         # Compute occurrences from the nominal pointer; linked rows are
         # filtered explicitly below because the pointer can lag materialization.
         occurrences = get_occurrences_in_range(
@@ -148,28 +162,36 @@ async def _get_recurring_projections(
                 "type": rec.type,
                 "currency": rec.currency,
                 "date": occ_date,
+                "income_share": income_share,
+                "expense_share": expense_share,
+                "pnl_group": pnl_group,
             })
     return projections
 
 
-async def _get_forecast_transactions(
-    session: AsyncSession,
+def _recurring_credit_offsets_spending(
+    rec: RecurringTransaction, category_is_income: Optional[bool], account_type: Optional[str]
+) -> bool:
+    """`spending_offset_filter` for a recurring credit that has no row yet.
+
+    A projection has no transaction for the SQL helpers to read, so ADR 0011
+    is applied to the rule itself: its category decides, and without one only
+    a card refund gives money back on spending.
+    """
+    if is_credit_card_payment(rec.description, "credit", account_type or ""):
+        return False
+    if rec.category_id is not None:
+        return category_is_income is False
+    return account_type == "credit_card"
+
+
+def _forecast_statement(
     workspace_id: uuid.UUID,
     range_start: date,
     range_end: date,
-    account_ids: Optional[list[uuid.UUID]] = None,
-    range_date_col=None,
-) -> list[Transaction]:
-    """Return real rows that belong to the forecast, not the current balance.
-
-    A pending row is forecast regardless of its date. A posted row dated after
-    today is also forecast: this is how future installments and generate-ahead
-    recurring rows follow the same rule as bank pending rows without needing a
-    source-specific branch at every consumer.
-    """
-    if account_ids is not None and len(account_ids) == 0:
-        return []
-
+    account_ids: Optional[list[uuid.UUID]],
+    range_date_col,
+):
     today = app_today()
     bucket_date = range_date_col if range_date_col is not None else Transaction.date
     stmt = (
@@ -195,20 +217,93 @@ async def _get_forecast_transactions(
     )
     if account_ids:
         stmt = stmt.where(Transaction.account_id.in_(account_ids))
-    result = await session.execute(stmt)
+    return stmt
+
+
+async def _get_forecast_transactions(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    range_start: date,
+    range_end: date,
+    account_ids: Optional[list[uuid.UUID]] = None,
+    range_date_col=None,
+) -> list[Transaction]:
+    """Return real rows that belong to the forecast, not the current balance.
+
+    A pending row is forecast regardless of its date. A posted row dated after
+    today is also forecast: this is how future installments and generate-ahead
+    recurring rows follow the same rule as bank pending rows without needing a
+    source-specific branch at every consumer.
+    """
+    if account_ids is not None and len(account_ids) == 0:
+        return []
+    result = await session.execute(
+        _forecast_statement(workspace_id, range_start, range_end, account_ids, range_date_col)
+    )
     return list(result.scalars().all())
 
 
-def _counts_as_user_pnl_row(tx: Transaction) -> bool:
-    """Python equivalent of ``counts_as_user_pnl`` for loaded forecast rows."""
-    category = tx.category
-    return not (
-        tx.transfer_pair_id
-        or tx.is_ignored
-        or tx.exclude_from_pnl
-        or tx.source == "settlement"
-        or (category and (category.treat_as_transfer or category.is_ignored))
+@dataclass(frozen=True)
+class ForecastPnlRow:
+    """A forecast row and its place in user P&L.
+
+    Classified by the same SQL helpers as posted actuals, so a credit filed
+    under a spending category reduces that category instead of adding income
+    (ADR 0011), and a linked row counts only its unlinked share (ADR 0012) —
+    a card charge whose accrual bill date is still ahead included.
+
+    The shares multiply the row's own magnitude, `expense_share` negative for
+    a credit that gives money back on spending, so they scale a native,
+    stored-primary or freshly converted amount alike.
+    """
+
+    transaction: Transaction
+    income_share: Decimal
+    expense_share: Decimal
+    group: str
+
+    async def magnitude_primary(
+        self, session: AsyncSession, primary_currency: str
+    ) -> Decimal:
+        tx = self.transaction
+        if tx.amount_primary is not None:
+            return abs(Decimal(tx.amount_primary))
+        converted, _ = await convert(
+            session, abs(Decimal(tx.amount)), tx.currency, primary_currency,
+        )
+        return converted
+
+
+async def _get_forecast_pnl_rows(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    range_start: date,
+    range_end: date,
+    account_ids: Optional[list[uuid.UUID]] = None,
+    range_date_col=None,
+) -> list[ForecastPnlRow]:
+    """The forecast rows that count in user P&L, with their shares."""
+    if account_ids is not None and len(account_ids) == 0:
+        return []
+    stmt = (
+        _forecast_statement(workspace_id, range_start, range_end, account_ids, range_date_col)
+        .add_columns(
+            user_pnl_income_amount(Transaction.amount),
+            user_pnl_expense_amount(Transaction.amount),
+            user_pnl_group(),
+        )
+        .where(counts_as_user_pnl())
     )
+    rows = []
+    for tx, income, expense, group in (await session.execute(stmt)).all():
+        magnitude = abs(Decimal(tx.amount))
+        rows.append(ForecastPnlRow(
+            transaction=tx,
+            income_share=Decimal(income) / magnitude if magnitude else Decimal(0),
+            expense_share=Decimal(expense) / magnitude if magnitude else Decimal(0),
+            group=group,
+        ))
+    return rows
 
 
 async def get_summary(
@@ -407,22 +502,17 @@ async def get_summary(
     projections = await _get_recurring_projections(
         session, workspace_id, month_start, month_end, account_ids
     )
-    forecast_transactions = await _get_forecast_transactions(
+    forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, month_start, month_end, account_ids,
         range_date_col=report_date,
     )
     for proj in projections:
-        if proj["type"] == "credit":
-            projected_monthly_income += proj["amount"]
-        else:
-            projected_monthly_expenses += proj["amount"]
-    for tx in forecast_transactions:
-        if not _counts_as_user_pnl_row(tx):
-            continue
-        if tx.type == "credit":
-            projected_monthly_income += float(tx.amount)
-        else:
-            projected_monthly_expenses += float(tx.amount)
+        projected_monthly_income += proj["amount"] * proj["income_share"]
+        projected_monthly_expenses += proj["amount"] * proj["expense_share"]
+    for row in forecast_rows:
+        magnitude = abs(row.transaction.amount)
+        projected_monthly_income += float(magnitude * row.income_share)
+        projected_monthly_expenses += float(magnitude * row.expense_share)
 
     if not filtered:
         all_own_inc, all_own_exp = await owner_split_offset_pnl(
@@ -587,23 +677,12 @@ async def get_summary(
             session, Decimal(str(proj["amount"])),
             proj["currency"], primary_currency,
         )
-        if proj["type"] == "credit":
-            projected_income_primary += float(proj_converted)
-        else:
-            projected_expenses_primary += float(proj_converted)
-    for tx in forecast_transactions:
-        if not _counts_as_user_pnl_row(tx):
-            continue
-        if tx.amount_primary is not None:
-            forecast_converted = Decimal(str(tx.amount_primary))
-        else:
-            forecast_converted, _ = await convert(
-                session, Decimal(str(tx.amount)), tx.currency, primary_currency,
-            )
-        if tx.type == "credit":
-            projected_income_primary += abs(float(forecast_converted))
-        else:
-            projected_expenses_primary += abs(float(forecast_converted))
+        projected_income_primary += float(proj_converted) * proj["income_share"]
+        projected_expenses_primary += float(proj_converted) * proj["expense_share"]
+    for row in forecast_rows:
+        magnitude = await row.magnitude_primary(session, primary_currency)
+        projected_income_primary += float(magnitude * row.income_share)
+        projected_expenses_primary += float(magnitude * row.expense_share)
 
     if not filtered:
         all_own_inc_pri, all_own_exp_pri = await owner_split_offset_pnl(
@@ -852,14 +931,14 @@ async def get_spending_by_category(
                     "projected": 0.0,
                 }
 
-    # Add virtual recurring projections (debit only), converted to primary currency
+    # Add virtual recurring projections (spending side only), converted to primary currency
     projections = await _get_recurring_projections(
         session, workspace_id, month_start, month_end, account_ids
     )
     # We need category info for recurring projections — fetch categories
     cat_cache: dict[str, dict] = {}
     for proj in projections:
-        if proj["type"] != "debit":
+        if proj["pnl_group"] != "expenses":
             continue
         cat_id = str(proj["category_id"]) if proj["category_id"] else None
         if cat_id and cat_id not in cat_cache:
@@ -878,7 +957,7 @@ async def get_spending_by_category(
         proj_amount, _ = await convert(
             session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
         )
-        proj_amount_float = float(proj_amount)
+        proj_amount_float = float(proj_amount) * proj["expense_share"]
 
         if cat_id in spending_map:
             spending_map[cat_id]["projected"] += proj_amount_float
@@ -894,16 +973,15 @@ async def get_spending_by_category(
 
     # Pending and future-dated real transactions are forecast rows. They are
     # deliberately layered after posted actuals, alongside recurring rules.
-    forecast_transactions = await _get_forecast_transactions(
+    forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, month_start, month_end, account_ids,
         range_date_col=report_date,
     )
-    for tx in forecast_transactions:
-        if tx.type != "debit" or tx.is_ignored:
+    for row in forecast_rows:
+        if not row.expense_share:
             continue
+        tx = row.transaction
         category = tx.category
-        if not _counts_as_user_pnl_row(tx):
-            continue
         cat_id = str(tx.category_id) if tx.category_id else None
         if cat_id and cat_id not in cat_cache:
             cat_cache[cat_id] = {
@@ -911,16 +989,8 @@ async def get_spending_by_category(
                 "icon": category.icon if category else "circle-help",
                 "color": category.color if category else "#6B7280",
             }
-        if tx.amount_primary is not None:
-            projected_amount = float(abs(tx.amount_primary))
-        else:
-            amount, _ = await convert(
-                session,
-                Decimal(str(abs(tx.amount))),
-                tx.currency,
-                primary_currency,
-            )
-            projected_amount = float(amount)
+        magnitude = await row.magnitude_primary(session, primary_currency)
+        projected_amount = float(magnitude * row.expense_share)
         if cat_id in spending_map:
             spending_map[cat_id]["projected"] += projected_amount
         else:
@@ -1064,30 +1134,21 @@ async def get_monthly_trend(
             else forecast_start.replace(month=forecast_start.month - 1)
         )
     forecast_end = _month_range(today.replace(day=1))[1]
-    forecast_transactions = await _get_forecast_transactions(
+    forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, forecast_start, forecast_end, account_ids,
         range_date_col=report_date,
     )
-    for tx in forecast_transactions:
-        if not _counts_as_user_pnl_row(tx):
-            continue
+    for row in forecast_rows:
+        tx = row.transaction
         tx_report_date = (
             tx.effective_bill_date
             or (tx.effective_date if accounting_mode == "accrual" else tx.date)
         )
         month_key = f"{tx_report_date.year:04d}-{tx_report_date.month:02d}"
         bucket = trend_map.setdefault(month_key, [0.0, 0.0])
-        if tx.amount_primary is not None:
-            amount = abs(float(tx.amount_primary))
-        else:
-            converted, _ = await convert(
-                session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-            )
-            amount = abs(float(converted))
-        if tx.type == "credit":
-            bucket[0] += amount
-        else:
-            bucket[1] += amount
+        magnitude = await row.magnitude_primary(session, primary_currency)
+        bucket[0] += float(magnitude * row.income_share)
+        bucket[1] += float(magnitude * row.expense_share)
 
     trends_raw = sorted(
         ((month, values[0], values[1]) for month, values in trend_map.items()),

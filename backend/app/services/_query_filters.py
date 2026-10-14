@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, case, exists, func, not_, or_, select
+from sqlalchemy import Numeric, and_, case, exists, func, not_, or_, select, type_coerce
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -17,24 +17,99 @@ from app.models.account import Account
 from app.models.asset import Asset
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.models.transaction_reimbursement import TransactionReimbursement
 from app.services.transaction_semantics import (
+    TransactionEntity,
     credit_card_payment_filter,
     credit_card_refund_filter,
 )
 
 
-def has_valid_transfer_pair():
+def has_valid_transfer_pair(entity: TransactionEntity = Transaction):
     """SQL predicate requiring a second transaction with the same pair id."""
     counterpart = aliased(Transaction)
     return and_(
-        Transaction.transfer_pair_id.is_not(None),
+        entity.transfer_pair_id.is_not(None),
         exists(
             select(1).where(
-                counterpart.transfer_pair_id == Transaction.transfer_pair_id,
-                counterpart.id != Transaction.id,
+                counterpart.transfer_pair_id == entity.transfer_pair_id,
+                counterpart.id != entity.id,
             )
         ),
     )
+
+
+def _touches_reimbursement_link():
+    return or_(
+        TransactionReimbursement.reimbursement_id == Transaction.id,
+        TransactionReimbursement.expense_id == Transaction.id,
+    )
+
+
+def has_reimbursement_links():
+    """SQL predicate: the row is either side of a reimbursement link."""
+    return exists(select(1).where(_touches_reimbursement_link()))
+
+
+def on_open_account(entity: TransactionEntity = Transaction):
+    """SQL predicate: the row's account is not closed.
+
+    A NOT IN over a one-table subquery, so it never correlates to an
+    `Account` the enclosing query happens to join.
+    """
+    return entity.account_id.not_in(select(Account.id).where(Account.is_closed.is_(True)))
+
+
+def reimbursement_link_side_counts(entity: TransactionEntity = Transaction):
+    """SQL predicate: a reimbursement link may count on this side of it.
+
+    A link is in effect only while both rows it joins are in user P&L on an
+    open account (ADR 0012). Otherwise one side would drop the linked amount
+    while the other, no longer reported, could not give it back, and income
+    minus expenses would move.
+    """
+    return and_(counts_as_user_pnl(entity), on_open_account(entity))
+
+
+def reimbursement_unlinked_share():
+    """The fraction of a row that reimbursement links leave in user P&L.
+
+    A link takes its amount out of both rows it joins, each in its own month
+    and category (ADR 0012), so a row keeps `1 - linked / |amount|`, never
+    below zero. Unitless, so it scales `amount`, `amount_primary` or any
+    primary-currency expression alike.
+
+    Only links whose other row still counts are summed. The row's own
+    `counts_as_user_pnl` is not checked here: every reporting query already
+    drops a row that fails it. Its account is, because budgets read rows on
+    closed accounts that the dashboard leaves out.
+    """
+    counterpart = aliased(Transaction)
+    linked = func.sum(TransactionReimbursement.amount)
+    magnitude = func.abs(Transaction.amount)
+    # No link rows: SUM is NULL, so the ELSE yields NULL and the share is 1.
+    linked_fraction = (
+        select(case((linked >= magnitude, 1), else_=linked / magnitude))
+        .select_from(TransactionReimbursement)
+        .join(
+            counterpart,
+            or_(
+                and_(
+                    TransactionReimbursement.reimbursement_id == Transaction.id,
+                    counterpart.id == TransactionReimbursement.expense_id,
+                ),
+                and_(
+                    TransactionReimbursement.expense_id == Transaction.id,
+                    counterpart.id == TransactionReimbursement.reimbursement_id,
+                ),
+            ),
+        )
+        .where(reimbursement_link_side_counts(counterpart), on_open_account())
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    # Typed as Numeric so the helpers it scales keep returning Decimals.
+    return type_coerce(1 - func.coalesce(linked_fraction, 0), Numeric())
 
 
 def spending_offset_filter():
@@ -63,21 +138,29 @@ def spending_offset_filter():
 
 
 def user_pnl_income_amount(amount_expr):
-    """Income amount, leaving out credits that offset spending."""
+    """Income amount, leaving out credits that offset spending and the part
+    of a credit linked to the expenses it repays."""
     return case(
         (
             and_(Transaction.type == "credit", ~spending_offset_filter()),
-            func.abs(amount_expr),
+            func.abs(amount_expr) * reimbursement_unlinked_share(),
         ),
         else_=0,
     )
 
 
 def user_pnl_expense_amount(amount_expr):
-    """Expense amount, with spending offsets reducing rather than inflating it."""
+    """Expense amount, with spending offsets reducing rather than inflating it
+    and reimbursement links taken out of both the expense and the credit."""
     return case(
-        (Transaction.type == "debit", func.abs(amount_expr)),
-        (spending_offset_filter(), -func.abs(amount_expr)),
+        (
+            Transaction.type == "debit",
+            func.abs(amount_expr) * reimbursement_unlinked_share(),
+        ),
+        (
+            spending_offset_filter(),
+            -func.abs(amount_expr) * reimbursement_unlinked_share(),
+        ),
         else_=0,
     )
 
@@ -209,7 +292,7 @@ def is_transfer():
     )
 
 
-def counts_as_pnl():
+def counts_as_pnl(entity: TransactionEntity = Transaction):
     """SQL filter: True when a transaction should contribute to income/expense totals.
 
     Excludes:
@@ -228,26 +311,26 @@ def counts_as_pnl():
     exclusion family so both rules stay visible at each call site.
     """
     return and_(
-        not_(has_valid_transfer_pair()),
-        Transaction.is_ignored.is_(False),
-        not_(credit_card_payment_filter()),
-        Transaction.exclude_from_pnl.is_(False),
+        not_(has_valid_transfer_pair(entity)),
+        entity.is_ignored.is_(False),
+        not_(credit_card_payment_filter(entity)),
+        entity.exclude_from_pnl.is_(False),
         # Settlement *debits* are repayments of debts that were already
         # booked as an expense via the share. Counting them would
         # double-count. Settlement *credits*, however, represent the
         # receiver actually getting the cash back — they offset the
         # over-recorded expense from when the receiver paid the full
         # parent transaction. So we keep credits, drop debits.
-        ~and_(Transaction.source == "settlement", Transaction.type == "debit"),
+        ~and_(entity.source == "settlement", entity.type == "debit"),
         or_(
-            Transaction.category_id.is_(None),
+            entity.category_id.is_(None),
             and_(
-                Transaction.category_id.not_in(
+                entity.category_id.not_in(
                     select(Category.id).where(Category.is_ignored.is_(True))
                 ),
                 or_(
-                    credit_card_refund_filter(),
-                    Transaction.category_id.not_in(
+                    credit_card_refund_filter(entity),
+                    entity.category_id.not_in(
                         select(Category.id).where(
                             Category.treat_as_transfer.is_(True)
                         )
@@ -313,7 +396,7 @@ def counts_on_bill():
     )
 
 
-def counts_as_user_pnl():
+def counts_as_user_pnl(entity: TransactionEntity = Transaction):
     """SQL filter for *user-level* P/L (dashboard, reports, budgets).
 
     Stricter than `counts_as_pnl`: also drops settlement *credits*. Under
@@ -323,8 +406,8 @@ def counts_as_user_pnl():
     track real cash through the account, not user P/L.
     """
     return and_(
-        counts_as_pnl(),
-        Transaction.source != "settlement",
+        counts_as_pnl(entity),
+        entity.source != "settlement",
     )
 
 

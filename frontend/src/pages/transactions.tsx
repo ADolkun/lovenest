@@ -57,6 +57,7 @@ import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/component
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { TransactionCalendarView } from '@/components/transaction-calendar-view'
 import { Badge } from '@/components/ui/badge'
+import { ReimbursementBadge } from '@/components/reimbursement-badge'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useCreateTransaction } from '@/hooks/use-create-transaction'
@@ -1144,6 +1145,7 @@ export default function TransactionsPage() {
                     : t('transactions.invoiceBadgeNoNumber')}
               </Link>
             ))}
+            <ReimbursementBadge transaction={tx} />
             {!!tx.transfer_pair_id && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
                 <ArrowLeftRight className="h-3 w-3" />

@@ -247,6 +247,12 @@ describe('formatAmountInput', () => {
     expect(formatAmountInput(2, 'en-US')).toBe('2')
   })
 
+  it('pads to a fraction-digit floor in the locale separator', () => {
+    expect(formatAmountInput(10.6, 'en-US', 2, 2)).toBe('10.60')
+    expect(formatAmountInput(31.7, 'de-DE', 2, 2)).toBe('31,70')
+    expect(formatAmountInput(80, 'en-US', 2, 2)).toBe('80.00')
+  })
+
   it('falls back to a dot format on a malformed locale', () => {
     expect(formatAmountInput(1.5, 'not a locale')).toBe('1.50')
   })

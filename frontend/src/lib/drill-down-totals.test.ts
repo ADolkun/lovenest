@@ -6,6 +6,7 @@ import type { DrillDownTotalsItem } from '@/lib/drill-down-totals'
 const row = (overrides: Partial<DrillDownTotalsItem> = {}): DrillDownTotalsItem => ({
   type: 'debit',
   amount: 100,
+  linkedAmount: 0,
   amountPrimary: null,
   currency: 'USD',
   isPending: false,
@@ -96,6 +97,34 @@ describe('sumDrillDownTotals', () => {
     expect(totals.postedTotal).toBeCloseTo(75)
     expect(totals.pendingTotal).toBeCloseTo(-10)
     expect(totals.projectedTotal).toBeCloseTo(25)
+  })
+
+  it('counts a reimbursed expense net of what repaid it', () => {
+    expect(sumDrillDownTotals([
+      row({ amount: 120, linkedAmount: 45 }),
+    ], 'USD', 'debit')).toMatchObject({ total: 75, postedTotal: 75 })
+  })
+
+  it('scales a foreign row through the same linked share of its primary amount', () => {
+    const totals = sumDrillDownTotals([
+      row({ amount: 200, linkedAmount: 50, amountPrimary: 40, currency: 'BRL' }),
+    ], 'USD', 'debit')
+    expect(totals.total).toBeCloseTo(30)
+  })
+
+  it('drops a fully linked credit and keeps only the remainder of a partial one', () => {
+    const totals = sumDrillDownTotals([
+      row({ amount: 120, linkedAmount: 45 }),
+      row({ type: 'credit', amount: 45, linkedAmount: 45 }),
+      row({ type: 'credit', amount: 100, linkedAmount: 91.96 }),
+    ], 'USD', 'debit')
+    expect(totals.total).toBeCloseTo(75 - 8.04)
+  })
+
+  it('never lets links push a row below zero', () => {
+    expect(sumDrillDownTotals([
+      row({ amount: 20, linkedAmount: 25 }),
+    ], 'USD', 'debit').total).toBe(0)
   })
 
   it('returns zeroes for an empty panel', () => {

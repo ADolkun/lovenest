@@ -266,10 +266,39 @@ export interface TransactionInvoiceLink {
   amount: string
 }
 
+/** One part of a credit set against one expense it repays. Seen from the
+ *  credit, the counterpart is that expense; seen from the debit, it is the
+ *  credit. The amount comes off the expense in its own month and category,
+ *  and off what the credit counts for. */
+export interface ReimbursementLink {
+  id: string
+  counterpart_id: string
+  counterpart_description: string
+  counterpart_date: string
+  counterpart_category_name: string | null
+  amount: number | string
+  currency: string
+  /** False while either row is out of user P&L or on a closed account:
+   *  reporting then ignores the link. */
+  in_effect: boolean
+}
+
+export interface ReimbursementAllocation {
+  expense_id: string
+  amount: string
+}
+
+export interface ReimbursementCandidate {
+  transaction: Transaction
+  remaining: number | string
+  allocated_here: number | string
+}
+
 export interface Transaction {
   /** Every invoice this transaction settles — a payout net of fees
    *  settles several. Absent in a workspace without the module. */
   invoice_links?: TransactionInvoiceLink[] | null
+  reimbursement_links: ReimbursementLink[]
   id: string
   user_id: string
   account_id: string | null

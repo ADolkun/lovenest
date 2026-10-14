@@ -3,9 +3,14 @@
 import re
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.orm.util import AliasedClass
 
 from app.models.account import Account
 from app.models.transaction import Transaction
+
+# The SQL predicates below read `Transaction` unless handed an alias, which is
+# how a query asks the same question about a second row it has joined in.
+TransactionEntity = type[Transaction] | AliasedClass[Transaction]
 
 
 _BANK_DEBIT_CARD_PAYMENT_MARKERS = (
@@ -107,16 +112,16 @@ def credit_card_issuer(description: str, account_name: str = "") -> str | None:
     )
 
 
-def credit_card_payment_filter():
+def credit_card_payment_filter(entity: TransactionEntity = Transaction):
     """SQL predicate equivalent of :func:`is_credit_card_payment`."""
-    account_is_card = Transaction.account_id.in_(
+    account_is_card = entity.account_id.in_(
         select(Account.id).where(Account.type == "credit_card")
     )
 
     def marker_filter(groups: tuple[tuple[str, ...], ...]):
         return or_(
             *(
-                and_(*(Transaction.description.ilike(f"%{marker}%") for marker in group))
+                and_(*(entity.description.ilike(f"%{marker}%") for marker in group))
                 for group in groups
             )
         )
@@ -124,38 +129,38 @@ def credit_card_payment_filter():
     return or_(
         and_(
             account_is_card,
-            Transaction.type == "credit",
+            entity.type == "credit",
             or_(
                 marker_filter(_CARD_CREDIT_PAYMENT_MARKERS),
-                func.upper(func.trim(Transaction.description)) == "BILL PAYMENT",
+                func.upper(func.trim(entity.description)) == "BILL PAYMENT",
             ),
         ),
         and_(
             ~account_is_card,
-            Transaction.type == "debit",
+            entity.type == "debit",
             or_(
                 marker_filter(_BANK_DEBIT_CARD_PAYMENT_MARKERS),
-                func.upper(func.trim(Transaction.description)) == "CAPITAL ONE",
+                func.upper(func.trim(entity.description)) == "CAPITAL ONE",
                 and_(
-                    Transaction.description.ilike("%BILT CARD%"),
-                    Transaction.description.ilike("%PMT%"),
-                    ~Transaction.description.ilike("%HOUSING%"),
-                    ~Transaction.description.ilike("%RENT%"),
+                    entity.description.ilike("%BILT CARD%"),
+                    entity.description.ilike("%PMT%"),
+                    ~entity.description.ilike("%HOUSING%"),
+                    ~entity.description.ilike("%RENT%"),
                 ),
             ),
         ),
     )
 
 
-def credit_card_refund_filter():
+def credit_card_refund_filter(entity: TransactionEntity = Transaction):
     """SQL predicate for card credits that are refunds, not repayments."""
-    account_is_card = Transaction.account_id.in_(
+    account_is_card = entity.account_id.in_(
         select(Account.id).where(Account.type == "credit_card")
     )
     return and_(
         account_is_card,
-        Transaction.type == "credit",
-        ~credit_card_payment_filter(),
+        entity.type == "credit",
+        ~credit_card_payment_filter(entity),
     )
 
 

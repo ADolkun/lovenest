@@ -22,8 +22,7 @@ from app.services._query_filters import (
 )
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.dashboard_service import (
-    _counts_as_user_pnl_row,
-    _get_forecast_transactions,
+    _get_forecast_pnl_rows,
     _get_recurring_projections,
 )
 from app.services.fx_rate_service import convert
@@ -298,28 +297,27 @@ async def _category_spending(
 
     projected = dict(actual)
     for proj in await _get_recurring_projections(session, workspace_id, start, end):
-        if proj["type"] != "debit" or not proj["category_id"]:
+        if proj["pnl_group"] != "expenses" or not proj["category_id"]:
             continue
         cat_id = str(proj["category_id"])
         converted, _ = await convert(
             session, Decimal(str(proj["amount"])), proj["currency"], primary_currency,
         )
-        projected[cat_id] = projected.get(cat_id, Decimal("0")) + converted
+        projected[cat_id] = (
+            projected.get(cat_id, Decimal("0")) + converted * proj["expense_share"]
+        )
 
-    forecast_transactions = await _get_forecast_transactions(
+    for row in await _get_forecast_pnl_rows(
         session, workspace_id, start, end, range_date_col=report_date,
-    )
-    for tx in forecast_transactions:
-        if tx.type != "debit" or not tx.category_id or not _counts_as_user_pnl_row(tx):
+    ):
+        tx = row.transaction
+        if not tx.category_id or not row.expense_share:
             continue
         cat_id = str(tx.category_id)
-        if tx.amount_primary is not None:
-            converted = abs(Decimal(str(tx.amount_primary)))
-        else:
-            converted, _ = await convert(
-                session, Decimal(str(abs(tx.amount))), tx.currency, primary_currency,
-            )
-        projected[cat_id] = projected.get(cat_id, Decimal("0")) + converted
+        magnitude = await row.magnitude_primary(session, primary_currency)
+        projected[cat_id] = (
+            projected.get(cat_id, Decimal("0")) + magnitude * row.expense_share
+        )
 
     return actual, projected
 
