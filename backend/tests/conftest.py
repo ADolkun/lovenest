@@ -470,10 +470,10 @@ async def viewer_auth_headers(
 async def test_categories(session: AsyncSession, test_user: User) -> list[Category]:
     """Create test categories."""
     categories = []
-    for name, icon, color in [
-        ("Alimentação", "🍔", "#F59E0B"),
-        ("Transporte", "🚗", "#3B82F6"),
-        ("Receita", "💼", "#22C55E"),
+    for name, icon, color, is_income in [
+        ("Alimentação", "🍔", "#F59E0B", False),
+        ("Transporte", "🚗", "#3B82F6", False),
+        ("Receita", "💼", "#22C55E", True),
     ]:
         cat = Category(
             id=uuid.uuid4(),
@@ -482,6 +482,7 @@ async def test_categories(session: AsyncSession, test_user: User) -> list[Catego
             icon=icon,
             color=color,
             is_system=True,
+            is_income=is_income,
         )
         session.add(cat)
         categories.append(cat)

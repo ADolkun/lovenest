@@ -4,6 +4,7 @@ import { sumDrillDownTotals } from '@/lib/drill-down-totals'
 import type { DrillDownTotalsItem } from '@/lib/drill-down-totals'
 
 const row = (overrides: Partial<DrillDownTotalsItem> = {}): DrillDownTotalsItem => ({
+  type: 'debit',
   amount: 100,
   amountPrimary: null,
   currency: 'USD',
@@ -23,7 +24,7 @@ describe('sumDrillDownTotals', () => {
     expect(totals.postedTotal).toBeCloseTo(200)
     expect(totals.pendingTotal).toBeCloseTo(100)
     expect(totals.projectedTotal).toBeCloseTo(487.68)
-    expect(totals.absTotal).toBeCloseTo(787.68)
+    expect(totals.total).toBeCloseTo(787.68)
   })
 
   it('keeps a projected row inside the total when the panel also has a pending one', () => {
@@ -36,8 +37,8 @@ describe('sumDrillDownTotals', () => {
     ], 'USD')
 
     expect(totals.postedTotal + totals.pendingTotal + totals.projectedTotal)
-      .toBeCloseTo(totals.absTotal)
-    expect(totals.absTotal).toBeCloseTo(587.68)
+      .toBeCloseTo(totals.total)
+    expect(totals.total).toBeCloseTo(587.68)
   })
 
   it('never loses a row: the three buckets always rebuild the total', () => {
@@ -49,20 +50,20 @@ describe('sumDrillDownTotals', () => {
     ], 'USD')
 
     expect(totals.postedTotal + totals.pendingTotal + totals.projectedTotal)
-      .toBeCloseTo(totals.absTotal)
+      .toBeCloseTo(totals.total)
   })
 
   it('counts a foreign row through its primary amount', () => {
     expect(sumDrillDownTotals([
       row({ amount: 2500, amountPrimary: 487.68, currency: 'BRL' }),
-    ], 'USD')).toMatchObject({ absTotal: 487.68, postedTotal: 487.68 })
+    ], 'USD')).toMatchObject({ total: 487.68, postedTotal: 487.68 })
   })
 
   it('skips a foreign row with no conversion rather than counting it raw', () => {
     expect(sumDrillDownTotals([
       row({ amount: 2500, amountPrimary: null, currency: 'BRL' }),
     ], 'USD')).toEqual({
-      absTotal: 0,
+      total: 0,
       postedTotal: 0,
       pendingTotal: 0,
       projectedTotal: 0,
@@ -73,12 +74,33 @@ describe('sumDrillDownTotals', () => {
     expect(sumDrillDownTotals([
       row({ amount: -100 }),
       row({ amount: 100 }),
-    ], 'USD')).toMatchObject({ absTotal: 200, postedTotal: 200 })
+    ], 'USD')).toMatchObject({ total: 200, postedTotal: 200 })
+  })
+
+  it('adds every row without a netting side, whatever its type', () => {
+    expect(sumDrillDownTotals([
+      row({ amount: 100 }),
+      row({ type: 'credit', amount: 30 }),
+    ], 'USD')).toMatchObject({ total: 130 })
+  })
+
+  it('nets rows of the other type against the total, bucket by bucket', () => {
+    const totals = sumDrillDownTotals([
+      row({ amount: 120 }),
+      row({ type: 'credit', amount: 45 }),
+      row({ type: 'credit', amount: 10, isPending: true }),
+      row({ amount: 25, isProjected: true }),
+    ], 'USD', 'debit')
+
+    expect(totals.total).toBeCloseTo(90)
+    expect(totals.postedTotal).toBeCloseTo(75)
+    expect(totals.pendingTotal).toBeCloseTo(-10)
+    expect(totals.projectedTotal).toBeCloseTo(25)
   })
 
   it('returns zeroes for an empty panel', () => {
     expect(sumDrillDownTotals([], 'USD')).toEqual({
-      absTotal: 0,
+      total: 0,
       postedTotal: 0,
       pendingTotal: 0,
       projectedTotal: 0,

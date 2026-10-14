@@ -734,6 +734,7 @@ export default function AccountDetailPage() {
             is_hidden: false,
             treat_as_transfer: false,
             is_ignored: false,
+            is_income: false,
           }
         : null,
       external_id: null,

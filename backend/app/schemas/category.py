@@ -14,6 +14,7 @@ class CategoryCreate(CategoryBase):
     group_id: Optional[uuid.UUID] = None
     treat_as_transfer: bool = False
     is_ignored: bool = False
+    is_income: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -23,6 +24,7 @@ class CategoryUpdate(BaseModel):
     group_id: Optional[uuid.UUID] = None
     treat_as_transfer: Optional[bool] = None
     is_ignored: Optional[bool] = None
+    is_income: Optional[bool] = None
     is_hidden: Optional[bool] = None
 
 
@@ -34,6 +36,7 @@ class CategoryRead(CategoryBase):
     is_hidden: bool = False
     treat_as_transfer: bool = False
     is_ignored: bool = False
+    is_income: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

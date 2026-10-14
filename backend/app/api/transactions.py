@@ -2,7 +2,7 @@ import csv
 import io
 import uuid
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -128,6 +128,7 @@ async def list_transactions(
     include_opening_balance: bool = Query(False),
     exclude_transfers: bool = Query(False),
     user_pnl_only: bool = Query(False, description="Return only rows that count toward dashboard/user income/expense totals"),
+    pnl_group: Optional[Literal["income", "expenses"]] = Query(None, description="Return only rows in this user P&L group: expenses includes credits that offset spending (refunds, reimbursements), income excludes them"),
     exclude_ignored: bool = Query(False, description="Drop rows the user marked ignored, or whose category is ignored"),
     tags: Optional[List[str]] = Query(None),
     min_amount: Optional[float] = Query(None, ge=0, description="Filter to transactions with absolute amount >= this value (primary currency)."),
@@ -146,6 +147,7 @@ async def list_transactions(
         include_opening_balance=include_opening_balance, search=q, uncategorized=uncategorized,
         txn_type=type, exclude_transfers=exclude_transfers,
         user_pnl_only=user_pnl_only,
+        pnl_group=pnl_group,
         exclude_ignored=exclude_ignored,
         status=status,
         accounting_mode=accounting_mode,

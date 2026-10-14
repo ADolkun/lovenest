@@ -21,6 +21,7 @@ const category: Category = {
   is_hidden: false,
   treat_as_transfer: false,
   is_ignored: false,
+  is_income: false,
 }
 
 const rule: Rule = {

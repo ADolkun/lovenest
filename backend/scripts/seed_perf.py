@@ -252,8 +252,11 @@ async def seed(
         # ── 3. Categories ────────────────────────────────────────────────────
         print("Creating categories …")
         categories: list[Category] = []
-        for name, color, icon in CATEGORY_TEMPLATES[:n_categories]:
-            cat = Category(user_id=uid, workspace_id=wid, name=name, color=color, icon=icon)
+        for i, (name, color, icon) in enumerate(CATEGORY_TEMPLATES[:n_categories]):
+            cat = Category(
+                user_id=uid, workspace_id=wid, name=name, color=color, icon=icon,
+                is_income=i >= N_DEBIT_CATS,
+            )
             session.add(cat)
             categories.append(cat)
         await session.flush()

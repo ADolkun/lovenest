@@ -102,6 +102,7 @@ export interface Category {
   is_hidden: boolean
   treat_as_transfer: boolean
   is_ignored: boolean
+  is_income: boolean
 }
 
 /** Active rules that assign a category, used when retiring one. */

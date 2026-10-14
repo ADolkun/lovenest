@@ -646,11 +646,11 @@ async def get_summary(
         projected_balance_primary=round(projected_balance_primary, 2),
         balance_date=cutoff.isoformat(),
         monthly_income=real_monthly_income,
-        monthly_expenses=abs(real_monthly_expenses),
+        monthly_expenses=real_monthly_expenses,
         monthly_income_primary=round(monthly_income_primary, 2),
         monthly_expenses_primary=round(monthly_expenses_primary, 2),
         projected_income=projected_monthly_income,
-        projected_expenses=abs(projected_monthly_expenses),
+        projected_expenses=projected_monthly_expenses,
         projected_income_primary=round(projected_income_primary, 2),
         projected_expenses_primary=round(projected_expenses_primary, 2),
         accounts_count=accounts_count,
@@ -771,15 +771,17 @@ async def get_spending_by_category(
             report_date < month_end,
             report_date <= today,
             Transaction.status == "posted",
+            Transaction.source != "opening_balance",
             counts_as_user_pnl(),
             *acct_filter,
         )
         .group_by(Category.id, Category.name, Category.icon, Category.color)
-        .having(func.sum(expense_amount) > 0)
-        .order_by(func.sum(expense_amount).desc())
     )
 
-    # Build a dict of category_id -> {name, icon, color, total}
+    # Every category is kept at its signed net until the end: split offsets
+    # can move a category that nets to zero or less, and one that still
+    # comes out negative (money back outweighing spend) stays visible so the
+    # rows keep adding up to the expenses card.
     spending_map: dict[str | None, dict] = {}
     for row in result.all():
         cat_id = str(row[0]) if row[0] else None
@@ -787,7 +789,7 @@ async def get_spending_by_category(
             "name": row[1] or "Sem categoria",
             "icon": row[2] or "circle-help",
             "color": row[3] or "#6B7280",
-            "total": abs(float(row[4] or 0)),
+            "total": float(row[4] or 0),
             "projected": 0.0,
         }
 
@@ -807,12 +809,10 @@ async def get_spending_by_category(
         cat_id = str(cat_uuid) if cat_uuid else None
         if cat_id in spending_map:
             spending_map[cat_id]["total"] -= offset_total
-            if spending_map[cat_id]["total"] <= 0:
-                spending_map.pop(cat_id)
 
-    # Add shared shares — the viewer's portion of group-split debits
-    # they participate in but don't own. The category comes from the
-    # parent transaction.
+    # Add shared shares — the viewer's portion of group-split spending
+    # (net of refunds) they participate in but don't own. The category
+    # comes from the parent transaction.
     shared_by_cat = {} if filtered else await viewer_shared_spending_by_category(
         session, user_id, month_start, month_end,
         use_effective_date=accounting_mode == "accrual",
@@ -981,9 +981,19 @@ async def get_spending_by_category(
     # `total` stays posted-only so the breakdown adds up to the expenses card,
     # which is also posted-only. The forecast rides along in `projected_total`
     # (actual + forecast) for callers that want the same split the card shows.
-    grand_total = sum(entry["total"] for entry in spending_map.values())
+    # Only a category at zero in both figures is dropped, compared to the
+    # cent so float residue from an exact netting does not linger.
+    # Percentages are shares of spending, so negative categories take none.
+    positive_total = sum(
+        entry["total"] for entry in spending_map.values() if entry["total"] > 0
+    )
     spending = []
     for cat_id, entry in sorted(spending_map.items(), key=lambda x: x[1]["total"], reverse=True):
+        if (
+            round(entry["total"], 2) == 0
+            and round(entry["total"] + entry.get("projected", 0.0), 2) == 0
+        ):
+            continue
         spending.append(SpendingByCategory(
             category_id=cat_id,
             category_name=entry["name"],
@@ -991,7 +1001,11 @@ async def get_spending_by_category(
             category_color=entry["color"],
             total=entry["total"],
             projected_total=entry["total"] + entry.get("projected", 0.0),
-            percentage=(entry["total"] / grand_total * 100) if grand_total else 0,
+            percentage=(
+                entry["total"] / positive_total * 100
+                if entry["total"] > 0 and positive_total
+                else 0
+            ),
         ))
 
     return spending
@@ -1037,7 +1051,7 @@ async def get_monthly_trend(
 
     trend_map: dict[str, list[float]] = {}
     for row in result.all():
-        trend_map[row[0]] = [float(row[1] or 0), abs(float(row[2] or 0))]
+        trend_map[row[0]] = [float(row[1] or 0), float(row[2] or 0)]
 
     # Keep the dashboard trend's current month useful even when its only
     # activity is still pending or future-dated. Those rows are forecast data,
@@ -1108,11 +1122,13 @@ async def get_monthly_trend(
                 primary_currency=primary_currency,
                 posted_only=False,
             )
+        # Expenses stay signed, like the summary card's: a month where money
+        # back outweighs spending is legitimately negative.
         adjusted.append(
             MonthlyTrend(
                 month=month_str,
                 income=max(0.0, income - own_inc + shared_inc),
-                expenses=max(0.0, expenses - own_exp + shared_exp),
+                expenses=expenses - own_exp + shared_exp,
             )
         )
 

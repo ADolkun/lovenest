@@ -50,6 +50,7 @@ function category(id: string, name: string, overrides = {}) {
     is_hidden: false,
     treat_as_transfer: false,
     is_ignored: false,
+    is_income: false,
     ...overrides,
   }
 }

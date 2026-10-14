@@ -581,7 +581,7 @@ def _resolve_categories_by_internal_key(
     which language the user's categories were created in.
     """
     key_to_id: dict[str, str] = {}
-    non_name_fields = {"icon", "color", "treat_as_transfer"}
+    non_name_fields = {"icon", "color", "treat_as_transfer", "is_income"}
     for internal_key, data in DEFAULT_CATEGORIES_I18N.items():
         for field, value in data.items():
             if field in non_name_fields:
@@ -726,7 +726,7 @@ async def _ensure_categories_for_keys(
     )
     from app.services.category_service import DEFAULT_CATEGORIES_I18N
 
-    non_name_fields = {"icon", "color", "treat_as_transfer", "position"}
+    non_name_fields = {"icon", "color", "treat_as_transfer", "is_income", "position"}
 
     def variants(data: dict) -> set[str]:
         return {v for k, v in data.items() if k not in non_name_fields}
@@ -804,6 +804,7 @@ async def _ensure_categories_for_keys(
             is_system=True,
             group_id=target_group.id if target_group else None,
             treat_as_transfer=data.get("treat_as_transfer", False),
+            is_income=data.get("is_income", False),
         )
         session.add(cat)
     await session.commit()

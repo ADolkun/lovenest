@@ -25,9 +25,15 @@ export type DrillDownFilter = {
   // Scope to a set of accounts (e.g. the active collection's accounts).
   account_ids?: string[]
   type?: 'credit' | 'debit'
+  // A side of the user's P&L, used instead of `type`. The backend decides
+  // membership from category income flags, so 'expenses' also returns the
+  // credits that offset spending (refunds, reimbursements).
+  pnl_group?: 'income' | 'expenses'
   from?: string
   to?: string
 }
+
+const PNL_GROUP_TYPE = { income: 'credit', expenses: 'debit' } as const
 
 type DisplayItem = {
   key: string
@@ -72,7 +78,8 @@ export function TransactionDrillDown({
         uncategorized: filter?.uncategorized,
         account_id: filter?.account_id,
         account_ids: filter?.account_ids,
-        type: filter?.type,
+        type: filter?.pnl_group ? undefined : filter?.type,
+        pnl_group: filter?.pnl_group,
         from: filter?.from,
         to: filter?.to,
         limit: 200,
@@ -98,6 +105,10 @@ export function TransactionDrillDown({
     staleTime: 5 * 60 * 1000,
   })
   const isAccrual = accountingModeData?.mode === 'accrual'
+
+  // The direction a P&L group is made of. Projections carry no category flags
+  // to place an offset by, so a group keeps only the projections of this type.
+  const groupType = filter?.pnl_group ? PNL_GROUP_TYPE[filter.pnl_group] : filter?.type
 
   // Merge real + projected transactions, filtering projected by drill-down criteria
   const displayItems = useMemo((): DisplayItem[] => {
@@ -125,7 +136,7 @@ export function TransactionDrillDown({
 
     for (const pt of projectedTxs ?? []) {
       // Filter projected txs by drill-down criteria
-      if (filter?.type && pt.type !== filter.type) continue
+      if (groupType && pt.type !== groupType) continue
       if (filter?.category_id && String(pt.category_id) !== filter.category_id) continue
       if (filter?.uncategorized && pt.category_id != null) continue
       if (filter?.from && pt.date < filter.from) continue
@@ -154,7 +165,7 @@ export function TransactionDrillDown({
       ? compareTransactionAmountsDesc
       : (a, b) => b.orderDate.localeCompare(a.orderDate))
     return items
-  }, [data, projectedTxs, filter, isAccrual])
+  }, [data, projectedTxs, filter, groupType, isAccrual])
 
   // Close on Escape, unless the key belongs to a dialog opened from the
   // panel (Radix marks the Escape it handled as defaultPrevented).
@@ -192,14 +203,15 @@ export function TransactionDrillDown({
   // amount_primary; if it's missing we can't convert, so skip the row
   // instead of adding a raw foreign amount as if it were primary. This
   // matches how get_summary computes monthly_*_primary on the backend.
-  const { absTotal, postedTotal, pendingTotal, projectedTotal } =
-    sumDrillDownTotals(displayItems, userCurrency)
+  const { total, postedTotal, pendingTotal, projectedTotal } =
+    sumDrillDownTotals(displayItems, userCurrency, groupType)
 
   // Break the total down whenever some of it is money that has not settled,
   // whether it is pending or still only projected. Gating on pending alone
   // hid the projected line from a panel that happened to have no pending row,
   // even though the total it sits under already counted the projection.
-  const hasUnsettledTotal = pendingTotal > 0 || projectedTotal > 0
+  // Pending can net below zero when what is pending is a refund.
+  const hasUnsettledTotal = pendingTotal !== 0 || projectedTotal > 0
 
   return (
     <>
@@ -339,7 +351,7 @@ export function TransactionDrillDown({
                 )}
                 <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
                   <span className="text-xs font-medium text-muted-foreground">{t('dashboard.drillDownShownTotal')}</span>
-                  <span className="text-sm font-bold tabular-nums text-foreground">{mask(formatCurrency(absTotal, userCurrency, locale))}</span>
+                  <span className="text-sm font-bold tabular-nums text-foreground">{mask(formatCurrency(total, userCurrency, locale))}</span>
                 </div>
               </div>
             ) : (
@@ -347,11 +359,11 @@ export function TransactionDrillDown({
                 <span className="text-xs text-muted-foreground">
                   {t('dashboard.drillDownTotal', {
                     count: displayItems.length,
-                    total: mask(formatCurrency(absTotal, userCurrency, locale)),
+                    total: mask(formatCurrency(total, userCurrency, locale)),
                   })}
                 </span>
                 <span className="text-sm font-bold tabular-nums text-foreground">
-                  {mask(formatCurrency(absTotal, userCurrency, locale))}
+                  {mask(formatCurrency(total, userCurrency, locale))}
                 </span>
               </div>
             )}
