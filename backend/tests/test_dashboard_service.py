@@ -570,6 +570,25 @@ async def test_spending_excludes_transfers(session: AsyncSession, test_user, tes
 
 
 @pytest.mark.asyncio
+async def test_spending_excludes_opening_balance(session: AsyncSession, test_user, test_workspace):
+    """A debt carried in as an opening balance is not spending, so the
+    breakdown still adds up to the expenses card."""
+    cat = await _make_category(session, test_user.id, "Groceries")
+    account = await _make_account(session, test_user.id, "OB Card", acc_type="credit_card")
+    today = date.today()
+
+    await _add_txn(session, test_user.id, account.id, 2500, "debit", today, source="opening_balance")
+    await _add_txn(session, test_user.id, account.id, 40, "debit", today, category_id=cat.id)
+
+    spending = await get_spending_by_category(session, test_workspace.id, test_user.id)
+    assert next((s for s in spending if s.category_id is None), None) is None
+    assert sum(s.total for s in spending) == pytest.approx(40.0)
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+    assert sum(s.total for s in spending) == pytest.approx(summary.monthly_expenses)
+
+
+@pytest.mark.asyncio
 async def test_spending_percentage(session: AsyncSession, test_user, test_workspace):
     """Percentages sum to approximately 100%."""
     cat1 = await _make_category(session, test_user.id, "Cat A")
