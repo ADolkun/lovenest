@@ -236,7 +236,8 @@
       "downloadPdf": "Baixar PDF",
       "share": "Compartilhar",
       "revokeLink": "Revogar link",
-      "saveDraft": "Salvar rascunho"
+      "saveDraft": "Salvar rascunho",
+      "downloadStatement": "Baixar extrato"
     },
     "settings": {
       "title": "Configurações de cobrança",
@@ -341,7 +342,13 @@
       "unit_price_required": "Um preço precisa de um valor.",
       "negative_price": "Um preço não pode ser negativo.",
       "invalid_fiscal_refs": "Referências fiscais devem ser textos curtos sob chaves simples (letras, dígitos, sublinhado).",
-      "price_key_taken": "Outro preço já usa essa chave de busca ou id externo."
+      "price_key_taken": "Outro preço já usa essa chave de busca ou id externo.",
+      "installments_mismatch": "As parcelas não somam o total da cobrança.",
+      "installments_too_few": "Um parcelamento precisa de pelo menos duas parcelas.",
+      "installment_amount_not_positive": "Toda parcela precisa ter um valor.",
+      "installment_due_required": "Toda parcela precisa de um vencimento.",
+      "invalid_deduction_kind": "Tipo de dedução desconhecido.",
+      "deduction_not_found": "Dedução não encontrada."
     },
     "comingNext": "Cobre seus clientes e acompanhe o que já foi pago e o que continua em aberto. É a próxima coisa sendo construída.",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "Arquivar",
         "restore": "Restaurar"
       }
+    },
+    "installments": {
+      "title": "Parcelar",
+      "splitIn": "Dividir em",
+      "splitHint": "partes iguais, uma por mês, a partir do vencimento",
+      "add": "Adicionar parcela",
+      "label": "Rótulo",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Soma {{total}}.",
+      "mismatch": "As parcelas somam {{scheduled}}, a cobrança {{total}}.",
+      "schedule": "Cronograma de pagamento",
+      "nextDue": "Próximo vencimento",
+      "dueDerived": "Definido pela última parcela.",
+      "count_one": "{{count}} parcela",
+      "count_other": "{{count}} parcelas",
+      "state": {
+        "open": "Em aberto",
+        "partial": "Parcial",
+        "paid": "Paga",
+        "overdue": "Vencida",
+        "draft": "Rascunho",
+        "void": "Cancelada",
+        "uncollectible": "Perda"
+      }
+    },
+    "deductions": {
+      "title": "Registrar dedução",
+      "description": "Fecha parte do que é devido sem dinheiro entrar: o cliente reteve imposto, o processador ficou com a taxa, a conversão veio menor. Conta como liquidado, nunca como recebido.",
+      "action": "Registrar dedução",
+      "recorded": "Dedução registrada",
+      "removed": "Dedução removida",
+      "amount": "Valor",
+      "amountHint": "Até o saldo: {{balance}}.",
+      "kindLabel": "Motivo",
+      "taxKind": "Qual imposto (opcional)",
+      "taxKindPlaceholder": "IRRF, ISS, INSS...",
+      "note": "Observação (opcional)",
+      "settledWithout": "Liquidado sem pagamento",
+      "kind": {
+        "withholding_tax": "Imposto retido pelo cliente",
+        "gateway_fee": "Taxa retida pelo processador",
+        "fx_difference": "Diferença de câmbio",
+        "other": "Outro"
+      },
+      "differenceTitle": "O pagamento veio {{difference}} menor",
+      "differenceHint": "Registre a diferença para a cobrança fechar",
+      "differenceNone": "Não registrar",
+      "figure": "Deduzido"
+    },
+    "statement": {
+      "asIssued": "Fatura como emitida",
+      "asIssuedHint": "O documento enviado ao cliente",
+      "hint": "Pagamentos e deduções desde a emissão, e o saldo",
+      "banner": "Este PDF é a fatura como foi emitida. Desde então foram recebidos {{paid}} e deduzidos {{deducted}}: o extrato mostra cada um e o saldo.",
+      "title": "Extrato da fatura"
     }
   },
   "collections": {
@@ -655,7 +717,9 @@
     "add": "Nova coleção",
     "edit": "Editar coleção",
     "empty": "Nenhuma coleção ainda. Crie uma para agrupar suas contas.",
-    "accountCount": "{{count}} contas",
+    "accountCount_one": "{{count}} conta",
+    "accountCount_many": "{{count}} contas",
+    "accountCount_other": "{{count}} contas",
     "name": "Nome",
     "namePlaceholder": "ex.: Empresa, Longo prazo, Reserva",
     "color": "Cor",
@@ -663,7 +727,9 @@
     "accountsHint": "{{count}} selecionada(s)",
     "wallets": "Carteiras",
     "walletsHint": "{{count}} selecionada(s)",
-    "walletCount": "{{count}} carteiras",
+    "walletCount_one": "{{count}} carteira",
+    "walletCount_many": "{{count}} carteiras",
+    "walletCount_other": "{{count}} carteiras",
     "noAccounts": "Nenhuma conta ainda.",
     "created": "Coleção criada",
     "updated": "Coleção atualizada",
@@ -823,6 +889,7 @@
     "monthNext": "Próximo mês",
     "description": "Descrição",
     "originalDescription": "Descrição original",
+    "restoreOriginalDescription": "Restaurar original",
     "amount": "Valor",
     "status": "Status",
     "date": "Data",
@@ -906,7 +973,7 @@
     "statusCleared": "Compensada",
     "sortAsc": "Ordem crescente",
     "sortDesc": "Ordem decrescente",
-    "syncedInfo": "Transação sincronizada — apenas categoria e notas podem ser editadas",
+    "syncedInfo": "Transação sincronizada: valor, data e conta não podem ser editados",
     "uncategorized": "Sem categoria",
     "selected": "selecionadas",
     "summaryCount": "{{count}} transações",
@@ -1098,6 +1165,7 @@
     "balanceDate": "Data do saldo",
     "lastSync": "Última sincronização",
     "multiInstitutionLink_one": "{{provider}} · {{count}} instituição",
+    "multiInstitutionLink_many": "{{provider}} · {{count}} instituições",
     "multiInstitutionLink_other": "{{provider}} · {{count}} instituições",
     "sync": "Sincronizar",
     "disconnect": "Desconectar",
@@ -1108,6 +1176,7 @@
     "noManualAccounts": "Nenhuma conta manual ainda",
     "noBankConnections": "Nenhuma conexão bancária",
     "noAccountsFound": "Nenhuma conta encontrada",
+    "emptyFiltered": "Nada corresponde a este filtro.",
     "accountName": "Nome da conta",
     "displayName": "Nome de exibição",
     "displayNameHint": "Substitui o nome padrão do provedor em todo o sistema.",
@@ -1522,8 +1591,12 @@
     "updated": "Categoria atualizada",
     "deleted": "Categoria excluída",
     "confirmDeleteTitle": "Excluir categoria?",
-    "confirmDeleteDescription": "A categoria \"{{name}}\" será excluída permanentemente. Ela não pode ser excluída enquanto transações ou outros registros ainda fizerem referência a ela; remova essas referências primeiro. Esta ação não pode ser desfeita.",
-    "deleteInUse": "Esta categoria ainda está em uso. Remova antes os registros que fazem referência a ela.",
+    "confirmDeleteDescription": "A categoria \"{{name}}\" será excluída permanentemente. Esta ação não pode ser desfeita.",
+    "deleteInUse": "Esta categoria ainda está em uso. Escolha outra categoria para receber os registros dela.",
+    "deleteInUseTitle": "Excluir {{name}}?",
+    "deleteInUseDescription": "Esta categoria ainda está em uso. Escolha outra para receber tudo: nada se perde, só muda de lugar.",
+    "deleteTransferLabel": "Mover tudo para",
+    "deleteAndTransfer": "Excluir e mover",
     "expandAll": "Expandir tudo",
     "collapseAll": "Recolher tudo",
     "treatAsTransfer": "Tratar como transferência",
@@ -1650,7 +1723,8 @@
       "invalid_date": "Formato de data inválido",
       "no_amount": "Nenhum valor de entrada ou saída",
       "invalid_amount": "Formato de valor inválido"
-    }
+    },
+    "selectAll": "Selecionar todos"
   },
   "assetImport": {
     "title": "Importar ordens de investimento",
@@ -1870,6 +1944,9 @@
     "inflowOutflow": "Entradas vs Saídas",
     "startingBalance": "Saldo Atual",
     "endingBalance": "Saldo Projetado",
+    "runwayNegativeOn": "O saldo fica negativo em {{date}}",
+    "runwayAlreadyNegative": "Já está negativo",
+    "lowestBalance": "Menor saldo",
     "projectedIncome": "Receita Projetada",
     "projectedExpenses": "Despesa Projetada",
     "incomeExpenses": "Receitas vs Despesas",
@@ -1999,6 +2076,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2073,6 +2151,8 @@
     "remove": "Remover"
   },
   "splitGroups": {
+    "searchPlaceholder": "Buscar grupos...",
+    "clearSearch": "Limpar busca",
     "title": "Grupos",
     "section": "Configuração",
     "add": "Adicionar grupo",

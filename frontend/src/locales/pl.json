@@ -236,7 +236,8 @@
       "downloadPdf": "Download PDF",
       "share": "Share link",
       "revokeLink": "Revoke link",
-      "saveDraft": "Zapisz szkic"
+      "saveDraft": "Zapisz szkic",
+      "downloadStatement": "Pobierz wyciąg"
     },
     "settings": {
       "title": "Invoice settings",
@@ -341,7 +342,13 @@
       "unit_price_required": "Cena wymaga kwoty.",
       "negative_price": "Cena nie może być ujemna.",
       "invalid_fiscal_refs": "Odniesienia podatkowe muszą być krótkimi wartościami tekstowymi pod prostymi kluczami (litery, cyfry, podkreślenie).",
-      "price_key_taken": "Inna cena już używa tego klucza wyszukiwania lub zewnętrznego identyfikatora."
+      "price_key_taken": "Inna cena już używa tego klucza wyszukiwania lub zewnętrznego identyfikatora.",
+      "installments_mismatch": "Raty nie sumują się do kwoty faktury.",
+      "installments_too_few": "Harmonogram wymaga co najmniej dwóch rat.",
+      "installment_amount_not_positive": "Każda rata musi mieć kwotę.",
+      "installment_due_required": "Każda rata wymaga terminu płatności.",
+      "invalid_deduction_kind": "Nieznany rodzaj potrącenia.",
+      "deduction_not_found": "Nie znaleziono potrącenia."
     },
     "comingNext": "Wystawiaj faktury klientom i śledź, co zostało zapłacone, a co wciąż jest otwarte. To następna rzecz w budowie.",
     "document": {
@@ -647,6 +654,61 @@
         "archive": "Archiwizuj",
         "restore": "Przywróć"
       }
+    },
+    "installments": {
+      "title": "Podziel na raty",
+      "splitIn": "Podziel na",
+      "splitHint": "równych części, co miesiąc, od terminu płatności",
+      "add": "Dodaj ratę",
+      "label": "Etykieta",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "Suma: {{total}}.",
+      "mismatch": "Raty sumują się do {{scheduled}}, faktura do {{total}}.",
+      "schedule": "Harmonogram płatności",
+      "nextDue": "Najbliższy termin",
+      "dueDerived": "Ustalany przez ostatnią ratę.",
+      "count_one": "{{count}} rata",
+      "count_other": "Raty: {{count}}",
+      "state": {
+        "open": "Otwarta",
+        "partial": "Częściowa",
+        "paid": "Opłacona",
+        "overdue": "Przeterminowana",
+        "draft": "Szkic",
+        "void": "Anulowana",
+        "uncollectible": "Nieściągalna"
+      }
+    },
+    "deductions": {
+      "title": "Zarejestruj potrącenie",
+      "description": "Zamyka część należności bez wpływu pieniędzy: klient potrącił podatek, operator płatności zatrzymał prowizję, przewalutowanie wyszło niżej. Liczy się jako rozliczone, nigdy jako otrzymane.",
+      "action": "Zarejestruj potrącenie",
+      "recorded": "Potrącenie zarejestrowane",
+      "removed": "Potrącenie usunięte",
+      "amount": "Kwota",
+      "amountHint": "Do wysokości salda: {{balance}}.",
+      "kindLabel": "Powód",
+      "taxKind": "Jaki podatek (opcjonalnie)",
+      "taxKindPlaceholder": "PIT, VAT, podatek u źródła...",
+      "note": "Notatka (opcjonalnie)",
+      "settledWithout": "Rozliczone bez płatności",
+      "kind": {
+        "withholding_tax": "Podatek potrącony przez klienta",
+        "gateway_fee": "Prowizja zatrzymana przez operatora płatności",
+        "fx_difference": "Różnica kursowa",
+        "other": "Inne"
+      },
+      "differenceTitle": "Płatność jest niższa o {{difference}}",
+      "differenceHint": "Zarejestruj różnicę, aby zamknąć fakturę",
+      "differenceNone": "Nie rejestruj",
+      "figure": "Potrącono"
+    },
+    "statement": {
+      "asIssued": "Faktura w wystawionej postaci",
+      "asIssuedHint": "Dokument wysłany do klienta",
+      "hint": "Płatności i potrącenia od wystawienia oraz saldo",
+      "banner": "Ten PDF to faktura w wystawionej postaci. Od tego czasu otrzymano {{paid}} i potrącono {{deducted}}: wyciąg pokazuje każdą pozycję i saldo.",
+      "title": "Wyciąg z konta"
     }
   },
   "collections": {
@@ -659,7 +721,10 @@
     "add": "Nowa kolekcja",
     "edit": "Edytuj kolekcję",
     "empty": "Brak kolekcji. Utwórz jedną, aby pogrupować konta.",
-    "accountCount": "{{count}} kont",
+    "accountCount_one": "{{count}} konto",
+    "accountCount_few": "{{count}} konta",
+    "accountCount_many": "{{count}} kont",
+    "accountCount_other": "{{count}} konta",
     "name": "Nazwa",
     "namePlaceholder": "np. Firma, Długoterminowe, Fundusz awaryjny",
     "color": "Kolor",
@@ -667,7 +732,10 @@
     "accountsHint": "Wybrano: {{count}}",
     "wallets": "Portfele",
     "walletsHint": "Wybrano: {{count}}",
-    "walletCount": "{{count}} portfeli",
+    "walletCount_one": "{{count}} portfel",
+    "walletCount_few": "{{count}} portfele",
+    "walletCount_many": "{{count}} portfeli",
+    "walletCount_other": "{{count}} portfela",
     "noAccounts": "Brak kont.",
     "created": "Utworzono kolekcję",
     "updated": "Zaktualizowano kolekcję",
@@ -833,6 +901,7 @@
     "monthNext": "Następny miesiąc",
     "description": "Opis",
     "originalDescription": "Oryginalny opis",
+    "restoreOriginalDescription": "Przywróć oryginał",
     "amount": "Kwota",
     "status": "Status",
     "date": "Data",
@@ -919,7 +988,7 @@
     "statusCleared": "Rozliczona",
     "sortAsc": "Sortuj rosnąco",
     "sortDesc": "Sortuj malejąco",
-    "syncedInfo": "Transakcja zsynchronizowana z bankiem — edytować można tylko kategorię i notatki",
+    "syncedInfo": "Transakcja zsynchronizowana z bankiem: kwoty, daty i konta nie można edytować",
     "uncategorized": "Nieskategoryzowane",
     "selected": "zaznaczono",
     "summaryCount_one": "{{count}} transakcja",
@@ -1147,6 +1216,7 @@
     "noManualAccounts": "Brak kont ręcznych",
     "noBankConnections": "Brak połączeń bankowych",
     "noAccountsFound": "Nie znaleziono kont",
+    "emptyFiltered": "Nic nie pasuje do tego filtra.",
     "accountName": "Nazwa konta",
     "displayName": "Nazwa wyświetlana",
     "displayNameHint": "Zastępuje domyślną nazwę dostawcy wszędzie w aplikacji.",
@@ -1588,8 +1658,12 @@
     "updated": "Zaktualizowano kategorię",
     "deleted": "Usunięto kategorię",
     "confirmDeleteTitle": "Usunąć kategorię?",
-    "confirmDeleteDescription": "Kategoria „{{name}}” zostanie trwale usunięta. Nie można jej usunąć, dopóki transakcje lub inne rekordy nadal się do niej odwołują; najpierw usuń te powiązania. Tej operacji nie można cofnąć.",
-    "deleteInUse": "Ta kategoria jest nadal używana. Najpierw usuń rekordy, które się do niej odwołują.",
+    "confirmDeleteDescription": "Kategoria „{{name}}” zostanie trwale usunięta. Tej operacji nie można cofnąć.",
+    "deleteInUse": "Ta kategoria jest nadal używana. Wybierz inną kategorię, do której trafią jej wpisy.",
+    "deleteInUseTitle": "Usunąć {{name}}?",
+    "deleteInUseDescription": "Ta kategoria jest nadal używana. Wybierz inną, która przejmie wszystko: nic nie ginie, tylko zmienia miejsce.",
+    "deleteTransferLabel": "Przenieś wszystko do",
+    "deleteAndTransfer": "Usuń i przenieś",
     "expandAll": "Rozwiń wszystkie",
     "collapseAll": "Zwiń wszystkie",
     "treatAsTransfer": "Traktuj jako transfer",
@@ -1734,7 +1808,8 @@
       "invalid_date": "Nieprawidłowy format daty",
       "no_amount": "Brak kwoty wpływu lub wypływu",
       "invalid_amount": "Nieprawidłowy format kwoty"
-    }
+    },
+    "selectAll": "Zaznacz wszystko"
   },
   "assetImport": {
     "title": "Importuj zlecenia inwestycyjne",
@@ -1954,6 +2029,9 @@
     "inflowOutflow": "Wpływy a wypływy",
     "startingBalance": "Saldo początkowe",
     "endingBalance": "Saldo prognozowane",
+    "runwayNegativeOn": "Saldo spadnie poniżej zera {{date}}",
+    "runwayAlreadyNegative": "Już na minusie",
+    "lowestBalance": "Najniższe saldo",
     "projectedIncome": "Prognozowane przychody",
     "projectedExpenses": "Prognozowane wydatki",
     "incomeExpenses": "Przychody a wydatki",
@@ -2089,6 +2167,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2166,6 +2245,8 @@
     "remove": "Usuń"
   },
   "splitGroups": {
+    "searchPlaceholder": "Szukaj grup...",
+    "clearSearch": "Wyczyść wyszukiwanie",
     "title": "Grupy",
     "section": "Konfiguracja",
     "add": "Dodaj grupę",

@@ -41,6 +41,9 @@ import {
 import { PageHeader } from '@/components/page-header'
 import { SectionCard, Segmented, StateBadge, TH } from '@/components/invoice-ui'
 import { InvoiceLineEditor } from '@/components/invoice-line-editor'
+import { InvoiceInstallmentsEditor } from '@/components/invoice-installments-editor'
+import { displayDue, installmentsTotal } from '@/lib/installment-utils'
+import { localToday } from '@/lib/invoice-schedule-utils'
 import { InvoiceLogoField } from '@/components/invoice-logo-field'
 import { CurrencySelect } from '@/components/currency-select'
 import { cn } from '@/lib/utils'
@@ -57,6 +60,7 @@ import {
   linesTotal,
 } from '@/lib/invoice-utils'
 import type {
+  InstallmentInput,
   Invoice,
   InvoiceDirection,
   InvoiceLineInput,
@@ -480,8 +484,13 @@ export default function InvoicesPage() {
                     </td>
                     <td className="py-3 hidden md:table-cell">
                       <span className="text-xs text-muted-foreground tabular-nums">
-                        {showDate(invoice.due_date)}
+                        {showDate(displayDue(invoice))}
                       </span>
+                      {invoice.installments.length > 0 && (
+                        <span className="ml-1.5 text-[11px] text-muted-foreground/70" data-testid="invoice-row-installments">
+                          {t('invoices.installments.count', { count: invoice.installments.length })}
+                        </span>
+                      )}
                       {invoice.days_overdue > 0 && (
                         <span className="ml-1.5 text-[11px] font-medium text-rose-500">
                           {t('invoices.daysLate', { count: invoice.days_overdue })}
@@ -560,6 +569,10 @@ function CreateInvoiceDialog({
   const [notes, setNotes] = useState('')
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [lines, setLines] = useState<InvoiceLineInput[]>([])
+  // Null is the ordinary invoice: one due date. A list is a schedule.
+  const [installments, setInstallments] = useState<InstallmentInput[] | null>(null)
+  const grossTotal = lines.length ? linesTotal(lines) : Number(total || 0)
+  const scheduleOff = installments !== null && Math.abs(installmentsTotal(installments) - grossTotal) >= 0.005
 
   const defs = customFieldDefs(settings?.template)
   const { user } = useAuth()
@@ -581,6 +594,7 @@ function CreateInvoiceDialog({
         // recomputes the total from them and ignores what was typed.
         ...(lines.length ? { lines } : { total }),
         ...(dueDate ? { due_date: dueDate } : {}),
+        ...(installments ? { installments } : {}),
         currency: currencyCode,
         notes: notes || null,
         ...(Object.keys(custom).length ? { custom_fields: custom } : {}),
@@ -603,6 +617,7 @@ function CreateInvoiceDialog({
       setCurrencyCode(user?.preferences?.currency_display ?? 'USD')
       setCustom({})
       setLines([])
+      setInstallments(null)
       onCreated(invoice)
     },
     onError: (error) => {
@@ -691,16 +706,20 @@ function CreateInvoiceDialog({
                 id="invoice-due"
                 data-testid="invoice-due-input"
                 type="date"
-                value={dueDate}
+                value={installments ? installments[installments.length - 1]?.due_date ?? '' : dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
+                // With a schedule, the due date is the last installment's.
+                disabled={installments !== null}
               />
               <p className="text-[11px] text-muted-foreground">
-                {t(
-                  direction === 'payable'
-                    ? 'invoices.field.dueDateHintPayable'
-                    : 'invoices.field.dueDateHint',
-                  { days: settings?.default_payment_terms_days ?? 30 },
-                )}
+                {installments
+                  ? t('invoices.installments.dueDerived')
+                  : t(
+                      direction === 'payable'
+                        ? 'invoices.field.dueDateHintPayable'
+                        : 'invoices.field.dueDateHint',
+                      { days: settings?.default_payment_terms_days ?? 30 },
+                    )}
               </p>
             </div>
           </div>
@@ -726,6 +745,14 @@ function CreateInvoiceDialog({
             // so the editor opens with an empty row rather than letting
             // the user discover the rule from a rejected submit.
             required={settings?.document_required ?? false}
+          />
+
+          <InvoiceInstallmentsEditor
+            value={installments}
+            onChange={setInstallments}
+            total={grossTotal}
+            currency={currencyCode}
+            firstDueDate={dueDate || localToday()}
           />
 
           <div className="space-y-1.5">
@@ -759,7 +786,7 @@ function CreateInvoiceDialog({
             </Button>
             <Button
               onClick={() => mutation.mutate(false)}
-              disabled={(lines.length ? linesTotal(lines) <= 0 : !total) || mutation.isPending}
+              disabled={(lines.length ? linesTotal(lines) <= 0 : !total) || scheduleOff || mutation.isPending}
               data-testid="invoice-create-submit"
             >
               {t('common.create')}

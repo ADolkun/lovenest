@@ -1,5 +1,4 @@
 """Real PostgreSQL report/API/MCP checks using the shared disposable schemas."""
-import os
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -7,10 +6,9 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
-from app.core.database import Base, get_async_session
+from app.core.database import get_async_session
 from app.main import app
 from app.models.transaction import Transaction
 from app.services import admin_service, report_service
@@ -19,31 +17,6 @@ from mcp_server.auth import CallContext
 from mcp_server.registry import REGISTRY
 
 pytestmark = pytest.mark.asyncio
-
-
-@pytest_asyncio.fixture
-async def postgres_sessions():
-    """Give each PostgreSQL test its own schema, including under xdist."""
-    url = os.environ.get("POSTGRES_TEST_URL")
-    if not url:
-        if os.environ.get("CI"):
-            pytest.fail("CI must supply POSTGRES_TEST_URL for PostgreSQL tests")
-        pytest.skip("isolated PostgreSQL not configured")
-    schema = f"postgres_test_{uuid.uuid4().hex}"
-    pg_engine = create_async_engine(url)
-    scoped = pg_engine.execution_options(schema_translate_map={None: schema})
-    try:
-        async with pg_engine.begin() as conn:
-            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-        async with scoped.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        yield async_sessionmaker(scoped, expire_on_commit=False)
-    finally:
-        try:
-            async with pg_engine.begin() as conn:
-                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-        finally:
-            await pg_engine.dispose()
 
 
 @pytest_asyncio.fixture

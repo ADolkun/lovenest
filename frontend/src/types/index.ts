@@ -107,6 +107,14 @@ export interface CategoryRuleUsage {
   rules: { id: string; name: string }[]
 }
 
+/** Everything that still points at a category, used when deleting one. */
+export interface CategoryUsage {
+  transactions: number
+  budgets: number
+  recurring_transactions: number
+  rules: { id: string; name: string }[]
+}
+
 export interface CategoryGroup {
   id: string
   user_id: string
@@ -230,6 +238,13 @@ export interface TransactionInvoiceLink {
    *  ours, so the badge reads this instead. */
   external_number: string | null
   amount: string
+}
+
+/** A description used before, with the category and payee of its latest use. */
+export interface DescriptionSuggestion {
+  description: string
+  category_id: string | null
+  payee_id: string | null
 }
 
 export interface Transaction {
@@ -1002,6 +1017,9 @@ export interface ReportMeta {
   forecast_start_date?: string | null
   baseline_active?: boolean
   baseline_lookback_days?: number | null
+  runway_date?: string | null
+  lowest_balance?: number | null
+  lowest_balance_date?: string | null
 }
 
 export interface ReportCompositionItem {
@@ -1149,6 +1167,39 @@ export interface Product {
   invoice_count: number
 }
 
+export interface InstallmentInput {
+  due_date: string
+  amount: string
+  label?: string | null
+}
+
+export type InstallmentState = 'open' | 'partial' | 'paid' | 'overdue' | 'draft' | 'void' | 'uncollectible'
+
+export interface InvoiceInstallment {
+  id: string
+  position: number
+  label: string | null
+  due_date: string
+  amount: string
+  /** Derived: how much of it the settled money covers, first-to-last. */
+  settled: string
+  state: InstallmentState
+}
+
+export type DeductionKind = 'withholding_tax' | 'gateway_fee' | 'fx_difference' | 'other'
+
+/** Debt closed without money: tax withheld, a fee kept. Counts towards
+ *  settled, never towards received. */
+export interface InvoiceDeduction {
+  id: string
+  kind: DeductionKind
+  tax_kind: string | null
+  amount: string
+  note: string | null
+  transaction_id: string | null
+  deducted_at: string
+}
+
 export interface InvoiceAllocation {
   id: string
   transaction_id: string | null
@@ -1218,8 +1269,12 @@ export interface Invoice {
   tax_total: string
   total: string
   amount_paid: string
+  /** Settled without cash. Not part of `amount_paid`. */
+  amount_deducted: string
   balance: string
   days_overdue: number
+  /** The next date money is late after; null once nothing is owed. */
+  next_due_date: string | null
   notes: string | null
   internal_notes: string | null
   custom_fields: Record<string, string> | null
@@ -1245,6 +1300,8 @@ export interface Invoice {
   period_end: string | null
   lines: InvoiceLine[]
   allocations: InvoiceAllocation[]
+  installments: InvoiceInstallment[]
+  deductions: InvoiceDeduction[]
   created_at: string
 }
 
@@ -1429,6 +1486,8 @@ export interface InvoiceDocumentPayload {
   tax_total: string
   total: string
   amount_paid: string
+  /** Settled without money arriving: tax withheld, a fee kept. */
+  amount_deducted: string
   balance: string
   issuer: InvoiceDocumentParty
   client: InvoiceDocumentParty
@@ -1450,6 +1509,8 @@ export interface InvoiceDocumentPayload {
    *  that file is the document and the page below is only a summary of
    *  it — nothing here needs redrawing. */
   source_file: { id: string; filename: string; content_type: string } | null
+  /** The dates the money is expected on, when more than one. */
+  installments: { label: string | null; due_date: string; amount: string }[]
 }
 
 export interface IssuerTaxId {

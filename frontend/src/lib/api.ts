@@ -9,6 +9,7 @@ import type {
   AppSetting,
   Category,
   CategoryRuleUsage,
+  CategoryUsage,
   CategoryGroup,
   BankConnection,
   ConnectionSettings,
@@ -16,9 +17,12 @@ import type {
   AccountSummary,
   Collection,
   CreditCardBill,
+  DescriptionSuggestion,
   Transaction,
   Payee,
   PayeeSummary,
+  DeductionKind,
+  InstallmentInput,
   Invoice,
   InvoiceDirection,
   InvoiceDocumentPayload,
@@ -332,8 +336,14 @@ export const categories = {
     const { data } = await api.get(`/categories/${id}/rule-usage`)
     return data
   },
-  delete: async (id: string): Promise<void> => {
-    await api.delete(`/categories/${id}`)
+  usage: async (id: string): Promise<CategoryUsage> => {
+    const { data } = await api.get(`/categories/${id}/usage`)
+    return data
+  },
+  delete: async (id: string, transferToId?: string): Promise<void> => {
+    await api.delete(`/categories/${id}`, {
+      params: transferToId ? { transfer_to_category_id: transferToId } : undefined,
+    })
   },
 }
 
@@ -539,6 +549,10 @@ export const transactions = {
   },
   get: async (id: string): Promise<Transaction> => {
     const { data } = await api.get(`/transactions/${id}`)
+    return data
+  },
+  descriptionSuggestions: async (q: string, limit = 8): Promise<DescriptionSuggestion[]> => {
+    const { data } = await api.get('/transactions/description-suggestions', { params: { q, limit } })
     return data
   },
   create: async (transaction: TransactionEditPayload): Promise<Transaction> => {
@@ -917,8 +931,8 @@ export interface GroupSettlementPayload {
 }
 
 export const groups = {
-  list: async (includeArchived = false): Promise<Group[]> => {
-    const { data } = await api.get('/groups', { params: { include_archived: includeArchived } })
+  list: async (includeArchived = false, filters: { q?: string; status?: 'active' | 'archived' | 'all' } = {}): Promise<Group[]> => {
+    const { data } = await api.get('/groups', { params: { include_archived: includeArchived, ...filters } })
     return data
   },
   get: async (id: string): Promise<Group> => {
@@ -1960,6 +1974,8 @@ export interface InvoiceWritePayload {
   internal_notes?: string | null
   custom_fields?: Record<string, string> | null
   lines?: InvoiceLineInput[]
+  /** More than one due date. Must add up to the total; an empty list clears it. */
+  installments?: InstallmentInput[]
 }
 
 export interface MakeRecurringPayload {
@@ -2133,6 +2149,18 @@ export const invoices = {
     })
     return data
   },
+  /** Close part of the debt without money: tax withheld, a fee kept. */
+  deduct: async (
+    id: string,
+    payload: { kind: DeductionKind; amount: string; tax_kind?: string | null; note?: string | null; transaction_id?: string | null },
+  ): Promise<Invoice> => {
+    const { data } = await api.post(`/invoices/${id}/deductions`, payload)
+    return data
+  },
+  undeduct: async (id: string, deductionId: string): Promise<Invoice> => {
+    const { data } = await api.delete(`/invoices/${id}/deductions/${deductionId}`)
+    return data
+  },
   unallocate: async (id: string, allocationId: string): Promise<Invoice> => {
     const { data } = await api.delete(`/invoices/${id}/allocations/${allocationId}`)
     return data
@@ -2166,6 +2194,11 @@ export const invoices = {
    *  adds, which a plain <a href> would not carry. */
   pdf: async (id: string): Promise<Blob> => {
     const { data } = await api.get(`/invoices/${id}/pdf`, { responseType: 'blob' })
+    return data
+  },
+  /** The statement of account: payments and deductions since issue. */
+  statement: async (id: string): Promise<Blob> => {
+    const { data } = await api.get(`/invoices/${id}/statement`, { responseType: 'blob' })
     return data
   },
   share: async (id: string): Promise<InvoiceShareLink> => {

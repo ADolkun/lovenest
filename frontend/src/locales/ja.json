@@ -236,7 +236,8 @@
       "downloadPdf": "PDFをダウンロード",
       "share": "リンクを共有",
       "revokeLink": "リンクを失効",
-      "saveDraft": "下書き保存"
+      "saveDraft": "下書き保存",
+      "downloadStatement": "明細書をダウンロード"
     },
     "settings": {
       "title": "請求書設定",
@@ -341,7 +342,13 @@
       "unit_price_required": "価格には金額が必要です。",
       "negative_price": "価格をマイナスにはできません。",
       "invalid_fiscal_refs": "税務参照コードは、シンプルなキー(英字、数字、アンダースコア)の下にある短いテキスト値である必要があります。",
-      "price_key_taken": "別の価格がすでにこの検索キーまたは外部IDを使用しています。"
+      "price_key_taken": "別の価格がすでにこの検索キーまたは外部IDを使用しています。",
+      "installments_mismatch": "分割の合計が請求書の合計と一致しません。",
+      "installments_too_few": "分割払いには2回以上の分割が必要です。",
+      "installment_amount_not_positive": "各分割には金額が必要です。",
+      "installment_due_required": "各分割には期日が必要です。",
+      "invalid_deduction_kind": "不明な控除の種類です。",
+      "deduction_not_found": "控除が見つかりません。"
     },
     "comingNext": "クライアントに請求し、支払い済みのものと未払いのものを管理します。現在開発中の次の機能です。",
     "document": {
@@ -643,6 +650,61 @@
         "archive": "アーカイブ",
         "restore": "復元"
       }
+    },
+    "installments": {
+      "title": "分割払いにする",
+      "splitIn": "分割数",
+      "splitHint": "回に均等分割、1か月間隔、支払期日から",
+      "add": "分割を追加",
+      "label": "ラベル",
+      "labelPlaceholder": "{{n}}/{{total}}",
+      "addsUp": "合計 {{total}}。",
+      "mismatch": "分割の合計は {{scheduled}}、請求書は {{total}} です。",
+      "schedule": "支払いスケジュール",
+      "nextDue": "次回期日",
+      "dueDerived": "最後の分割で決まります。",
+      "count_one": "{{count}} 回払い",
+      "count_other": "{{count}} 回払い",
+      "state": {
+        "open": "未回収",
+        "partial": "一部入金",
+        "paid": "入金済み",
+        "overdue": "延滞",
+        "draft": "下書き",
+        "void": "無効",
+        "uncollectible": "回収不能"
+      }
+    },
+    "deductions": {
+      "title": "控除を記録",
+      "description": "入金なしで債権の一部を消し込みます。取引先が源泉徴収した、決済業者が手数料を差し引いた、為替換算で目減りした、といった場合です。回収済みではなく、精算済みとして扱われます。",
+      "action": "控除を記録",
+      "recorded": "控除を記録しました",
+      "removed": "控除を削除しました",
+      "amount": "金額",
+      "amountHint": "残高まで: {{balance}}。",
+      "kindLabel": "理由",
+      "taxKind": "税の種類(任意)",
+      "taxKindPlaceholder": "源泉所得税、消費税...",
+      "note": "メモ(任意)",
+      "settledWithout": "入金なしで精算",
+      "kind": {
+        "withholding_tax": "取引先による源泉徴収",
+        "gateway_fee": "決済業者が差し引いた手数料",
+        "fx_difference": "為替換算差額",
+        "other": "その他"
+      },
+      "differenceTitle": "入金が {{difference}} 不足しています",
+      "differenceHint": "差額を記録すると請求書が完了します",
+      "differenceNone": "記録しない",
+      "figure": "控除額"
+    },
+    "statement": {
+      "asIssued": "発行時の請求書",
+      "asIssuedHint": "顧客に送付した書類",
+      "hint": "発行後の入金と控除、および残高",
+      "banner": "このPDFは発行時の請求書です。その後 {{paid}} が入金され、{{deducted}} が控除されました。明細書で各項目と残高を確認できます。",
+      "title": "取引明細書"
     }
   },
   "collections": {
@@ -655,7 +717,8 @@
     "add": "新規コレクション",
     "edit": "コレクションを編集",
     "empty": "コレクションはまだありません。作成して口座をまとめましょう。",
-    "accountCount": "{{count}}口座",
+    "accountCount_one": "{{count}}口座",
+    "accountCount_other": "{{count}}口座",
     "name": "名前",
     "namePlaceholder": "例: ビジネス、長期、緊急予備金",
     "color": "色",
@@ -663,7 +726,8 @@
     "accountsHint": "{{count}}件選択中",
     "wallets": "ウォレット",
     "walletsHint": "{{count}}件選択中",
-    "walletCount": "{{count}}ウォレット",
+    "walletCount_one": "{{count}}ウォレット",
+    "walletCount_other": "{{count}}ウォレット",
     "noAccounts": "口座はまだありません。",
     "created": "コレクションを作成しました",
     "updated": "コレクションを更新しました",
@@ -823,6 +887,7 @@
     "monthNext": "翌月",
     "description": "摘要",
     "originalDescription": "元の摘要",
+    "restoreOriginalDescription": "元に戻す",
     "amount": "金額",
     "status": "ステータス",
     "date": "日付",
@@ -906,7 +971,7 @@
     "statusCleared": "清算済み",
     "sortAsc": "昇順で並べ替え",
     "sortDesc": "降順で並べ替え",
-    "syncedInfo": "銀行同期の取引 — 編集できるのはカテゴリとメモのみです",
+    "syncedInfo": "銀行同期の取引：金額、日付、口座は編集できません",
     "uncategorized": "未分類",
     "selected": "件選択中",
     "summaryCount": "{{count}}件",
@@ -1107,6 +1172,7 @@
     "noManualAccounts": "手動の口座はまだありません",
     "noBankConnections": "銀行接続はありません",
     "noAccountsFound": "口座が見つかりません",
+    "emptyFiltered": "このフィルタに一致するものはありません。",
     "accountName": "口座名",
     "displayName": "表示名",
     "displayNameHint": "アプリ全体でプロバイダーの既定名を上書きします。",
@@ -1521,8 +1587,12 @@
     "updated": "カテゴリを更新しました",
     "deleted": "カテゴリを削除しました",
     "confirmDeleteTitle": "カテゴリを削除しますか?",
-    "confirmDeleteDescription": "カテゴリ「{{name}}」を完全に削除します。取引などのレコードがまだ参照している間は削除できません。先にそれらの参照を取り除いてください。この操作は取り消せません。",
-    "deleteInUse": "このカテゴリは使用中です。参照しているレコードを先に取り除いてください。",
+    "confirmDeleteDescription": "カテゴリ「{{name}}」を完全に削除します。この操作は取り消せません。",
+    "deleteInUse": "このカテゴリはまだ使われています。記録の移動先となるカテゴリを選んでください。",
+    "deleteInUseTitle": "「{{name}}」を削除しますか？",
+    "deleteInUseDescription": "このカテゴリはまだ使われています。すべてを引き継ぐカテゴリを選んでください。失われるものはなく、移動するだけです。",
+    "deleteTransferLabel": "すべての移動先",
+    "deleteAndTransfer": "削除して移動",
     "expandAll": "すべて展開",
     "collapseAll": "すべて折りたたむ",
     "treatAsTransfer": "振替として扱う",
@@ -1649,7 +1719,8 @@
       "invalid_date": "無効な日付形式",
       "no_amount": "入金/出金金額なし",
       "invalid_amount": "無効な金額形式"
-    }
+    },
+    "selectAll": "すべて選択"
   },
   "assetImport": {
     "title": "投資注文をインポート",
@@ -1869,6 +1940,9 @@
     "inflowOutflow": "流入と流出",
     "startingBalance": "期首残高",
     "endingBalance": "予測残高",
+    "runwayNegativeOn": "{{date}}に残高がマイナスになります",
+    "runwayAlreadyNegative": "すでにマイナス",
+    "lowestBalance": "最低残高",
     "projectedIncome": "予測収入",
     "projectedExpenses": "予測支出",
     "incomeExpenses": "収入と支出",
@@ -1998,6 +2072,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2072,6 +2147,8 @@
     "remove": "削除"
   },
   "splitGroups": {
+    "searchPlaceholder": "グループを検索...",
+    "clearSearch": "検索をクリア",
     "title": "グループ",
     "section": "設定",
     "add": "グループを追加",

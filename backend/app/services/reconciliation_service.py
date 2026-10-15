@@ -85,15 +85,25 @@ def _as_expectation(invoice: Invoice) -> Expectation:
     The amount is the **balance**, never the total: an invoice half paid
     expects the other half, and a market that pays by Pix pays in parts.
     """
+    # In installments, what is expected next is the next one, not the
+    # whole balance: the date it is due, and the amounts at which one,
+    # two or all of the remaining ones close.
+    remaining = invoice_service.open_installments(invoice)
+    stops: list[Decimal] = []
+    running = Decimal("0")
+    for _, remainder in remaining:
+        running += remainder
+        stops.append(running)
     return Expectation(
         kind="invoice",
         id=invoice.id,
         amount=invoice_service.balance(invoice),
+        stops=tuple(stops),
         currency=invoice.currency,
         # A receivable is settled by money coming in, a payable by money
         # going out. The engine refuses a candidate facing the wrong way.
         direction="credit" if invoice.direction == "receivable" else "debit",
-        when=invoice.due_date,
+        when=remaining[0][0] if remaining else invoice.due_date,
         # Both dates: late is measured from the due date, early from the
         # day the document was written.
         issued=invoice.issue_date,
@@ -462,7 +472,11 @@ async def match_for_invoice(
     if not policy["strategies"]:
         return None
 
-    window_start = invoice.due_date - timedelta(days=LOOKBACK_DAYS)
+    # From the first date money is owed, not the invoice's due date: in
+    # installments that is the last one, and the upfront payment made the
+    # day the document was written would sit months before the window.
+    anchor = invoice_service.first_unpaid_due(invoice) or invoice.due_date
+    window_start = min(anchor, invoice.issue_date) - timedelta(days=LOOKBACK_DAYS)
     wanted_direction = "credit" if invoice.direction == "receivable" else "debit"
 
     # Not narrowed by payee any more. The old query could afford it
