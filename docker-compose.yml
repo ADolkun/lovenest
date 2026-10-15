@@ -119,17 +119,29 @@ services:
       timeout: 3s
       retries: 5
 
+  # One-shot migration job. Everything that touches the schema waits for it
+  # to exit 0, so workers never race `alembic upgrade head`, and a failed
+  # migration stops the stack instead of serving a half-migrated database.
+  migrate:
+    <<: *backend-base
+    restart: "no"
+    command: alembic upgrade head
+
   backend:
     <<: *backend-base
+    # depends_on replaces the one from *backend-base (YAML merge is shallow),
+    # so db/redis are repeated alongside the migrate gate.
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 5s
       timeout: 6s
       start_period: 30s
       retries: 12
-    command:
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port
-      8000 --reload"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "${BACKEND_PORT:-8000}:8000"
 
@@ -154,15 +166,23 @@ services:
 
   celery-worker:
     <<: *backend-base
+    # depends_on replaces the one from *backend-base (YAML merge is shallow),
+    # so db/redis are repeated alongside the migrate gate.
     depends_on:
-      backend: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     # Limit to 2 workers to save RAM (default = number of CPUs).
     command: celery -A app.worker worker --loglevel=info --concurrency=2
 
   celery-beat:
     <<: *backend-base
+    # depends_on replaces the one from *backend-base (YAML merge is shallow),
+    # so db/redis are repeated alongside the migrate gate.
     depends_on:
-      backend: { condition: service_healthy }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     command: celery -A app.worker beat --loglevel=info
 
   # Optional: Securo built-in MCP server. Only starts under the `agents`
@@ -176,9 +196,13 @@ services:
   # AGENTS_MCP_EXTERNAL_HOST_PORT to e.g. "0.0.0.0:8765" to expose to LAN.
   mcp-server:
     <<: *backend-base
-    depends_on:
-      backend: { condition: service_healthy }
     profiles: [agents]
+    # depends_on replaces the one from *backend-base (YAML merge is shallow),
+    # so db/redis are repeated alongside the migrate gate.
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     command: uvicorn mcp_server.main:app --host 0.0.0.0 --port 8765
     ports:
       - "${AGENTS_MCP_EXTERNAL_HOST_PORT:-127.0.0.1:8765}:8765"
