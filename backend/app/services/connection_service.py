@@ -1311,6 +1311,7 @@ async def _find_existing_connected_account(
     acc_data: AccountData,
     institution: Optional[Institution],
     incoming_external_ids: set[str],
+    incoming_institution_external_ids: frozenset[str] = frozenset(),
 ) -> Optional[Account]:
     """Find an existing account for incoming provider account data.
 
@@ -1354,10 +1355,19 @@ async def _find_existing_connected_account(
             # Re-linking a bank in SimpleFIN Bridge can send it under a new
             # conn_id, so _resolve_institution just minted a fresh row while
             # the account still points at the old, same-named one.
+            #
+            # Only a conn_id this pull no longer carries can have been
+            # re-linked. A bank still listed under its own conn_id was not,
+            # so a same-named one arriving beside it is a second login at
+            # that bank (SimpleFIN has no account number to tell them apart,
+            # and two logins at one bank share its name). Adopting its
+            # account would point the user's existing row, display name and
+            # history at the other login's feed.
             same_name_ids = set((await session.execute(
                 select(Institution.id).where(
                     Institution.connection_id == connection.id,
                     Institution.name == institution.name,
+                    Institution.external_id.not_in(incoming_institution_external_ids),
                 )
             )).scalars().all())
             matched_institution = [
@@ -2002,6 +2012,11 @@ async def sync_connection(
         live_txn_external_ids: dict[uuid.UUID, set[str]] = {}
         accounts_data = await provider.get_accounts(credentials)
         incoming_external_ids = {acc.external_id for acc in accounts_data}
+        incoming_institution_external_ids = frozenset(
+            acc.institution_external_id
+            for acc in accounts_data
+            if acc.institution_external_id
+        )
         institution_cache: dict[str, Institution] = {}
         for acc_data in accounts_data:
             institution = await _resolve_institution(
@@ -2013,6 +2028,7 @@ async def sync_connection(
                 acc_data,
                 institution,
                 incoming_external_ids,
+                incoming_institution_external_ids,
             )
 
             if account is not None:
