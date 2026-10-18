@@ -32,7 +32,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, AsyncIterator, Iterable, Optional
+from typing import Any, AsyncGenerator, Iterable, Optional
 
 import httpx
 
@@ -654,7 +654,7 @@ def _client() -> httpx.AsyncClient:
 
 
 @asynccontextmanager
-async def session() -> AsyncIterator[httpx.AsyncClient]:
+async def session() -> AsyncGenerator[httpx.AsyncClient]:
     """One client for a whole walk, so its hundreds of calls share connections.
 
     A client per request costs a TCP and TLS handshake per request, which
