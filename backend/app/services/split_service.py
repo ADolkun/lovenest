@@ -20,6 +20,7 @@ from app.schemas.transaction_split import (
     TransactionSplitsInput,
 )
 from app.services.group_service import _visible_predicate
+from app.services.reimbursement_service import ensure_unlinked
 
 _CENT = Decimal("0.01")
 
@@ -126,6 +127,13 @@ async def replace_splits(
     """
     if payload is None:
         return
+    if payload.splits:
+        await ensure_unlinked(
+            session,
+            [transaction.id],
+            "This transaction is linked as a reimbursement. Remove its reimbursement "
+            "links before splitting it with a group.",
+        )
 
     # Always start by clearing existing splits — replace semantics keep
     # the create/update paths trivially consistent.

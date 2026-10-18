@@ -50,7 +50,7 @@ from app.schemas.bank_connection import ProviderAccountRead
 from app.services import asset_transaction_service
 from app.services import oauth_state
 from app.services import admin_service
-from app.services import reconciliation_service, recurring_match_service
+from app.services import reconciliation_service, recurring_match_service, reimbursement_service
 from app.services.text_similarity import token_overlap
 from app.services.account_service import (
     _simplefin_to_internal_balance,
@@ -2304,6 +2304,9 @@ async def _promote_synced_transaction(
                 ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 allocated += split.share_amount
             splits[-1].share_amount = new_total - allocated
+        # Only a pending row is promoted and a pending row can't be linked,
+        # so this is a backstop for the invariant reporting relies on.
+        await reimbursement_service.fit_links_to_amount(session, transaction)
 
         if pair_id is not None:
             await session.execute(
@@ -2720,7 +2723,10 @@ async def _sync_bill_finance_charges(
         )
 
         if existing:
+            amount_changed = existing.amount != abs(amount)
             existing.amount = abs(amount)
+            if amount_changed:
+                await reimbursement_service.fit_links_to_amount(session, existing)
             existing.description = description
             existing.date = charge_date
             existing.effective_date = bill.due_date
@@ -2963,6 +2969,7 @@ async def sync_connection(
         user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
         synced_account_rows: list[Account] = []
+        moved_account_ids: list[uuid.UUID] = []
         merged_count = 0
         provider_accounts = await provider.get_accounts(credentials)
         _record_seen_accounts(connection, provider_accounts)
@@ -2993,6 +3000,7 @@ async def sync_connection(
                     )
                     .values(user_id=user_id, workspace_id=connection.workspace_id)
                 )
+                moved_account_ids.append(account.id)
                 await session.execute(
                     update(CreditCardBill)
                     .where(CreditCardBill.account_id == account.id)
@@ -3367,6 +3375,7 @@ async def sync_connection(
                 )
 
         syncing_account_id = None
+        await reimbursement_service.rehome_links_for_accounts(session, moved_account_ids)
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:

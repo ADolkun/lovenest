@@ -41,6 +41,7 @@ import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import { TransactionSplitsSection } from '@/components/transaction-splits-section'
+import { TransactionReimbursements } from '@/components/transaction-reimbursements'
 import { buildInstallmentSeriesInput, hasNonStatusChange, isManualInstallmentSeriesRow } from '@/lib/installment-series'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import type { Transaction, RecurringTransaction, TransactionSplitsInput, TransactionEditPayload, InstallmentSeriesInput, TransactionApplyScope, CategoryGroup, Category, Rule, RuleCondition, RuleConditionNode } from '@/types'
@@ -1216,6 +1217,11 @@ function TransactionForm({
             </span>
           </span>
         </label>
+      )}
+
+      {/* A transfer never reaches P&L, and a shared row is the owner's to edit. */}
+      {transaction && !transaction.transfer_pair_id && !transaction.is_shared && (
+        <TransactionReimbursements transaction={transaction} />
       )}
 
       {/* Manual bill-cycle override (issue #92). CC accounts only. Empty

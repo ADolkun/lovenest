@@ -20,6 +20,9 @@ import type {
   Collection,
   CreditCardBill,
   Transaction,
+  ReimbursementAllocation,
+  ReimbursementCandidate,
+  ReimbursementLink,
   Payee,
   PayeeSummary,
   DeductionKind,
@@ -753,6 +756,24 @@ export const transactions = {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+  },
+  reimbursements: {
+    list: async (transactionId: string): Promise<ReimbursementLink[]> => {
+      const { data } = await api.get(`/transactions/${transactionId}/reimbursements`)
+      return data
+    },
+    /** Replaces the credit's whole set of links; an empty list unlinks all. */
+    replace: async (creditId: string, allocations: ReimbursementAllocation[]): Promise<ReimbursementLink[]> => {
+      const { data } = await api.put(`/transactions/${creditId}/reimbursements`, { allocations })
+      return data
+    },
+    unlink: async (transactionId: string, linkId: string): Promise<void> => {
+      await api.delete(`/transactions/${transactionId}/reimbursements/${linkId}`)
+    },
+    candidates: async (creditId: string, params?: { q?: string; limit?: number }): Promise<ReimbursementCandidate[]> => {
+      const { data } = await api.get(`/transactions/${creditId}/reimbursement-candidates`, { params })
+      return data
+    },
   },
   attachments: {
     list: async (transactionId: string): Promise<Attachment[]> => {

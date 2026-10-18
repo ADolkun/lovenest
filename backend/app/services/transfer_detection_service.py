@@ -56,7 +56,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.transaction import Transaction
-from app.services import reconciliation_policy
+from app.services import reconciliation_policy, reimbursement_service
+from app.services._query_filters import has_reimbursement_links
 from app.services import reconciliation_rule_service as rule_service
 from app.services import reconciliation_suggestion_service as suggestions
 from app.services.reconciliation_engine import (
@@ -228,10 +229,15 @@ async def _pool(
     excluded: list[dict[str, Any]],
     accounts: dict[uuid.UUID, Account],
 ) -> list[Transaction]:
-    """Every row still looking for its other half."""
+    """Every row still looking for its other half.
+
+    A row linked as a reimbursement already has its counterpart: the expense
+    or credit it is booked against, which is not the other leg of a transfer.
+    """
     query = select(Transaction).where(
         Transaction.workspace_id == workspace_id,
         Transaction.transfer_pair_id.is_(None),
+        ~has_reimbursement_links(),
     )
     if ignored_sources:
         query = query.where(Transaction.source.not_in(ignored_sources))
@@ -356,7 +362,7 @@ async def detect_transfer_pairs(
 
     # Pass one: the pairs both sides agree on.
     paired: set[uuid.UUID] = set()
-    pairs_created = 0
+    agreed: list[tuple[Transaction, Transaction]] = []
     for tx_id, (decision, _movement, tx) in decisions.items():
         expectation = decision.expectation
         if decision.port != "linked" or tx_id in paired or expectation is None:
@@ -376,10 +382,22 @@ async def detect_transfer_pairs(
             # queue is where that gets settled.
             continue
 
+        agreed.append((tx, other_tx))
+        paired.update({tx_id, other_id})
+
+    # The pool was read without locks, so a reimbursement link may have
+    # landed on a leg since. Such a pair is dropped, and stays in `paired`
+    # so pass two does not ask about it either.
+    legs = [leg.id for pair in agreed for leg in pair]
+    await reimbursement_service.lock_rows(session, legs)
+    linked = await reimbursement_service.linked_totals(session, legs)
+    pairs_created = 0
+    for tx, other_tx in agreed:
+        if tx.id in linked or other_tx.id in linked:
+            continue
         pair_id = uuid.uuid4()
         tx.transfer_pair_id = pair_id
         other_tx.transfer_pair_id = pair_id
-        paired.update({tx_id, other_id})
         pairs_created += 1
 
     # Pass two: everything that looked like a transfer and was not certain.

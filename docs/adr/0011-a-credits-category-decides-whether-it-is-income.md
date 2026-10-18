@@ -35,6 +35,14 @@ categories; they now use `user_pnl_expense_amount` too. The transaction list
 takes `pnl_group` so a category drill-down can show the credits that reduced
 its figure alongside the debits that made it.
 
+Projected figures follow the same definition. Pending and future-dated rows
+are classified by the same SQL as posted ones, so a pending refund filed
+under Dining lowers Dining's projected spending instead of adding projected
+income. A recurring rule's projection has no row for that SQL to read, so its
+credit is classified from the rule the way `spending_offset_filter` would
+classify the row it will become: by the rule's category, and without one,
+as an offset only on a credit card.
+
 Per-account statistics are not user P&L — they track cash through one account —
 and keep their own rule.
 

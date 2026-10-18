@@ -764,6 +764,7 @@ export default function AccountDetailPage() {
       effective_bill_date: null,
       recurring_transaction_id: p.recurring_id,
       splits: [],
+      reimbursement_links: [],
       is_ignored: false,
       virtual: true,
       runningBalance: 0,
