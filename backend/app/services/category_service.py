@@ -306,6 +306,9 @@ async def get_category_usage(
     return CategoryUsage(**counts, rules=rules)
 
 
+_Limit = tuple[Decimal, Decimal | None]
+
+
 async def _merge_budgets(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -345,27 +348,46 @@ async def _merge_budgets(
         .scalars()
         .all()
     )
-    # Readers resolve budgets by workspace/category, regardless of who wrote
-    # each row. Keep the surviving row's attribution without splitting its limit.
+    # Readers take every member's row in a category's latest slot, so the rows
+    # of each (month, kind) slot must add up to both categories' limits. Each
+    # member keeps one row carrying their own limits, as the unique constraint
+    # requires; a limit whose author has no row in the slot (the other
+    # category's carried-over default) lands on a kept row, destination first.
     ordered = sorted([*moving, *existing], key=lambda b: (b.month, not b.is_recurring))
-    recurring: dict[uuid.UUID, tuple[Decimal, Decimal | None]] = {}
+    recurring: dict[uuid.UUID, dict[uuid.UUID, _Limit]] = {}
     for (_, is_recurring), slot in groupby(ordered, key=lambda b: (b.month, b.is_recurring)):
         rows = list(slot)
-        amounts = {b.category_id: (b.amount, b.amount_primary) for b in rows}
+        limits: dict[uuid.UUID, dict[uuid.UUID, _Limit]] = {}
+        for budget in rows:
+            limits.setdefault(budget.category_id, {})[budget.user_id] = (
+                budget.amount, budget.amount_primary,
+            )
         if is_recurring:
             # Store immutable amounts before changing any ORM row. An
             # override below must still see each original category's limit.
-            recurring.update(amounts)
-        effective = recurring if is_recurring else recurring | amounts
-        target = next((b for b in rows if b.category_id == destination_id), rows[0])
-        target.category_id = destination_id
-        target.amount = sum((amount for amount, _ in effective.values()), Decimal("0"))
-        primary = [value for _, value in effective.values() if value is not None]
-        target.amount_primary = (
-            sum(primary, Decimal("0")) if len(primary) == len(effective) else None
-        )
+            recurring.update(limits)
+        effective = recurring if is_recurring else recurring | limits
+
+        # Keeping the destination row means no source row is moved onto a
+        # slot the same member still holds, which would fail at flush.
+        kept: dict[uuid.UUID, Budget] = {}
+        for budget in sorted(rows, key=lambda b: b.category_id != destination_id):
+            kept.setdefault(budget.user_id, budget)
+        fallback = next(iter(kept))
+        shares: dict[uuid.UUID, list[_Limit]] = {user_id: [] for user_id in kept}
+        for by_user in effective.values():
+            for user_id, limit in by_user.items():
+                shares[user_id if user_id in kept else fallback].append(limit)
+
+        for user_id, target in kept.items():
+            target.category_id = destination_id
+            target.amount = sum((amount for amount, _ in shares[user_id]), Decimal("0"))
+            primary = [value for _, value in shares[user_id] if value is not None]
+            target.amount_primary = (
+                sum(primary, Decimal("0")) if len(primary) == len(shares[user_id]) else None
+            )
         for budget in rows:
-            if budget is not target:
+            if kept[budget.user_id] is not budget:
                 await session.delete(budget)
 
 
