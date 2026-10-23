@@ -91,14 +91,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   // or this tab shows the other workspace's data under the old name.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue || event.newValue === currentId) return
-      if (list.some((w) => w.id === event.newValue)) setCurrentId(event.newValue)
-      else void refresh()
-      void queryClient.resetQueries()
+      if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue) return
+      const id = event.newValue
+      if (list.some((w) => w.id === id)) {
+        setCurrentId(id)
+        void queryClient.resetQueries()
+      } else {
+        void refresh().then(() => queryClient.resetQueries())
+      }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
-  }, [currentId, list, queryClient, refresh])
+  }, [list, queryClient, refresh])
 
   const current = useMemo(
     () => list.find((w) => w.id === currentId) ?? null,
