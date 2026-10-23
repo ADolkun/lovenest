@@ -2748,9 +2748,9 @@ function AssetTransactionsTab({
         </div>
       ) : visibleTransactions.length === 0 ? (
         holdingsWithoutCost.length === 0 ? (
-          <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden text-center py-16 text-muted-foreground">
-            <TrendingUp size={32} className="mx-auto mb-2 opacity-50" />
-            <p>{t('assets.noTransactions')}</p>
+          <div className="py-10 text-center">
+            <TrendingUp className="mx-auto mb-3 size-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">{t('assets.noTransactions')}</p>
           </div>
         ) : null
       ) : (

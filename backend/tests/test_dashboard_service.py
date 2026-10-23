@@ -24,6 +24,7 @@ from app.services.dashboard_service import (
     get_projected_transactions,
 )
 from app.services.transaction_service import get_transactions
+from tests.test_dashboard_service_coverage import _register_sqlite_to_char
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +448,7 @@ async def test_closed_account_balance_stays_out_of_current_totals(
 async def test_spending_and_trend_keep_closed_account_history(
     session: AsyncSession, test_user, test_workspace
 ):
+    await _register_sqlite_to_char(session)
     cat = await _make_category(session, test_user.id, "Savings fees")
     closed_account = await _make_account(
         session, test_user.id, "Closed saver", is_closed=True

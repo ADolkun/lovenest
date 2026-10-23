@@ -161,8 +161,8 @@ class ReimbursementLinkRead(BaseModel):
 
     On a credit the counterpart is an expense it repays; on a debit it is a
     credit that repaid it. `amount` is in `currency`, which both rows share.
-    `in_effect` is false while either row is left out of user P&L or sits on
-    a closed account; reporting then ignores the link (ADR 0012).
+    `in_effect` is false while either row is left out of user P&L; reporting
+    then ignores the link (ADR 0012).
     """
 
     id: uuid.UUID

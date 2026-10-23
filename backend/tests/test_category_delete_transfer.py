@@ -444,39 +444,38 @@ async def test_category_transfer_preserves_effective_budget_schedule(
     ("source_rows", "destination_rows", "expected"),
     [
         pytest.param(
-            [("first", 1, "100", True), ("second", 1, "200", True)], [],
-            [(1, True, {"first": "100", "second": "200"})],
-            id="both-members-on-source",
+            [("first", 1, "100", True)], [("second", 1, "200", True)],
+            {1: "300", 2: "300"},
+            id="members-on-different-categories",
         ),
         pytest.param(
-            [("first", 1, "50", True)],
-            [("first", 1, "100", True), ("second", 1, "200", True)],
-            [(1, True, {"first": "150", "second": "200"})],
-            id="both-members-on-destination",
+            [("first", 2, "50", False)], [("second", 1, "200", True)],
+            {1: "200", 2: "250", 3: "200"},
+            id="override-by-another-member",
         ),
         pytest.param(
-            [("first", 2, "100", False), ("second", 2, "200", False)],
-            [("first", 1, "300", True)],
-            [(1, True, {"first": "300"}), (2, False, {"first": "400", "second": "200"})],
-            id="both-members-monthly-override",
+            [("second", 1, "100", True)], [("first", 1, "300", True), ("first", 2, "40", False)],
+            {1: "400", 2: "140", 3: "400"},
+            id="destination-override-keeps-source-default",
         ),
     ],
 )
-async def test_category_transfer_keeps_each_members_budget_on_a_shared_slot(
+async def test_category_transfer_adds_up_budgets_written_by_different_members(
     session: AsyncSession,
     test_user: User,
     test_workspace,
     test_categories: list[Category],
     source_rows: list[tuple[str, int, str, bool]],
     destination_rows: list[tuple[str, int, str, bool]],
-    expected: list[tuple[int, bool, dict[str, str]]],
+    expected: dict[int, str],
 ):
+    """Budget readers take one row per category and slot, whoever wrote it, so
+    the merged slot must carry both categories' limits on a single row."""
     source, destination = test_categories[:2]
     second = User(id=uuid.uuid4(), email="second-member@example.com", hashed_password="synthetic")
     session.add(second)
     await session.commit()
     members = {"first": test_user, "second": second}
-    names = {user.id: name for name, user in members.items()}
     workspace_id, destination_id = test_workspace.id, destination.id
     for category, rows in ((source, source_rows), (destination, destination_rows)):
         for member, month, amount, recurring in rows:
@@ -490,17 +489,12 @@ async def test_category_transfer_keeps_each_members_budget_on_a_shared_slot(
     )
 
     session.expire_all()
-    remaining = (
-        await session.execute(select(Budget).where(Budget.workspace_id == workspace_id))
-    ).scalars().all()
-    assert {b.category_id for b in remaining} == {destination_id}
-    for month, recurring, amounts in expected:
-        assert {
-            names[b.user_id]: b.amount
-            for b in remaining
-            if b.month == date(2025, month, 1) and b.is_recurring == recurring
-        } == {member: Decimal(amount) for member, amount in amounts.items()}
-    assert len(remaining) == sum(len(amounts) for _, _, amounts in expected)
+    for month, amount in expected.items():
+        budget_map = await budget_service._build_budget_map(
+            session, workspace_id, date(2025, month, 1)
+        )
+        assert set(budget_map) == {str(destination_id)}
+        assert budget_map[str(destination_id)][0] == Decimal(amount)
 
 
 @pytest.mark.asyncio

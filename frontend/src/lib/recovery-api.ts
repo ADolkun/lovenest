@@ -1,4 +1,4 @@
-import api from '@/lib/api'
+import api, { readOnly } from '@/lib/api'
 import type { Asset, AssetGroup } from '@/types'
 import type { EvidencePreview } from '@/types/investment-evidence'
 import type { RecoveryEntryInput, RecoveryPackage, RecoveryReviewInput, RecoveryRole, RecoveryState, AssertionStatus } from '@/types/recovery-evidence'
@@ -23,7 +23,7 @@ export const recovery = {
     return data
   },
   preview: async (workspaceId: string, groupId: string, entries: RecoveryEntryInput[]): Promise<RecoveryPackage> => {
-    const { data } = await api.post('/assets/recovery/preview', { group_id: groupId, entries }, { headers: headers(workspaceId) })
+    const { data } = await api.post('/assets/recovery/preview', { group_id: groupId, entries }, { ...readOnly, headers: headers(workspaceId) })
     return data
   },
   retain: async (workspaceId: string, groupId: string, entries: RecoveryEntryInput[], revision: string): Promise<RecoveryPackage> => {

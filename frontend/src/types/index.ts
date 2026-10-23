@@ -289,8 +289,8 @@ export interface ReimbursementLink {
   counterpart_category_name: string | null
   amount: number | string
   currency: string
-  /** False while either row is out of user P&L or on a closed account:
-   *  reporting then ignores the link. */
+  /** False while either row is out of user P&L: reporting then ignores the
+   *  link. */
   in_effect: boolean
 }
 

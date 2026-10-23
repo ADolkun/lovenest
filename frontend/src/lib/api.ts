@@ -168,7 +168,7 @@ declare module 'axios' {
 }
 
 /** Request config for a POST that changes nothing on the server. */
-const readOnly = { skipDataChanged: true } as const
+export const readOnly = { skipDataChanged: true } as const
 
 // A successful mutation here changes data that other tabs may be showing.
 // The bump fires the `storage` event in those tabs, where
@@ -1595,7 +1595,7 @@ export const ownedTransfers = {
     return data
   },
   preview: async (workspaceId: string, request: import('@/types/owned-transfers').TransferRequest): Promise<import('@/types/owned-transfers').TransferPreview> => {
-    const { data } = await api.post('/assets/evidence/transfers/preview', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    const { data } = await api.post('/assets/evidence/transfers/preview', request, { ...readOnly, headers: { 'X-Workspace-Id': workspaceId } })
     return data
   },
   confirm: async (workspaceId: string, request: import('@/types/owned-transfers').TransferRequest & { expected_revision: string }): Promise<import('@/types/owned-transfers').TransferRead> => {
@@ -1611,7 +1611,7 @@ export const ownedTransfers = {
     return data
   },
   previewMovement: async (workspaceId: string, request: import('@/types/owned-transfers').MovementRequest): Promise<import('@/types/owned-transfers').MovementPreview> => {
-    const { data } = await api.post('/assets/evidence/movements/preview', request, { headers: { 'X-Workspace-Id': workspaceId } })
+    const { data } = await api.post('/assets/evidence/movements/preview', request, { ...readOnly, headers: { 'X-Workspace-Id': workspaceId } })
     return data
   },
   applyMovement: async (workspaceId: string, request: import('@/types/owned-transfers').MovementRequest & { expected_revision: string }): Promise<import('@/types/owned-transfers').MovementApplication> => {
@@ -1727,6 +1727,7 @@ export const contributions = {
     const { data } = await api.post(
       '/contributions/import/preview',
       contributionImportForm(file, groupId, dateFormat, account),
+      readOnly,
     )
     return data
   },
@@ -1828,7 +1829,7 @@ export const onchain = {
     return data
   },
   previewInvestigation: async (payload: InvestigationRequest, workspaceId: string): Promise<InvestigationRead> => {
-    const { data } = await api.post('/onchain/investigation/preview', payload, { headers: { 'X-Workspace-Id': workspaceId } })
+    const { data } = await api.post('/onchain/investigation/preview', payload, { ...readOnly, headers: { 'X-Workspace-Id': workspaceId } })
     return data
   },
   continueInvestigation: async (payload: InvestigationContinueRequest, workspaceId: string): Promise<InvestigationRead> => {
@@ -1874,6 +1875,7 @@ export const onchain = {
   },
   trace: async (payload: TraceRequest, workspaceId?: string): Promise<TraceResult> => {
     const { data } = await api.post('/onchain/trace', payload, {
+      ...readOnly,
       headers: workspaceId ? { 'X-Workspace-Id': workspaceId } : undefined,
     })
     return data

@@ -86,6 +86,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [currentId, queryClient],
   )
 
+  // Requests read the workspace from localStorage, which every tab shares, so
+  // a switch in another tab already redirects this tab's refetches. Follow it,
+  // or this tab shows the other workspace's data under the old name.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== WORKSPACE_STORAGE_KEY || !event.newValue || event.newValue === currentId) return
+      if (list.some((w) => w.id === event.newValue)) setCurrentId(event.newValue)
+      else void refresh()
+      void queryClient.resetQueries()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [currentId, list, queryClient, refresh])
+
   const current = useMemo(
     () => list.find((w) => w.id === currentId) ?? null,
     [list, currentId],
