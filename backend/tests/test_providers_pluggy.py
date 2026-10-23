@@ -287,6 +287,85 @@ async def test_parser_missing_purchase_date_only():
 
 
 # ---------------------------------------------------------------------------
+# Future installments reported at the purchase date (Mercado Pago)
+# ---------------------------------------------------------------------------
+
+
+def _installment(number: int, total: int, txn_date: str, purchase_date: str) -> dict:
+    return {
+        "id": f"tx-{number}",
+        "description": "MERCADOLIVRE*MERCADOLIVRE",
+        "amount": -56.99,
+        "date": txn_date,
+        "type": "DEBIT",
+        "status": "PENDING",
+        "creditCardMetadata": {
+            "installmentNumber": number,
+            "totalInstallments": total,
+            "purchaseDate": purchase_date,
+        },
+    }
+
+
+async def test_future_installment_at_purchase_date_moves_to_its_month():
+    """Installment 5 of a 6 June purchase belongs in October, not June."""
+    result = await _fetch([
+        _installment(5, 10, "2026-06-06T13:26:40.000Z", "2026-06-06T13:26:40.000Z"),
+    ])
+    assert result[0].date == date(2026, 10, 6)
+    assert result[0].installment_purchase_date == date(2026, 6, 6)
+
+
+async def test_future_installment_crosses_into_the_next_year():
+    result = await _fetch([
+        _installment(18, 18, "2025-11-01T14:49:23.000Z", "2025-11-01T14:49:23.000Z"),
+    ])
+    assert result[0].date == date(2027, 4, 1)
+
+
+async def test_future_installment_day_is_clamped_to_a_shorter_month():
+    result = await _fetch([
+        _installment(2, 3, "2026-01-31", "2026-01-31"),
+    ])
+    assert result[0].date == date(2026, 2, 28)
+
+
+async def test_first_installment_keeps_the_purchase_date():
+    result = await _fetch([
+        _installment(1, 10, "2026-06-06T13:26:40.000Z", "2026-06-06T13:26:40.000Z"),
+    ])
+    assert result[0].date == date(2026, 6, 6)
+
+
+async def test_installment_the_connector_already_dated_is_kept():
+    """A date of the connector's own is left alone, even when it is not
+    exactly the purchase day N-1 months on."""
+    result = await _fetch([
+        _installment(2, 10, "2026-07-12T03:00:00.000Z", "2026-06-06T13:26:40.000Z"),
+    ])
+    assert result[0].date == date(2026, 7, 12)
+
+
+async def test_scheduled_installment_on_its_purchase_day_is_kept():
+    """Nubank sometimes reports a scheduled installment with a purchaseDate on
+    the installment's own day. Same day, different timestamp: it is already
+    in its month, and moving it would push it N-1 months too far."""
+    result = await _fetch([
+        _installment(3, 5, "2026-11-10T03:00:00.000Z", "2026-11-10T00:00:00.001Z"),
+    ])
+    assert result[0].date == date(2026, 11, 10)
+
+
+async def test_posted_installment_at_its_purchase_date_is_kept():
+    """Itaú sends billed installments with a purchaseDate equal to their own
+    charge date. A posted row is the bank's record of when it was charged."""
+    installment = _installment(8, 12, "2026-07-09T03:00:00.000Z", "2026-07-09T03:00:00.000Z")
+    installment["status"] = "POSTED"
+    result = await _fetch([installment])
+    assert result[0].date == date(2026, 7, 9)
+
+
+# ---------------------------------------------------------------------------
 # v2 cursor pagination (GET /v2/transactions)
 # ---------------------------------------------------------------------------
 
@@ -620,3 +699,105 @@ async def test_lookup_bank_info_disabled_by_default_skips_http_call():
     assert result is None
     fake_get_redis.assert_not_called()
     fake_client_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _build_holding_data: TOTAL_WITHDRAWAL vs. positive balance/quantity (#819)
+# ---------------------------------------------------------------------------
+
+
+def _investment(
+    *,
+    inv_id: str = "inv-1",
+    status: str = "ACTIVE",
+    balance=None,
+    quantity=None,
+    value=None,
+) -> dict:
+    inv = {
+        "id": inv_id,
+        "name": "PETR4",
+        "type": "EQUITY",
+        "currencyCode": "BRL",
+        "status": status,
+    }
+    if balance is not None:
+        inv["balance"] = balance
+    if quantity is not None:
+        inv["quantity"] = quantity
+    if value is not None:
+        inv["value"] = value
+    return inv
+
+
+def test_holding_total_withdrawal_with_positive_balance_is_not_withdrawn():
+    """Contradictory payload: status says TOTAL_WITHDRAWAL but the same
+    response still reports a positive balance and quantity. The position
+    still holds value, so it must not be treated as sold (issue #819)."""
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(
+        status="TOTAL_WITHDRAWAL", balance=1234.56, quantity=10, value=123.46,
+    ))
+
+    assert holding.is_withdrawn is False
+    assert holding.current_value == Decimal("1234.56")
+    assert holding.quantity == Decimal("10")
+
+
+def test_holding_total_withdrawal_with_only_positive_quantity_is_not_withdrawn():
+    """No balance in the payload, but the quantity is still positive: the
+    position is not fully gone."""
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(
+        status="TOTAL_WITHDRAWAL", quantity=10, value=123.46,
+    ))
+
+    assert holding.is_withdrawn is False
+    assert holding.current_value == Decimal("0")
+
+
+def test_holding_total_withdrawal_with_negative_balance_is_not_withdrawn():
+    """A nonzero balance means the position is not empty, even when it is
+    negative; it must not be hidden as sold."""
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(
+        status="TOTAL_WITHDRAWAL", balance=-12.5, quantity=0,
+    ))
+
+    assert holding.is_withdrawn is False
+    assert holding.current_value == Decimal("-12.5")
+
+
+def test_holding_total_withdrawal_empty_position_is_withdrawn():
+    """A genuinely closed position reports zero balance and zero quantity;
+    that one must still be marked withdrawn."""
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(
+        status="TOTAL_WITHDRAWAL", balance=0, quantity=0, value=0,
+    ))
+
+    assert holding.is_withdrawn is True
+
+
+def test_holding_total_withdrawal_without_balance_or_quantity_is_withdrawn():
+    """Some payloads omit both figures entirely; status alone is enough to
+    mark the position closed."""
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(status="TOTAL_WITHDRAWAL"))
+
+    assert holding.is_withdrawn is True
+
+
+def test_holding_active_status_is_never_withdrawn():
+    from app.providers.pluggy import _build_holding_data
+
+    holding = _build_holding_data(_investment(
+        status="ACTIVE", balance=100, quantity=1,
+    ))
+
+    assert holding.is_withdrawn is False

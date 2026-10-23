@@ -442,10 +442,8 @@ async def get_summary(
             func.sum(user_pnl_income_amount(Transaction.amount)),
             func.sum(user_pnl_expense_amount(Transaction.amount)),
         )
-        .join(Account, Transaction.account_id == Account.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= month_start,
             report_date < month_end,
             report_date <= today,
@@ -621,10 +619,8 @@ async def get_summary(
             func.sum(user_pnl_income_amount(Transaction.amount_primary)),
             func.sum(user_pnl_expense_amount(Transaction.amount_primary)),
         )
-        .join(Account, Transaction.account_id == Account.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= month_start,
             report_date < month_end,
             report_date <= today,
@@ -829,8 +825,9 @@ async def get_spending_by_category(
     primary_currency = user.primary_currency if user else get_settings().default_currency
     report_date = reporting_date_col(accounting_mode)
 
-    # Real transactions grouped by category (exclude transfer-like movements
-    # and closed accounts). Use amount_primary for multi-currency support.
+    # Real transactions grouped by category (exclude transfer-like movements).
+    # Closed accounts stay in: their history belongs to the period it happened
+    # in. Use amount_primary for multi-currency support.
     expense_amount = user_pnl_expense_amount(_primary_amount_expr())
     result = await session.execute(
         select(
@@ -841,11 +838,9 @@ async def get_spending_by_category(
             func.sum(expense_amount),
         )
         .select_from(Transaction)
-        .join(Account, Transaction.account_id == Account.id)
         .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= month_start,
             report_date < month_end,
             report_date <= today,
@@ -1101,10 +1096,8 @@ async def get_monthly_trend(
             func.sum(user_pnl_income_amount(primary_amt)),
             func.sum(user_pnl_expense_amount(primary_amt)),
         )
-        .join(Account, Transaction.account_id == Account.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             Transaction.source != "opening_balance",
             report_date <= today,
             Transaction.status == "posted",

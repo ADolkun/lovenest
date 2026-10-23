@@ -943,6 +943,7 @@
     "searchPlaceholder": "取引を検索...",
     "clearFilters": "フィルタをクリア",
     "exportCsv": "CSVエクスポート",
+    "refresh": "更新",
     "exportSelected": "選択をエクスポート({{count}}件)",
     "exporting": "エクスポート中...",
     "exportSuccess": "取引をエクスポートしました",
@@ -1180,6 +1181,7 @@
     "confirmDeleteTitle": "口座を削除しますか?",
     "confirmDeleteDesc": "この操作は取り消せません。この口座に関連するすべての取引、インポート記録、定期取引も削除され、この口座を追跡していた目標の紐付けが解除されます。",
     "openingBalance": "期首残高",
+    "openingBalanceDescription": "期首残高",
     "notFound": "口座が見つかりません。",
     "balance": "残高",
     "balanceCreditCard": "未払い金額",
@@ -1233,6 +1235,7 @@
     "updated": "口座を更新しました",
     "deleted": "口座を削除しました",
     "syncDone": "同期が完了しました",
+    "syncRateLimited": "銀行の1日の利用上限に達したため、新しいデータは取得されませんでした。しばらくしてから再度お試しください。",
     "syncError": "同期に失敗しました",
     "connected": "銀行を接続しました",
     "connectError": "銀行の接続に失敗しました",
@@ -1459,7 +1462,6 @@
     "endDate": "終了日(任意)",
     "category": "カテゴリ",
     "account": "口座",
-    "noAccount": "なし",
     "nextOccurrence": "次回",
     "status": "ステータス",
     "actions": "操作",
@@ -1744,8 +1746,13 @@
     "errors": {
       "invalid_date": "無効な日付形式",
       "no_amount": "入金/出金金額なし",
-      "invalid_amount": "無効な金額形式"
-    }
+      "invalid_amount": "無効な金額形式",
+      "invalid_fx_rate": "無効な為替レート",
+      "ambiguous_amount": "入金と出金の両方が入力されています",
+      "conflicting_amount": "金額フィールドの競合",
+      "invalid_direction": "無効な貸借区分"
+    },
+    "selectAll": "すべて選択"
   },
   "assetImport": {
     "title": "投資注文をインポート",
@@ -1794,6 +1801,7 @@
       "invalid_date": "読み取れない日付",
       "invalid_quantity": "読み取れない数量",
       "invalid_price": "読み取れない価格",
+      "invalid_fee": "読み取れない手数料",
       "unknown_ticker": "価格プロバイダーがティッカーを検出できません",
       "oversell": "保有数を超える売却"
     }
@@ -1997,6 +2005,9 @@
     "inflowOutflow": "流入と流出",
     "startingBalance": "期首残高",
     "endingBalance": "予測残高",
+    "runwayNegativeOn": "{{date}}に残高がマイナスになります",
+    "runwayAlreadyNegative": "すでにマイナス",
+    "lowestBalance": "最低残高",
     "projectedIncome": "予測収入",
     "projectedExpenses": "予測支出",
     "incomeExpenses": "収入と支出",
@@ -2126,6 +2137,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2200,6 +2212,8 @@
     "remove": "削除"
   },
   "splitGroups": {
+    "searchPlaceholder": "グループを検索...",
+    "clearSearch": "検索をクリア",
     "title": "グループ",
     "section": "設定",
     "add": "グループを追加",

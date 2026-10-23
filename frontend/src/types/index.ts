@@ -180,6 +180,14 @@ export interface ProviderAccount {
   status: 'included' | 'excluded' | 'pending'
 }
 
+// Response of POST /connections/{id}/sync: the connection plus what the run
+// actually did. "rate_limited" means the provider throttled the request
+// (429): nothing was pulled and last_sync_at was left untouched (issue #736).
+export interface SyncResult extends BankConnection {
+  merged_count: number
+  sync_outcome: 'refreshed' | 'rate_limited'
+}
+
 export interface Account {
   balance_explanation?: BalanceExplanation | null
   id: string
@@ -200,6 +208,8 @@ export interface Account {
   current_balance: number
   previous_balance: number | null
   balance_primary: number | null
+  // No real FX rate: balance_primary is unset and totals use the native amount.
+  fx_fallback?: boolean
   currency: string
   credit_limit: number | null
   available_credit: number | null
@@ -252,6 +262,7 @@ export interface AccountSummary {
   projected_expenses?: number
   projected_income_primary?: number | null
   projected_expenses_primary?: number | null
+  fx_fallback?: boolean
 }
 
 /** Set when this transaction settles an invoice. Absent in workspaces
@@ -292,6 +303,13 @@ export interface ReimbursementCandidate {
   transaction: Transaction
   remaining: number | string
   allocated_here: number | string
+}
+
+/** A description used before, with the category and payee of its latest use. */
+export interface DescriptionSuggestion {
+  description: string
+  category_id: string | null
+  payee_id: string | null
 }
 
 export interface Transaction {
@@ -351,6 +369,12 @@ export interface Transaction {
   is_ignored: boolean
   // Keeps the transaction in the ledger/balance while excluding it from P&L.
   exclude_from_pnl?: boolean
+  // Balance right after this row, filled by the server only when the list
+  // was asked for it on a single non-credit-card account (#1202).
+  // `running_balance_primary` is null when the account is in the primary
+  // currency.
+  running_balance?: number | null
+  running_balance_primary?: number | null
   virtual?: boolean
 }
 
@@ -792,6 +816,13 @@ export interface MonthlyTrend {
 export interface DailyBalance {
   day: number
   balance: number | null
+}
+
+/** End-of-day balance of one account, one point per day (#1202). */
+export interface AccountRunningBalancePoint {
+  date: string
+  balance: number
+  balance_primary: number | null
 }
 
 export interface BalanceHistory {
@@ -1335,6 +1366,9 @@ export interface ReportMeta {
   forecast_start_date?: string | null
   baseline_active?: boolean
   baseline_lookback_days?: number | null
+  runway_date?: string | null
+  lowest_balance?: number | null
+  lowest_balance_date?: string | null
 }
 
 export interface ReportCompositionItem {

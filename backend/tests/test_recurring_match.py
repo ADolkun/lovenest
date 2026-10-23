@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.transaction import Transaction
+from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.recurring_transaction import RecurringTransactionCreate
 from app.services import recurring_match_service as rms
 from app.services.text_similarity import token_overlap
@@ -405,6 +406,86 @@ async def test_generate_pending_skips_auto_generate_off(session, test_user, test
         select(Transaction).where(Transaction.account_id == account.id)
     )
     assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_generate_pending_include_manual_covers_auto_generate_off(
+    session, test_user, test_workspace, account
+):
+    """The Generate Pending button asks for schedules the hourly task skips."""
+    bill = await _make_bill(session, test_workspace, test_user, account, auto_generate=False)
+    count = await generate_pending(
+        session, test_user.id, up_to=date(2025, 1, 20), include_manual=True
+    )
+    assert count == 1
+    result = await session.execute(
+        select(Transaction).where(Transaction.account_id == account.id)
+    )
+    txs = result.scalars().all()
+    assert len(txs) == 1
+    assert txs[0].recurring_transaction_id == bill.id
+    assert txs[0].date == date(2025, 1, 10)
+
+
+@pytest.mark.asyncio
+async def test_generate_pending_include_manual_links_real_tx_instead_of_duplicating(
+    session, test_user, test_workspace, account
+):
+    bill = await _make_bill(session, test_workspace, test_user, account, auto_generate=False)
+    real = await _add_tx(session, test_user, test_workspace, account, date=date(2025, 1, 10))
+    count = await generate_pending(
+        session, test_user.id, up_to=date(2025, 1, 20), include_manual=True
+    )
+    assert count == 0
+    await session.refresh(real)
+    assert real.recurring_transaction_id == bill.id
+
+
+@pytest.mark.asyncio
+async def test_generate_pending_workspace_scope_leaves_other_workspaces_alone(
+    session, test_user, test_workspace, account
+):
+    """Generate Pending is authorized for one workspace, so it must not
+    materialize or advance a schedule that lives in another."""
+    other_ws = Workspace(
+        id=uuid.uuid4(), name="Other", kind="personal",
+        created_by_user_id=test_user.id, default_currency="BRL",
+    )
+    session.add(other_ws)
+    await session.flush()
+    session.add(
+        WorkspaceMember(
+            id=uuid.uuid4(), workspace_id=other_ws.id, user_id=test_user.id, role="owner",
+        )
+    )
+    other_account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=other_ws.id,
+        name="OtherAcc", type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(other_account)
+    await session.commit()
+
+    await _make_bill(session, test_workspace, test_user, account, auto_generate=False)
+    other_bill = await _make_bill(
+        session, other_ws, test_user, other_account,
+        description="Gym Membership", auto_generate=False,
+    )
+
+    count = await generate_pending(
+        session,
+        test_user.id,
+        up_to=date(2025, 1, 20),
+        include_manual=True,
+        workspace_id=test_workspace.id,
+    )
+
+    assert count == 1
+    result = await session.execute(
+        select(Transaction).where(Transaction.account_id == other_account.id)
+    )
+    assert result.scalars().all() == []
+    await session.refresh(other_bill)
+    assert other_bill.next_occurrence == date(2025, 1, 10)
 
 
 @pytest.mark.asyncio

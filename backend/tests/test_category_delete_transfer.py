@@ -425,11 +425,122 @@ async def test_category_transfer_preserves_effective_budget_schedule(
         budgets = await budget_service.get_budgets(
             session, test_workspace.id, month=date(2025, month, 1)
         )
-        assert [(b.category_id, b.amount, b.is_recurring) for b in budgets] == [
-            (destination.id, Decimal(amount), recurring)
-        ]
+        if not different_authors:
+            assert [(b.category_id, b.amount, b.is_recurring) for b in budgets] == [
+                (destination.id, Decimal(amount), recurring)
+            ]
+            continue
+        # Two authors on the same slot keep a row each, so compare the total.
+        assert {(b.category_id, b.is_recurring) for b in budgets} == {
+            (destination.id, recurring)
+        }
+        assert sum(b.amount for b in budgets) == Decimal(amount)
     for budget_id in destination_budget_ids:
         assert (await _reload(session, Budget, budget_id)).user_id == destination_author.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_rows", "destination_rows", "expected"),
+    [
+        pytest.param(
+            [("first", 1, "100", True), ("second", 1, "200", True)], [],
+            [(1, True, {"first": "100", "second": "200"})],
+            id="both-members-on-source",
+        ),
+        pytest.param(
+            [("first", 1, "50", True)],
+            [("first", 1, "100", True), ("second", 1, "200", True)],
+            [(1, True, {"first": "150", "second": "200"})],
+            id="both-members-on-destination",
+        ),
+        pytest.param(
+            [("first", 2, "100", False), ("second", 2, "200", False)],
+            [("first", 1, "300", True)],
+            [(1, True, {"first": "300"}), (2, False, {"first": "400", "second": "200"})],
+            id="both-members-monthly-override",
+        ),
+    ],
+)
+async def test_category_transfer_keeps_each_members_budget_on_a_shared_slot(
+    session: AsyncSession,
+    test_user: User,
+    test_workspace,
+    test_categories: list[Category],
+    source_rows: list[tuple[str, int, str, bool]],
+    destination_rows: list[tuple[str, int, str, bool]],
+    expected: list[tuple[int, bool, dict[str, str]]],
+):
+    source, destination = test_categories[:2]
+    second = User(id=uuid.uuid4(), email="second-member@example.com", hashed_password="synthetic")
+    session.add(second)
+    await session.commit()
+    members = {"first": test_user, "second": second}
+    names = {user.id: name for name, user in members.items()}
+    workspace_id, destination_id = test_workspace.id, destination.id
+    for category, rows in ((source, source_rows), (destination, destination_rows)):
+        for member, month, amount, recurring in rows:
+            await _make_budget(
+                session, members[member], test_workspace, category.id,
+                amount=amount, month=date(2025, month, 1), is_recurring=recurring,
+            )
+
+    assert await category_service.delete_category(
+        session, source.id, workspace_id, transfer_to_id=destination_id
+    )
+
+    session.expire_all()
+    remaining = (
+        await session.execute(select(Budget).where(Budget.workspace_id == workspace_id))
+    ).scalars().all()
+    assert {b.category_id for b in remaining} == {destination_id}
+    for month, recurring, amounts in expected:
+        assert {
+            names[b.user_id]: b.amount
+            for b in remaining
+            if b.month == date(2025, month, 1) and b.is_recurring == recurring
+        } == {member: Decimal(amount) for member, amount in amounts.items()}
+    assert len(remaining) == sum(len(amounts) for _, _, amounts in expected)
+
+
+@pytest.mark.asyncio
+async def test_a_newer_slot_by_another_member_still_replaces_the_older_one(
+    session: AsyncSession,
+    test_user: User,
+    test_workspace,
+    test_categories: list[Category],
+):
+    """The destination read 100, then 200 once the second member's row began.
+
+    Merging must keep that: from month 3 the limit is 200 plus the source's 50,
+    not the first member's superseded 100 on top.
+    """
+    source, destination = test_categories[:2]
+    second = User(id=uuid.uuid4(), email="second-member@example.com", hashed_password="synthetic")
+    session.add(second)
+    await session.commit()
+    workspace_id, destination_id = test_workspace.id, destination.id
+    for user, category, month, amount in (
+        (test_user, destination, 1, "100"),
+        (second, destination, 3, "200"),
+        (test_user, source, 1, "50"),
+    ):
+        await _make_budget(
+            session, user, test_workspace, category.id,
+            amount=amount, month=date(2025, month, 1), is_recurring=True,
+        )
+
+    assert await category_service.delete_category(
+        session, source.id, workspace_id, transfer_to_id=destination_id
+    )
+
+    session.expire_all()
+    for month, limit in ((1, "150"), (2, "150"), (3, "250"), (4, "250")):
+        budgets = await budget_service.get_budgets(
+            session, workspace_id, month=date(2025, month, 1)
+        )
+        assert {b.category_id for b in budgets} == {destination_id}
+        assert sum(b.amount for b in budgets) == Decimal(limit)
 
 
 @pytest.mark.asyncio

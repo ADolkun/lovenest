@@ -959,6 +959,7 @@
     "searchPlaceholder": "Hľadať transakcie...",
     "clearFilters": "Zrušiť filtre",
     "exportCsv": "Exportovať CSV",
+    "refresh": "Obnoviť",
     "exportSelected": "Exportovať vybrané ({{count}})",
     "exportSelected_one": "Exportovať vybranú ({{count}})",
     "exportSelected_few": "Exportovať vybrané ({{count}})",
@@ -1235,6 +1236,7 @@
     "confirmDeleteTitle": "Vymazať účet?",
     "confirmDeleteDesc": "Táto akcia je nezvratná. Vymaže aj všetky transakcie, záznamy o importoch a opakované transakcie priradené k tomuto účtu a odpojí všetky ciele, ktoré ho sledovali.",
     "openingBalance": "počiatočný zostatok",
+    "openingBalanceDescription": "Počiatočný zostatok",
     "notFound": "Účet sa nenašiel.",
     "balance": "Zostatok",
     "balanceCreditCard": "Dlžná suma",
@@ -1300,6 +1302,7 @@
     "updated": "Účet aktualizovaný",
     "deleted": "Účet vymazaný",
     "syncDone": "Synchronizácia dokončená",
+    "syncRateLimited": "Dosiahnutý denný limit banky, žiadne nové údaje neboli stiahnuté. Skúste to prosím neskôr.",
     "syncError": "Synchronizácia zlyhala",
     "connected": "Banka úspešne prepojená",
     "connectError": "Nepodarilo sa prepojiť banku",
@@ -1538,7 +1541,6 @@
     "endDate": "Dátum konca (voliteľné)",
     "category": "Kategória",
     "account": "Účet",
-    "noAccount": "Žiadny",
     "nextOccurrence": "Najbližšie",
     "status": "Stav",
     "actions": "Akcie",
@@ -1863,8 +1865,13 @@
     "errors": {
       "invalid_date": "Neplatný formát dátumu",
       "no_amount": "Chýba suma príjmu alebo výdaja",
-      "invalid_amount": "Neplatný formát sumy"
-    }
+      "invalid_amount": "Neplatný formát sumy",
+      "invalid_fx_rate": "Neplatný kurz",
+      "ambiguous_amount": "Vyplnené príjmy aj výdavky",
+      "conflicting_amount": "Konfliktné polia sumy",
+      "invalid_direction": "Neplatný indikátor príjmu/výdavku"
+    },
+    "selectAll": "Vybrať všetko"
   },
   "assetImport": {
     "title": "Import investičných pokynov",
@@ -1913,6 +1920,7 @@
       "invalid_date": "nečitateľný dátum",
       "invalid_quantity": "nečitateľné množstvo",
       "invalid_price": "nečitateľná cena",
+      "invalid_fee": "nečitateľný poplatok",
       "unknown_ticker": "poskytovateľ cien ticker nenašiel",
       "oversell": "predaj väčšieho množstva, než pozícia obsahuje"
     }
@@ -2116,6 +2124,9 @@
     "inflowOutflow": "Prítok vs odtok",
     "startingBalance": "Počiatočný zostatok",
     "endingBalance": "Predpokladaný zostatok",
+    "runwayNegativeOn": "Zostatok bude záporný {{date}}",
+    "runwayAlreadyNegative": "Už v mínuse",
+    "lowestBalance": "Najnižší zostatok",
     "projectedIncome": "Predpokladaný príjem",
     "projectedExpenses": "Predpokladané výdavky",
     "incomeExpenses": "Príjmy vs výdavky",
@@ -2253,6 +2264,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2331,6 +2343,8 @@
     "remove": "Odstrániť"
   },
   "splitGroups": {
+    "searchPlaceholder": "Hľadať skupiny...",
+    "clearSearch": "Vymazať vyhľadávanie",
     "title": "Skupiny",
     "section": "Nastavenie",
     "add": "Pridať skupinu",

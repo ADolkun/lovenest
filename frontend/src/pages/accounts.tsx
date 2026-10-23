@@ -188,8 +188,14 @@ export default function AccountsPage() {
     onSuccess: (result) => {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
-      toast.success(t('accounts.syncDone'))
-      const merged = (result as BankConnection & { merged_count?: number })?.merged_count
+      // The provider can throttle the sync (429) and still return success
+      // without pulling anything: say so instead of a false "Sync completed".
+      if (result.sync_outcome === 'rate_limited') {
+        toast.warning(t('accounts.syncRateLimited'))
+      } else {
+        toast.success(t('accounts.syncDone'))
+      }
+      const merged = result?.merged_count
       if (merged && merged > 0) {
         toast.info(t('accounts.mergedCount', { count: merged }))
       }

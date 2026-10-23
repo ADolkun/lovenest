@@ -954,6 +954,7 @@
     "searchPlaceholder": "Поиск транзакций...",
     "clearFilters": "Сбросить фильтры",
     "exportCsv": "Экспорт CSV",
+    "refresh": "Обновить",
     "exportSelected": "Экспортировать выбранные ({{count}})",
     "exporting": "Экспорт...",
     "exportSuccess": "Транзакции успешно экспортированы",
@@ -1200,6 +1201,7 @@
     "confirmDeleteTitle": "Удалить счёт?",
     "confirmDeleteDesc": "Это действие необратимо. Оно также удалит все транзакции, записи импорта и регулярные транзакции, привязанные к этому счёту, и отвяжет цели, которые отслеживали его.",
     "openingBalance": "начальный баланс",
+    "openingBalanceDescription": "Начальный баланс",
     "notFound": "Счёт не найден.",
     "balance": "Баланс",
     "balanceCreditCard": "Задолженность",
@@ -1259,6 +1261,7 @@
     "updated": "Счёт обновлён",
     "deleted": "Счёт удалён",
     "syncDone": "Синхронизация завершена",
+    "syncRateLimited": "Достигнут суточный лимит банка, новые данные не получены. Повторите попытку позже.",
     "syncError": "Синхронизация не удалась",
     "connected": "Банк успешно подключён",
     "connectError": "Не удалось подключить банк",
@@ -1518,7 +1521,6 @@
     "endDate": "Дата окончания (опционально)",
     "category": "Категория",
     "account": "Счёт",
-    "noAccount": "Нет",
     "nextOccurrence": "Следующая",
     "status": "Статус",
     "actions": "Действия",
@@ -1805,8 +1807,13 @@
     "errors": {
       "invalid_date": "Неверный формат даты",
       "no_amount": "Нет суммы прихода или расхода",
-      "invalid_amount": "Неверный формат суммы"
-    }
+      "invalid_amount": "Неверный формат суммы",
+      "invalid_fx_rate": "Неверный курс валюты",
+      "ambiguous_amount": "Заполнены приход и расход",
+      "conflicting_amount": "Конфликтующие поля сумм",
+      "invalid_direction": "Неверный индикатор кредита/дебета"
+    },
+    "selectAll": "Выбрать все"
   },
   "assetImport": {
     "title": "Импорт инвестиционных заявок",
@@ -1863,6 +1870,7 @@
       "invalid_date": "нечитаемая дата",
       "invalid_quantity": "нечитаемое количество",
       "invalid_price": "нечитаемая цена",
+      "invalid_fee": "нечитаемая комиссия",
       "unknown_ticker": "тикер не найден у поставщика котировок",
       "oversell": "продажа больше позиции",
       "invalid_proceeds": "дата продажи без выручки",
@@ -2251,6 +2259,9 @@
     "inflowOutflow": "Поступления vs Списания",
     "startingBalance": "Начальный баланс",
     "endingBalance": "Прогнозируемый баланс",
+    "runwayNegativeOn": "Баланс станет отрицательным {{date}}",
+    "runwayAlreadyNegative": "Уже отрицательный",
+    "lowestBalance": "Минимальный баланс",
     "projectedIncome": "Прогнозируемый доход",
     "projectedExpenses": "Прогнозируемые расходы",
     "incomeExpenses": "Доходы vs Расходы",
@@ -2380,6 +2391,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2454,6 +2466,8 @@
     "closePreview": "Закрыть просмотр"
   },
   "splitGroups": {
+    "searchPlaceholder": "Поиск групп...",
+    "clearSearch": "Очистить поиск",
     "title": "Группы",
     "section": "Настройка",
     "add": "Добавить группу",

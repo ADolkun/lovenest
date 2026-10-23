@@ -16,6 +16,7 @@ import { cn, normalizeText } from '@/lib/utils'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DescriptionInput } from '@/components/description-input'
 import { Label } from '@/components/ui/label'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -459,7 +460,7 @@ function TransactionForm({
   )
   const [categoryId, setCategoryId] = useState(seed?.category_id ?? '')
   const [payeeId, setPayeeId] = useState(seed?.payee_id ?? '')
-  const [accountId, setAccountId] = useState(seed?.account_id ?? defaultAccountId ?? sortedAccounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState(seed?.account_id ?? defaultAccountId ?? '')
   const [notes, setNotes] = useState(seed?.notes ?? '')
   // Manual CC bucketing override (issue #92). Empty = auto. Visible only
   // when the selected account is a credit card.
@@ -659,7 +660,14 @@ function TransactionForm({
 
   const triggerSubmit = (action: SaveAction) => {
     pendingActionRef.current = action
-    formRef.current?.requestSubmit()
+    try {
+      // The submit handler runs synchronously inside requestSubmit() and reads
+      // the action first. If validation blocks the submit, the handler never
+      // runs, so reset here or a later plain Save would reuse this action.
+      formRef.current?.requestSubmit()
+    } finally {
+      pendingActionRef.current = 'save'
+    }
   }
   const showSaveVariants = isCreating && !isSynced
 
@@ -838,13 +846,13 @@ function TransactionForm({
         const recurringData = isCreating && isRecurring
           ? { frequency, end_date: endDate || undefined }
           : undefined
-        const installmentData = isCreating && isInstallment && !isSynced
+        const installmentData = isCreating && isInstallment && !isSynced && parsedAmount != null
           ? buildInstallmentSeriesInput({
               accountId,
               categoryId,
               payeeId,
               description,
-              amount,
+              amount: parsedAmount,
               date,
               type,
               currency,
@@ -977,9 +985,15 @@ function TransactionForm({
             rows={1}
           />
         ) : (
-          <Input
+          <DescriptionInput
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
+            // Prefill what was last filed under this description, without
+            // overwriting anything the user already chose (issue #1127).
+            onPick={(suggestion) => {
+              if (!categoryId && suggestion.category_id) setCategoryId(suggestion.category_id)
+              if (!payeeId && suggestion.payee_id) setPayeeId(suggestion.payee_id)
+            }}
             required
             className="bg-card"
           />
@@ -1181,6 +1195,7 @@ function TransactionForm({
               onChange={(e) => setAccountId(e.target.value)}
               required
             >
+              {!accountId && <option value="" disabled hidden>{t('transactions.createCounterpartSelectAccount')}</option>}
               {sortedAccounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>{getAccountLabel(acc)}</option>
               ))}

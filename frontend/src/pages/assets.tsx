@@ -78,6 +78,7 @@ import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { getAssetProfit } from '@/lib/asset-profit'
 import { formatCurrency, formatExactDecimal } from '@/lib/format'
 import { getPortfolioShare, getPortfolioTotalPrimary } from '@/lib/asset-portfolio-share'
+import { formatTransactionTotal, getTransactionTotalCurrency } from '@/lib/asset-transaction-total'
 
 // Renders a logo image when one is available, falling back to the asset's
 // type-based Lucide icon on missing URL or broken image. Uses the type's
@@ -2747,9 +2748,9 @@ function AssetTransactionsTab({
         </div>
       ) : visibleTransactions.length === 0 ? (
         holdingsWithoutCost.length === 0 ? (
-          <div className="text-center py-16">
-            <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground/40 mb-3" />
-            <p className="text-muted-foreground">{t('assets.noTransactions')}</p>
+          <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden text-center py-16 text-muted-foreground">
+            <TrendingUp size={32} className="mx-auto mb-2 opacity-50" />
+            <p>{t('assets.noTransactions')}</p>
           </div>
         ) : null
       ) : (
@@ -2921,9 +2922,9 @@ function AssetTransactionsTab({
               <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/30">
                 <span className="text-xs font-medium text-muted-foreground">{t('assets.txTotal')}</span>
                 <span className="text-sm font-bold tabular-nums text-foreground">
-                  {formatCurrency(
+                  {formatTransactionTotal(
                     parseFloat(formQuantity) * parseFloat(formPrice) + (formFee ? parseFloat(formFee) : 0) * (formKind === 'buy' ? 1 : -1),
-                    'USD',
+                    getTransactionTotalCurrency(holdings, formHolding, editingTx),
                     locale,
                   )}
                 </span>
