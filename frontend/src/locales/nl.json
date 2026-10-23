@@ -946,6 +946,7 @@
     "searchPlaceholder": "Transacties zoeken...",
     "clearFilters": "Filters wissen",
     "exportCsv": "CSV exporteren",
+    "refresh": "Vernieuwen",
     "exportSelected": "Geselecteerde export ({{count}})",
     "exporting": "Exporteren...",
     "exportSuccess": "Transacties zijn succesvol geëxporteerd",
@@ -1184,6 +1185,7 @@
     "confirmDeleteTitle": "Account verwijderen?",
     "confirmDeleteDesc": "Deze actie is onomkeerbaar. Het verwijdert ook elke transactie, importrecord en terugkerende transactie die aan dit account is gekoppeld, en ontkoppelt alle doelen die het bijhielden.",
     "openingBalance": "openingsbalans",
+    "openingBalanceDescription": "Openingsbalans",
     "notFound": "Account niet gevonden.",
     "balance": "Balans",
     "balanceCreditCard": "Verschuldigd bedrag",
@@ -1241,6 +1243,7 @@
     "updated": "Account bijgewerkt",
     "deleted": "Account verwijderd",
     "syncDone": "Synchronisatie voltooid",
+    "syncRateLimited": "Dagelijks banklimiet bereikt, er is geen nieuwe data opgehaald. Probeer het later opnieuw.",
     "syncError": "Synchronisatie mislukt",
     "connected": "Bank succesvol verbonden",
     "connectError": "Kan geen verbinding maken met de bank",
@@ -1501,7 +1504,6 @@
     "endDate": "Einddatum (optioneel)",
     "category": "Categorie",
     "account": "Rekening",
-    "noAccount": "Geen",
     "nextOccurrence": "Volgende",
     "status": "Status",
     "actions": "Acties",
@@ -1788,8 +1790,13 @@
     "errors": {
       "invalid_date": "Ongeldige datumformaat",
       "no_amount": "Geen in- of uitstroombedrag",
-      "invalid_amount": "Ongeldig bedragformaat"
-    }
+      "invalid_amount": "Ongeldig bedragformaat",
+      "invalid_fx_rate": "Ongeldige wisselkoers",
+      "ambiguous_amount": "In- en uitstroombedrag ingevuld",
+      "conflicting_amount": "Tegensprekende bedragsvelden",
+      "invalid_direction": "Ongeldige credit/debet-indicator"
+    },
+    "selectAll": "Alles selecteren"
   },
   "assetImport": {
     "title": "Investeringsorders importeren",
@@ -1846,6 +1853,7 @@
       "invalid_date": "onleesbare datum",
       "invalid_quantity": "onleesbare hoeveelheid",
       "invalid_price": "onleesbare prijs",
+      "invalid_fee": "onleesbare kosten",
       "unknown_ticker": "ticker niet gevonden door de prijsaanbieder",
       "oversell": "meer eenheden verkopen dan de positie bevat",
       "invalid_proceeds": "a disposal date with no proceeds",
@@ -2228,6 +2236,9 @@
     "inflowOutflow": "Instroom versus uitstroom",
     "startingBalance": "Beginsaldo",
     "endingBalance": "Geprojecteerd saldo",
+    "runwayNegativeOn": "Het saldo wordt negatief op {{date}}",
+    "runwayAlreadyNegative": "Al negatief",
+    "lowestBalance": "Laagste saldo",
     "projectedIncome": "Geprojecteerd inkomen",
     "projectedExpenses": "Geprojecteerde uitgaven",
     "incomeExpenses": "Inkomsten versus uitgaven",
@@ -2357,6 +2368,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "herberg",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2431,6 +2443,8 @@
     "closePreview": "Voorbeeld sluiten"
   },
   "splitGroups": {
+    "searchPlaceholder": "Groepen zoeken...",
+    "clearSearch": "Zoekopdracht wissen",
     "title": "Groepen",
     "section": "Instellen",
     "add": "Groep toevoegen",

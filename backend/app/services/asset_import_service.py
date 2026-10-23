@@ -481,12 +481,13 @@ def _date_formats(date_format: Optional[str], raw_dates: list[str]) -> list[str]
     13-31 right and the days 1-12 wrong *in the same file*, so the order is
     settled once from every date the file contains (`infer_date_order`) — one
     `12/16` proves the whole file is month-first. An explicit choice from the
-    UI wins outright; a file that stays ambiguous keeps the historical
-    day-first default.
+    UI is the only format tried, like `parse_csv`: `13/02/2026` must fail
+    under MM/DD/YYYY, not fall through to day-first. A file that stays
+    ambiguous keeps the historical day-first default.
     """
     formats = list(_DATE_FORMATS)
     if date_format and date_format in DATE_FORMAT_MAP:
-        return [DATE_FORMAT_MAP[date_format]] + formats
+        return [DATE_FORMAT_MAP[date_format]]
     if infer_date_order(raw_dates) == 'month':
         formats.remove('%m/%d/%Y')
         formats.insert(formats.index('%d/%m/%Y'), '%m/%d/%Y')
@@ -498,8 +499,11 @@ def _parse_date(raw: str, formats: list[str]) -> Optional[date_type]:
     if not raw:
         return None
     for fmt in formats:
+        # Broker exports sometimes append a time to the date, in which case the
+        # first 10 characters are the date itself.
+        value = raw[:10] if len(raw) > 10 and fmt == '%Y-%m-%d' else raw
         try:
-            return datetime.strptime(raw[:10] if len(raw) > 10 and fmt == '%Y-%m-%d' else raw, fmt).date()
+            return datetime.strptime(value, fmt).date()
         except ValueError:
             continue
     return None
@@ -669,7 +673,15 @@ def parse_orders_csv(
 
         external_id = cell(row, 'external_id') or None
 
-        fee = _parse_decimal(cell(row, 'fee')) or Decimal('0')
+        # Fees are costs: a negative one would push the cost basis down, and
+        # a malformed fee is reported like the other bad cells instead of
+        # being read as zero.
+        fee_raw = cell(row, 'fee')
+        fee = _parse_decimal(fee_raw)
+        if fee_raw and (fee is None or fee < 0):
+            errors.append(AssetImportRowError(row=index, reason='invalid_fee', ticker=ticker))
+            continue
+        fee = fee or Decimal('0')
 
         def build(when: date_type, side: str, unit_price: Decimal) -> AssetOrderImport:
             return AssetOrderImport(

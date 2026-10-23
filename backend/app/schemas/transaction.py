@@ -161,8 +161,8 @@ class ReimbursementLinkRead(BaseModel):
 
     On a credit the counterpart is an expense it repays; on a debit it is a
     credit that repaid it. `amount` is in `currency`, which both rows share.
-    `in_effect` is false while either row is left out of user P&L or sits on
-    a closed account; reporting then ignores the link (ADR 0012).
+    `in_effect` is false while either row is left out of user P&L; reporting
+    then ignores the link (ADR 0012).
     """
 
     id: uuid.UUID
@@ -222,6 +222,12 @@ class TransactionRead(TransactionBase):
     parent_owner_name: Optional[str] = None
     is_ignored: bool = False
     exclude_from_pnl: bool = False
+    # Account balance right after this row, set only when the list asked for
+    # it on one non-credit-card account's unfiltered ledger (#1202). The
+    # primary-currency value is null when the account is already in it, or
+    # when no real rate is available (#1165).
+    running_balance: Optional[float] = None
+    running_balance_primary: Optional[float] = None
 
     @model_validator(mode="after")
     def reflect_ignored_category(self):
@@ -286,6 +292,14 @@ class CreateCounterpartRequest(BaseModel):
 class BulkTagsRequest(BaseModel):
     transaction_ids: list[uuid.UUID]
     tags: list[str]
+
+
+class DescriptionSuggestion(BaseModel):
+    """A description typed before, with what was last filed under it."""
+
+    description: str
+    category_id: Optional[uuid.UUID] = None
+    payee_id: Optional[uuid.UUID] = None
 
 
 class TransferRead(BaseModel):

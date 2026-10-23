@@ -202,6 +202,52 @@ describe('switchWorkspace', () => {
   })
 })
 
+describe('a switch in another tab', () => {
+  function switchedElsewhere(id: string) {
+    localStorage.setItem('workspace_id', id)
+    window.dispatchEvent(new StorageEvent('storage', { key: 'workspace_id', newValue: id }))
+  }
+
+  it('follows the switch and drops the cached data', async () => {
+    // This tab's requests already carry the other tab's workspace id, so
+    // keeping the old name would label one workspace's figures as another's.
+    localStorage.setItem('workspace_id', 'ws-a')
+    workspacesApi.list.mockResolvedValue([
+      makeWorkspace({ id: 'ws-a' }),
+      makeWorkspace({ id: 'ws-b' }),
+    ])
+    const queryClient = createTestQueryClient()
+    const { result } = renderHook(() => useWorkspace(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={queryClient}>
+          <WorkspaceProvider>{children}</WorkspaceProvider>
+        </QueryClientProvider>
+      ),
+    })
+    await waitFor(() => expect(result.current.current?.id).toBe('ws-a'))
+    queryClient.setQueryData(['transactions'], [{ id: 't1', amount: 100 }])
+
+    act(() => switchedElsewhere('ws-b'))
+
+    await waitFor(() => expect(result.current.current?.id).toBe('ws-b'))
+    expect(queryClient.getQueryData(['transactions'])).toBeUndefined()
+  })
+
+  it('reloads the list for a workspace created in the other tab', async () => {
+    localStorage.setItem('workspace_id', 'ws-a')
+    workspacesApi.list.mockResolvedValue([makeWorkspace({ id: 'ws-a' })])
+    const { result } = await renderWorkspace()
+
+    workspacesApi.list.mockResolvedValue([
+      makeWorkspace({ id: 'ws-a' }),
+      makeWorkspace({ id: 'ws-new' }),
+    ])
+    act(() => switchedElsewhere('ws-new'))
+
+    await waitFor(() => expect(result.current.current?.id).toBe('ws-new'))
+  })
+})
+
 describe('roles', () => {
   const cases: Array<{
     role: WorkspaceRole

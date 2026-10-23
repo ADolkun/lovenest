@@ -29,21 +29,12 @@ from app.schemas.balance_explanation import BalanceExplanation
 async def ensure_group_in_workspace(
     session: AsyncSession, group_id: Optional[uuid.UUID], workspace_id: uuid.UUID
 ) -> None:
-    """Validate a wallet an asset is about to be linked to.
-
-    `Asset.group_id` is a bare foreign key with no workspace of its own, so
-    every write path that takes one from a request has to check it here —
-    otherwise an id belonging to another workspace is stored and honoured.
-    Reports the same "not found" a wallet outside the workspace gets
-    everywhere else, rather than confirming that the id exists elsewhere.
-    """
+    """Reject a wallet outside the workspace, while allowing ungrouped assets."""
     if group_id is None:
         return
     group = await session.get(AssetGroup, group_id)
     if group is None or group.workspace_id != workspace_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Group not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
 
 async def _latest_value_amount(session: AsyncSession, asset_id: uuid.UUID) -> Optional[Decimal]:

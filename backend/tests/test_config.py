@@ -181,3 +181,19 @@ def test_onchain_rpc_urls_json_still_parses(tmp_path: Path, secrets: Path):
     settings = Settings(_env_file=str(env_file), _secrets_dir=str(secrets))
 
     assert settings.onchain_rpc_urls == {"solana": "https://node.example"}
+
+
+def test_empty_frontend_url_uses_frontend_port(monkeypatch):
+    """docker-compose.yml passes FRONTEND_URL empty when unset (no nested
+    default, which podman-compose < 1.6.0 mangles: #1162) plus FRONTEND_PORT."""
+    monkeypatch.setenv("FRONTEND_URL", "")
+    monkeypatch.setenv("FRONTEND_PORT", "3132")
+
+    assert Settings(_env_file=None).frontend_url == "http://localhost:3132"
+
+
+def test_set_frontend_url_is_used_as_is(monkeypatch):
+    monkeypatch.setenv("FRONTEND_URL", "https://securo.example.com")
+    monkeypatch.setenv("FRONTEND_PORT", "3132")
+
+    assert Settings(_env_file=None).frontend_url == "https://securo.example.com"

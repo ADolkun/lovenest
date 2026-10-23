@@ -405,6 +405,9 @@ export default function DashboardPage() {
   const availableBalance = availableBalanceAccounts.reduce(
     (sum, a) => sum + Number(a.balance_primary ?? a.current_balance), 0,
   )
+  // A foreign account without a real FX rate is summed at its native amount,
+  // so the headline total is an estimate; say so instead of hiding it (#1165).
+  const availableBalanceHasFxFallback = availableBalanceAccounts.some((a) => a.fx_fallback)
   const sortedAvailableBalanceAccounts = useMemo(
     () => sortAccountsByAbsoluteBalance(availableBalanceAccounts, (a) => a.balance_primary ?? a.current_balance),
     [availableBalanceAccounts],
@@ -685,6 +688,13 @@ export default function DashboardPage() {
               <p className={`text-3xl font-bold tabular-nums leading-tight ${availableBalance < 0 ? 'text-rose-500' : 'text-foreground'}`}>
                 {mask(formatCurrency(availableBalance, primaryCurrency, locale))}
               </p>
+              {/* Visible text, not a hover title, so touch users can read it. */}
+              {availableBalanceHasFxFallback && (
+                <p className="flex items-start gap-1.5 mt-1 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                  <span>{t('transactions.fxFallbackBanner')}</span>
+                </p>
+              )}
               {sortedAvailableBalanceAccounts.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3">
                   {sortedAvailableBalanceAccounts.map((acc) => {

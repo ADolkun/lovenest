@@ -51,24 +51,16 @@ def has_reimbursement_links():
     return exists(select(1).where(_touches_reimbursement_link()))
 
 
-def on_open_account(entity: TransactionEntity = Transaction):
-    """SQL predicate: the row's account is not closed.
-
-    A NOT IN over a one-table subquery, so it never correlates to an
-    `Account` the enclosing query happens to join.
-    """
-    return entity.account_id.not_in(select(Account.id).where(Account.is_closed.is_(True)))
-
-
 def reimbursement_link_side_counts(entity: TransactionEntity = Transaction):
     """SQL predicate: a reimbursement link may count on this side of it.
 
-    A link is in effect only while both rows it joins are in user P&L on an
-    open account (ADR 0012). Otherwise one side would drop the linked amount
-    while the other, no longer reported, could not give it back, and income
-    minus expenses would move.
+    A link is in effect only while both rows it joins are in user P&L
+    (ADR 0012). Otherwise one side would drop the linked amount while the
+    other, no longer reported, could not give it back, and income minus
+    expenses would move. A closed account's rows stay in period reports, so
+    closing one does not switch its links off.
     """
-    return and_(counts_as_user_pnl(entity), on_open_account(entity))
+    return counts_as_user_pnl(entity)
 
 
 def reimbursement_unlinked_share():
@@ -81,8 +73,7 @@ def reimbursement_unlinked_share():
 
     Only links whose other row still counts are summed. The row's own
     `counts_as_user_pnl` is not checked here: every reporting query already
-    drops a row that fails it. Its account is, because budgets read rows on
-    closed accounts that the dashboard leaves out.
+    drops a row that fails it.
     """
     counterpart = aliased(Transaction)
     linked = func.sum(TransactionReimbursement.amount)
@@ -104,7 +95,7 @@ def reimbursement_unlinked_share():
                 ),
             ),
         )
-        .where(reimbursement_link_side_counts(counterpart), on_open_account())
+        .where(reimbursement_link_side_counts(counterpart))
         .correlate(Transaction)
         .scalar_subquery()
     )

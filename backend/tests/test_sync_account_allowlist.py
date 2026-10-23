@@ -125,7 +125,7 @@ async def test_absent_allowlist_syncs_every_account(
         holdings=[_holding("h-1", "acc-1"), _holding("h-2", None)],
     )
 
-    result, _ = await _sync(session, conn, test_workspace, test_user, provider)
+    result, _, _ = await _sync(session, conn, test_workspace, test_user, provider)
 
     assert result.status == "active"
     assert await _external_ids(session, conn) == ["acc-1", "acc-2"]
@@ -170,7 +170,7 @@ async def test_empty_allowlist_syncs_nothing_without_error(
         [_account("acc-1")], transactions={"acc-1": [_transaction("tx-1")]}
     )
 
-    result, _ = await _sync(session, conn, test_workspace, test_user, provider)
+    result, _, _ = await _sync(session, conn, test_workspace, test_user, provider)
 
     assert result.status == "active"
     assert await _external_ids(session, conn) == []
@@ -329,7 +329,7 @@ async def test_sync_records_the_provider_account_ids_it_saw(
     )
     provider = _fake_provider([_account("acc-1"), _account("acc-2", "Savings")])
 
-    result, _ = await _sync(session, conn, test_workspace, test_user, provider)
+    result, _, _ = await _sync(session, conn, test_workspace, test_user, provider)
 
     assert _settings(result)["seen_account_ids"] == ["acc-1", "acc-2"]
     assert _settings(result)["account_allowlist"] == ["acc-1"]
