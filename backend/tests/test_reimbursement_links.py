@@ -628,7 +628,6 @@ _LEAVING_USER_PNL = [
     _excluded_from_pnl,
     _card_payment_description,
     _settlement,
-    _account_closed,
 ]
 
 
@@ -656,6 +655,24 @@ async def test_a_side_leaving_user_pnl_leaves_every_figure_as_if_unlinked(
     unlinked = await _figures(session, test_workspace, test_user)
     assert linked == unlinked
     assert _net_cash_flow(linked) == pytest.approx(_net_cash_flow(unlinked))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("side", ["expense", "credit"])
+async def test_closing_either_account_keeps_the_link_in_effect(
+    session: AsyncSession, test_user, test_workspace, side,
+):
+    repaid = await _repaid_subscription(session, test_user, test_workspace)
+    await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "100"))
+    linked = await _figures(session, test_workspace, test_user)
+
+    await _account_closed(session, test_workspace, test_user, getattr(repaid, side))
+
+    assert await _figures(session, test_workspace, test_user) == linked
+    links = await reimbursement_service.links_for_transactions(
+        session, test_workspace.id, [repaid.credit.id, repaid.expense.id]
+    )
+    assert [link["in_effect"] for row_links in links.values() for link in row_links] == [True, True]
 
 
 @pytest.mark.asyncio
@@ -707,7 +724,7 @@ async def test_only_the_links_whose_other_side_left_go_inert(
 
 
 @pytest.mark.asyncio
-async def test_rows_out_of_user_pnl_or_on_closed_accounts_cannot_be_newly_linked(
+async def test_rows_out_of_user_pnl_cannot_be_newly_linked(
     session: AsyncSession, test_user, test_workspace,
 ):
     checking = await _account(session, test_user.id)
@@ -735,17 +752,17 @@ async def test_rows_out_of_user_pnl_or_on_closed_accounts_cannot_be_newly_linked
         (excluded, '"Excluded" can\'t be reimbursed: it is excluded from income and expenses.'),
         (in_transfers, '"Moved" can\'t be reimbursed: it is filed under a category left out'),
         (in_hidden, '"Hidden" can\'t be reimbursed: it is filed under a category left out'),
-        (on_closed, '"Closed" can\'t be reimbursed: it is on a closed account.'),
     ]:
         with pytest.raises(ValueError, match=reason):
             await _link(session, test_workspace.id, credit, (row, "5"))
 
+    # A closed account's history still counts in period reports, so its rows
+    # can be linked like any other.
     candidates = await reimbursement_service.reimbursement_candidates(session, test_workspace.id, credit.id)
-    assert [tx.id for tx, _, _ in candidates] == [fine.id]
-
+    assert {tx.id for tx, _, _ in candidates} == {fine.id, on_closed.id}
     zelle = await _txn(session, test_user.id, closed, "10", "credit", day)
-    with pytest.raises(ValueError, match="This credit can't be linked as a reimbursement: it is on a closed account"):
-        await _link(session, test_workspace.id, zelle, (fine, "5"))
+    links = await _link(session, test_workspace.id, zelle, (fine, "5"))
+    assert [link["in_effect"] for link in links] == [True]
 
 
 @pytest.mark.asyncio
@@ -758,7 +775,7 @@ async def test_a_link_made_before_its_side_left_stays_editable(
         date(2025, 9, 20), description="Other plan",
     )
     await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "60"))
-    await _account_closed(session, test_workspace, test_user, repaid.expense)
+    await _ignored(session, test_workspace, test_user, repaid.expense)
 
     links = await _link(session, test_workspace.id, repaid.credit, (repaid.expense, "70"), (other, "30"))
     assert {(link["counterpart_id"], link["amount"], link["in_effect"]) for link in links} == {
@@ -1160,7 +1177,6 @@ async def test_postgres_cascade_and_reporting(postgres_sessions):
         (_category_turned_ignored, "expense"),
         (_card_payment_description, "expense"),
         (_settlement, "credit"),
-        (_account_closed, "expense"),
     ],
     ids=lambda value: value if isinstance(value, str) else value.__name__.strip("_"),
 )

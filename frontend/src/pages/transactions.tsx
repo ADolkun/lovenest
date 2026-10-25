@@ -3,6 +3,7 @@ import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { getAccountName } from '@/lib/account-utils'
 import { AccountIcon } from '@/components/account-icon'
 import { currentMonth, monthRange, monthFromRange } from '@/lib/month-utils'
+import { loadRange, saveRange } from '@/lib/remembered-range'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
@@ -45,6 +46,7 @@ import { CategoryIcon } from '@/components/category-icon'
 import { CategorySelect } from '@/components/category-select'
 import { TransactionDialog, type SaveAction, type TransactionSavePayload } from '@/components/transaction-dialog'
 import { extractApiError } from '@/lib/api-errors'
+import { refreshTransactionsView } from '@/lib/transactions-refresh'
 import { TransactionsColumnPicker } from '@/components/transactions-column-picker'
 import { TransactionsPageActions } from '@/components/transactions-page-actions'
 import { MobileBulkSelectionActions } from '@/components/mobile-bulk-selection-actions'
@@ -118,19 +120,21 @@ export default function TransactionsPage() {
     return initial ? [initial] : []
   })
   const [filterUncategorized, setFilterUncategorized] = useState<boolean>(false)
-  // Seed the date range from the URL, or default to the current month on first
-  // open (no ?from/?to). Done in the initializer so it survives effect re-runs
-  // (e.g. React StrictMode's double-invoke in development).
-  const [filterFrom, setFilterFrom] = useState<string>(() => {
+  // Seed the date range from the URL, else the range last used on this page
+  // (issue #1053), else the current month. Done in the initializer so it
+  // survives effect re-runs (e.g. React StrictMode's double-invoke in
+  // development).
+  const [initialRange] = useState(() => {
     const f = searchParams.get('from')
     const t = searchParams.get('to')
-    return f || t ? (f ?? '') : monthRange(currentMonth()).from
+    if (f || t) return { from: f ?? '', to: t ?? '' }
+    return loadRange('transactions') ?? monthRange(currentMonth())
   })
-  const [filterTo, setFilterTo] = useState<string>(() => {
-    const f = searchParams.get('from')
-    const t = searchParams.get('to')
-    return f || t ? (t ?? '') : monthRange(currentMonth()).to
-  })
+  const [filterFrom, setFilterFrom] = useState<string>(initialRange.from)
+  const [filterTo, setFilterTo] = useState<string>(initialRange.to)
+  useEffect(() => {
+    saveRange('transactions', filterFrom, filterTo)
+  }, [filterFrom, filterTo])
   // Month reflected by the stepper: the active range when it spans exactly one
   // full month, otherwise the current month (custom ranges still navigable).
   const steppedMonth = monthFromRange(filterFrom, filterTo) ?? currentMonth()
@@ -386,7 +390,7 @@ export default function TransactionsPage() {
   const noAccounts = filterAccountIds.length === 0
     && activeAccountIds !== null && activeAccountIds.length === 0
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['transactions', page, limit, effectiveAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterStatus, filterFrom, filterTo, filterMinAmount, filterMaxAmount, hideIgnored, searchQuery, tagFilters, isMobile ? 'date' : grid.sortBy, isMobile ? 'desc' : grid.sortDir],
     enabled: !noAccounts,
     queryFn: () =>
@@ -415,7 +419,7 @@ export default function TransactionsPage() {
 
   const calendarMonth = steppedMonth
   const calendarAccountIds = filterAccountIds.length === 1 ? filterAccountIds : []
-  const { data: calendarData, isLoading: calendarLoading } = useQuery({
+  const { data: calendarData, isLoading: calendarLoading, isFetching: calendarFetching, refetch: refetchCalendar } = useQuery({
     queryKey: ['transactions', 'calendar', calendarMonth, calendarAccountIds],
     enabled: viewMode === 'calendar',
     queryFn: () => transactions.calendar({
@@ -1400,6 +1404,16 @@ export default function TransactionsPage() {
             onAdd={canWrite ? () => { setEditingTx(null); setDialogOpen(true) } : undefined}
             onDuplicate={duplicableTx ? () => handleDuplicateTransaction(duplicableTx) : undefined}
             onTransfer={canWrite ? () => setTransferDialogOpen(true) : undefined}
+            onRefresh={noAccounts ? undefined : () => {
+              void refreshTransactionsView({
+                viewMode,
+                refetchList: refetch,
+                refetchCalendar,
+                onError: (message) => toast.error(message),
+              })
+            }}
+            refreshing={viewMode === 'calendar' ? calendarFetching : isFetching}
+            testId="transactions-page-actions"
           />
         }
       />

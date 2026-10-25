@@ -63,14 +63,16 @@ export function ConnectionSettingsDialog({
   // Only while the dialog is open, and exactly once per opening: this one costs
   // a provider request against a daily budget, and a refetch behind the user's
   // back would also reset the ticks they have not saved yet. gcTime 0 is what
-  // makes reopening fetch fresh rather than replay a cached list.
+  // makes reopening fetch fresh rather than replay a cached list. 'static', not
+  // Infinity: invalidateQueries() still refetches an Infinity query, and the
+  // cross-tab refresh invalidates everything on any save in another tab.
   const providerAccounts = useQuery({
     // Deliberately not under the 'connections' key: invalidating that list
     // after a save or a sync would spend another provider request.
     queryKey: ['provider-accounts', connection?.id],
     queryFn: () => connections.listProviderAccounts(connection!.id),
     enabled: open && !!connection,
-    staleTime: Infinity,
+    staleTime: 'static',
     gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -121,13 +123,15 @@ export function ConnectionSettingsDialog({
       // connection shows "No accounts found" until a scheduled sync happens to
       // run, which is indistinguishable from a broken connector.
       if (allowlist && allowlistAdmitsMore(allowlist, stored)) {
-        await connections.sync(connection!.id)
+        return (await connections.sync(connection!.id)).sync_outcome
       }
+      return null
     },
-    onSuccess: () => {
+    onSuccess: (syncOutcome) => {
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
-      toast.success(t('accounts.updated'))
+      if (syncOutcome === 'rate_limited') toast.warning(t('accounts.syncRateLimited'))
+      else toast.success(t('accounts.updated'))
       onClose()
     },
     onError: () => toast.error(t('common.error')),

@@ -11,7 +11,7 @@ const LOCALES = readdirSync(LOCALES_DIR)
 
 // ponytail: these upstream locales fall back to English for Lovenest-only keys;
 // remove a locale once its downstream strings have translations.
-const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['el', 'hi', 'ja', 'sk'])
+const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['cs', 'el', 'hi', 'hu', 'ja', 'sk'])
 
 // #146 balance explanations, #133 and #155 ship EN + PT-BR. Other locales use English for these shared labels,
 // while existing common/evidence keys still require translations.

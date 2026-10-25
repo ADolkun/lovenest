@@ -1,6 +1,6 @@
 [project]
 name = "securo-backend"
-version = "0.16.3"
+version = "0.16.5"
 description = "Securo API - Personal Finance Manager"
 requires-python = ">=3.11"
 # These ranges express intent; CI and Docker install uv.lock with uv sync --locked.
@@ -68,6 +68,11 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = ["app", "mcp_server"]
 module-root = ""
+
+[tool.setuptools.package-data]
+# Ship the category taxonomy in wheels/non-editable installs; without this it
+# only exists in editable (-e) installs and the backend crashes at import.
+app = ["data/*.json"]
 
 [tool.pytest.ini_options]
 # Fail on configuration/marker typos, duplicate parameter IDs and unexpected

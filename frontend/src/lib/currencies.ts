@@ -45,4 +45,7 @@ export const CURRENCIES = [
   { code: 'QAR', flag: '\u{1F1F6}\u{1F1E6}', symbol: 'ر.ق' },
   { code: 'JMD', flag: '\u{1F1EF}\u{1F1F2}', symbol: 'J$' },
   { code: 'RSD', flag: '\u{1F1F7}\u{1F1F8}', symbol: 'RSD' },
+  { code: 'MKD', flag: '\u{1F1F2}\u{1F1F0}', symbol: 'ден' },
+  { code: 'HKD', flag: '\u{1F1ED}\u{1F1F0}', symbol: 'HK$' },
+  { code: 'TWD', flag: '\u{1F1F9}\u{1F1FC}', symbol: 'NT$' },
 ] as const

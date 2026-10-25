@@ -28,7 +28,6 @@ from app.models.transaction_split import TransactionSplit
 from app.services._query_filters import (
     counts_as_user_pnl,
     has_valid_transfer_pair,
-    on_open_account,
     reimbursement_link_side_counts,
 )
 from app.services.transaction_semantics import credit_card_payment_filter
@@ -66,7 +65,6 @@ def _eligible_row():
         ~credit_card_payment_filter(),
         ~_has_group_splits(),
         counts_as_user_pnl(),
-        on_open_account(),
     )
 
 
@@ -80,7 +78,6 @@ async def _eligibility_flags(
             credit_card_payment_filter().label("card_payment"),
             _has_group_splits().label("split"),
             counts_as_user_pnl().label("counts"),
-            on_open_account().label("open_account"),
         ).where(Transaction.id.in_(transaction_ids))
     )
     return {row.id: row for row in result.all()}
@@ -111,8 +108,6 @@ def _ineligibility(tx: Transaction, flags: Any) -> Optional[str]:
         return "is excluded from income and expenses."
     if not flags.counts:
         return "is filed under a category left out of income and expenses."
-    if not flags.open_account:
-        return "is on a closed account."
     return None
 
 

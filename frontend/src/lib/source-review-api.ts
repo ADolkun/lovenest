@@ -1,4 +1,4 @@
-import api from '@/lib/api'
+import api, { readOnly } from '@/lib/api'
 import type { EvidenceLeg, EvidenceObservation, EvidencePreview } from '@/types/investment-evidence'
 
 export interface SourceSemantics {
@@ -74,7 +74,7 @@ export const sourceReviews = {
     return data
   },
   preview: async (workspaceId: string, request: SourceReviewRequest): Promise<SourceReviewPreview> => {
-    const { data } = await api.post('/assets/evidence/source-reviews/preview', request, { headers: headers(workspaceId) })
+    const { data } = await api.post('/assets/evidence/source-reviews/preview', request, { ...readOnly, headers: headers(workspaceId) })
     return data
   },
   confirm: async (workspaceId: string, preview: SourceReviewPreview): Promise<SourceReviewPackage> => {

@@ -156,8 +156,27 @@ async def _net_worth_at(
     liabilities_total = 0.0
     composition: list[ReportCompositionItem] = []
 
+    # Cards on one consolidated credit line (same shared_balance_group) each
+    # carry the whole line's debt, so they are summed as one item, the same way
+    # the dashboard's _total_balance_by_currency does. Only credit cards: an
+    # account retyped to checking keeps its group but no longer shares the debt.
+    grouped: dict[str, list[Account]] = {}
     for account in accounts:
-        bal = await _account_balance_at(session, account, cutoff)
+        shared = account.shared_balance_group if account.type == "credit_card" else None
+        grouped.setdefault(shared or str(account.id), []).append(account)
+
+    for key, group in grouped.items():
+        account = group[0]
+        bal = 0.0
+        for member in group:
+            bal += await _account_balance_at(session, member, cutoff)
+        if len(group) > 1 and account.shared_balance_group:
+            # Each card's balance at the cutoff is the shared debt today minus
+            # that card's own activity since, so the duplicates to strip are
+            # today's shared debt once per extra card.
+            current_shared = await _account_balance_at(session, account, app_today())
+            bal -= current_shared * (len(group) - 1)
+        label = " + ".join(get_account_name(member) for member in group)
         converted, _ = await convert(
             session, Decimal(str(abs(bal))), account.currency, primary_currency, cutoff
         )
@@ -166,8 +185,8 @@ async def _net_worth_at(
             liabilities_total += converted_val
             if converted_val > 0:
                 composition.append(ReportCompositionItem(
-                    key=str(account.id),
-                    label=get_account_name(account),
+                    key=key,
+                    label=label,
                     value=round(converted_val, 2),
                     color=_ACCOUNT_TYPE_COLORS.get(account.type, "#6B7280"),
                     group="liabilities",
@@ -176,8 +195,8 @@ async def _net_worth_at(
             accounts_total += converted_val
             if converted_val > 0:
                 composition.append(ReportCompositionItem(
-                    key=str(account.id),
-                    label=get_account_name(account),
+                    key=key,
+                    label=label,
                     value=round(converted_val, 2),
                     color=_ACCOUNT_TYPE_COLORS.get(account.type, "#6B7280"),
                     group="accounts",
@@ -472,10 +491,8 @@ async def get_income_expenses_report(
             func.sum(user_pnl_income_amount(amount_expr)),
             func.sum(user_pnl_expense_amount(amount_expr)),
         )
-        .join(Account, Transaction.account_id == Account.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= start,
             report_date <= axis_end,
             Transaction.source != "opening_balance",
@@ -787,11 +804,9 @@ async def get_income_expenses_report(
             func.sum(pnl_group_amount),
         )
         .select_from(Transaction)
-        .join(Account, Transaction.account_id == Account.id)
         .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= start,
             report_date <= axis_end,
             Transaction.source != "opening_balance",
@@ -846,11 +861,9 @@ async def get_income_expenses_report(
             func.sum(amount_expr),
         )
         .select_from(Transaction)
-        .join(Account, Transaction.account_id == Account.id)
         .join(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= start,
             report_date <= axis_end,
             Transaction.source != "opening_balance",
@@ -886,11 +899,9 @@ async def get_income_expenses_report(
             func.sum(pnl_group_amount),
         )
         .select_from(Transaction)
-        .join(Account, Transaction.account_id == Account.id)
         .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.workspace_id == workspace_id,
-            Account.is_closed == False,
             report_date >= start,
             report_date <= axis_end,
             Transaction.source != "opening_balance",
@@ -1596,7 +1607,14 @@ async def get_cash_flow_report(
     # Forward walk: balance(d+1) = balance(d) + net_flow(d+1). Pending rows
     # already due are part of the projected starting position, not a second
     # dated flow in the future.
+    #
+    # The walk also tracks the runway: the first day the projected balance
+    # drops below zero, and the lowest point of the horizon. Both are taken
+    # from the daily walk so a dip inside a week or month still counts when
+    # the chart is aggregated to a coarser interval.
     running = current_balance + pending_current_delta
+    lowest_balance, lowest_balance_date = running, today
+    runway_date: date | None = today if running < 0 else None
     cursor_d = today
     while cursor_d < end:
         cursor_d = cursor_d + timedelta(days=1)
@@ -1605,6 +1623,10 @@ async def get_cash_flow_report(
         daily_balance[cursor_d] = running
         daily_inflow[cursor_d] = bucket["inflow"]
         daily_outflow[cursor_d] = bucket["outflow"]
+        if running < lowest_balance:
+            lowest_balance, lowest_balance_date = running, cursor_d
+        if runway_date is None and running < 0:
+            runway_date = cursor_d
 
     # 5. Aggregate to interval.
     points = _date_points(chart_start, end, interval)
@@ -1703,6 +1725,9 @@ async def get_cash_flow_report(
         forecast_start_date=_format_date_label(today, interval),
         baseline_active=baseline,
         baseline_lookback_days=baseline_lookback_days if baseline else None,
+        runway_date=runway_date.isoformat() if runway_date else None,
+        lowest_balance=round(lowest_balance, 2),
+        lowest_balance_date=lowest_balance_date.isoformat(),
     )
 
     composition: list[ReportCompositionItem] = []

@@ -948,6 +948,7 @@
     "searchPlaceholder": "Buscar transações...",
     "clearFilters": "Limpar filtros",
     "exportCsv": "Exportar CSV",
+    "refresh": "Atualizar",
     "exportSelected": "Exportar Selecionadas ({{count}})",
     "exporting": "Exportando...",
     "exportSuccess": "Transações exportadas com sucesso",
@@ -1186,6 +1187,7 @@
     "confirmDeleteTitle": "Excluir conta?",
     "confirmDeleteDesc": "Esta ação é irreversível. Também excluirá todas as transações, registros de importação e transações recorrentes vinculadas a esta conta, e desvinculará qualquer meta que estivesse acompanhando-a.",
     "openingBalance": "saldo inicial",
+    "openingBalanceDescription": "Saldo inicial",
     "notFound": "Conta não encontrada.",
     "balance": "Saldo",
     "balanceCreditCard": "Valor devido",
@@ -1243,6 +1245,7 @@
     "updated": "Conta atualizada",
     "deleted": "Conta excluída",
     "syncDone": "Sincronização concluída",
+    "syncRateLimited": "Limite diário do banco atingido, nenhum dado novo foi buscado. Tente novamente mais tarde.",
     "syncError": "Erro ao sincronizar",
     "connected": "Banco conectado com sucesso",
     "connectError": "Erro ao conectar banco",
@@ -1503,7 +1506,6 @@
     "endDate": "Data de fim (opcional)",
     "category": "Categoria",
     "account": "Conta",
-    "noAccount": "Nenhuma",
     "nextOccurrence": "Próxima",
     "status": "Status",
     "actions": "Ações",
@@ -1790,8 +1792,13 @@
     "errors": {
       "invalid_date": "Formato de data inválido",
       "no_amount": "Nenhum valor de entrada ou saída",
-      "invalid_amount": "Formato de valor inválido"
-    }
+      "invalid_amount": "Formato de valor inválido",
+      "invalid_fx_rate": "Câmbio inválido",
+      "ambiguous_amount": "Entrada e saída preenchidas",
+      "conflicting_amount": "Campos de valor conflitantes",
+      "invalid_direction": "Indicador de crédito/débito inválido"
+    },
+    "selectAll": "Selecionar todos"
   },
   "assetImport": {
     "title": "Importar ordens de investimento",
@@ -1848,6 +1855,7 @@
       "invalid_date": "data ilegível",
       "invalid_quantity": "quantidade ilegível",
       "invalid_price": "preço ilegível",
+      "invalid_fee": "taxa ilegível",
       "unknown_ticker": "ativo não encontrado no provedor de cotações",
       "oversell": "venda maior do que a posição",
       "invalid_proceeds": "data de venda sem valor de venda",
@@ -2230,6 +2238,9 @@
     "inflowOutflow": "Entradas vs Saídas",
     "startingBalance": "Saldo Atual",
     "endingBalance": "Saldo Projetado",
+    "runwayNegativeOn": "O saldo fica negativo em {{date}}",
+    "runwayAlreadyNegative": "Já está negativo",
+    "lowestBalance": "Menor saldo",
     "projectedIncome": "Receita Projetada",
     "projectedExpenses": "Despesa Projetada",
     "incomeExpenses": "Receitas vs Despesas",
@@ -2359,6 +2370,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2434,6 +2446,8 @@
     "closePreview": "Fechar visualização"
   },
   "splitGroups": {
+    "searchPlaceholder": "Buscar grupos...",
+    "clearSearch": "Limpar busca",
     "title": "Grupos",
     "section": "Configuração",
     "add": "Adicionar grupo",

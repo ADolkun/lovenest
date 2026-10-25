@@ -946,6 +946,7 @@
     "searchPlaceholder": "Transaktionen suchen...",
     "clearFilters": "Filter löschen",
     "exportCsv": "Als CSV exportieren",
+    "refresh": "Aktualisieren",
     "exportSelected": "Ausgewählte exportieren ({{count}})",
     "exporting": "Exportieren...",
     "exportSuccess": "Transaktionen erfolgreich exportiert",
@@ -1184,6 +1185,7 @@
     "confirmDeleteTitle": "Konto löschen?",
     "confirmDeleteDesc": "Diese Aktion kann nicht rückgängig gemacht werden. Es werden auch alle Transaktionen, Importdatensätze und wiederkehrenden Transaktionen gelöscht, die mit diesem Konto verknüpft sind, und alle Ziele, die dieses Konto verfolgt haben, werden getrennt.",
     "openingBalance": "Eröffnungssaldo",
+    "openingBalanceDescription": "Eröffnungssaldo",
     "notFound": "Konto nicht gefunden.",
     "balance": "Saldo",
     "balanceCreditCard": "Geschuldeter Betrag",
@@ -1241,6 +1243,7 @@
     "updated": "Konto aktualisiert",
     "deleted": "Konto gelöscht",
     "syncDone": "Synchronisierung abgeschlossen",
+    "syncRateLimited": "Tägliches Banklimit erreicht, es wurden keine neuen Daten geladen. Bitte später erneut versuchen.",
     "syncError": "Synchronisierung fehlgeschlagen",
     "connected": "Bank erfolgreich verbunden",
     "connectError": "Verbindung zur Bank fehlgeschlagen",
@@ -1500,7 +1503,6 @@
     "endDate": "Enddatum (optional)",
     "category": "Kategorie",
     "account": "Konto",
-    "noAccount": "Keins",
     "nextOccurrence": "Nächste",
     "status": "Status",
     "actions": "Aktionen",
@@ -1787,8 +1789,13 @@
     "errors": {
       "invalid_date": "Ungültiges Datumsformat",
       "no_amount": "Kein Zu- oder Abflussbetrag",
-      "invalid_amount": "Ungültiges Betragsformat"
-    }
+      "invalid_amount": "Ungültiges Betragsformat",
+      "invalid_fx_rate": "Ungültiger Wechselkurs",
+      "ambiguous_amount": "Zu- und Abflussbetrag ausgefüllt",
+      "conflicting_amount": "Widersprüchliche Betragfelder",
+      "invalid_direction": "Ungültiges Gutschrift-/Lastschriftkennzeichen"
+    },
+    "selectAll": "Alle auswählen"
   },
   "assetImport": {
     "title": "Wertpapierorders importieren",
@@ -1845,6 +1852,7 @@
       "invalid_date": "unlesbares Datum",
       "invalid_quantity": "unlesbare Stückzahl",
       "invalid_price": "unlesbarer Preis",
+      "invalid_fee": "unlesbare Gebühr",
       "unknown_ticker": "Ticker beim Kursanbieter nicht gefunden",
       "oversell": "Verkauf größer als die Position",
       "invalid_proceeds": "Verkaufsdatum ohne Verkaufserlös",
@@ -2227,6 +2235,9 @@
     "inflowOutflow": "Einnahmen vs. Ausgaben",
     "startingBalance": "Anfangssaldo",
     "endingBalance": "Prognostizierter Saldo",
+    "runwayNegativeOn": "Der Saldo wird am {{date}} negativ",
+    "runwayAlreadyNegative": "Bereits im Minus",
+    "lowestBalance": "Niedrigster Stand",
     "projectedIncome": "Prognostizierte Einnahmen",
     "projectedExpenses": "Prognostizierte Ausgaben",
     "incomeExpenses": "Einnahmen vs. Ausgaben",
@@ -2356,6 +2367,7 @@
       "ro_cui": "CUI",
       "ch_uid": "UID",
       "inn": "INN",
+      "kz_biniin": "BIN/IIN",
       "edrpou": "EDRPOU",
       "cuit": "CUIT",
       "rfc": "RFC",
@@ -2430,6 +2442,8 @@
     "closePreview": "Vorschau schließen"
   },
   "splitGroups": {
+    "searchPlaceholder": "Gruppen suchen...",
+    "clearSearch": "Suche löschen",
     "title": "Gruppen",
     "section": "Einrichtung",
     "add": "Gruppe hinzufügen",
