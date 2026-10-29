@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.account import Account
-from app.models.asset import Asset
+from app.models.asset import ASSET_PRICE_DECIMALS, Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue, latest_value_first
 from app.models.bank_connection import BankConnection
@@ -21,7 +21,7 @@ from app.schemas.asset_group import (
     AssetGroupUpdate,
     TaxTreatment,
 )
-from app.services.fx_rate_service import convert
+from app.services.fx_rate_service import convert, convert_or_none
 from app.services.asset_valuation import current_value_amount
 from app.schemas.balance_explanation import BalanceExplanation
 
@@ -171,10 +171,12 @@ async def _sum_asset_values(
         if asset.currency == primary_currency:
             current_value_primary += latest
         else:
-            converted, _ = await convert(
-                session, latest, asset.currency, primary_currency
+            converted, _ = await convert_or_none(
+                session, latest, asset.currency, primary_currency,
+                decimals=ASSET_PRICE_DECIMALS,
             )
-            current_value_primary += converted
+            if converted is not None:
+                current_value_primary += converted
     return current_value, current_value_primary, unvalued_count
 
 

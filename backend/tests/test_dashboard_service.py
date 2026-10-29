@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.models.account import Account
 from app.models.category import Category
 from app.models.recurring_transaction import RecurringTransaction
@@ -378,6 +379,118 @@ async def test_get_summary_basic(session: AsyncSession, test_user, test_workspac
     assert summary.monthly_income == pytest.approx(100.0)
     assert summary.monthly_expenses == pytest.approx(200.0)
     assert summary.accounts_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# get_summary: mixed currencies and the FX fallback flag (issue #1165)
+# ---------------------------------------------------------------------------
+
+
+async def _fund_manual(
+    session: AsyncSession, user_id: uuid.UUID, account_id: uuid.UUID,
+    amount: float, currency: str,
+) -> Transaction:
+    """Opening credit for a manual account, in the account's own currency.
+
+    Manual account totals count transactions, not the balance field.
+    """
+    txn = Transaction(
+        id=uuid.uuid4(), user_id=user_id, account_id=account_id,
+        description="Opening balance", amount=Decimal(str(amount)),
+        date=app_today(), type="credit", source="opening_balance",
+        currency=currency, status="posted",
+    )
+    session.add(txn)
+    await session.commit()
+    return txn
+
+
+@pytest.mark.asyncio
+async def test_get_summary_mixed_currency_missing_rate_flags_fallback(
+    session: AsyncSession, test_user, test_workspace, monkeypatch
+):
+    """No FX rate: foreign buckets stay at 1:1 and the summary is flagged.
+
+    The total keeps the native amounts (same rule as the available balance
+    headline) but must carry fx_fallback, so the UI shows the estimate
+    instead of presenting foreign money as converted (issue #1165).
+    """
+    from unittest.mock import AsyncMock
+    import app.services.fx_rate_service as fx
+
+    # Hermetic: never touch the network, even if a provider API key is set.
+    monkeypatch.setattr(fx, "sync_rates", AsyncMock(return_value=0))
+
+    home = await _make_account(session, test_user.id, "Home", currency="BRL")
+    abroad = await _make_account(session, test_user.id, "Abroad", currency="EUR")
+    await _fund_manual(session, test_user.id, home.id, 100.0, "BRL")
+    await _fund_manual(session, test_user.id, abroad.id, 50.0, "EUR")
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+
+    assert summary.primary_currency == "BRL"
+    assert summary.total_balance == {"BRL": 100.0, "EUR": 50.0}
+    # Summed at 1:1 (not silently converted) and flagged as an estimate.
+    assert summary.total_balance_primary == pytest.approx(150.0)
+    assert summary.fx_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_get_summary_zero_foreign_balance_without_rate_is_not_flagged(
+    session: AsyncSession, test_user, test_workspace, monkeypatch
+):
+    """A foreign account at zero needs no rate: the total is exact, so the
+    summary must not be flagged as an estimate (issue #1165)."""
+    from unittest.mock import AsyncMock
+    import app.services.fx_rate_service as fx
+
+    monkeypatch.setattr(fx, "sync_rates", AsyncMock(return_value=0))
+
+    home = await _make_account(session, test_user.id, "Home", currency="BRL")
+    abroad = await _make_account(session, test_user.id, "Abroad", currency="EUR")
+    await _fund_manual(session, test_user.id, home.id, 100.0, "BRL")
+    await _fund_manual(session, test_user.id, abroad.id, 50.0, "EUR")
+    session.add(Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=abroad.id,
+        description="Spent it all", amount=Decimal("50"), date=app_today(),
+        type="debit", source="manual", currency="EUR", status="posted",
+    ))
+    await session.commit()
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+
+    assert summary.total_balance_primary == pytest.approx(100.0)
+    assert summary.fx_fallback is False
+
+
+@pytest.mark.asyncio
+async def test_get_summary_mixed_currency_with_rate_converts(
+    session: AsyncSession, test_user, test_workspace, monkeypatch
+):
+    """A real stored rate converts the bucket and no fallback flag is set."""
+    from unittest.mock import AsyncMock
+    import app.core.app_clock as clock
+    import app.services.fx_rate_service as fx
+    from app.models.fx_rate import FxRate
+
+    # Hermetic: never touch the network, even if a provider API key is set.
+    monkeypatch.setattr(fx, "sync_rates", AsyncMock(return_value=0))
+
+    home = await _make_account(session, test_user.id, "Home", currency="BRL")
+    abroad = await _make_account(session, test_user.id, "Abroad", currency="EUR")
+    await _fund_manual(session, test_user.id, home.id, 100.0, "BRL")
+    await _fund_manual(session, test_user.id, abroad.id, 50.0, "EUR")
+
+    today = clock.app_today()
+    session.add(FxRate(base_currency="USD", quote_currency="EUR", date=today, rate=Decimal("1.10"), source="test"))
+    session.add(FxRate(base_currency="USD", quote_currency="BRL", date=today, rate=Decimal("5.50"), source="test"))
+    await session.commit()
+
+    summary = await get_summary(session, test_workspace.id, test_user.id)
+
+    # EUR -> BRL cross rate = 5.50 / 1.10 = 5.00, so 50 EUR counts as 250 BRL.
+    assert summary.total_balance_primary == pytest.approx(350.0)
+    assert summary.fx_fallback is False
 
 
 @pytest.mark.asyncio

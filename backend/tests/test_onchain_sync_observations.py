@@ -516,7 +516,7 @@ async def test_expired_sync_observation_never_combines_old_account_with_fresh_ho
     clock, _ = clocked_rpc
     register_provider("onchain", OnChainProvider)
     conn = await _connection(session, test_user, test_workspace)
-    original_sync = connection_service._sync_holdings
+    original_fetch = connection_service._fetch_holdings
     counts = Counter()
     before = _counting_wallet(counts, index_status=200 if initial_complete else 503)
     after = _counting_wallet(counts, native=2 * 10**9)
@@ -524,12 +524,12 @@ async def test_expired_sync_observation_never_combines_old_account_with_fresh_ho
     def handler(request):
         return (before if clock.now == 0 else after)(request)
 
-    async def after_database_work(*args, **kwargs):
+    async def after_account_read(*args, **kwargs):
         clock.now += onchain.HOLDINGS_REUSE_SECONDS + 1
-        await original_sync(*args, **kwargs)
+        return await original_fetch(*args, **kwargs)
 
     with _settings(), _clients(handler), patch.object(
-        connection_service, "_sync_holdings", after_database_work,
+        connection_service, "_fetch_holdings", after_account_read,
     ):
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
     assert counts["spot"] == counts["getBalance"] == counts["jupiter"] == 2

@@ -65,6 +65,8 @@ The following is **Securo's feature set**, inherited unchanged by lovenest:
 
 For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exchange rates, and AI Agents, follow **[Securo's documentation](https://docs.usesecuro.com/)** — the underlying configuration keys are unchanged in this fork.
 
+See [automatic bank synchronization](docs/automatic-bank-sync.md) to configure the minimum polling interval (including PSD2 four-access-per-day limits).
+
 ### Tech stack
 
 | Layer | Stack |

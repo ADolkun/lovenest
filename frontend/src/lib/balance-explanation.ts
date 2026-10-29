@@ -31,12 +31,21 @@ export function accountBasis(account: Account, workspaceId?: string): BalanceExp
   return scopedExplanation(account, workspaceId)?.basis ?? (account.connection_id === null ? 'cash_ledger' : 'unknown')
 }
 
+/** A card on a shared credit line repeats the whole line's balance, so its row leads with its own open bill, as debt. */
+export function sharedCardOpenBill(account: Pick<Account, 'type' | 'shared_balance_group' | 'open_bill_total'>): number | null {
+  if (account.type !== 'credit_card' || !account.shared_balance_group) return null
+  const bill = knownAmount(account.open_bill_total)
+  return bill === null ? null : -bill
+}
+
 export function accountAggregate(accounts: Account[], currency: string, workspaceId?: string) {
   let total = 0
   let known = 0
   let incomplete = false
   const sharedGroups = new Set<string>()
-  for (const account of accounts) {
+  // Loans are long-term debt the net worth already counts, not money on hand.
+  const counted = accounts.filter((account) => account.type !== 'loan')
+  for (const account of counted) {
     // Cards drawing on one shared credit line each report that line's balance.
     if (account.shared_balance_group) {
       if (sharedGroups.has(account.shared_balance_group)) continue
@@ -48,7 +57,7 @@ export function accountAggregate(accounts: Account[], currency: string, workspac
     if (amount !== null) { total += amount; known++ }
     if (amount === null || (account.type === 'investment' && (!detail || detail.coverage !== 'complete' || detail.refresh_status !== 'active'))) incomplete = true
   }
-  return { amount: known > 0 || accounts.length === 0 ? total : null, incomplete }
+  return { amount: known > 0 || counted.length === 0 ? total : null, incomplete }
 }
 
 /** Residuals require server-established scope/time compatibility, then the UI's currency. */
