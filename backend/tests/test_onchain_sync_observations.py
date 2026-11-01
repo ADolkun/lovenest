@@ -513,6 +513,8 @@ async def test_missing_native_quantity_preserves_successful_tokens_without_zero_
 async def test_expired_sync_observation_never_combines_old_account_with_fresh_holdings(
     session, test_user, test_workspace, clocked_rpc, initial_complete,
 ):
+    # The account is in USD: with no rate into a BRL primary its balance is unknown.
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     clock, _ = clocked_rpc
     register_provider("onchain", OnChainProvider)
     conn = await _connection(session, test_user, test_workspace)
@@ -557,6 +559,7 @@ async def test_expired_sync_observation_never_combines_old_account_with_fresh_ho
 async def test_incomplete_balance_requires_persisted_account_and_holdings_to_heal(
     session, test_user, test_workspace, skip,
 ):
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     register_provider("onchain", OnChainProvider)
     conn = await _connection(session, test_user, test_workspace)
     with _settings(), _clients(_counting_wallet(Counter())):

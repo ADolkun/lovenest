@@ -1167,6 +1167,9 @@ export interface AssetGroup {
   account_id?: string | null
   /** Active holdings missing a usable valuation. A subtotal is not a complete balance. */
   unvalued_count?: number
+  /** Active holdings valued in a currency with no FX rate to the primary one:
+      left out of `current_value_primary`, still in `current_value`. */
+  unconverted_count?: number
   institution_name: string | null
   // `type` of the provider account this wallet mirrors — what allocation by
   // account type groups on. Null for manual wallets.

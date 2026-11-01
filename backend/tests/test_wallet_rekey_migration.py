@@ -390,6 +390,8 @@ async def test_a_payload_that_drops_attribution_keeps_the_account_join(
     healthy payload, and the UI shows that as an empty allocation bucket and no
     Liquid Cash rather than as an error.
     """
+    # The account is in USD: with no rate into a BRL primary its balance is unknown.
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     conn = await _two_retirement_wallets(session, test_user, test_workspace)
     assert await _run_migration(session) == 2
     await session.commit()

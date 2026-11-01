@@ -1307,6 +1307,8 @@ async def test_allocation_resolves_the_account_behind_a_compound_keyed_wallet(
     wallet mirrors, so they have to reach it through the holdings rather than
     by reading the wallet key as an account id.
     """
+    # The account is in USD: with no rate into a BRL primary its balance is unknown.
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     roth = await session.scalar(
         select(Account).where(Account.external_id == "acc-roth")
     )

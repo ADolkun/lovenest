@@ -3220,6 +3220,7 @@
     "holdings": "Holdings",
     "unpriced": "Value unavailable",
     "partial": "Partial · {{count}} unpriced",
+    "unconverted": "Partial · {{count}} with no FX rate",
     "chooseAccountFor": "Account for {{wallet}}",
     "chooseAccount": "Choose an account…",
     "link": "Link account",

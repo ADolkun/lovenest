@@ -1117,7 +1117,7 @@ export default function AssetsPage() {
     // fallback for a real zero; missing valuations remain an explicit subtotal.
     const priced = walletAssets.filter((asset) => valueInCurrency(asset, userCurrency) !== null)
     const total = priced.reduce((sum, asset) => sum + valueInCurrency(asset, userCurrency)!, 0)
-    const partial = assetsError || priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0
+    const partial = assetsError || priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0 || (wallet.unconverted_count ?? 0) > 0
     // Native values of assets the backend could not convert (no FX rate),
     // grouped by currency and listed below the total. They are deliberately
     // NOT added to the number above: that would mix unconverted currencies

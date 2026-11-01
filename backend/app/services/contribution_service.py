@@ -415,7 +415,9 @@ async def summaries(
     # currency of its own — it is recorded in the currency of the wallet it
     # was paid into — so comparing it against a balance converted to whatever
     # the reader displays would subtract euros from dollars, and two members
-    # of one workspace would read different returns off identical rows.
+    # of one workspace would read different returns off identical rows. For
+    # the same reason a holding with no rate into the reader's currency is
+    # still in `current_value`, so only an unvalued one makes it incomplete.
     wallets = {
         g.id: g for g in await asset_group_service.get_groups(session, workspace_id, user_id)
     }

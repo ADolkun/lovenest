@@ -1,5 +1,5 @@
 import type { Asset, AssetGroup, TaxTreatment } from '@/types'
-import { holdingsMatchSnapshot, walletCash } from '@/lib/balance-explanation'
+import { holdingsMatchSnapshot, knownAmount, valueInCurrency, walletCash } from '@/lib/balance-explanation'
 
 // CONTEXT.md: a Cash Equivalent behaves as Liquid Cash, so it is never an
 // invested position. The classification is the user's, stored on `Asset.type`;
@@ -112,12 +112,15 @@ export function shareOfTotal(value: number, total: number): number {
   return total > 0 ? value / total : 0
 }
 
-function primaryValue(asset: Asset): number {
-  return Number(asset.current_value_primary ?? asset.current_value ?? 0)
+// A holding priced in a currency no rate converts has no primary value: the API
+// leaves `current_value_primary` null rather than take it at 1:1, and reading
+// its native amount instead would add foreign units to the total as if primary.
+function primaryValue(asset: Asset, currency: string): number {
+  return valueInCurrency(asset, currency) ?? 0
 }
 
-function hasValue(asset: Asset): boolean {
-  return (asset.current_value_primary ?? asset.current_value) !== null
+function hasValue(asset: Asset, currency: string): boolean {
+  return valueInCurrency(asset, currency) !== null
 }
 
 // Quantities are stored at six decimals, so summing legs in binary floating
@@ -132,20 +135,20 @@ function roundQuantity(quantity: number): number {
  * currency and has no converted twin, but value and gain are both converted at
  * one rate — so their difference is the basis at that same rate.
  */
-function primaryCostBasis(asset: Asset): number | null {
-  const gain = asset.gain_loss_primary ?? asset.gain_loss
-  if (gain === null || gain === undefined) return null
-  return primaryValue(asset) - Number(gain)
+function primaryCostBasis(asset: Asset, currency: string): number | null {
+  const value = valueInCurrency(asset, currency)
+  const gain = knownAmount(asset.gain_loss_primary) ?? (asset.currency === currency ? knownAmount(asset.gain_loss) : null)
+  return value === null || gain === null ? null : value - gain
 }
 
 /** A partial/failed holding response cannot verify a server residual against this view. */
-function liquidCashPerWallet(assets: Asset[], wallets: AssetGroup[], currency?: string): Map<string, number> {
+function liquidCashPerWallet(assets: Asset[], wallets: AssetGroup[], currency: string): Map<string, number> {
   const cash = new Map<string, number>()
   for (const wallet of wallets) {
     const amount = walletCash(wallet, currency)
     if (amount === null) continue
     const holdings = assets.filter((asset) => asset.group_id === wallet.id && !asset.is_archived && !asset.sell_date)
-    if (holdings.some((asset) => !hasValue(asset))) continue
+    if (holdings.some((asset) => !hasValue(asset, currency))) continue
     if (!holdingsMatchSnapshot(wallet.balance_explanation!.holdings, holdings)) continue
     cash.set(wallet.id, amount)
   }
@@ -237,7 +240,7 @@ function summarise(positions: Position[], liquidCash: WalletCash[]): PortfolioTo
  * worth under a dollar in total is what buries a real position in a ranking,
  * and by definition every leg of it is dust too.
  */
-export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency?: string): Portfolio {
+export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency: string): Portfolio {
   const walletsById = new Map(wallets.map((w) => [w.id, w]))
   const byTicker = new Map<string, Asset[]>()
   const occupiedWallets = new Set<string>()
@@ -254,10 +257,10 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency?
 
   const positions: Position[] = []
   for (const [ticker, holdings] of byTicker) {
-    const ranked = [...holdings].sort((a, b) => primaryValue(b) - primaryValue(a))
+    const ranked = [...holdings].sort((a, b) => primaryValue(b, currency) - primaryValue(a, currency))
     const legs: PositionLeg[] = ranked.map((asset) => {
       const wallet = asset.group_id ? walletsById.get(asset.group_id) : undefined
-      const costBasis = primaryCostBasis(asset)
+      const costBasis = primaryCostBasis(asset, currency)
       return {
         assetId: asset.id,
         walletId: asset.group_id,
@@ -266,9 +269,9 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency?
         taxTreatment: wallet?.tax_treatment ?? null,
         assetType: asset.type,
         quantity: Number(asset.units ?? 0),
-        value: primaryValue(asset),
+        value: primaryValue(asset, currency),
         costBasis,
-        gain: costBasis === null ? null : primaryValue(asset) - costBasis,
+        gain: costBasis === null ? null : primaryValue(asset, currency) - costBasis,
       }
     })
 
@@ -286,7 +289,7 @@ export function buildPortfolio(assets: Asset[], wallets: AssetGroup[], currency?
       weight: null,
       // A holding nobody has priced yet is worth an unknown amount, not zero,
       // so it is never Dust — hiding it would be a guess dressed as a fact.
-      isDust: ranked.some(hasValue) && aggregate.value < DUST_THRESHOLD,
+      isDust: ranked.some((asset) => hasValue(asset, currency)) && aggregate.value < DUST_THRESHOLD,
       isCashEquivalent: dominant.type === CASH_EQUIVALENT_TYPE,
       legs,
     })

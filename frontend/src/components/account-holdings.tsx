@@ -26,13 +26,15 @@ function WalletValue({ wallet }: { wallet: AssetGroup }) {
   const locale = useDisplayLocale()
   const currency = user?.preferences?.currency_display ?? 'USD'
   const missing = wallet.unvalued_count ?? 0
+  const unconverted = wallet.unconverted_count ?? 0
   const value = valueInCurrency(wallet, currency)
   return (
     <span className="tabular-nums">
-      {value === null || (missing >= wallet.asset_count && missing > 0)
+      {value === null || (missing + unconverted >= wallet.asset_count && missing + unconverted > 0)
         ? t('accountHoldings.unpriced')
         : mask(formatCurrency(value!, currency, locale))}
       {missing > 0 && <span className="mt-1 block text-xs font-normal text-warning-foreground">{t('accountHoldings.partial', { count: missing })}</span>}
+      {unconverted > 0 && <span className="mt-1 block text-xs font-normal text-warning-foreground">{t('accountHoldings.unconverted', { count: unconverted })}</span>}
     </span>
   )
 }

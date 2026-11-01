@@ -5,9 +5,9 @@ import { getLoanDebtPrimary, getPropertyEquity } from '@/lib/property-equity'
 describe('property equity', () => {
   const property = { id: 'home', currency: 'USD', current_value: 593000, current_value_primary: null }
   const loans = [
-    { type: 'loan', secured_asset_id: 'home', current_balance: -194723.17, balance_primary: null },
-    { type: 'loan', secured_asset_id: 'home', current_balance: -23556.84, balance_primary: null },
-    { type: 'loan', secured_asset_id: 'other', current_balance: -48802.47, balance_primary: null },
+    { type: 'loan', secured_asset_id: 'home', currency: 'USD', current_balance: -194723.17, balance_primary: null },
+    { type: 'loan', secured_asset_id: 'home', currency: 'USD', current_balance: -23556.84, balance_primary: null },
+    { type: 'loan', secured_asset_id: 'other', currency: 'USD', current_balance: -48802.47, balance_primary: null },
   ]
 
   it('deducts every loan linked to the property once', () => {
@@ -19,14 +19,19 @@ describe('property equity', () => {
   it('uses converted balances when a loan is in another currency', () => {
     const result = getPropertyEquity(
       { ...property, current_value_primary: 600000 },
-      [{ ...loans[0], balance_primary: -200000 }],
+      [{ ...loans[0], currency: 'EUR', balance_primary: -200000 }],
       'USD',
     )
     expect(result).toEqual({ value: 600000, debt: 200000, equity: 400000 })
   })
 
   it('does not count an overpaid loan as debt', () => {
-    expect(getLoanDebtPrimary({ current_balance: 25, balance_primary: null })).toBe(0)
+    expect(getLoanDebtPrimary({ currency: 'USD', current_balance: 25, balance_primary: null }, 'USD')).toBe(0)
+  })
+
+  it('does not take a foreign loan without an FX rate at its native amount', () => {
+    expect(getLoanDebtPrimary({ ...loans[0], currency: 'EUR' }, 'USD')).toBeNull()
+    expect(getPropertyEquity(property, [loans[0], { ...loans[1], currency: 'EUR' }], 'USD')).toBeNull()
   })
 
   it('has no equity to show for a property without a value', () => {

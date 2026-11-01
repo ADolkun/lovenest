@@ -64,7 +64,7 @@ async def projection_feed(
         else:
             balances[bucket] += value
             tracked.add(group.tax_treatment)
-            if group.unvalued_count:
+            if group.unvalued_count or group.unconverted_count:
                 incomplete.add(group.tax_treatment)
 
     # The engine adds the four buckets together, so everything it reads has to
@@ -105,9 +105,10 @@ async def projection_feed(
     # still sent, but an untracked one is a zero this application invented, and
     # claiming it would overwrite the real figure the user typed with 0 — and
     # then colour it green. A tracked bucket holding nothing is a different
-    # thing: that zero is an answer, and it is claimed. Missing valuations in
-    # any wallet make its whole balance bucket incomplete; contribution and
-    # basis evidence remain independent of whether holdings have quotes.
+    # thing: that zero is an answer, and it is claimed. A holding missing a
+    # valuation, or a rate into the primary currency, makes its wallet's whole
+    # balance bucket incomplete; contribution and basis evidence remain
+    # independent of whether holdings have quotes.
     feed["live"] = sorted(
         [_BUCKETS[treatment] for treatment in tracked - incomplete]
         + [_ANNUAL_KEYS[treatment] for treatment in tracked]

@@ -45,6 +45,14 @@ describe('account holdings', () => {
     expect(screen.getByText(/No unlinked manual investment accounts are available/)).toBeInTheDocument()
   })
 
+  it('marks a wallet whose primary total leaves out a holding with no FX rate', () => {
+    renderWithProviders(<UnlinkedWallets wallets={[{ ...wallet, unconverted_count: 1 }, { ...wallet, id: 'foreign', name: 'Foreign', asset_count: 1, unconverted_count: 1, current_value_primary: 0 }]} accounts={[]} />)
+    expect(screen.getAllByText('Partial · 1 with no FX rate')).toHaveLength(2)
+    expect(screen.getByText('$125.00')).toBeInTheDocument()
+    expect(screen.getByText('Value unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
+  })
+
   it('keeps valuation visible for viewers and removes linking controls', () => {
     workspace.mockReturnValue({ current: { id: 'investment' }, canWrite: false })
     renderWithProviders(<UnlinkedWallets wallets={[wallet]} accounts={[account]} />)

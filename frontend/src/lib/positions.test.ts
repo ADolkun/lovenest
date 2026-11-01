@@ -337,6 +337,46 @@ describe('weight and allocation', () => {
   })
 })
 
+describe('a holding no FX rate converts', () => {
+  // The API leaves the primary fields null rather than take the native amount
+  // at 1:1 (upstream #1266), so the native figure is not a primary one.
+  const unconverted = (overrides: Parameters<typeof holding>[0]): Asset => ({
+    ...holding(overrides),
+    currency: 'EUR',
+    current_value_primary: null,
+    gain_loss_primary: null,
+  })
+
+  it('adds nothing to the totals, has no basis, and is not dust', () => {
+    const { positions, total, investedTotal, dustTotal } = buildPortfolio(
+      [
+        holding({ ticker: 'VOO', value: 1000 }),
+        unconverted({ ticker: 'SAP', units: 2, value: 300, gain: 50 }),
+      ],
+      [],
+    )
+
+    const sap = positions.find((p) => p.ticker === 'SAP')!
+    expect(total).toBe(1000)
+    expect(investedTotal).toBe(1000)
+    expect(sap.value).toBe(0)
+    expect(sap.costBasis).toBeNull()
+    expect(sap.gain).toBeNull()
+    expect(sap.isDust).toBe(false)
+    expect(dustTotal).toBe(0)
+  })
+
+  it("leaves its wallet's cash underived", () => {
+    const { liquidCashTotal, unknownCashWalletIds } = buildPortfolio(
+      [unconverted({ ticker: 'SAP', value: 300, groupId: 'w1' })],
+      [wallet('w1', 'investment', 'taxable', 1000)],
+    )
+
+    expect(liquidCashTotal).toBe(0)
+    expect(unknownCashWalletIds).toEqual(['w1'])
+  })
+})
+
 describe('liquid cash', () => {
   it('uses the explicitly supplied compatible residual cash', () => {
     const { liquidCashTotal, total } = buildPortfolio(

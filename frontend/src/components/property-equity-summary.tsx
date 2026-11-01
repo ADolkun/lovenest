@@ -8,8 +8,8 @@ import type { Account, Asset } from '@/types'
 /**
  * The loans secured against a property, with its value, debt and equity.
  * Renders nothing for a property without a linked loan. When the property
- * has no value in the display currency (no FX rate), the loans are still
- * listed and only the equity line is left out.
+ * or one of its loans has no value in the display currency (no FX rate), the
+ * loans are still listed and only the equity line is left out.
  */
 export function PropertyEquitySummary({
   asset,
@@ -33,16 +33,24 @@ export function PropertyEquitySummary({
     <div className="px-4 py-3 border-t border-border bg-muted/20 space-y-2">
       <h3 className="text-xs font-semibold">{t('assets.linkedLoans')}</h3>
       <div className="space-y-1">
-        {linked.map(loan => (
-          <div key={loan.id} className="flex items-center justify-between gap-3 text-xs">
-            <Link to={`/accounts/${loan.id}`} className="text-muted-foreground hover:underline truncate">
-              {loan.display_name || loan.name}
-            </Link>
-            <span className="tabular-nums shrink-0">
-              {mask(formatCurrency(getLoanDebtPrimary(loan), currency, locale))}
-            </span>
-          </div>
-        ))}
+        {linked.map(loan => {
+          const debt = getLoanDebtPrimary(loan, currency)
+          return (
+            <div key={loan.id} className="flex items-center justify-between gap-3 text-xs">
+              <Link to={`/accounts/${loan.id}`} className="text-muted-foreground hover:underline truncate">
+                {loan.display_name || loan.name}
+              </Link>
+              <span className="tabular-nums shrink-0">
+                {debt == null ? (
+                  <>
+                    {mask(formatCurrency(Math.max(0, -Number(loan.current_balance)), loan.currency, locale))}
+                    <span className="text-warning-foreground"> · {t('assets.noFxRate')}</span>
+                  </>
+                ) : mask(formatCurrency(debt, currency, locale))}
+              </span>
+            </div>
+          )
+        })}
       </div>
       {equity && (
         <p className="pt-2 border-t border-border text-xs font-medium">

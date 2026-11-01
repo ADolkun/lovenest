@@ -45,6 +45,18 @@ describe('PropertyEquitySummary', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('shows a loan without an FX rate in its own currency and leaves equity out', () => {
+    const abroad = { ...loan('a', 'Part A', -200000), currency: 'GBP' } as Account
+    renderWithProviders(
+      <PropertyEquitySummary asset={home} loans={[abroad, loan('b', 'Part B', -50000)]} {...props} />,
+    )
+
+    expect(screen.getByText(formatCurrency(200000, 'GBP', 'en-US'), { exact: false })).toBeInTheDocument()
+    expect(screen.getByText(/no FX rate/)).toBeInTheDocument()
+    expect(screen.getByText(formatCurrency(50000, 'EUR', 'en-US'))).toBeInTheDocument()
+    expect(screen.queryByText(/equity/i)).not.toBeInTheDocument()
+  })
+
   it('still lists the linked loans when the property has no FX rate', () => {
     const abroad = { ...home, currency: 'GBP' } as Asset
     renderWithProviders(
