@@ -1,9 +1,9 @@
-FROM ghcr.io/astral-sh/uv:0.12.17 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM node:26-slim AS assets
 
 WORKDIR /assets
-RUN npm install --ignore-scripts --no-audit --no-fund alpinejs@3.15.12
+RUN npm install --ignore-scripts --no-audit --no-fund alpinejs@3.17.5
 
 FROM python:3.14-slim
 
