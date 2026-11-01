@@ -1,5 +1,5 @@
 import { AccountBalanceAmount, AccountBalanceBasis } from '@/components/balance-details'
-import { accountAggregate, accountBalance } from '@/lib/balance-explanation'
+import { accountAggregate, accountBalance, sharedCardOpenBill } from '@/lib/balance-explanation'
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { getAccountName, sortAccountsByAbsoluteBalance } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -45,6 +45,7 @@ import {
   EyeOff,
   Sun,
   Moon,
+  Monitor,
   Languages,
   KeyRound,
   Check,
@@ -64,6 +65,7 @@ import { GlobalChatPanel } from '@/components/global-chat-panel'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
 import { Bot, Plus, Search, Sparkles } from 'lucide-react'
 import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { nextTheme, THEME_LABEL_KEY } from '@/lib/theme-cycle'
 import { useLocalAuthEnabled } from '@/hooks/use-local-auth'
 import { formatCurrency } from '@/lib/format'
 
@@ -179,12 +181,11 @@ export function AppLayout() {
   }, [user, updateUser])
 
   const userInitial = user?.email?.charAt(0).toUpperCase() ?? '?'
-  const resolvedThemeLocal = theme === 'system' ? undefined : theme
-  const isDark = resolvedThemeLocal
-    ? resolvedThemeLocal === 'dark'
-    : typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-color-scheme: dark)').matches
-  const toggleTheme = () => setTheme(isDark ? 'light' : 'dark')
+  // The button shows, and switches to, the next theme in the cycle.
+  const upcomingTheme = nextTheme(theme)
+  const themeButtonLabel = t(THEME_LABEL_KEY[upcomingTheme])
+  const ThemeIcon = { light: Sun, dark: Moon, system: Monitor }[upcomingTheme]
+  const toggleTheme = () => setTheme(upcomingTheme)
 
   const { data: accountsList } = useQuery({
     queryKey: ['accounts'],
@@ -242,12 +243,10 @@ export function AppLayout() {
           <button
             onClick={toggleTheme}
             className="text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1"
-            title={isDark ? t('settings.themeLight') : t('settings.themeDark')}
-            aria-label={
-              isDark ? t('settings.themeLight') : t('settings.themeDark')
-            }
+            title={themeButtonLabel}
+            aria-label={themeButtonLabel}
           >
-            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+            <ThemeIcon size={18} />
           </button>
           {/* AI chat — opens the global slide-over (also reachable via
               ⌘J). Sits next to the theme toggle so the icon is always
@@ -358,14 +357,10 @@ export function AppLayout() {
                   'text-sidebar-muted hover:text-sidebar-foreground transition-colors p-1 rounded-md hover:bg-sidebar-accent',
                   desktopSidebarCollapsed && 'lg:flex lg:h-9 lg:w-9 lg:items-center lg:justify-center lg:p-0 lg:[&>svg]:h-[18px] lg:[&>svg]:w-[18px]',
                 )}
-                title={
-                  isDark ? t('settings.themeLight') : t('settings.themeDark')
-                }
-                aria-label={
-                  isDark ? t('settings.themeLight') : t('settings.themeDark')
-                }
+                title={themeButtonLabel}
+                aria-label={themeButtonLabel}
               >
-                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                <ThemeIcon size={16} />
               </button>
             </div>
           </div>
@@ -538,8 +533,9 @@ export function AppLayout() {
               <p className="px-3 pb-1 text-[10px] text-sidebar-muted" title={t('balanceExplanation.aggregateHint')}>{t(aggregate.incomplete ? 'balanceExplanation.aggregatePartial' : 'balanceExplanation.aggregateHint')}</p>
               {accountsExpanded && (
                 <div className="mt-1 space-y-0.5">
-                  {sortAccountsByAbsoluteBalance(visibleAccounts, (a) => accountBalance(a, current?.id)).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
-                    const balance = accountBalance(acc, current?.id)
+                  {sortAccountsByAbsoluteBalance(visibleAccounts, (a) => sharedCardOpenBill(a) ?? accountBalance(a, current?.id)).slice(0, accountsShowAll ? visibleAccounts.length : 3).map((acc) => {
+                    const openBill = sharedCardOpenBill(acc)
+                    const balance = openBill ?? accountBalance(acc, current?.id)
                     const typeKey = acc.type.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()).replace(/^./, c => c.toUpperCase())
 
                     return (
@@ -558,7 +554,9 @@ export function AppLayout() {
                         </div>
                         <div className="text-right shrink-0 ml-2">
                           <span className={`block tabular-nums font-medium text-xs ${(balance ?? 0) < 0 ? 'text-rose-400' : 'text-sidebar-foreground'}`}>
-                            <AccountBalanceAmount account={acc} workspaceId={current?.id} />
+                            {openBill === null
+                              ? <AccountBalanceAmount account={acc} workspaceId={current?.id} />
+                              : mask(formatCurrency(openBill, acc.currency, locale))}
                           </span>
                         </div>
                       </Link>

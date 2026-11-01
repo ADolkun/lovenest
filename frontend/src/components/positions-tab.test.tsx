@@ -118,6 +118,18 @@ it('labels partial totals and never reports an unpriced position as zero', () =>
   expect(screen.getAllByText('Known holdings subtotal').length).toBeGreaterThan(0)
 })
 
+it('treats a holding no FX rate converts as unknown rather than adding its native amount', () => {
+  const unconverted = { ...known, id: 'eur', ticker: 'SAP', name: 'Euro fund', currency: 'EUR', current_value: 300, current_value_primary: null, gain_loss: 50, gain_loss_primary: null }
+  renderWithProviders(positions([known, unconverted]))
+  const summary = screen.getByRole('region', { name: 'Balance overview' })
+  expect(within(summary).getAllByRole('definition')[0]).toHaveTextContent('$125.00')
+  expect(within(summary).getAllByText('Known subtotal').length).toBeGreaterThan(0)
+  const row = screen.getByRole('button', { name: /^SAP/ })
+  expect(within(row).queryByText('$300.00')).not.toBeInTheDocument()
+  expect(within(row).queryByText('$0.00')).not.toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Allocation by asset class' })).not.toBeInTheDocument()
+})
+
 it('shows unknown totals when none of the positions has a valuation', () => {
   renderWithProviders(positions([unknown]))
   expect(screen.queryByText('$0.00')).not.toBeInTheDocument()

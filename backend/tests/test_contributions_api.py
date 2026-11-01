@@ -307,6 +307,32 @@ async def test_summary_requires_a_complete_valuation_to_report_return(
     assert summary["currency"] == "BRL"
 
 
+@pytest.mark.asyncio
+async def test_a_holding_with_no_fx_rate_still_reports_return_in_its_wallets_currency(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    # The return compares native amounts in the wallet's own currency, so a
+    # missing rate into the reader's currency takes nothing out of it.
+    wallet = await _wallet(client, auth_headers, "Euro brokerage")
+    await _contribute(client, auth_headers, wallet, amount=1000)
+    session.add(Asset(
+        user_id=test_user.id, workspace_id=test_workspace.id, group_id=uuid.UUID(wallet),
+        name="Fund", type="stock", currency="XTS", valuation_method="market_price",
+        units=Decimal("1"), last_price=Decimal("1200"), purchase_price=Decimal("1000"),
+    ))
+    await session.commit()
+
+    groups = (await client.get("/api/asset-groups", headers=auth_headers)).json()
+    group = next(g for g in groups if g["id"] == wallet)
+    assert group["unconverted_count"] == 1
+    assert group["current_value_primary"] == 0.0
+
+    summary = (await client.get("/api/contributions/summary", headers=auth_headers)).json()[0]
+    assert summary["currency"] == "XTS"
+    assert summary["current_value"] == 1200.0
+    assert summary["return_net_of_contributions"] == 200.0
+
+
 # ---------------------------------------------------------------------------
 # The projection feed
 # ---------------------------------------------------------------------------
@@ -393,6 +419,28 @@ async def test_an_incomplete_wallet_keeps_its_whole_bucket_out_of_live_balances(
     if treatment == "roth":
         assert "roth_basis" in feed["live"]
         assert feed["roth_basis"] == 300
+
+
+@pytest.mark.asyncio
+async def test_a_holding_with_no_fx_rate_keeps_its_bucket_out_of_live_balances(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    # Upstream #1266 leaves such a holding out of `current_value_primary`
+    # rather than adding it at 1:1, so the bucket's balance is short by it.
+    roth = await _wallet(client, auth_headers, "Roth IRA", tax_treatment="roth")
+    await _contribute(client, auth_headers, roth, amount=300)
+    for currency, price in (("BRL", Decimal("50")), ("XTS", Decimal("70"))):
+        session.add(Asset(
+            user_id=test_user.id, workspace_id=test_workspace.id, group_id=uuid.UUID(roth),
+            name=f"{currency} holding", type="stock", currency=currency,
+            valuation_method="market_price", units=Decimal("1"), last_price=price,
+        ))
+    await session.commit()
+
+    feed = (await client.get("/api/assets/projection-feed", headers=auth_headers)).json()
+    assert feed["roth_ira"] == 50.0
+    assert "roth_ira" not in feed["live"]
+    assert "annual_roth" in feed["live"] and "roth_basis" in feed["live"]
 
 
 @pytest.mark.asyncio

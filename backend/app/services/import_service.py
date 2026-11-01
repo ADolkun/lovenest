@@ -28,7 +28,10 @@ from app.services.rule_engine import apply_rule_actions, evaluate_conditions, me
 from app.services.rule_service import apply_rules_to_transaction, preview_rules_for_transaction
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
-from app.services.transaction_match_service import find_unique_transaction_match
+from app.services.transaction_match_service import (
+    find_unique_transaction_match,
+    take_incoming_amount,
+)
 
 
 # Descriptions used by some Brazilian banks (e.g. Banco do Brasil) for
@@ -1174,6 +1177,16 @@ async def import_transactions(
             # wins, the charge only fills what is still empty, and only its
             # provenance is recorded outright.
             placeholder.original_description = txn_data.description
+            if placeholder.amount != txn_data.amount or txn_data.fx_rate:
+                # Matched under a tolerance, or the file says what the charge
+                # cost in the primary currency: the row now stands for what was
+                # actually charged, not for what the bill expected.
+                await take_incoming_amount(session, placeholder, txn_data.amount)
+                if txn_data.fx_rate:
+                    placeholder.fx_rate_used = txn_data.fx_rate
+                    placeholder.amount_primary = txn_data.amount * txn_data.fx_rate
+                else:
+                    await stamp_primary_amount(session, user_id, placeholder)
             if placeholder.category_id is None:
                 placeholder.category_id = preview.category_id
             if import_payee_raw and not placeholder.payee:

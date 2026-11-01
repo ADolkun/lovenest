@@ -204,9 +204,12 @@ export interface Account {
   institution_name: string | null
   institution_logo_url: string | null
   type: string
+  secured_asset_id?: string | null
   balance: number
   current_balance: number
   previous_balance: number | null
+  // Date of the opening-balance transaction; null when there is none.
+  balance_date?: string | null
   balance_primary: number | null
   // No real FX rate: balance_primary is unset and totals use the native amount.
   fx_fallback?: boolean
@@ -221,6 +224,12 @@ export interface Account {
   card_brand: string | null
   card_level: string | null
   shared_balance_group: string | null
+  // Open bill (due today or later) of a card on a shared credit line, in the
+  // account's currency. Null when the card has no such bill; the row then
+  // keeps showing the balance.
+  open_bill_total?: number | null
+  // Same bill in the user's primary currency; null when not converted.
+  open_bill_total_primary?: number | null
   is_closed: boolean
   closed_at: string | null
 }
@@ -337,6 +346,17 @@ export interface Transaction {
   payee_name: string | null
   notes: string | null
   transfer_pair_id: string | null
+  /**
+   * The other leg of the transfer this row belongs to, when it is one.
+   * The paginated list fills it so the badge can name the account the
+   * transfer is linked to (issue #810); other endpoints leave it null.
+   */
+  transfer_counterpart?: { account_id: string; account_name: string } | null
+  /**
+   * Whether the totals leave this row out as a transfer, decided by the
+   * server's P&L rule. Null or absent where the endpoint did not compute it.
+   */
+  is_transfer?: boolean | null
   amount_primary: number | null
   fx_rate_used: number | null
   fx_fallback: boolean
@@ -716,6 +736,7 @@ export interface ProjectedTransaction {
   category_name: string | null
   category_icon: string | null
   category_color: string | null
+  category_treat_as_transfer: boolean
 }
 
 export interface TransactionCalendarItem {
@@ -791,6 +812,9 @@ export interface DashboardSummary {
   assets_value: Record<string, number>
   assets_value_primary: number
   primary_currency: string
+  // At least one currency bucket had no real FX rate, so the *_primary
+  // totals sum it at 1:1 and are an estimate, not a conversion (issue #1165).
+  fx_fallback?: boolean
   // Net pending balance from group splits in primary currency.
   // Negative = net liability, positive = net receivable. Already
   // accounts for partial settlements.
@@ -1148,6 +1172,9 @@ export interface AssetGroup {
   account_id?: string | null
   /** Active holdings missing a usable valuation. A subtotal is not a complete balance. */
   unvalued_count?: number
+  /** Active holdings valued in a currency with no FX rate to the primary one:
+      left out of `current_value_primary`, still in `current_value`. */
+  unconverted_count?: number
   institution_name: string | null
   // `type` of the provider account this wallet mirrors — what allocation by
   // account type groups on. Null for manual wallets.

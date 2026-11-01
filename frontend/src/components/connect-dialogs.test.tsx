@@ -10,6 +10,7 @@ import { PasskeyManagementDialog } from './passkey-management-dialog'
 const api = vi.hoisted(() => ({ getProviders: vi.fn(), listInstitutions: vi.fn(), getReconnectToken: vi.fn(), getConnectToken: vi.fn(), toastError: vi.fn(), listPasskeys: vi.fn() }))
 vi.mock('@/lib/api', () => ({ connections: api, auth: api }))
 vi.mock('sonner', () => ({ toast: { error: api.toastError } }))
+vi.mock('@/contexts/auth-context', () => ({ useAuth: () => ({ user: { id: 'synthetic-user' } }) }))
 vi.mock('react-pluggy-connect', () => ({ PluggyConnect: ({ connectToken }: { connectToken: string }) => <div>{connectToken}</div> }))
 
 beforeEach(() => { vi.resetAllMocks() })

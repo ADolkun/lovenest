@@ -59,13 +59,16 @@ class AssetGroupRead(AssetGroupBase):
     asset_count: int = 0
     # Holdings absent from the total because their current value is unknown.
     unvalued_count: int = 0
+    # Holdings with a value but no FX rate to the primary currency: in
+    # `current_value`, absent from `current_value_primary`.
+    unconverted_count: int = 0
     current_value: float = 0.0
     current_value_primary: float = 0.0
     # The provider-reported balance of the account this wallet mirrors, in the
     # primary currency. Liquid Cash (CONTEXT.md) is what is left of it once the
-    # wallet's holdings are subtracted. Null for a manual wallet, or a synced
-    # one no account could be matched to — which is not the same as zero, and
-    # the frontend must not derive cash from it.
+    # wallet's holdings are subtracted. Null for a manual wallet, a synced one
+    # no account could be matched to, or a balance no FX rate converts — which
+    # is not the same as zero, and the frontend must not derive cash from it.
     account_balance: Optional[float] = None
     #: What `current_value` is denominated in. Null where the wallet's holdings
     #: disagree, or it has none — then `current_value` is a mixed-unit sum and

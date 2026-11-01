@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
+import { useAuth } from '@/contexts/auth-context'
 import { connections } from '@/lib/api'
 import { needsAccountReview } from '@/lib/account-allowlist'
+import { isGatewayTimeout, waitForNewConnection } from '@/lib/await-new-connection'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import {
   Dialog,
@@ -47,6 +49,7 @@ function TokenConnectSession({
   onReviewAccounts,
 }: TokenConnectDialogProps) {
   const { t } = useTranslation()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const [token, setToken] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -60,6 +63,22 @@ function TokenConnectSession({
   const handleSubmit = async () => {
     if (!token.trim()) return
     setSubmitting(true)
+    const onConnected = (connection: BankConnection) => {
+      invalidateFinancialQueries(queryClient)
+      queryClient.invalidateQueries({ queryKey: ['connections'] })
+      toast.success(t(isReconnect ? 'accounts.reconnected' : 'accounts.connected'))
+      onClose()
+      if (!isReconnect && needsAccountReview(connection)) onReviewAccounts?.(connection)
+    }
+    // Connections that already exist, so a slow import that outlasts a proxy
+    // timeout can still be recognised when it lands.
+    const userId = user?.id
+    const knownIds = isReconnect || !userId
+      ? null
+      : await connections.list().then(
+          (list) => new Set(list.map((c) => c.id)),
+          () => null,
+        )
     try {
       const connection = await connections.handleCallback(
         token.trim(),
@@ -74,12 +93,15 @@ function TokenConnectSession({
             },
         reconnectConnectionId,
       )
-      invalidateFinancialQueries(queryClient)
-      queryClient.invalidateQueries({ queryKey: ['connections'] })
-      toast.success(t(isReconnect ? 'accounts.reconnected' : 'accounts.connected'))
-      onClose()
-      if (!isReconnect && needsAccountReview(connection)) onReviewAccounts?.(connection)
+      onConnected(connection)
     } catch (err) {
+      const landed = knownIds && userId && isGatewayTimeout(err)
+        ? await waitForNewConnection(provider, knownIds, userId)
+        : null
+      if (landed) {
+        onConnected(landed)
+        return
+      }
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail
           ? typeof err.response.data.detail === 'string'
@@ -160,7 +182,9 @@ function TokenConnectSession({
             disabled={submitting}
           />
           <p className="text-xs text-muted-foreground">
-            {t(`${i18nKey}.tokenHelp`, t('accounts.tokenConnect.tokenHelp'))}
+            {submitting && !isReconnect
+              ? t('accounts.oauthCallback.linking')
+              : t(`${i18nKey}.tokenHelp`, t('accounts.tokenConnect.tokenHelp'))}
           </p>
         </div>
 

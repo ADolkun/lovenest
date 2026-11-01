@@ -214,12 +214,12 @@ async def test_portfolio_uses_current_quotes_and_reports_unvalued_holdings(
                            amount=Decimal("5"), date=date(2020, 1, 1), source="market_price"))
     await session.commit()
 
-    async def convert(session, amount, from_currency, to_currency, **kwargs):
+    async def convert_or_none(session, amount, from_currency, to_currency, **kwargs):
         assert (from_currency, to_currency) == ("USD", "BRL")
         assert isinstance(amount, Decimal)
         return amount * Decimal("5"), Decimal("5")
 
-    monkeypatch.setattr(asset_group_service, "convert", convert)
+    monkeypatch.setattr(asset_group_service, "convert_or_none", convert_or_none)
     result = (await client.get("/api/asset-groups", headers=auth_headers)).json()[0]
     assert result["current_value_primary"] == 1060  # 2 * 30 + 1 * 2 * 100 * 5.
     assert result["currency"] is None  # A mixed native sum has no denomination.

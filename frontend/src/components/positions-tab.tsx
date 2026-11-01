@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { BalanceDetails } from '@/components/balance-details'
+import { valueInCurrency } from '@/lib/balance-explanation'
 import { Badge } from '@/components/ui/badge'
 import { assets as assetsApi } from '@/lib/api'
 import { assetTypeI18nKey, getTypeConfig } from '@/lib/asset-types'
@@ -388,10 +389,11 @@ export default function PositionsTab({
     ? holdings.filter((holding) => view.wallets.some((wallet) => wallet.id === holding.group_id) || selectedHoldingIds.includes(holding.id))
     : holdings
   // Match buildPortfolio's scope: a separately listed manual asset cannot
-  // make a fully priced ticker allocation incomplete.
+  // make a fully priced ticker allocation incomplete. Its value test too: a
+  // holding no rate converts into `currency` is as unknown here as an unpriced one.
   const unpricedIds = new Set(holdings.filter((holding) =>
     holding.ticker?.trim() && !holding.sell_date && !holding.is_archived &&
-    holding.current_value_primary == null && holding.current_value == null,
+    valueInCurrency(holding, currency) === null,
   ).map((holding) => holding.id))
   const incompletePositions = view.positions.filter((position) => position.legs.some((leg) => unpricedIds.has(leg.assetId)))
   const hasUnpricedPositions = incompletePositions.length > 0

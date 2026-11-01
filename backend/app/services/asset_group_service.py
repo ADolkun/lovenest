@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.account import Account
-from app.models.asset import Asset
+from app.models.asset import ASSET_PRICE_DECIMALS, Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue, latest_value_first
 from app.models.bank_connection import BankConnection
@@ -21,7 +21,7 @@ from app.schemas.asset_group import (
     AssetGroupUpdate,
     TaxTreatment,
 )
-from app.services.fx_rate_service import convert
+from app.services.fx_rate_service import convert_or_none
 from app.services.asset_valuation import current_value_amount
 from app.schemas.balance_explanation import BalanceExplanation
 
@@ -60,6 +60,7 @@ def _group_to_read(
     account_id: Optional[uuid.UUID] = None,
     unvalued_count: int = 0,
     balance_explanation: BalanceExplanation | None = None,
+    unconverted_count: int = 0,
 ) -> AssetGroupRead:
     return AssetGroupRead(
         id=group.id,
@@ -78,6 +79,7 @@ def _group_to_read(
         account_type=account_type,
         asset_count=asset_count,
         unvalued_count=unvalued_count,
+        unconverted_count=unconverted_count,
         # Decimal → round to 2dp → float at the API boundary. Precision is
         # preserved inside the sum; the float conversion is only for the
         # JSON response shape and is bounded to 2 decimals.
@@ -112,8 +114,8 @@ async def _balance_explanation_for_group(session: AsyncSession, group: AssetGrou
 
 async def _rollup(
     session: AsyncSession, group: AssetGroup, primary_currency: str
-) -> tuple[int, Decimal, Decimal, Optional[str], int]:
-    """Compute (count, value, primary_value, currency, unvalued_count).
+) -> tuple[int, Decimal, Decimal, Optional[str], int, int]:
+    """Compute (count, value, primary_value, currency, unvalued_count, unconverted_count).
 
     `currency` is the one its holdings are denominated in, or None where they
     disagree or there are none — a wallet that has no single currency has no
@@ -121,9 +123,10 @@ async def _rollup(
 
     Mirrors the filters used by dashboard net worth so wallet headers
     agree with the top-level total: excludes archived assets AND sold
-    assets (sell_date is not null). Primary-currency totals use the
-    same `fx_rate_service.convert` the dashboard does — no crude
-    ratio tricks — so BRL/USD/EUR wallets all sum consistently.
+    assets (sell_date is not null). Primary-currency totals convert through
+    `fx_rate_service` — no crude ratio tricks — so BRL/USD/EUR wallets all
+    sum consistently, and a holding no rate converts is left out of the
+    primary total and counted as unconverted rather than taken at 1:1.
 
     Aggregates in Decimal end-to-end to avoid float drift on portfolios
     with many small-value holdings (e.g. crypto) or when Pluggy
@@ -142,8 +145,8 @@ async def _rollup(
         )
     )
     asset_list = list(assets.scalars().all())
-    current_value, current_value_primary, unvalued_count = await _sum_asset_values(
-        session, asset_list, primary_currency
+    current_value, current_value_primary, unvalued_count, unconverted_count = (
+        await _sum_asset_values(session, asset_list, primary_currency)
     )
     currencies = {asset.currency for asset in asset_list}
     return (
@@ -152,15 +155,17 @@ async def _rollup(
         current_value_primary,
         currencies.pop() if len(currencies) == 1 else None,
         unvalued_count,
+        unconverted_count,
     )
 
 
 async def _sum_asset_values(
     session: AsyncSession, asset_list: list[Asset], primary_currency: str
-) -> tuple[Decimal, Decimal, int]:
+) -> tuple[Decimal, Decimal, int, int]:
     current_value = Decimal("0")
     current_value_primary = Decimal("0")
     unvalued_count = 0
+    unconverted_count = 0
     for asset in asset_list:
         latest = current_value_amount(asset, await _latest_value_amount(session, asset.id))
         if latest is None:
@@ -171,11 +176,15 @@ async def _sum_asset_values(
         if asset.currency == primary_currency:
             current_value_primary += latest
         else:
-            converted, _ = await convert(
-                session, latest, asset.currency, primary_currency
+            converted, _ = await convert_or_none(
+                session, latest, asset.currency, primary_currency,
+                decimals=ASSET_PRICE_DECIMALS,
             )
-            current_value_primary += converted
-    return current_value, current_value_primary, unvalued_count
+            if converted is None:
+                unconverted_count += 1
+            else:
+                current_value_primary += converted
+    return current_value, current_value_primary, unvalued_count, unconverted_count
 
 
 async def ungrouped_value(
@@ -196,7 +205,7 @@ async def ungrouped_value(
             Asset.sell_date.is_(None),
         )
     )
-    _, primary_total, _ = await _sum_asset_values(session, list(result.scalars().all()), primary)
+    _, primary_total, _, _ = await _sum_asset_values(session, list(result.scalars().all()), primary)
     return primary_total
 
 
@@ -263,7 +272,8 @@ async def _account_type_and_balance_for(
 
     A manual account link identifies where holdings belong, but its cash ledger
     is not a provider-inclusive total. Leave account_balance unknown so callers
-    cannot derive Liquid Cash by subtracting holdings from that ledger.
+    cannot derive Liquid Cash by subtracting holdings from that ledger. A
+    balance no FX rate converts is unknown for the same reason, not taken 1:1.
     """
     account = await _account_for_group(session, group)
     if account is None:
@@ -285,7 +295,7 @@ async def _account_type_and_balance_for(
         return account.type, None, account.id
     if currency == primary_currency:
         return account.type, balance, account.id
-    converted, _ = await convert(session, balance, currency, primary_currency)
+    converted, _ = await convert_or_none(session, balance, currency, primary_currency)
     return account.type, converted, account.id
 
 
@@ -357,7 +367,7 @@ async def get_groups(
                 watched.setdefault((group_id, connection_id), set()).add(f"{request['chain']}:{request['address']}")
     reads = []
     for g in groups:
-        count, cv, cvp, ccy, unvalued = await _rollup(session, g, primary)
+        count, cv, cvp, ccy, unvalued, unconverted = await _rollup(session, g, primary)
         # Synced wallets are auto-generated by providers. Keep manual wallets
         # visible even when empty, but hide empty synced wallets (connected or
         # orphaned) to avoid duplicate provider placeholders like
@@ -369,6 +379,7 @@ async def get_groups(
         reads.append(_group_to_read(
             g, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
             balance_explanation=await _balance_explanation_for_group(session, g),
+            unconverted_count=unconverted,
         ))
         reads[-1].watched_address_keys = sorted(watched.get((g.id, g.connection_id), []))
     return reads
@@ -387,12 +398,13 @@ async def get_group(
     if not group:
         return None
     primary = await _primary_currency_for(session, user_id)
-    count, cv, cvp, ccy, unvalued = await _rollup(session, group, primary)
+    count, cv, cvp, ccy, unvalued, unconverted = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group)
     account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(
         group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
         balance_explanation=await _balance_explanation_for_group(session, group),
+        unconverted_count=unconverted,
     )
 
 
@@ -460,12 +472,13 @@ async def update_group(
     await _commit_group(session)
     await session.refresh(group)
     primary = await _primary_currency_for(session, user_id)
-    count, cv, cvp, ccy, unvalued = await _rollup(session, group, primary)
+    count, cv, cvp, ccy, unvalued, unconverted = await _rollup(session, group, primary)
     institution = await _institution_name_for(session, group)
     account_type, balance, account_id = await _account_type_and_balance_for(session, group, primary)
     return _group_to_read(
         group, count, cv, cvp, ccy, institution, account_type, balance, account_id, unvalued,
         balance_explanation=await _balance_explanation_for_group(session, group),
+        unconverted_count=unconverted,
     )
 
 

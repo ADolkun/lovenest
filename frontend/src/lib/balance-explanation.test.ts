@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { accountAggregate, accountBalance, holdingComponents, knownAmount, scopedExplanation, valueInCurrency, walletCash } from './balance-explanation'
+import { accountAggregate, accountBalance, holdingComponents, knownAmount, scopedExplanation, sharedCardOpenBill, valueInCurrency, walletCash } from './balance-explanation'
 import { buildPortfolio } from './positions'
 import { reportedWallet } from '@/test/balance-fixtures'
 import type { Account, Asset, AssetGroup } from '@/types'
@@ -34,6 +34,21 @@ describe('balance explanation contract', () => {
     const card = { id: 'card-a', type: 'credit_card', current_balance: -300, currency: 'USD', shared_balance_group: 'line' } as Account
     const sibling = { ...card, id: 'card-b' }
     expect(accountAggregate([card, sibling, { ...card, id: 'solo', shared_balance_group: null }], 'USD')).toEqual({ amount: -600, incomplete: false })
+  })
+
+  it('leaves loans out of the account aggregate', () => {
+    const checking = { id: 'checking', type: 'checking', current_balance: 500, currency: 'USD', shared_balance_group: null } as Account
+    const loan = { ...checking, id: 'loan', type: 'loan', current_balance: 200000 } as Account
+    expect(accountAggregate([checking, loan], 'USD')).toEqual({ amount: 500, incomplete: false })
+    expect(accountAggregate([loan], 'USD')).toEqual({ amount: 0, incomplete: false })
+  })
+
+  it('shows a shared-line card by its own open bill, as debt', () => {
+    const card = { type: 'credit_card', shared_balance_group: 'line', open_bill_total: 120 } as Account
+    expect(sharedCardOpenBill(card)).toBe(-120)
+    expect(sharedCardOpenBill({ ...card, open_bill_total: null })).toBeNull()
+    expect(sharedCardOpenBill({ ...card, shared_balance_group: null })).toBeNull()
+    expect(sharedCardOpenBill({ ...card, type: 'checking' })).toBeNull()
   })
 
   it('only consumes compatible explicit cash and preserves the nonnegative floor', () => {

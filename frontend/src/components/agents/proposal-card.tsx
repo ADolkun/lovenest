@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, Sparkles } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { formatDate } from '@/lib/date-range-format'
+import { useDateLocale } from '@/hooks/use-display-locale'
 import {
   budgets,
   categories,
@@ -14,7 +17,7 @@ import {
   transactions,
 } from '@/lib/api'
 
-import type { ProposalKind, ProposalData } from '@/lib/agent-proposals'
+import type { ProposalKind, ProposalData, TransferLeg } from '@/lib/agent-proposals'
 
 interface Props {
   toolCallId: string
@@ -39,10 +42,12 @@ function persistApplied(toolCallId: string, ref?: string) {
 
 export function ProposalCard({ toolCallId, data }: Props) {
   const { t } = useTranslation()
+  const dateLocale = useDateLocale()
   const qc = useQueryClient()
   const initiallyApplied = loadApplied()[toolCallId]
   const [appliedAt, setAppliedAt] = useState<number | null>(initiallyApplied?.ts ?? null)
   const [showJson, setShowJson] = useState(false)
+  const [confirmingUncorroborated, setConfirmingUncorroborated] = useState(false)
 
   const apply = useMutation({
     mutationFn: () => applyProposal(data),
@@ -82,8 +87,10 @@ export function ProposalCard({ toolCallId, data }: Props) {
   if (!data.kind) return null
 
   const kind = data.kind
-  const summary = renderSummary(kind, data, t)
+  const summary = renderSummary(kind, data, t, dateLocale)
   const isApplied = appliedAt !== null
+  const isUncorroborated = kind === 'link_transfer' && data.corroborated === false
+  const needsConfirmation = isUncorroborated && !confirmingUncorroborated
 
   return (
     <div
@@ -118,6 +125,12 @@ export function ProposalCard({ toolCallId, data }: Props) {
           </div>
           <div className="mt-1 text-muted-foreground text-[13px] leading-snug">{summary}</div>
           <SplitPreview proposed={data.proposed} />
+          {isUncorroborated && !isApplied && (
+            <Alert variant="warning" className="mt-2 px-2.5 py-2 text-[13px] leading-snug">
+              <AlertTriangle className="h-4 w-4 mt-0.5" />
+              <span>{t('agents.proposal.notCorroborated')}</span>
+            </Alert>
+          )}
         </div>
         <div className="shrink-0 flex items-center gap-1.5">
           {isApplied ? (
@@ -126,13 +139,18 @@ export function ProposalCard({ toolCallId, data }: Props) {
               {t('agents.proposal.applied')}
             </span>
           ) : (
-            <Button size="sm" onClick={() => apply.mutate()} disabled={apply.isPending}>
+            <Button
+              size="sm"
+              variant={confirmingUncorroborated ? 'destructive' : 'default'}
+              onClick={() => (needsConfirmation ? setConfirmingUncorroborated(true) : apply.mutate())}
+              disabled={apply.isPending}
+            >
               {apply.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
               ) : (
                 <Check className="h-3.5 w-3.5 mr-1.5" />
               )}
-              {t('agents.proposal.apply')}
+              {t(confirmingUncorroborated ? 'agents.proposal.applyAnyway' : 'agents.proposal.apply')}
             </Button>
           )}
         </div>
@@ -161,7 +179,12 @@ function kindTitle(kind: ProposalKind, t: ReturnType<typeof useTranslation>['t']
   return t(`agents.proposal.kind.${kind}`)
 }
 
-function renderSummary(kind: ProposalKind, d: ProposalData, t: ReturnType<typeof useTranslation>['t']): string {
+function renderSummary(
+  kind: ProposalKind,
+  d: ProposalData,
+  t: ReturnType<typeof useTranslation>['t'],
+  dateLocale: string,
+): string {
   const p = (d.proposed || {}) as Record<string, unknown>
   const tgt = (d.target || {}) as Record<string, unknown>
   switch (kind) {
@@ -230,9 +253,27 @@ function renderSummary(kind: ProposalKind, d: ProposalData, t: ReturnType<typeof
         target: fmt(p.target_amount, p.currency),
         deadline: p.deadline ? String(p.deadline) : '—',
       })
+    case 'link_transfer':
+    case 'unlink_transfer': {
+      const legs = d.legs || []
+      // Debit first: money leaves that account and lands in the credit one.
+      const from = legs.find((l) => l.type === 'debit') ?? legs[0]
+      const to = legs.find((l) => l !== from)
+      return t(
+        kind === 'link_transfer' ? 'agents.proposal.summary.linkTransfer' : 'agents.proposal.summary.unlinkTransfer',
+        { from: legLabel(from, dateLocale), to: legLabel(to, dateLocale) },
+      )
+    }
     default:
       return ''
   }
+}
+
+function legLabel(leg: TransferLeg | undefined, dateLocale: string): string {
+  if (!leg) return '?'
+  const parts = [String(leg.account_name ?? leg.description ?? '?'), fmt(leg.amount, leg.currency)]
+  if (leg.date) parts.push(`(${formatDate(leg.date, dateLocale)})`)
+  return parts.join(' ')
 }
 
 function fmt(amount: unknown, currency: unknown): string {
@@ -408,6 +449,15 @@ async function applyProposal(data: ProposalData): Promise<string | void> {
         color: (p.color as string) || undefined,
       } as Parameters<typeof goals.create>[0])
       return g.id
+    }
+    case 'link_transfer': {
+      const res = await transactions.linkTransfer(data.transaction_ids || [])
+      return res.transfer_pair_id
+    }
+    case 'unlink_transfer': {
+      const pairId = String(data.transfer_pair_id)
+      await transactions.unlinkTransfer(pairId)
+      return pairId
     }
   }
 }

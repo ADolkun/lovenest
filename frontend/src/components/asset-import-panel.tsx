@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { AlertCircle, AlertTriangle, CheckCircle2, Download, FileText, Info, Settings2, Upload, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, Download, FileText, Info, Settings2, Upload, X } from 'lucide-react'
 
 import { assets as assetsApi, assetGroups as assetGroupsApi, assetErrorMessage } from '@/lib/api'
 import type { AssetImportPreview, AssetImportRowError, AssetImportSkip, AssetOrderImport } from '@/types'
@@ -50,11 +50,13 @@ function RowNotice({
   titleKey,
   reasonPrefix,
   tone,
+  action,
 }: {
   rows: (AssetImportRowError | AssetImportSkip)[]
   titleKey: string
   reasonPrefix: 'reason' | 'skip'
   tone: 'error' | 'neutral'
+  action?: ReactNode
 }) {
   const { t } = useTranslation()
   if (rows.length === 0) return null
@@ -64,14 +66,17 @@ function RowNotice({
     <div
       className={`border-b border-border px-4 py-3 sm:px-5 ${isError ? 'bg-amber-500/10' : 'bg-muted/40'}`}
     >
-      <p
-        className={`mb-2 flex items-center gap-2 text-sm font-medium ${
-          isError ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
-        }`}
-      >
-        {isError ? <AlertTriangle size={14} /> : <Info size={14} />}
-        {t(titleKey, { count: rows.length })}
-      </p>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p
+          className={`flex items-center gap-2 text-sm font-medium ${
+            isError ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+          }`}
+        >
+          {isError ? <AlertTriangle size={14} /> : <Info size={14} />}
+          {t(titleKey, { count: rows.length })}
+        </p>
+        {action}
+      </div>
       <ul className="space-y-1 text-xs text-muted-foreground">
         {rows.slice(0, 8).map((row, i) => (
           <li key={`${row.row}-${row.reason}-${i}`}>
@@ -107,6 +112,7 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<AssetImportPreview | null>(null)
   const [mapping, setMapping] = useState<Record<string, string>>({})
+  const [mappingOpen, setMappingOpen] = useState(false)
   const [groupId, setGroupId] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -139,12 +145,14 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
     selected: File,
     nextMapping: Record<string, string>,
     nextGroup: string,
-    nextAllowUnpriced = allowUnpriced,
-    nextDateFormat = dateFormat,
+    {
+      nextAllowUnpriced = allowUnpriced,
+      nextDateFormat = dateFormat,
+      keepOpen = false,
+    }: { nextAllowUnpriced?: boolean; nextDateFormat?: string; keepOpen?: boolean } = {},
   ) {
     const request = ++previewRequest.current
     setLoading(true)
-    setPreview(null)
     setPreviewError(null)
     try {
       const result = await assetsApi.previewImport(selected, {
@@ -156,10 +164,17 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
       })
       if (request !== previewRequest.current) return
       setPreview(result)
+      // The mapping panel opens while a required column is missing. A file
+      // that reads cleanly closes it, but the collapsed bar keeps the column
+      // choices reachable: a wrong guess shows up as refused rows, and the
+      // fix is changing a dropdown, not re-uploading the file.
+      if (result.parse_error) setMappingOpen(true)
+      else if (!keepOpen) setMappingOpen(false)
     } catch (error) {
       if (request !== previewRequest.current) return
       setPreviewError(assetErrorMessage(error, t('assetImport.previewError')))
       setPreview(null)
+      setMappingOpen(false)
     } finally {
       if (request === previewRequest.current) setLoading(false)
     }
@@ -198,17 +213,19 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
 
   function handleWalletChange(value: string) {
     setGroupId(value)
-    if (file) runPreview(file, mapping, value)
+    // Changing the destination re-previews the same mapping, so the panel
+    // stays exactly where the user left it.
+    if (file) runPreview(file, mapping, value, { keepOpen: true })
   }
 
   function handleAllowUnpricedChange(value: boolean) {
     setAllowUnpriced(value)
-    if (file) runPreview(file, mapping, groupId, value)
+    if (file) runPreview(file, mapping, groupId, { nextAllowUnpriced: value, keepOpen: true })
   }
 
   function handleDateFormatChange(value: string) {
     setDateFormat(value)
-    if (file) runPreview(file, mapping, groupId, allowUnpriced, value)
+    if (file) runPreview(file, mapping, groupId, { nextDateFormat: value, keepOpen: true })
   }
 
   async function handleImport() {
@@ -239,6 +256,13 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
   const rowSkips = preview?.skips ?? []
   const walletWarnings = preview?.warnings ?? []
   const needsMapping = !!preview?.parse_error
+  // Compact view of the explicit choices, shown in the collapsed bar so a
+  // wrong column can be spotted without re-opening the grid.
+  const mappingSummary = MAPPABLE_FIELDS.map(({ key }) =>
+    mapping[key] ? `${t(`assetImport.field.${key}`)}: ${mapping[key]}` : null,
+  )
+    .filter((item): item is string => item !== null)
+    .join('  ·  ')
 
   return (
     <div className="space-y-6">
@@ -310,32 +334,52 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
         </div>
       )}
 
-      {needsMapping && (
+      {preview && (
         <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-5 py-4">
-            <Settings2 size={14} className="text-muted-foreground" />
-            <p className="text-xs font-medium text-muted-foreground">{t('assetImport.mapPrompt')}</p>
-          </div>
-          <div className="grid gap-3 p-5 sm:grid-cols-2">
-            {MAPPABLE_FIELDS.map(({ key, required }) => (
-              <div key={key} className="grid gap-1">
-                <Label htmlFor={`map-${key}`} className="text-xs">
-                  {t(`assetImport.field.${key}`)}{required ? ' *' : ''}
-                </Label>
-                <select
-                  id={`map-${key}`}
-                  className={SELECT_CLASS}
-                  value={mapping[key] ?? ''}
-                  onChange={(e) => handleMappingChange(key, e.target.value)}
-                >
-                  <option value="">{t('assetImport.ignoreColumn')}</option>
-                  {(preview?.csv_columns ?? []).map((col) => (
-                    <option key={col} value={col}>{col}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => setMappingOpen((open) => !open)}
+            aria-expanded={needsMapping || mappingOpen}
+            className="flex w-full items-center gap-2 border-b border-border bg-muted/30 px-5 py-4 text-left"
+          >
+            <Settings2 size={14} className="shrink-0 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">
+              {needsMapping ? t('assetImport.mapPrompt') : t('assetImport.columnMapping')}
+            </span>
+            {!needsMapping && mappingSummary && (
+              <span className="min-w-0 truncate text-xs text-muted-foreground/70">
+                {mappingSummary}
+              </span>
+            )}
+            <ChevronDown
+              size={16}
+              className={`ml-auto shrink-0 text-muted-foreground transition-transform ${
+                needsMapping || mappingOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+          {(needsMapping || mappingOpen) && (
+            <div className="grid gap-3 p-5 sm:grid-cols-2">
+              {MAPPABLE_FIELDS.map(({ key, required }) => (
+                <div key={key} className="grid gap-1">
+                  <Label htmlFor={`map-${key}`} className="text-xs">
+                    {t(`assetImport.field.${key}`)}{required ? ' *' : ''}
+                  </Label>
+                  <select
+                    id={`map-${key}`}
+                    className={SELECT_CLASS}
+                    value={mapping[key] ?? ''}
+                    onChange={(e) => handleMappingChange(key, e.target.value)}
+                  >
+                    <option value="">{t('assetImport.ignoreColumn')}</option>
+                    {(preview?.csv_columns ?? []).map((col) => (
+                      <option key={col} value={col}>{col}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -452,6 +496,19 @@ export function AssetImportPanel({ mode = 'orders' }: { mode?: 'orders' }) {
             titleKey="assetImport.rowsRefused"
             reasonPrefix="reason"
             tone="error"
+            action={
+              // The usual cause of a refused row is a column picked for the
+              // wrong field; send the user straight to the grid.
+              !needsMapping && !mappingOpen && (
+                <button
+                  type="button"
+                  onClick={() => setMappingOpen(true)}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  {t('assetImport.adjustMapping')}
+                </button>
+              )
+            }
           />
 
           {/* Not an error: the row is fine and creates nothing. Kept apart

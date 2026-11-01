@@ -19,6 +19,7 @@ from app.schemas.transaction_calendar import (
     TransactionCalendarItem,
     TransactionCalendarResponse,
 )
+from app.services._query_filters import transfer_ids
 from app.services.dashboard_service import (
     _balance_at,
     _daily_balance_deltas_by_date,
@@ -112,6 +113,7 @@ async def get_transaction_calendar(
         primary_currency_hint=primary_currency,
         account_ids=requested_account_ids,
     )
+    actual_transfers = await transfer_ids(session, [tx.id for tx in actual_rows])
     for tx in actual_rows:
         if tx.date not in days:
             continue
@@ -120,9 +122,7 @@ async def get_transaction_calendar(
             session, tx.amount, tx.currency, primary_currency, tx.amount_primary
         )
 
-        is_transfer = bool(tx.transfer_pair_id) or bool(
-            tx.category and tx.category.treat_as_transfer
-        )
+        is_transfer = tx.id in actual_transfers
         ignored = bool(tx.is_ignored or (tx.category and tx.category.is_ignored))
         if not ignored and not tx.exclude_from_pnl:
             if is_transfer or tx.source == "transfer":
@@ -146,6 +146,7 @@ async def get_transaction_calendar(
     forecast_rows = await _get_forecast_transactions(
         session, workspace_id, grid_start, grid_end, requested_account_ids
     )
+    forecast_transfers = await transfer_ids(session, [tx.id for tx in forecast_rows])
     forecast_deltas: dict[date, float] = {}
     for tx in forecast_rows:
         if tx.date not in days:
@@ -154,9 +155,7 @@ async def get_transaction_calendar(
         amount_primary = await _positive_primary_amount(
             session, tx.amount, tx.currency, primary_currency, tx.amount_primary
         )
-        is_transfer = bool(tx.transfer_pair_id) or bool(
-            tx.category and tx.category.treat_as_transfer
-        )
+        is_transfer = tx.id in forecast_transfers
         ignored = bool(tx.is_ignored or (tx.category and tx.category.is_ignored))
         if not ignored and not tx.exclude_from_pnl:
             if is_transfer or tx.source == "transfer":

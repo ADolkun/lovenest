@@ -7,6 +7,7 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -16,9 +17,13 @@ from app.core.workspace_context import (
     current_workspace,
     current_writable_workspace,
 )
-from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, DescriptionSuggestion, ReimbursementLinkRead, BulkTagsRequest, CreateCounterpartRequest, InstallmentSeriesCreate, LinkTransferRequest, TransactionBulkDeleteRequest, TransactionCreate, TransactionRead, TransactionUpdate, TransferCreate, TransferRead
+from app.models.account import Account
+from app.models.bank_connection import BankConnection
+from app.models.transaction import Transaction
+from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, DescriptionSuggestion, ReimbursementLinkRead, BulkTagsRequest, CreateCounterpartRequest, InstallmentSeriesCreate, LinkTransferRequest, TransactionBulkDeleteRequest, TransactionCreate, TransactionRead, TransactionTransferCounterpart, TransactionUpdate, TransferCreate, TransferRead
 from app.schemas.transaction_calendar import TransactionCalendarResponse
 from app.services import reimbursement_service, transaction_service
+from app.services._query_filters import transfer_ids
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.transaction_calendar_service import get_transaction_calendar
 
@@ -72,7 +77,69 @@ async def _read(session, ctx, transaction) -> TransactionRead:
         ctx.user.primary_currency,
     )
     await _attach_reimbursement_links(session, ctx, [item])
+    await _attach_transfer_flags(session, [item])
     return item
+
+
+async def _attach_transfer_flags(
+    session: AsyncSession, items: list[TransactionRead]
+) -> None:
+    """Set each row's `is_transfer` from the predicate the totals use, one
+    query for the whole page."""
+    transfers = await transfer_ids(session, [item.id for item in items])
+    for item in items:
+        item.is_transfer = item.id in transfers
+
+
+async def _attach_transfer_counterparts(
+    session: AsyncSession, workspace_id: uuid.UUID, items: list[TransactionRead]
+) -> None:
+    """Name the account each transfer row is linked to, for the badge.
+
+    The list marks transfer rows with a badge but said nothing about what
+    the row is connected to (issue #810). Both legs of a pair share
+    ``transfer_pair_id``, so one query over the page's pair ids fetches
+    every other leg in the workspace. The other leg is found even when
+    the account filter keeps it off the page, and a page without
+    transfers costs nothing: no query, no field change.
+    """
+    pair_ids = {item.transfer_pair_id for item in items if item.transfer_pair_id}
+    if not pair_ids:
+        return
+
+    result = await session.execute(
+        select(
+            Transaction.id,
+            Transaction.transfer_pair_id,
+            Transaction.account_id,
+            # The name the rest of the UI shows: the user's override, or
+            # the provider's name when there is none.
+            func.coalesce(Account.display_name, Account.name),
+        )
+        .join(Account, Account.id == Transaction.account_id)
+        .outerjoin(BankConnection, BankConnection.id == Account.connection_id)
+        .where(
+            Transaction.workspace_id == workspace_id,
+            Transaction.transfer_pair_id.in_(pair_ids),
+            or_(
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
+            ),
+        )
+    )
+    legs: dict[uuid.UUID, list[tuple[uuid.UUID, uuid.UUID, str]]] = {}
+    for tx_id, pair_id, account_id, account_name in result:
+        legs.setdefault(pair_id, []).append((tx_id, account_id, account_name))
+
+    for item in items:
+        if item.transfer_pair_id is None:
+            continue
+        for tx_id, account_id, account_name in legs.get(item.transfer_pair_id, []):
+            if tx_id != item.id:
+                item.transfer_counterpart = TransactionTransferCounterpart(
+                    account_id=account_id, account_name=account_name
+                )
+                break
 
 
 def _tag_fx_fallback(tx: TransactionRead, primary_currency: str) -> TransactionRead:
@@ -189,6 +256,8 @@ async def list_transactions(
     items = [_tag_fx_fallback(TransactionRead.model_validate(tx, from_attributes=True), primary_currency) for tx in transactions]
     await _attach_invoice_links(session, ctx, items)
     await _attach_reimbursement_links(session, ctx, items)
+    await _attach_transfer_counterparts(session, ctx.workspace.id, items)
+    await _attach_transfer_flags(session, items)
     summary_out = (
         TransactionsSummary(**summary, currency=primary_currency)
         if summary is not None
@@ -556,6 +625,25 @@ async def toggle_ignore_transaction(
     session: AsyncSession = Depends(get_async_session),
 ):
     transaction = await transaction_service.toggle_ignore_transaction(
+        session, transaction_id, ctx.workspace.id
+    )
+    if not transaction:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    return await _read(session, ctx, transaction)
+
+
+@router.post("/{transaction_id}/post-today", response_model=TransactionRead)
+async def post_transaction_today(
+    transaction_id: uuid.UUID,
+    ctx: WorkspaceContext = Depends(current_writable_workspace),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """One-click "it cleared today" for a pending transaction.
+
+    Marks the transaction as posted and stamps today's calendar date, resolved
+    in the workspace's timezone, the same as saving the edit dialog by hand.
+    """
+    transaction = await transaction_service.post_transaction_today(
         session, transaction_id, ctx.workspace.id
     )
     if not transaction:

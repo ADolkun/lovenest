@@ -267,44 +267,71 @@ def is_not_ignored():
     )
 
 
-def is_transfer():
-    """SQL filter: the row is a transfer rather than income or expense.
+def is_transfer(entity: TransactionEntity = Transaction):
+    """SQL predicate: the row moves money between the user's own places, so
+    P&L leaves it out of income and expense.
 
-    Either both legs were matched (`transfer_pair_id` set), or the row sits
-    in a category flagged `treat_as_transfer` (one-sided movements such as
-    an investment application). Same reading the transactions calendar uses
-    when it marks a day as having a transfer.
+    The transfer clauses of `counts_as_pnl`, kept apart so the Transfer
+    badge, the Type=Transfer filter and the calendar read the rule the
+    totals apply. A row is a transfer when it is:
+      - one leg of a valid pair. A `transfer_pair_id` whose second leg is
+        gone is not a transfer,
+      - either side of a credit-card repayment the payment classifier
+        recognises, even unpaired,
+      - in a `treat_as_transfer` category (a one-sided movement such as an
+        investment application), unless it is a card credit that is not a
+        repayment: that is a refund, and it offsets spending under any
+        category.
+
+    Two-valued on every row. Without the IS NOT NULL guard an uncategorized
+    row would read NULL in the category clause, `NOT` keeps NULL, and
+    `counts_as_pnl` would drop the row from every total.
     """
     return or_(
-        Transaction.transfer_pair_id.is_not(None),
-        Transaction.category_id.in_(
-            select(Category.id).where(Category.treat_as_transfer.is_(True))
+        has_valid_transfer_pair(entity),
+        credit_card_payment_filter(entity),
+        and_(
+            entity.category_id.is_not(None),
+            entity.category_id.in_(
+                select(Category.id).where(Category.treat_as_transfer.is_(True))
+            ),
+            not_(credit_card_refund_filter(entity)),
         ),
     )
+
+
+async def transfer_ids(
+    session: AsyncSession, transaction_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The rows among ``transaction_ids`` that `is_transfer` holds for."""
+    if not transaction_ids:
+        return set()
+    result = await session.execute(
+        select(Transaction.id).where(
+            Transaction.id.in_(transaction_ids), is_transfer()
+        )
+    )
+    return set(result.scalars())
 
 
 def counts_as_pnl(entity: TransactionEntity = Transaction):
     """SQL filter: True when a transaction should contribute to income/expense totals.
 
     Excludes:
-      - paired transfers (both legs were matched; already cancel out),
-      - transactions in categories flagged `treat_as_transfer` (one-sided
-        movements like investment applications where the counterpart is
-        an Asset/Holding, not another Account),
+      - transfers, as `is_transfer` defines them,
       - transactions flagged `is_ignored=True` (user-marked as not to be reported),
       - transactions flagged `exclude_from_pnl=True` (kept in balance,
         omitted from income and expense calculations),
-      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported),
-      - credit-card repayments, even when their transfer link/category is missing.
+      - settlement debits,
+      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported).
 
     Does NOT exclude `source='opening_balance'` — callers that already
     filter those keep doing so; this helper only handles the transfer-like
     exclusion family so both rules stay visible at each call site.
     """
     return and_(
-        not_(has_valid_transfer_pair(entity)),
+        not_(is_transfer(entity)),
         entity.is_ignored.is_(False),
-        not_(credit_card_payment_filter(entity)),
         entity.exclude_from_pnl.is_(False),
         # Settlement *debits* are repayments of debts that were already
         # booked as an expense via the share. Counting them would
@@ -315,38 +342,34 @@ def counts_as_pnl(entity: TransactionEntity = Transaction):
         ~and_(entity.source == "settlement", entity.type == "debit"),
         or_(
             entity.category_id.is_(None),
-            and_(
-                entity.category_id.not_in(
-                    select(Category.id).where(Category.is_ignored.is_(True))
-                ),
-                or_(
-                    credit_card_refund_filter(entity),
-                    entity.category_id.not_in(
-                        select(Category.id).where(
-                            Category.treat_as_transfer.is_(True)
-                        )
-                    ),
-                ),
+            entity.category_id.not_in(
+                select(Category.id).where(Category.is_ignored.is_(True))
             ),
         ),
     )
 
 
-def counts_on_bill():
+def counts_on_bill(net_payments: bool = False):
     """SQL filter: True when a transaction belongs on a credit-card bill.
 
     A bill total is an *amount owed*, not a reporting figure, and the two
     answer to different authorities: the bill has to match what the bank
     says you owe, while P/L answers to how the user chose to categorize
     their spending. So the card's cycle total cannot reuse
-    `counts_as_pnl` — every judgment that helper makes about what counts
+    `counts_as_pnl`. Every judgment that helper makes about what counts
     as *spending* is a judgment the bank never made.
 
     Kept out, because they are genuinely not charges on this bill:
-      - valid paired transfers (the bill *payment* is not a purchase),
+      - valid paired transfers, by default (the bill *payment* is not a
+        purchase). With ``net_payments=True`` the *credit* leg of a valid
+        pair counts instead: an intermediate payment into the card shrinks
+        the amount owed, the way a refund does. Callers net only what is
+        left after the payment settles any debt that was already
+        outstanding (banks apply repayments oldest first), see
+        `get_account_summary`.
       - settlement debits (a repayment of a share already booked),
       - rows the user flagged `is_ignored`, on the transaction or its
-        category — those leave the account balance too, so dropping them
+        category. Those leave the account balance too, so dropping them
         from the bill keeps the card's two numbers telling one story.
 
     Kept in, and this is the whole point of the helper:
@@ -378,12 +401,27 @@ def counts_on_bill():
     ignored_category = Transaction.category_id.in_(
         select(Category.id).where(Category.is_ignored.is_(True))
     )
+    valid_pair = has_valid_transfer_pair()
+    if net_payments:
+        # The credit leg of a valid pair is a payment by construction: the
+        # pair proves the money moved between the user's own accounts, so
+        # neither the pair nor the payment classifier keeps it off the bill.
+        paired_payment = and_(Transaction.type == "credit", valid_pair)
+        transfer_clause = or_(not_(valid_pair), paired_payment)
+        payment_clause = or_(
+            Transaction.type == "debit",
+            not_(credit_card_payment_filter()),
+            paired_payment,
+        )
+    else:
+        transfer_clause = not_(valid_pair)
+        payment_clause = or_(Transaction.type == "debit", not_(credit_card_payment_filter()))
     return and_(
-        not_(has_valid_transfer_pair()),
+        transfer_clause,
         Transaction.is_ignored.is_(False),
         ~and_(Transaction.source == "settlement", Transaction.type == "debit"),
         or_(Transaction.category_id.is_(None), ~ignored_category),
-        or_(Transaction.type == "debit", not_(credit_card_payment_filter())),
+        payment_clause,
     )
 
 

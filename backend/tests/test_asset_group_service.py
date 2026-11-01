@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
+from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
+from app.models.fx_rate import FxRate
 from app.models.workspace import Workspace
-from app.services.asset_group_service import get_groups
+from app.services.asset_group_service import get_group, get_groups
 
 
 @pytest.mark.asyncio
@@ -171,6 +173,8 @@ async def test_account_type_does_not_leak_across_workspaces(
 async def test_get_groups_reports_the_balance_liquid_cash_is_derived_against(
     session: AsyncSession, test_user, test_workspace
 ):
+    # The account is in USD: with no rate into a BRL primary its balance is unknown.
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     account = Account(
         id=uuid.uuid4(),
         user_id=test_user.id,
@@ -218,6 +222,53 @@ async def test_get_groups_reports_the_balance_liquid_cash_is_derived_against(
     # No account behind a manual wallet, so nothing to subtract from — and null
     # is not zero, which is what stops the frontend inventing cash.
     assert by_name["Manual Wallet"].account_balance is None
+
+
+@pytest.mark.asyncio
+async def test_an_account_balance_no_rate_converts_is_unknown_rather_than_1_to_1(
+    session: AsyncSession, test_user, test_workspace
+):
+    """Liquid Cash is this balance less the holdings; a balance taken at a
+    fake 1:1 rate would derive cash out of a currency mismatch."""
+    account = Account(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        external_id="acc-xts",
+        name="Test Broker",
+        type="investment",
+        balance=Decimal("535.26"),
+        currency="XTS",
+    )
+    wallet = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Test Broker",
+        source="simplefin",
+        external_id="conn-abc::acc-xts",
+    )
+    session.add_all([account, wallet])
+    session.add(
+        Asset(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            group_id=wallet.id,
+            name="Fund",
+            type="stock",
+            currency="XTS",
+            purchase_price=Decimal("137.96"),
+            account_external_id="acc-xts",
+        )
+    )
+    await session.commit()
+
+    read = next(g for g in await get_groups(session, test_workspace.id, test_user.id) if g.name == "Test Broker")
+
+    assert read.account_type == "investment"
+    assert read.account_balance is None
+    assert read.unconverted_count == 1
 
 
 def _investment_account(user, workspace, external_id: str, balance: str) -> Account:
@@ -294,6 +345,7 @@ async def test_a_sibling_account_left_archived_does_not_strand_the_wallet(
     They are not holdings — `_rollup` already ignores them — so they must not
     read as a second account and switch allocation off for good.
     """
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     wallet = AssetGroup(
         id=uuid.uuid4(),
         user_id=test_user.id,
@@ -332,6 +384,7 @@ async def test_a_synced_holding_dragged_into_a_manual_wallet_carries_no_balance(
 
     Reporting the balance on both is what would count the same cash twice.
     """
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     synced = AssetGroup(
         id=uuid.uuid4(),
         user_id=test_user.id,
@@ -370,6 +423,7 @@ async def test_a_sibling_connection_reusing_an_account_id_is_not_read(
     session: AsyncSession, test_user, test_workspace
 ):
     """`accounts.external_id` is unique per connection, not per workspace."""
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
     ours = BankConnection(
         id=uuid.uuid4(),
         user_id=test_user.id,
@@ -415,3 +469,163 @@ async def test_a_sibling_connection_reusing_an_account_id_is_not_read(
     got = next(g for g in await get_groups(session, test_workspace.id, test_user.id) if g.name == "Ours")
 
     assert got.account_balance == 300.00
+
+
+@pytest.mark.asyncio
+async def test_rollup_keeps_sub_cent_market_prices_in_primary_currency(
+    session: AsyncSession, test_user, test_workspace
+):
+    """issue #622: a wallet holding low-priced foreign-currency assets must
+    not roll up to 0.0 in the user's primary currency. Each converted amount
+    keeps six decimals inside the sum; the read boundary still displays the
+    total rounded to two. So 30 coins at 0.002087 USD x 0.92 (0.0576 EUR)
+    must surface as 0.06, not the 0.0 the per-asset two-decimal quantization
+    produced."""
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "EUR"}
+    session.add(
+        FxRate(
+            base_currency="USD",
+            quote_currency="EUR",
+            date=date.today(),
+            rate=Decimal("0.9200000000"),
+            source="test",
+        )
+    )
+    wallet = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Coin Wallet",
+    )
+    session.add(wallet)
+    await session.commit()
+
+    assets = [
+        Asset(
+            id=uuid.uuid4(),
+            user_id=test_user.id,
+            workspace_id=test_workspace.id,
+            group_id=wallet.id,
+            name=f"Coin {i}",
+            type="investment",
+            currency="USD",
+            units=Decimal("1"),
+            valuation_method="market_price",
+            last_price=Decimal("0.002087"),
+            ticker="COIN-USD",
+            position=i,
+        )
+        for i in range(30)
+    ]
+    session.add_all(assets)
+    await session.commit()
+    # The rollup reads the latest AssetValue; the quote sync writes one per price.
+    session.add_all(
+        AssetValue(
+            id=uuid.uuid4(),
+            asset_id=asset.id,
+            workspace_id=test_workspace.id,
+            amount=Decimal("0.002087"),
+            date=date.today(),
+            source="sync",
+        )
+        for asset in assets
+    )
+    await session.commit()
+
+    read = await get_group(session, wallet.id, test_workspace.id, test_user.id)
+
+    assert read is not None
+    assert read.asset_count == 30
+    assert read.current_value == pytest.approx(0.06)
+    assert read.current_value_primary == pytest.approx(0.06)
+
+
+@pytest.mark.asyncio
+async def test_rollup_excludes_assets_without_fx_rate(
+    session: AsyncSession, test_user, test_workspace
+):
+    """issue #574: a wallet holding a foreign-currency asset without a
+    resolvable FX rate must not add the raw amount to the primary-currency
+    total at a fake 1:1 rate. The asset still counts toward the wallet size;
+    its primary contribution is 0. A sibling asset whose currency has a rate
+    still converts."""
+    test_user.preferences = {**(test_user.preferences or {}), "currency_display": "USD"}
+    session.add(
+        FxRate(
+            id=uuid.uuid4(),
+            base_currency="USD",
+            quote_currency="EUR",
+            date=date.today(),
+            rate=Decimal("0.9200000000"),
+            source="test",
+        )
+    )
+    wallet = AssetGroup(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Mixed Wallet",
+    )
+    session.add(wallet)
+    await session.commit()
+
+    eur_asset = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        group_id=wallet.id,
+        name="Fund",
+        type="investment",
+        currency="EUR",
+        units=Decimal("1000"),
+        valuation_method="manual",
+        purchase_price=Decimal("1000"),
+        position=0,
+    )
+    gbp_asset = Asset(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        group_id=wallet.id,
+        name="Cash",
+        type="cash",
+        currency="GBP",
+        units=Decimal("500"),
+        valuation_method="manual",
+        purchase_price=Decimal("500"),
+        position=1,
+    )
+    session.add_all([eur_asset, gbp_asset])
+    await session.commit()
+    session.add_all([
+        AssetValue(
+            id=uuid.uuid4(),
+            asset_id=eur_asset.id,
+            workspace_id=test_workspace.id,
+            amount=Decimal("1000"),
+            date=date.today(),
+            source="manual",
+        ),
+        AssetValue(
+            id=uuid.uuid4(),
+            asset_id=gbp_asset.id,
+            workspace_id=test_workspace.id,
+            amount=Decimal("500"),
+            date=date.today(),
+            source="manual",
+        ),
+    ])
+    await session.commit()
+
+    read = await get_group(session, wallet.id, test_workspace.id, test_user.id)
+
+    # 1000 EUR -> 1086.956522 USD at 1/0.92, shown at two decimals. The 500
+    # GBP is left out of the primary total instead of being added as 500.0.
+    assert read is not None
+    assert read.asset_count == 2
+    assert read.current_value_primary == pytest.approx(1086.96, abs=0.005)
+    # Left out, but not silently: the GBP holding is counted as unconverted,
+    # which is not the same as having no value.
+    assert read.unconverted_count == 1
+    assert read.unvalued_count == 0

@@ -15,7 +15,7 @@ import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRegisterPageChatContext } from '@/lib/page-chat-context'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
-import { assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
+import { accounts as accountsApi, assets, assetGroups, currencies as currenciesApi, contributions as contributionsApi, assetErrorMessage } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { summariesByWallet } from '@/lib/contributions'
@@ -71,6 +71,8 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
+import { PropertyEquitySummary } from '@/components/property-equity-summary'
+import { LOAN_COLLATERAL_TYPES } from '@/lib/property-equity'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
@@ -312,6 +314,11 @@ export default function AssetsPage() {
     () => summariesByWallet(contributionSummaries ?? []),
     [contributionSummaries],
   )
+  // Loans secured against a property show up in that property's detail.
+  const { data: accountsList } = useQuery({
+    queryKey: ['accounts'],
+    queryFn: () => accountsApi.list(),
+  })
   // Scope the portfolio chart + total to the active collection's wallets too.
   const portfolioData = useMemo(() => {
     if (!rawPortfolioData) return rawPortfolioData
@@ -523,11 +530,26 @@ export default function AssetsPage() {
   const activeAssets = useMemo(() => assetsList?.filter(a => !a.sell_date && !a.is_archived) ?? [], [assetsList])
   const soldAssets = assetsList?.filter(a => a.sell_date) ?? []
   // Denominator for the "% of portfolio" column: current holdings only, in the
-  // user's primary currency, so the active rows add up to 100%.
-  const portfolioTotalPrimary = getPortfolioTotalPrimary(activeAssets)
+  // user's primary currency, so the active rows add up to 100%. Assets with
+  // no resolvable FX rate are left out of the denominator (their rows show
+  // a dash) instead of being summed at a fake 1:1 rate (issue #574).
+  const portfolioTotalPrimary = getPortfolioTotalPrimary(activeAssets, userCurrency)
   const investedTotalPrimary = getPortfolioTotalPrimary(
     activeAssets.filter((asset) => asset.type !== CASH_EQUIVALENT_TYPE),
+    userCurrency,
   )
+
+  // Currencies of active assets that cannot be converted to the user's
+  // display currency: shown in a page-level banner and kept out of totals.
+  const unconvertedCurrencies = useMemo(() => {
+    const currencies = new Set<string>()
+    for (const a of activeAssets) {
+      if (a.current_value != null && a.currency !== userCurrency && a.current_value_primary == null) {
+        currencies.add(a.currency)
+      }
+    }
+    return [...currencies].sort()
+  }, [activeAssets, userCurrency])
 
   const tickerSearchQuery = formMethod === 'market_price' && formTickerQuery.trim() !== selectedQuote?.symbol
     ? formTickerQuery.trim() : ''
@@ -767,12 +789,19 @@ export default function AssetsPage() {
     const isProviderOwned = isSynced && !isMarketPriced
     const hasCost = asset.average_price != null && asset.total_invested != null
     const profit = getAssetProfit(asset)
-    const pctOfPortfolio = asset.sell_date ? null : getPortfolioShare(asset, portfolioTotalPrimary)
+    // Foreign-currency asset the backend could not convert (no FX rate):
+    // keep it out of primary-currency totals and flag it instead.
+    const unconverted =
+      !asset.sell_date &&
+      asset.current_value != null &&
+      asset.currency !== userCurrency &&
+      asset.current_value_primary == null
+    const pctOfPortfolio = asset.sell_date ? null : getPortfolioShare(asset, portfolioTotalPrimary, userCurrency)
     // A Cash Equivalent is not an invested position, so it has no share of the
     // invested total — showing it 0% would be a claim, showing nothing is not.
     const pctOfInvested = asset.type === CASH_EQUIVALENT_TYPE || asset.sell_date
       ? null
-      : getPortfolioShare(asset, investedTotalPrimary)
+      : getPortfolioShare(asset, investedTotalPrimary, userCurrency)
     const needsBuys = isMarketPriced && !hasCost && !asset.sell_date
     // A watched wallet's external_id is the `chain:address` pair the trace
     // page takes, so the holding can hand the tracer its own subject. A token
@@ -842,6 +871,16 @@ export default function AssetsPage() {
                     {t('assets.noPriceBadge')}
                   </Badge>
                 )}
+                {unconverted && (
+                  <Badge
+                    variant="warning"
+                    className="text-[9px] px-1 py-0 gap-0.5 shrink-0"
+                    title={t('assets.noFxRateTitle')}
+                  >
+                    <AlertTriangle size={9} />
+                    {t('assets.noFxRate')}
+                  </Badge>
+                )}
                 {asset.sell_date && (
                   <Badge variant="outline" className="text-[9px] px-1 py-0 text-rose-600 border-rose-200">{t('assets.sold')}</Badge>
                 )}
@@ -875,6 +914,9 @@ export default function AssetsPage() {
                 <span className="font-semibold text-foreground">{mask(formatCurrency(asset.current_value, asset.currency, locale))}</span>
                 {asset.current_value_primary != null && asset.currency !== userCurrency && (
                   <span className="block text-[10px] text-muted-foreground">{mask(formatCurrency(asset.current_value_primary, userCurrency, locale))}</span>
+                )}
+                {unconverted && (
+                  <span className="block text-[10px] text-warning-foreground">{t('assets.noFxRate')}</span>
                 )}
                 {/* Hand-valued holdings have no quote to age them, so the
                     balance carries its own staleness (#68). */}
@@ -948,7 +990,17 @@ export default function AssetsPage() {
           </Button>
         </div>}
         {isExpanded && (
-          isMarketPriced ? (
+          <>
+          {LOAN_COLLATERAL_TYPES.includes(asset.type) && (
+            <PropertyEquitySummary
+              asset={asset}
+              loans={accountsList ?? []}
+              currency={userCurrency}
+              locale={locale}
+              mask={mask}
+            />
+          )}
+          {isMarketPriced ? (
             <>
               {/* Value-evolution chart on top, then the buy/sell ledger. */}
               <AssetDetail onChanged={refetchAssetViews} assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant="chart" />
@@ -964,7 +1016,8 @@ export default function AssetsPage() {
             </>
           ) : (
             <AssetDetail onChanged={refetchAssetViews} assetId={asset.id} currency={asset.currency} locale={locale} dateLocale={dateLocale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} variant={isProviderOwned ? 'chart-alone' : 'full'} />
-          )
+          )}
+          </>
         )}
       </div>
     )
@@ -1064,7 +1117,17 @@ export default function AssetsPage() {
     // fallback for a real zero; missing valuations remain an explicit subtotal.
     const priced = walletAssets.filter((asset) => valueInCurrency(asset, userCurrency) !== null)
     const total = priced.reduce((sum, asset) => sum + valueInCurrency(asset, userCurrency)!, 0)
-    const partial = assetsError || priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0
+    const partial = assetsError || priced.length !== walletAssets.length || (wallet.unvalued_count ?? 0) > 0 || (wallet.unconverted_count ?? 0) > 0
+    // Native values of assets the backend could not convert (no FX rate),
+    // grouped by currency and listed below the total. They are deliberately
+    // NOT added to the number above: that would mix unconverted currencies
+    // (issue #574).
+    const unconvertedSums = new Map<string, number>()
+    for (const a of walletAssets) {
+      if (valueInCurrency(a, userCurrency) === null && a.current_value != null && a.currency !== userCurrency) {
+        unconvertedSums.set(a.currency, (unconvertedSums.get(a.currency) ?? 0) + Number(a.current_value))
+      }
+    }
 
     // Only show the institution as a subtitle when it's actually
     // additional information — if the user hasn't renamed the wallet,
@@ -1129,6 +1192,11 @@ export default function AssetsPage() {
             <span className="block text-[10px] text-muted-foreground">
               {t(partial ? 'assets.knownHoldingsValue' : 'assets.holdingsValue')}
             </span>
+            {[...unconvertedSums.entries()].map(([currency, amount]) => (
+              <span key={currency} className="block text-[10px] text-warning-foreground tabular-nums">
+                + {mask(formatCurrency(amount, currency, locale))} {currency} · {t('assets.noFxRate')}
+              </span>
+            ))}
             <BalanceDetails canWrite={canWrite} wallets={[wallet]} holdings={walletAssets} workspaceId={current?.id} holdingsError={assetsError} canOpenAccounts={hasModule('accounts')} />
           </div>
           <Button variant="outline" className="min-h-11" onClick={() => setView({ tab: 'activity', activity: 'timeline', wallet: wallet.id, canonical_asset_key: null })}>
@@ -1270,6 +1338,14 @@ export default function AssetsPage() {
         {assetsError && <Alert variant="warning">{t('assets.loadError')}</Alert>}
 
         <TabsContent value="portfolio" className="space-y-6">
+          {/* Assets that have no resolvable FX rate are left out of the totals
+              below; explain that so the numbers do not look wrong (issue #574). */}
+          {unconvertedCurrencies.length > 0 && (
+            <Alert variant="warning">
+              <AlertTriangle size={16} />
+              <span>{t('assets.fxRateMissing', { currencies: unconvertedCurrencies.join(', ') })}</span>
+            </Alert>
+          )}
           {isLoading ? (
             <div className="space-y-4">
               <Skeleton className="h-8 w-56" />
@@ -1376,7 +1452,7 @@ export default function AssetsPage() {
           <DialogHeader>
             <DialogTitle>{editingAsset ? t('assets.editAsset') : t('assets.addAsset')}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Name */}
             <div className="space-y-2">
               <Label>{t('assets.name')}</Label>

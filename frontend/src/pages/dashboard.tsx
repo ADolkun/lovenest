@@ -42,6 +42,7 @@ import { CheckCircle2, CalendarIcon, Clock, Paperclip, Target, ArrowUpDown, Help
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ICON_MAP } from '@/lib/category-icons'
 import { PageHeader } from '@/components/page-header'
+import { PageRefreshButton } from '@/components/page-refresh-button'
 import { CategoryIcon } from '@/components/category-icon'
 import { AccountIcon } from '@/components/account-icon'
 import { TransactionDrillDown, type DrillDownFilter } from '@/components/transaction-drill-down'
@@ -180,7 +181,7 @@ export default function DashboardPage() {
   // silently falling back to "all accounts".
   const noAccounts = activeAccountIds !== null && activeAccountIds.length === 0
 
-  const { data: summary, isLoading: summaryLoading } = useQuery({
+  const { data: summary, isLoading: summaryLoading, isFetching: summaryFetching } = useQuery({
     queryKey: ['dashboard', 'summary', selectedMonth, activeAccountIds, activeWalletIds],
     queryFn: () => dashboard.summary(monthParam, undefined, acctIds, walletIds),
   })
@@ -417,11 +418,15 @@ export default function DashboardPage() {
   const accountsUnavailable = accountsLoading || accountsError
   const creditCardBalance = sumAccountBalances((accountsList ?? [])
     .filter((a) => (activeAccountIds ? activeAccountIds.includes(a.id) : true) && a.type === 'credit_card'))
-  // Net worth's "Available balance" breakdown row: every non-card account
-  // (unlike the headline `availableBalance`, which is checking/savings only),
-  // so it reconciles with `totalBalance` — which sums all account types.
+  const loanBalance = (accountsList ?? [])
+    .filter((a) => (activeAccountIds ? activeAccountIds.includes(a.id) : true) && a.type === 'loan')
+    .reduce((sum, a) => sum + Number(a.balance_primary ?? a.current_balance), 0)
+  // Net worth's "Available balance" breakdown row: every account that is not
+  // a card or loan (unlike the headline `availableBalance`, which is
+  // checking/savings only), so with the card and loan rows it reconciles with
+  // `totalBalance` — which sums all account types.
   const nonCardAccountsBalance = (accountsList ?? [])
-    .filter((a) => (activeAccountIds ? activeAccountIds.includes(a.id) : true) && a.type !== 'credit_card')
+    .filter((a) => (activeAccountIds ? activeAccountIds.includes(a.id) : true) && a.type !== 'credit_card' && a.type !== 'loan')
     .reduce((sum, a) => sum + Number(a.balance_primary ?? a.current_balance), 0)
 
   // Savings rate & projection
@@ -668,6 +673,10 @@ export default function DashboardPage() {
               className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:border-border hover:text-foreground transition-all text-base"
               onClick={() => handleMonthChange(shiftMonth(selectedMonth, 1))}
             >&#8250;</button>
+            <PageRefreshButton
+              onRefresh={() => queryClient.refetchQueries({ type: 'active' })}
+              refreshing={summaryFetching}
+            />
           </div>
         }
       />
@@ -843,6 +852,12 @@ export default function DashboardPage() {
                         <span>{mask(formatCurrency(creditCardBalance, primaryCurrency, locale))}</span>
                       </div>
                     )}
+                    {loanBalance !== 0 && (
+                      <div className="flex justify-between gap-3">
+                        <span>{t('dashboard.loanBalance')}</span>
+                        <span>{mask(formatCurrency(loanBalance, primaryCurrency, locale))}</span>
+                      </div>
+                    )}
                     {hasProjectedBalance && (
                       <div className="flex justify-between gap-3">
                         <span>{t('dashboard.projectedBalance')}</span>
@@ -859,9 +874,18 @@ export default function DashboardPage() {
             {summaryLoading || accountsUnavailable ? (
               <Skeleton className="h-6 w-24" />
             ) : (
-              <p className={`text-lg sm:text-xl font-bold tabular-nums ${totalBalance < 0 ? 'text-rose-500' : 'text-foreground'}`}>
-                {mask(formatCurrency(totalBalance, primaryCurrency, locale))}
-              </p>
+              <>
+                <p className={`text-lg sm:text-xl font-bold tabular-nums ${totalBalance < 0 ? 'text-rose-500' : 'text-foreground'}`}>
+                  {mask(formatCurrency(totalBalance, primaryCurrency, locale))}
+                </p>
+                {/* Visible text, not a hover title, so touch users can read it. */}
+                {summary?.fx_fallback === true && (
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <span>{t('transactions.fxFallbackBanner')}</span>
+                  </p>
+                )}
+              </>
             )}
           </div>
 
