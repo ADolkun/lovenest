@@ -57,12 +57,12 @@ dev = [
     "pytest-xdist>=3.8.0",
     "aiosqlite>=0.19.0",
     # Upgrade these checks deliberately: new releases can change diagnostics.
-    "ruff==0.17.0",
-    "ty==0.0.86",
+    "ruff==0.17.3",
+    "ty==0.0.95",
 ]
 
 [build-system]
-requires = ["uv_build>=0.12.10,<0.13"]
+requires = ["uv_build>=0.13.6,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
