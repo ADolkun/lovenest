@@ -3,12 +3,10 @@
 secrets/
 .worktrees/
 .DS_Store
-.playwright-mcp/
 .claude
 .codex
 .github/hooks/
 .mcp.json
-.gitnexus/
 CLAUDE.md
 docs/plans/
 tmp/
