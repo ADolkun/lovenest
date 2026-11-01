@@ -10,16 +10,22 @@ runtime never writes through MCP.
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.account import Account
+from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
 from app.services import transaction_service
-from app.services.transfer_detection_service import unlink_transfer_pair
+from app.services.transfer_detection_service import (
+    _has_transfer_evidence,
+    unlink_transfer_pair,
+)
 from mcp_server.auth import CallContext
 from mcp_server.registry import tool
 from mcp_server.tools._helpers import num, parse_uuid, parse_uuid_list, resolve_workspace_id
@@ -45,19 +51,37 @@ def _tx_summary(tx: Transaction, account_name: str | None) -> dict[str, Any]:
     }
 
 
-async def _account_names(session: AsyncSession, txs: list[Transaction]) -> dict:
-    """Batch-load account names for a set of transactions.
+async def _accounts(
+    session: AsyncSession, workspace_id: uuid.UUID, txs: Sequence[Transaction]
+) -> dict[uuid.UUID, Account]:
+    """Batch-load the accounts of a set of transactions, in this workspace only.
 
     Keeps the payloads free of lazy loads: the service fetches do not all
-    selectinload the account relationship.
+    selectinload the account relationship. A leg whose account has since
+    moved to another workspace gets no account here, so its name stays there.
     """
     ids = {t.account_id for t in txs if t.account_id}
     if not ids:
         return {}
     rows = (
-        await session.execute(select(Account).where(Account.id.in_(ids)))
+        await session.execute(
+            select(Account)
+            .outerjoin(BankConnection, BankConnection.id == Account.connection_id)
+            .where(
+                Account.id.in_(ids),
+                or_(
+                    Account.workspace_id == workspace_id,
+                    BankConnection.workspace_id == workspace_id,
+                ),
+            )
+        )
     ).scalars().all()
-    return {a.id: a.name for a in rows}
+    return {a.id: a for a in rows}
+
+
+def _account_name(accounts: dict[uuid.UUID, Account], tx: Transaction) -> str | None:
+    account = accounts.get(tx.account_id)
+    return account.name if account else None
 
 
 @tool(
@@ -66,8 +90,11 @@ async def _account_names(session: AsyncSession, txs: list[Transaction]) -> dict:
         "Read-only. Find likely transfer counterparts for one "
         "transaction: other-account rows of the opposing type, not "
         "already linked, within plus or minus window_days of the anchor "
-        "date, ranked by date proximity then primary-currency amount "
-        "closeness (so cross-currency pairs match well). Use it before "
+        "date, whose descriptions corroborate a transfer (a shared card "
+        "issuer or provider reference), ranked by date proximity then "
+        "primary-currency amount closeness (so cross-currency pairs match "
+        "well). An empty list does not mean the row is not a transfer: "
+        "the user can still link it by hand in the app. Use it before "
         "propose_link_transfer. If the anchor is already part of a pair, "
         "returns that pair with linked=true instead of candidates."
     ),
@@ -119,30 +146,30 @@ async def list_transfer_candidates(
     if anchor is None:
         return {"error": "transaction not found in this workspace"}
 
-    names = await _account_names(session, [anchor])
-    anchor_summary = _tx_summary(anchor, names.get(anchor.account_id))
+    accounts = await _accounts(session, ws_id, [anchor])
+    anchor_summary = _tx_summary(anchor, _account_name(accounts, anchor))
 
     if anchor.transfer_pair_id is not None:
         pair = await transaction_service.get_transfer_pair(session, ws_id, anchor_id)
-        pair_names = await _account_names(session, [pair]) if pair else {}
+        pair_accounts = await _accounts(session, ws_id, [pair]) if pair else {}
         return {
             "anchor": anchor_summary,
             "linked": True,
             "transfer_pair_id": str(anchor.transfer_pair_id),
-            "pair": _tx_summary(pair, pair_names.get(pair.account_id)) if pair else None,
+            "pair": _tx_summary(pair, _account_name(pair_accounts, pair)) if pair else None,
             "candidates": [],
         }
 
     candidates = await transaction_service.get_transfer_candidates(
-        session, ws_id, anchor_id, limit=limit, window_days=window
+        session, ws_id, anchor_id, limit=limit, window_days=window, require_evidence=True
     )
-    names = await _account_names(session, candidates)
+    accounts = await _accounts(session, ws_id, candidates)
     return {
         "anchor": anchor_summary,
         "linked": False,
         "window_days": window,
         "limit": limit,
-        "candidates": [_tx_summary(c, names.get(c.account_id)) for c in candidates],
+        "candidates": [_tx_summary(c, _account_name(accounts, c)) for c in candidates],
     }
 
 
@@ -155,7 +182,10 @@ async def list_transfer_candidates(
         "amounts do not have to match). The preview shows both legs in "
         "full, so the user can compare dates, amounts, and accounts "
         "before confirming. Call list_transfer_candidates first unless "
-        "the user names both transactions explicitly. After applying, "
+        "the user names both transactions explicitly. The preview says "
+        "corroborated=false when neither description backs the link (no "
+        "shared card issuer or provider reference); such a pair cannot be "
+        "applied here, only linked by the user in the app. After applying, "
         "the pair is treated as a transfer in reports and excluded "
         "from income and expense totals."
     ),
@@ -199,10 +229,7 @@ async def propose_link_transfer(
                     Transaction.id.in_(ids),
                     Transaction.workspace_id == ws_id,
                 )
-                .options(
-                    selectinload(Transaction.account),
-                    selectinload(Transaction.category),
-                )
+                .options(selectinload(Transaction.category))
             )
         )
         .scalars()
@@ -227,14 +254,26 @@ async def propose_link_transfer(
     if {tx.type for tx in txs} != {"debit", "credit"}:
         return {"error": "transactions must be one debit and one credit"}
 
+    accounts = await _accounts(session, ws_id, txs)
+    corroborated = _has_transfer_evidence(txs[0], txs[1], accounts)
     preview = {
         "kind": "link_transfer",
         "transaction_ids": [str(t.id) for t in txs],
-        "legs": [_tx_summary(t, t.account.name if t.account else None) for t in txs],
+        "legs": [_tx_summary(t, _account_name(accounts, t)) for t in txs],
+        "corroborated": corroborated,
         "apply_endpoint": "POST /api/transactions/link-transfer",
     }
 
     if _can_apply(ctx, apply):
+        if not corroborated:
+            return {
+                **preview,
+                "error": (
+                    "Nothing in these descriptions corroborates a transfer, "
+                    "so it is not linked automatically. The user can link "
+                    "it in the app."
+                ),
+            }
         try:
             debit_tx, _ = await transaction_service.link_existing_as_transfer(
                 session, ws_id, ids
@@ -296,10 +335,7 @@ async def propose_unlink_transfer(
                     Transaction.workspace_id == ws_id,
                     Transaction.transfer_pair_id == pair_id,
                 )
-                .options(
-                    selectinload(Transaction.account),
-                    selectinload(Transaction.category),
-                )
+                .options(selectinload(Transaction.category))
             )
         )
         .scalars()
@@ -308,10 +344,11 @@ async def propose_unlink_transfer(
     if not legs:
         return {"error": "transfer pair not found in this workspace"}
 
+    accounts = await _accounts(session, ws_id, legs)
     preview = {
         "kind": "unlink_transfer",
         "transfer_pair_id": str(pair_id),
-        "legs": [_tx_summary(t, t.account.name if t.account else None) for t in legs],
+        "legs": [_tx_summary(t, _account_name(accounts, t)) for t in legs],
         "apply_endpoint": f"DELETE /api/connections/transfers/{pair_id}",
     }
 

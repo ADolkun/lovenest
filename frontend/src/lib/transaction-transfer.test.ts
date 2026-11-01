@@ -80,4 +80,35 @@ describe('isTransferTransaction', () => {
   it('does not read an uncategorized row without a pair as a transfer', () => {
     expect(isTransferTransaction(makeTx())).toBe(false)
   })
+
+  describe('when the server classified the row', () => {
+    it('does not read a pair whose other leg is gone as a transfer', () => {
+      expect(
+        isTransferTransaction(makeTx({ transfer_pair_id: 'pair-1', is_transfer: false })),
+      ).toBe(false)
+    })
+
+    it('does not read a card refund under a transfer category as a transfer', () => {
+      const category = makeCategory({ treat_as_transfer: true })
+      expect(
+        isTransferTransaction(
+          makeTx({ type: 'credit', category_id: category.id, category, is_transfer: false }),
+        ),
+      ).toBe(false)
+    })
+
+    it('reads an unpaired card payment as a transfer', () => {
+      expect(
+        isTransferTransaction(
+          makeTx({ type: 'credit', description: 'AUTOPAY PAYMENT', is_transfer: true }),
+        ),
+      ).toBe(true)
+    })
+
+    it('falls back to the pair and category when the flag is null', () => {
+      expect(
+        isTransferTransaction(makeTx({ transfer_pair_id: 'pair-1', is_transfer: null })),
+      ).toBe(true)
+    })
+  })
 })

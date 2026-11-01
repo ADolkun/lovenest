@@ -7,7 +7,7 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -18,10 +18,12 @@ from app.core.workspace_context import (
     current_writable_workspace,
 )
 from app.models.account import Account
+from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
 from app.schemas.transaction import BulkAddToGroupRequest, BulkCategorizeRequest, DescriptionSuggestion, ReimbursementLinkRead, BulkTagsRequest, CreateCounterpartRequest, InstallmentSeriesCreate, LinkTransferRequest, TransactionBulkDeleteRequest, TransactionCreate, TransactionRead, TransactionTransferCounterpart, TransactionUpdate, TransferCreate, TransferRead
 from app.schemas.transaction_calendar import TransactionCalendarResponse
 from app.services import reimbursement_service, transaction_service
+from app.services._query_filters import transfer_ids
 from app.services.admin_service import get_credit_card_accounting_mode
 from app.services.transaction_calendar_service import get_transaction_calendar
 
@@ -75,7 +77,18 @@ async def _read(session, ctx, transaction) -> TransactionRead:
         ctx.user.primary_currency,
     )
     await _attach_reimbursement_links(session, ctx, [item])
+    await _attach_transfer_flags(session, [item])
     return item
+
+
+async def _attach_transfer_flags(
+    session: AsyncSession, items: list[TransactionRead]
+) -> None:
+    """Set each row's `is_transfer` from the predicate the totals use, one
+    query for the whole page."""
+    transfers = await transfer_ids(session, [item.id for item in items])
+    for item in items:
+        item.is_transfer = item.id in transfers
 
 
 async def _attach_transfer_counterparts(
@@ -104,9 +117,14 @@ async def _attach_transfer_counterparts(
             func.coalesce(Account.display_name, Account.name),
         )
         .join(Account, Account.id == Transaction.account_id)
+        .outerjoin(BankConnection, BankConnection.id == Account.connection_id)
         .where(
             Transaction.workspace_id == workspace_id,
             Transaction.transfer_pair_id.in_(pair_ids),
+            or_(
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
+            ),
         )
     )
     legs: dict[uuid.UUID, list[tuple[uuid.UUID, uuid.UUID, str]]] = {}
@@ -239,6 +257,7 @@ async def list_transactions(
     await _attach_invoice_links(session, ctx, items)
     await _attach_reimbursement_links(session, ctx, items)
     await _attach_transfer_counterparts(session, ctx.workspace.id, items)
+    await _attach_transfer_flags(session, items)
     summary_out = (
         TransactionsSummary(**summary, currency=primary_currency)
         if summary is not None

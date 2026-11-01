@@ -352,6 +352,11 @@ export interface Transaction {
    * transfer is linked to (issue #810); other endpoints leave it null.
    */
   transfer_counterpart?: { account_id: string; account_name: string } | null
+  /**
+   * Whether the totals leave this row out as a transfer, decided by the
+   * server's P&L rule. Null or absent where the endpoint did not compute it.
+   */
+  is_transfer?: boolean | null
   amount_primary: number | null
   fx_rate_used: number | null
   fx_fallback: boolean

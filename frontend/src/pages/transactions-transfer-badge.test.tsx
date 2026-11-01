@@ -156,6 +156,34 @@ describe('transfer rows in the transactions list', () => {
     await waitFor(() => expect(screen.queryByText('Transfer out')).not.toBeInTheDocument())
   })
 
+  it('follows the server flag over the pair id and category', async () => {
+    const transferCategory = {
+      id: 'cat-transfer', user_id: 'user-1', group_id: null, name: 'Transfers',
+      icon: 'repeat', color: '#0ea5e9', is_system: false, is_hidden: false,
+      treat_as_transfer: true, is_ignored: false, is_income: false,
+    }
+    api.transactions.list.mockResolvedValue({
+      items: [
+        tx({ id: 'tx-orphan', description: 'Orphaned leg', transfer_pair_id: 'pair-9', is_transfer: false }),
+        tx({
+          id: 'tx-refund', description: 'Card refund', type: 'credit',
+          category_id: transferCategory.id, category: transferCategory, is_transfer: false,
+        }),
+        tx({ id: 'tx-payment', description: 'Card payment', type: 'credit', is_transfer: true }),
+      ],
+      total: 3, page: 1, limit: 50,
+    })
+    await renderPage()
+
+    const badgeIn = async (description: string) =>
+      (await screen.findByText(description))
+        .closest('div[class*="flex"]')!
+        .querySelector(`[title="${TOOLTIP}"]`)
+    expect(await badgeIn('Orphaned leg')).toBeNull()
+    expect(await badgeIn('Card refund')).toBeNull()
+    expect(await badgeIn('Card payment')).not.toBeNull()
+  })
+
   it('names the linked account next to the account on the mobile row', () => {
     const checking = { id: 'acc-1', name: 'Checking', display_name: null, type: 'checking' } as unknown as Account
     renderWithProviders(

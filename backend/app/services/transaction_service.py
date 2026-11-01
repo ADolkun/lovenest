@@ -40,6 +40,7 @@ from app.services._query_filters import (
     user_pnl_income_amount,
 )
 from app.services.recurring_transaction_service import _advance_date
+from app.services.transfer_detection_service import _has_transfer_evidence
 
 
 async def _ensure_category_in_workspace(
@@ -1137,12 +1138,19 @@ async def get_transfer_candidates(
     transaction_id: uuid.UUID,
     limit: int = 10,
     window_days: int = 30,
+    *,
+    require_evidence: bool = False,
 ) -> list[Transaction]:
     """Return ranked transfer-pair candidates for the given anchor transaction.
 
     Filters: different account, opposing type, not already linked, within
     ``window_days`` of the anchor's date. Ranked by date proximity, then
     primary-currency amount closeness (so cross-currency pairs match well).
+
+    A person picking a counterpart in the UI sees every such row. A caller
+    that is not a person choosing passes ``require_evidence`` and gets only
+    the pairs automatic pairing would consider (`_has_transfer_evidence`),
+    filtered before ``limit`` so the cap counts corroborated rows.
     """
     from datetime import timedelta
     from decimal import Decimal
@@ -1180,6 +1188,14 @@ async def get_transfer_candidates(
         )
     )
     candidates = list(result.scalars().all())
+    if require_evidence:
+        accounts = {tx.account_id: tx.account for tx in candidates if tx.account}
+        anchor_account = await get_account(session, anchor.account_id, workspace_id)
+        if anchor_account is not None:
+            accounts[anchor_account.id] = anchor_account
+        candidates = [
+            tx for tx in candidates if _has_transfer_evidence(anchor, tx, accounts)
+        ]
 
     anchor_amount_primary = (
         Decimal(str(anchor.amount_primary)) if anchor.amount_primary is not None else None

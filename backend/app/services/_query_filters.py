@@ -267,44 +267,71 @@ def is_not_ignored():
     )
 
 
-def is_transfer():
-    """SQL filter: the row is a transfer rather than income or expense.
+def is_transfer(entity: TransactionEntity = Transaction):
+    """SQL predicate: the row moves money between the user's own places, so
+    P&L leaves it out of income and expense.
 
-    Either both legs were matched (`transfer_pair_id` set), or the row sits
-    in a category flagged `treat_as_transfer` (one-sided movements such as
-    an investment application). Same reading the transactions calendar uses
-    when it marks a day as having a transfer.
+    The transfer clauses of `counts_as_pnl`, kept apart so the Transfer
+    badge, the Type=Transfer filter and the calendar read the rule the
+    totals apply. A row is a transfer when it is:
+      - one leg of a valid pair. A `transfer_pair_id` whose second leg is
+        gone is not a transfer,
+      - either side of a credit-card repayment the payment classifier
+        recognises, even unpaired,
+      - in a `treat_as_transfer` category (a one-sided movement such as an
+        investment application), unless it is a card credit that is not a
+        repayment: that is a refund, and it offsets spending under any
+        category.
+
+    Two-valued on every row. Without the IS NOT NULL guard an uncategorized
+    row would read NULL in the category clause, `NOT` keeps NULL, and
+    `counts_as_pnl` would drop the row from every total.
     """
     return or_(
-        Transaction.transfer_pair_id.is_not(None),
-        Transaction.category_id.in_(
-            select(Category.id).where(Category.treat_as_transfer.is_(True))
+        has_valid_transfer_pair(entity),
+        credit_card_payment_filter(entity),
+        and_(
+            entity.category_id.is_not(None),
+            entity.category_id.in_(
+                select(Category.id).where(Category.treat_as_transfer.is_(True))
+            ),
+            not_(credit_card_refund_filter(entity)),
         ),
     )
+
+
+async def transfer_ids(
+    session: AsyncSession, transaction_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The rows among ``transaction_ids`` that `is_transfer` holds for."""
+    if not transaction_ids:
+        return set()
+    result = await session.execute(
+        select(Transaction.id).where(
+            Transaction.id.in_(transaction_ids), is_transfer()
+        )
+    )
+    return set(result.scalars())
 
 
 def counts_as_pnl(entity: TransactionEntity = Transaction):
     """SQL filter: True when a transaction should contribute to income/expense totals.
 
     Excludes:
-      - paired transfers (both legs were matched; already cancel out),
-      - transactions in categories flagged `treat_as_transfer` (one-sided
-        movements like investment applications where the counterpart is
-        an Asset/Holding, not another Account),
+      - transfers, as `is_transfer` defines them,
       - transactions flagged `is_ignored=True` (user-marked as not to be reported),
       - transactions flagged `exclude_from_pnl=True` (kept in balance,
         omitted from income and expense calculations),
-      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported),
-      - credit-card repayments, even when their transfer link/category is missing.
+      - settlement debits,
+      - transactions in categories flagged `is_ignored=True` (user-marked as not to be reported).
 
     Does NOT exclude `source='opening_balance'` — callers that already
     filter those keep doing so; this helper only handles the transfer-like
     exclusion family so both rules stay visible at each call site.
     """
     return and_(
-        not_(has_valid_transfer_pair(entity)),
+        not_(is_transfer(entity)),
         entity.is_ignored.is_(False),
-        not_(credit_card_payment_filter(entity)),
         entity.exclude_from_pnl.is_(False),
         # Settlement *debits* are repayments of debts that were already
         # booked as an expense via the share. Counting them would
@@ -315,18 +342,8 @@ def counts_as_pnl(entity: TransactionEntity = Transaction):
         ~and_(entity.source == "settlement", entity.type == "debit"),
         or_(
             entity.category_id.is_(None),
-            and_(
-                entity.category_id.not_in(
-                    select(Category.id).where(Category.is_ignored.is_(True))
-                ),
-                or_(
-                    credit_card_refund_filter(entity),
-                    entity.category_id.not_in(
-                        select(Category.id).where(
-                            Category.treat_as_transfer.is_(True)
-                        )
-                    ),
-                ),
+            entity.category_id.not_in(
+                select(Category.id).where(Category.is_ignored.is_(True))
             ),
         ),
     )

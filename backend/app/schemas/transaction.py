@@ -213,6 +213,11 @@ class TransactionRead(TransactionBase):
     # The paginated list fills it per page (issue #810); other endpoints
     # leave it null.
     transfer_counterpart: Optional[TransactionTransferCounterpart] = None
+    # Whether P&L leaves this row out as a transfer (`is_transfer` in
+    # `_query_filters`), which a pair id or category alone cannot tell.
+    # Filled by the paginated list and the single-row reads; null where an
+    # endpoint did not compute it.
+    is_transfer: Optional[bool] = None
     amount_primary: Optional[float] = None
     fx_rate_used: Optional[float] = None
     fx_fallback: bool = False

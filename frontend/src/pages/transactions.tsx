@@ -1255,7 +1255,7 @@ export default function TransactionsPage() {
               id={tx.id}
               status={tx.status}
               source={tx.source}
-              canWrite={canWrite}
+              canWrite={canWrite && !tx.is_shared}
               onPostToday={(id) => postTodayMutation.mutate(id)}
             />
             {(tx.attachment_count ?? 0) > 0 && (

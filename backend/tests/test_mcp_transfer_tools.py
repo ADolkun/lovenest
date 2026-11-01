@@ -142,6 +142,16 @@ def _call(name: str):
     return REGISTRY[name].handler
 
 
+# Both legs name the same provider reference, which is the evidence the
+# fork's transfer gate asks for before anything links or suggests a pair.
+_REF = "REF #TR12345678"
+_OUT = f"ONLINE TRANSFER TO SAVINGS {_REF}"
+
+
+def _in(label: str) -> str:
+    return f"ONLINE TRANSFER FROM CHECKING {_REF} {label}"
+
+
 # --- Registry shape ---------------------------------------------------------
 
 
@@ -165,28 +175,28 @@ async def test_list_candidates_ranked(
 ):
     ws = test_account.workspace_id
     anchor = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
-                          description="STORE A", amount="100.00", tx_type="debit")
+                          description=_OUT, amount="100.00", tx_type="debit")
     exact = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                         description="SALARY 100", amount="100.00")
+                         description=_in("100"), amount="100.00")
     amount_off = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                              description="SALARY 90", amount="90.00")
+                              description=_in("90"), amount="90.00")
     date_off = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                            description="SALARY LATER", amount="100.00", day_offset=2)
+                            description=_in("LATER"), amount="100.00", day_offset=2)
     # Decoys: same type, opening balance, already linked, outside window.
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="STORE B", amount="100.00", tx_type="debit")
+                 description=_in("DEBIT"), amount="100.00", tx_type="debit")
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="OPENING CREDIT", amount="100.00", source="opening_balance")
+                 description=_in("OPENING"), amount="100.00", source="opening_balance")
     d1 = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
                       description="STORE C", amount="10.00", tx_type="debit", day_offset=1)
     d2 = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                      description="SALARY 10", amount="10.00", day_offset=1)
+                      description=_in("10"), amount="10.00", day_offset=1)
     await transaction_service.link_existing_as_transfer(session, ws, [d1.id, d2.id])
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="SALARY FAR", amount="100.00", day_offset=40)
+                 description=_in("FAR"), amount="100.00", day_offset=40)
     # Cross-workspace decoy: same shape, different workspace.
     await _mk_tx(session, user=test_user, account=other_account, ws=other_workspace,
-                 description="OTHER WORKSPACE CREDIT", amount="100.00")
+                 description=_in("OTHER WORKSPACE"), amount="100.00")
 
     result = await _call("list_transfer_candidates")(
         session=session, ctx=ctx, transaction_id=str(anchor.id)
@@ -212,19 +222,19 @@ async def test_list_candidates_window_and_limit(
 ):
     ws = test_account.workspace_id
     anchor = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
-                          description="STORE A", amount="100.00", tx_type="debit")
+                          description=_OUT, amount="100.00", tx_type="debit")
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="SALARY 100", amount="100.00")
+                 description=_in("100"), amount="100.00")
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="SALARY 95", amount="95.00")
+                 description=_in("95"), amount="95.00")
     await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                 description="SALARY WEEK", amount="100.00", day_offset=14)
+                 description=_in("WEEK"), amount="100.00", day_offset=14)
 
     narrow = await _call("list_transfer_candidates")(
         session=session, ctx=ctx, transaction_id=str(anchor.id), window_days=1
     )
     # The 14-day-away candidate falls outside a 1-day window.
-    assert [c["description"] for c in narrow["candidates"]] == ["SALARY 100", "SALARY 95"]
+    assert [c["description"] for c in narrow["candidates"]] == [_in("100"), _in("95")]
 
     limited = await _call("list_transfer_candidates")(
         session=session, ctx=ctx, transaction_id=str(anchor.id), limit=1
@@ -277,9 +287,9 @@ async def _seed_linkable_pair(session, ctx_args) -> tuple[Transaction, Transacti
     test_user, test_account, second_account = ctx_args
     ws = test_account.workspace_id
     debit = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
-                         description="STORE A", amount="100.00", tx_type="debit")
+                         description=_OUT, amount="100.00", tx_type="debit")
     credit = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
-                          description="SALARY 100", amount="100.00")
+                          description=_in("100"), amount="100.00")
     return debit, credit
 
 
@@ -297,6 +307,7 @@ async def test_propose_link_preview_does_not_write(
     assert result["kind"] == "link_transfer"
     assert "applied" not in result
     assert result["apply_endpoint"] == "POST /api/transactions/link-transfer"
+    assert result["corroborated"] is True
     legs = {leg["id"]: leg for leg in result["legs"]}
     assert legs[str(debit.id)]["type"] == "debit"
     assert legs[str(credit.id)]["type"] == "credit"
@@ -516,3 +527,110 @@ async def test_propose_unlink_cross_workspace(
     # The other-workspace pair is untouched.
     fresh = await _fetch(session, debit.id)
     assert str(fresh.transfer_pair_id) == str(pair_id)
+
+
+# --- Lovenest transfer-evidence gate -----------------------------------------
+
+
+async def test_list_candidates_offers_only_corroborated_pairs(
+    session: AsyncSession, ctx: CallContext, test_user, test_account, second_account
+):
+    ws = test_account.workspace_id
+    anchor = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
+                          description=_OUT, amount="100.00", tx_type="debit")
+    # Same amount, same day, closer than the real counterpart: still no
+    # evidence, so it is never offered and does not use up the limit.
+    await _mk_tx(session, user=test_user, account=second_account, ws=ws,
+                 description="SALARY 100", amount="100.00")
+    corroborated = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
+                                description=_in("100"), amount="100.00", day_offset=3)
+
+    result = await _call("list_transfer_candidates")(
+        session=session, ctx=ctx, transaction_id=str(anchor.id), limit=1
+    )
+    assert [c["id"] for c in result["candidates"]] == [str(corroborated.id)]
+
+
+async def test_list_candidates_without_evidence_is_empty(
+    session: AsyncSession, ctx: CallContext, test_user, test_account, second_account
+):
+    ws = test_account.workspace_id
+    debit = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
+                         description="STORE A", amount="100.00", tx_type="debit")
+    await _mk_tx(session, user=test_user, account=second_account, ws=ws,
+                 description="SALARY 100", amount="100.00")
+
+    result = await _call("list_transfer_candidates")(
+        session=session, ctx=ctx, transaction_id=str(debit.id)
+    )
+    assert result["linked"] is False
+    assert result["candidates"] == []
+    # The manual "link existing" picker stays permissive.
+    offered = await transaction_service.get_transfer_candidates(session, ws, debit.id)
+    assert [tx.description for tx in offered] == ["SALARY 100"]
+
+
+async def test_propose_link_uncorroborated_cannot_apply(
+    session: AsyncSession, ctx: CallContext, ext_ctx: CallContext,
+    test_user, test_account, second_account,
+):
+    ws = test_account.workspace_id
+    debit = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
+                         description="STORE A", amount="100.00", tx_type="debit")
+    credit = await _mk_tx(session, user=test_user, account=second_account, ws=ws,
+                          description="SALARY 100", amount="100.00")
+    ids = [str(debit.id), str(credit.id)]
+
+    preview = await _call("propose_link_transfer")(
+        session=session, ctx=ctx, transaction_ids=ids
+    )
+    assert preview["corroborated"] is False
+    assert "error" not in preview
+
+    result = await _call("propose_link_transfer")(
+        session=session, ctx=ext_ctx, transaction_ids=ids, apply=True
+    )
+    assert result["corroborated"] is False
+    assert "applied" not in result
+    assert "error" in result
+    for tx in (debit, credit):
+        fresh = await _fetch(session, tx.id)
+        assert fresh.transfer_pair_id is None
+
+
+# --- Account names stay inside the workspace ---------------------------------
+
+
+async def test_moved_account_name_is_not_returned(
+    session: AsyncSession, ctx: CallContext, test_user, test_account, other_workspace
+):
+    ws = test_account.workspace_id
+    moved = Account(
+        id=uuid.uuid4(), user_id=test_user.id, name="Secret Elsewhere",
+        type="savings", balance=Decimal("0"), currency="BRL",
+        workspace_id=other_workspace.id,
+    )
+    session.add(moved)
+    await session.commit()
+    debit = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
+                         description=_OUT, amount="100.00", tx_type="debit")
+    credit = await _mk_tx(session, user=test_user, account=moved, ws=ws,
+                          description=_in("100"), amount="100.00")
+    pair_id = uuid.uuid4()
+    debit.transfer_pair_id = pair_id
+    credit.transfer_pair_id = pair_id
+    await session.commit()
+
+    listed = await _call("list_transfer_candidates")(
+        session=session, ctx=ctx, transaction_id=str(debit.id)
+    )
+    assert listed["anchor"]["account_name"] == test_account.name
+    assert listed["pair"]["id"] == str(credit.id)
+    assert listed["pair"]["account_name"] is None
+
+    unlink = await _call("propose_unlink_transfer")(
+        session=session, ctx=ctx, transfer_pair_id=str(pair_id)
+    )
+    names = {leg["id"]: leg["account_name"] for leg in unlink["legs"]}
+    assert names == {str(debit.id): test_account.name, str(credit.id): None}
+    assert "Secret Elsewhere" not in repr(listed) + repr(unlink)
