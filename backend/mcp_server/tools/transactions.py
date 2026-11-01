@@ -10,7 +10,14 @@ from app.services import transaction_service
 from app.services._query_filters import transfer_ids
 from mcp_server.auth import CallContext
 from mcp_server.registry import tool
-from mcp_server.tools._helpers import num, parse_date, parse_uuid, parse_uuid_list, resolve_workspace_id
+from mcp_server.tools._helpers import (
+    num,
+    parse_date,
+    parse_uuid,
+    parse_uuid_list,
+    resolve_workspace_id,
+    workspace_accounts,
+)
 
 
 @tool(
@@ -165,6 +172,7 @@ async def list_transactions(
         )).scalars().all()
         member_lookup = {m.id: m for m in rows}
     transfers = await transfer_ids(session, [t.id for t in txs])
+    accounts = await workspace_accounts(session, ws_id, txs)
 
     def _splits_summary(t: Any) -> dict[str, Any] | None:
         splits = getattr(t, "splits", None) or []
@@ -208,7 +216,7 @@ async def list_transactions(
             "category_id": str(t.category_id) if t.category_id else None,
             "category_name": t.category.name if t.category else None,
             "account_id": str(t.account_id) if t.account_id else None,
-            "account_name": t.account.name if getattr(t, "account", None) else None,
+            "account_name": accounts[t.account_id].name if t.account_id in accounts else None,
             "payee_id": str(t.payee_id) if getattr(t, "payee_id", None) else None,
             "payee_name": t.payee_entity.name if t.payee_entity else None,
             "tags": getattr(t, "tags", None),

@@ -650,3 +650,26 @@ async def test_list_transactions_flags_only_valid_pairs_as_transfers(
     assert flags[str(debit.id)] is True
     assert flags[str(credit.id)] is True
     assert flags[str(orphan.id)] is False
+
+
+async def test_list_transactions_does_not_name_an_account_in_another_workspace(
+    session: AsyncSession, ctx: CallContext, test_user, test_account, other_workspace
+):
+    ws = test_account.workspace_id
+    moved = Account(
+        id=uuid.uuid4(), user_id=test_user.id, name="Secret Elsewhere",
+        type="savings", balance=Decimal("0"), currency="BRL",
+        workspace_id=other_workspace.id,
+    )
+    session.add(moved)
+    await session.commit()
+    stays = await _mk_tx(session, user=test_user, account=test_account, ws=ws,
+                         description="HERE", amount="10.00", tx_type="debit")
+    left = await _mk_tx(session, user=test_user, account=moved, ws=ws,
+                        description="LEFT BEHIND", amount="20.00", tx_type="debit")
+
+    result = await _call("list_transactions")(session=session, ctx=ctx, limit=50)
+    names = {item["id"]: item["account_name"] for item in result["items"]}
+    assert names[str(stays.id)] == test_account.name
+    assert names[str(left.id)] is None
+    assert "Secret Elsewhere" not in repr(result)

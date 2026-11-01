@@ -11,15 +11,13 @@ runtime never writes through MCP.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.account import Account
-from app.models.bank_connection import BankConnection
 from app.models.transaction import Transaction
 from app.services import transaction_service
 from app.services.transfer_detection_service import (
@@ -28,7 +26,13 @@ from app.services.transfer_detection_service import (
 )
 from mcp_server.auth import CallContext
 from mcp_server.registry import tool
-from mcp_server.tools._helpers import num, parse_uuid, parse_uuid_list, resolve_workspace_id
+from mcp_server.tools._helpers import (
+    num,
+    parse_uuid,
+    parse_uuid_list,
+    resolve_workspace_id,
+    workspace_accounts,
+)
 from mcp_server.tools.proposals import _APPLY_FIELD, _PROPOSAL_PREFACE, _can_apply
 
 
@@ -49,34 +53,6 @@ def _tx_summary(tx: Transaction, account_name: str | None) -> dict[str, Any]:
         "status": getattr(tx, "status", None),
         "is_ignored": bool(getattr(tx, "is_ignored", False)),
     }
-
-
-async def _accounts(
-    session: AsyncSession, workspace_id: uuid.UUID, txs: Sequence[Transaction]
-) -> dict[uuid.UUID, Account]:
-    """Batch-load the accounts of a set of transactions, in this workspace only.
-
-    Keeps the payloads free of lazy loads: the service fetches do not all
-    selectinload the account relationship. A leg whose account has since
-    moved to another workspace gets no account here, so its name stays there.
-    """
-    ids = {t.account_id for t in txs if t.account_id}
-    if not ids:
-        return {}
-    rows = (
-        await session.execute(
-            select(Account)
-            .outerjoin(BankConnection, BankConnection.id == Account.connection_id)
-            .where(
-                Account.id.in_(ids),
-                or_(
-                    Account.workspace_id == workspace_id,
-                    BankConnection.workspace_id == workspace_id,
-                ),
-            )
-        )
-    ).scalars().all()
-    return {a.id: a for a in rows}
 
 
 def _account_name(accounts: dict[uuid.UUID, Account], tx: Transaction) -> str | None:
@@ -146,12 +122,12 @@ async def list_transfer_candidates(
     if anchor is None:
         return {"error": "transaction not found in this workspace"}
 
-    accounts = await _accounts(session, ws_id, [anchor])
+    accounts = await workspace_accounts(session, ws_id, [anchor])
     anchor_summary = _tx_summary(anchor, _account_name(accounts, anchor))
 
     if anchor.transfer_pair_id is not None:
         pair = await transaction_service.get_transfer_pair(session, ws_id, anchor_id)
-        pair_accounts = await _accounts(session, ws_id, [pair]) if pair else {}
+        pair_accounts = await workspace_accounts(session, ws_id, [pair]) if pair else {}
         return {
             "anchor": anchor_summary,
             "linked": True,
@@ -163,7 +139,7 @@ async def list_transfer_candidates(
     candidates = await transaction_service.get_transfer_candidates(
         session, ws_id, anchor_id, limit=limit, window_days=window, require_evidence=True
     )
-    accounts = await _accounts(session, ws_id, candidates)
+    accounts = await workspace_accounts(session, ws_id, candidates)
     return {
         "anchor": anchor_summary,
         "linked": False,
@@ -254,7 +230,7 @@ async def propose_link_transfer(
     if {tx.type for tx in txs} != {"debit", "credit"}:
         return {"error": "transactions must be one debit and one credit"}
 
-    accounts = await _accounts(session, ws_id, txs)
+    accounts = await workspace_accounts(session, ws_id, txs)
     corroborated = _has_transfer_evidence(txs[0], txs[1], accounts)
     preview = {
         "kind": "link_transfer",
@@ -344,7 +320,7 @@ async def propose_unlink_transfer(
     if not legs:
         return {"error": "transfer pair not found in this workspace"}
 
-    accounts = await _accounts(session, ws_id, legs)
+    accounts = await workspace_accounts(session, ws_id, legs)
     preview = {
         "kind": "unlink_transfer",
         "transfer_pair_id": str(pair_id),

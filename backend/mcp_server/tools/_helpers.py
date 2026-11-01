@@ -8,7 +8,15 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from collections.abc import Sequence
 from typing import Any, Optional
+
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.account import Account
+from app.models.bank_connection import BankConnection
+from app.models.transaction import Transaction
 
 
 def parse_date(v: Any) -> Optional[date]:
@@ -64,3 +72,31 @@ async def resolve_workspace_id(session, ctx) -> uuid.UUID:
     if ws is None:
         raise ValueError("No workspace available for this user")
     return ws.id
+
+
+async def workspace_accounts(
+    session: AsyncSession, workspace_id: uuid.UUID, txs: Sequence[Transaction]
+) -> dict[uuid.UUID, Account]:
+    """Batch-load the accounts of a set of transactions, in this workspace only.
+
+    Keeps the payloads free of lazy loads: the service fetches do not all
+    selectinload the account relationship. A leg whose account has since
+    moved to another workspace gets no account here, so its name stays there.
+    """
+    ids = {t.account_id for t in txs if t.account_id}
+    if not ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(Account)
+            .outerjoin(BankConnection, BankConnection.id == Account.connection_id)
+            .where(
+                Account.id.in_(ids),
+                or_(
+                    Account.workspace_id == workspace_id,
+                    BankConnection.workspace_id == workspace_id,
+                ),
+            )
+        )
+    ).scalars().all()
+    return {a.id: a for a in rows}
