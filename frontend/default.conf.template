@@ -55,6 +55,8 @@ server {
     }
 
     location = /tax {
+        # Relative, so the redirect keeps the host port rather than the container listen port.
+        absolute_redirect off;
         return 308 /tax/;
     }
 
