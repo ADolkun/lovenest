@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi, rules as rulesApi, categories as categoriesApi, categoryGroups as categoryGroupsApi } from '@/lib/api'
 import { localDateString } from '@/lib/date-utils'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
+import { isTransferTransaction } from '@/lib/transaction-transfer'
 import { normalizeRuleMatchValue } from '@/lib/rule-match-utils'
 import { findCategoryReference, getRuleCategoryId } from '@/lib/category-reference-utils'
 import { flattenConditions, hasConditionGroups } from '@/lib/rule-conditions'
@@ -574,6 +575,8 @@ function TransactionForm({
     queryFn: () => transactionsApi.transferPair(transaction!.id),
     enabled: !!transaction?.id && !!transaction?.transfer_pair_id,
   })
+  const isLinkedTransfer =
+    !!transaction?.transfer_pair_id && isTransferTransaction(transaction)
   const extendableRules = useMemo(
     () => (rulesList ?? []).filter(canExtendRuleFromTransaction),
     [rulesList],
@@ -891,8 +894,8 @@ function TransactionForm({
         <div className="p-3 text-sm bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md text-blue-700 dark:text-blue-300 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1 min-w-0">
-              <p>{t('transactions.transferInfo')}</p>
-              {transferPair && (() => {
+              <p>{t(isLinkedTransfer ? 'transactions.transferInfo' : 'transactions.transferPairGone')}</p>
+              {isLinkedTransfer && transferPair && (() => {
                 const pairAccount = accounts.find(a => a.id === transferPair.account_id)
                 const sign = transferPair.type === 'debit' ? '−' : '+'
                 return (
@@ -924,7 +927,9 @@ function TransactionForm({
                   </p>
                 )
               })()}
-              <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
+              {isLinkedTransfer && (
+                <p className="text-xs text-blue-500 dark:text-blue-400">{t('transactions.transferTooltip')}</p>
+              )}
             </div>
             {onUnlinkTransfer && transaction?.transfer_pair_id && (
               <>

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, Sparkles } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Loader2, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/date-range-format'
@@ -46,6 +47,7 @@ export function ProposalCard({ toolCallId, data }: Props) {
   const initiallyApplied = loadApplied()[toolCallId]
   const [appliedAt, setAppliedAt] = useState<number | null>(initiallyApplied?.ts ?? null)
   const [showJson, setShowJson] = useState(false)
+  const [confirmingUncorroborated, setConfirmingUncorroborated] = useState(false)
 
   const apply = useMutation({
     mutationFn: () => applyProposal(data),
@@ -87,6 +89,8 @@ export function ProposalCard({ toolCallId, data }: Props) {
   const kind = data.kind
   const summary = renderSummary(kind, data, t, dateLocale)
   const isApplied = appliedAt !== null
+  const isUncorroborated = kind === 'link_transfer' && data.corroborated === false
+  const needsConfirmation = isUncorroborated && !confirmingUncorroborated
 
   return (
     <div
@@ -121,6 +125,12 @@ export function ProposalCard({ toolCallId, data }: Props) {
           </div>
           <div className="mt-1 text-muted-foreground text-[13px] leading-snug">{summary}</div>
           <SplitPreview proposed={data.proposed} />
+          {isUncorroborated && !isApplied && (
+            <Alert variant="warning" className="mt-2 px-2.5 py-2 text-[13px] leading-snug">
+              <AlertTriangle className="h-4 w-4 mt-0.5" />
+              <span>{t('agents.proposal.notCorroborated')}</span>
+            </Alert>
+          )}
         </div>
         <div className="shrink-0 flex items-center gap-1.5">
           {isApplied ? (
@@ -129,13 +139,18 @@ export function ProposalCard({ toolCallId, data }: Props) {
               {t('agents.proposal.applied')}
             </span>
           ) : (
-            <Button size="sm" onClick={() => apply.mutate()} disabled={apply.isPending}>
+            <Button
+              size="sm"
+              variant={confirmingUncorroborated ? 'destructive' : 'default'}
+              onClick={() => (needsConfirmation ? setConfirmingUncorroborated(true) : apply.mutate())}
+              disabled={apply.isPending}
+            >
               {apply.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
               ) : (
                 <Check className="h-3.5 w-3.5 mr-1.5" />
               )}
-              {t('agents.proposal.apply')}
+              {t(confirmingUncorroborated ? 'agents.proposal.applyAnyway' : 'agents.proposal.apply')}
             </Button>
           )}
         </div>

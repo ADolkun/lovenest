@@ -193,7 +193,10 @@ function transferLegFixture(pairId: string, over: Partial<Transaction> = {}): Tr
   }
 }
 
-function renderTransferDialog(onUnlinkTransfer: (pairId: string) => void) {
+function renderTransferDialog(
+  onUnlinkTransfer: (pairId: string) => void,
+  legOver: Partial<Transaction> = {},
+) {
   vi.spyOn(currencies, 'list').mockResolvedValue([])
   vi.spyOn(payees, 'list').mockResolvedValue([])
   vi.spyOn(groups, 'list').mockResolvedValue([])
@@ -208,7 +211,7 @@ function renderTransferDialog(onUnlinkTransfer: (pairId: string) => void) {
     <TransactionDialog
       open
       onClose={vi.fn()}
-      transaction={transferLegFixture('pair-1160')}
+      transaction={transferLegFixture('pair-1160', legOver)}
       categories={[]}
       categoryGroups={[]}
       accounts={accountFixtures}
@@ -219,6 +222,29 @@ function renderTransferDialog(onUnlinkTransfer: (pairId: string) => void) {
     />,
   )
 }
+
+it('explains a linked transfer pair as a transfer excluded from totals', async () => {
+  renderTransferDialog(vi.fn(), { is_transfer: true })
+
+  expect(await screen.findByText(t('transactions.transferInfo'))).toBeInTheDocument()
+  expect(screen.getByText(t('transactions.transferTooltip'))).toBeInTheDocument()
+  expect(screen.queryByText(t('transactions.transferPairGone'))).not.toBeInTheDocument()
+})
+
+it('says a one-legged pair counts in totals and still offers to unlink it', async () => {
+  const onUnlinkTransfer = vi.fn()
+  const { user } = renderTransferDialog(onUnlinkTransfer, { is_transfer: false })
+
+  expect(await screen.findByText(t('transactions.transferPairGone'))).toBeInTheDocument()
+  expect(screen.queryByText(t('transactions.transferInfo'))).not.toBeInTheDocument()
+  expect(screen.queryByText(t('transactions.transferTooltip'))).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: t('transactions.unlinkTransfer') }))
+  const confirmText = await screen.findByText(t('transactions.unlinkTransferConfirm'))
+  const confirmDialog = confirmText.closest('[role="dialog"]') as HTMLElement
+  await user.click(within(confirmDialog).getByRole('button', { name: t('transactions.unlinkTransfer') }))
+  expect(onUnlinkTransfer).toHaveBeenCalledWith('pair-1160')
+})
 
 it('asks for confirmation before unlinking a transfer pair', async () => {
   const onUnlinkTransfer = vi.fn()

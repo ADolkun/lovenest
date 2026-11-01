@@ -1045,6 +1045,7 @@
     "transferInfo": "Dies ist eine Umbuchung — Änderungen an Beschreibung, Datum und Notizen wirken sich auf beide Seiten aus",
     "transferLinkedTo": "Verknüpft mit:",
     "transferTooltip": "Umbuchungen sind von den Berichts- und Dashboard-Summen ausgeschlossen",
+    "transferPairGone": "Die Gegenseite dieser Verknüpfung existiert nicht mehr. Diese Zeile zählt in den Summen.",
     "installmentTooltip": "Ratenzahlung — {{count}} Belastungen von insgesamt {{total}}",
     "billOverrideTooltip": "Verschoben auf die Abrechnung fällig am {{date}}",
     "effectiveBillDate": "Effektives Abrechnungsdatum",
@@ -2965,6 +2966,8 @@
       "applied": "angewendet",
       "apply": "Anwenden",
       "applyFailed": "Anwendung fehlgeschlagen",
+      "notCorroborated": "Diese beiden Zeilen sehen nicht nach derselben Umbuchung aus. Prüfe sie vor dem Verknüpfen.",
+      "applyAnyway": "Trotzdem anwenden",
       "showRaw": "Werkzeug-Details",
       "collision": "Name bereits verwendet von {{name}}",
       "kind": {

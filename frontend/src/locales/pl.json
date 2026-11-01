@@ -1077,6 +1077,7 @@
     "transferInfo": "To transfer — zmiany opisu, daty i notatek obejmą obie strony",
     "transferLinkedTo": "Powiązana z:",
     "transferTooltip": "Transfery są wyłączone z sum w raportach i na pulpicie",
+    "transferPairGone": "Druga strona tego powiązania już nie istnieje. Ten wiersz wlicza się do sum.",
     "installmentTooltip_one": "Plan ratalny — {{count}} obciążenie na łączną kwotę {{total}}",
     "installmentTooltip_few": "Plan ratalny — {{count}} obciążenia na łączną kwotę {{total}}",
     "installmentTooltip_many": "Plan ratalny — {{count}} obciążeń na łączną kwotę {{total}}",
@@ -3081,6 +3082,8 @@
       "applied": "zastosowano",
       "apply": "Zastosuj",
       "applyFailed": "Nie udało się zastosować",
+      "notCorroborated": "Te dwa wiersze nie wyglądają na ten sam przelew. Sprawdź je przed powiązaniem.",
+      "applyAnyway": "Zastosuj mimo to",
       "showRaw": "Szczegóły narzędzia",
       "collision": "nazwa już używana przez {{name}}",
       "kind": {

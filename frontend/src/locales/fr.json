@@ -1047,6 +1047,7 @@
     "transferInfo": "Il s'agit d'un virement — les modifications de la description, de la date et des notes s'appliqueront aux deux côtés",
     "transferLinkedTo": "Liée à :",
     "transferTooltip": "Les virements sont exclus des totaux des rapports et du tableau de bord",
+    "transferPairGone": "L'autre côté de ce lien n'existe plus. Cette ligne compte dans les totaux.",
     "installmentTooltip": "Paiement échelonné — {{count}} prélèvements pour un total de {{total}}",
     "billOverrideTooltip": "Déplacée vers la facture due le {{date}}",
     "effectiveBillDate": "Date de facture effective",
@@ -2968,6 +2969,8 @@
       "applied": "appliquée",
       "apply": "Appliquer",
       "applyFailed": "Échec de l'application",
+      "notCorroborated": "Ces deux lignes ne semblent pas former le même virement. Vérifiez-les avant de les lier.",
+      "applyAnyway": "Appliquer quand même",
       "showRaw": "Détails de l'outil",
       "collision": "nom déjà utilisé par {{name}}",
       "kind": {

@@ -1044,6 +1044,7 @@
     "transferInfo": "Esto es una transferencia — los cambios en descripción, fecha y notas se aplicarán a ambos lados",
     "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Las transferencias están excluidas de los informes y totales del panel",
+    "transferPairGone": "El otro lado de este vínculo ya no existe. Esta fila cuenta en los totales.",
     "installmentTooltip": "Plan de cuotas — {{count}} cargos por un total de {{total}}",
     "billOverrideTooltip": "Movido a la factura con vencimiento {{date}}",
     "effectiveBillDate": "Fecha efectiva de la factura",
@@ -2952,6 +2953,8 @@
       "applied": "aplicada",
       "apply": "Aplicar",
       "applyFailed": "No se pudo aplicar",
+      "notCorroborated": "Estas dos filas no parecen la misma transferencia. Revísalas antes de vincular.",
+      "applyAnyway": "Aplicar de todos modos",
       "showRaw": "Detalles de la herramienta",
       "collision": "el nombre ya está en uso por {{name}}",
       "kind": {

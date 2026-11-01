@@ -919,6 +919,7 @@ export default function TransactionsPage() {
     }
 
     const isTransferCategoryChange =
+      isTransferTransaction(editingTx) &&
       !!editingTx.transfer_pair_id &&
       Object.prototype.hasOwnProperty.call(data, 'category_id') &&
       data.category_id !== editingTx.category_id

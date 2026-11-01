@@ -1045,6 +1045,7 @@
     "transferInfo": "This is a transfer — changes to description, date, and notes will apply to both sides",
     "transferLinkedTo": "Linked to:",
     "transferTooltip": "Transfers are excluded from report and dashboard totals",
+    "transferPairGone": "The other side of this link is gone. This row counts in totals.",
     "installmentTooltip": "Installment plan — {{count}} charges totaling {{total}}",
     "billOverrideTooltip": "Moved to the bill due {{date}}",
     "effectiveBillDate": "Effective bill date",
@@ -3140,6 +3141,8 @@
       "applied": "applied",
       "apply": "Apply",
       "applyFailed": "Failed to apply",
+      "notCorroborated": "These two rows don't look like the same transfer. Check them before linking.",
+      "applyAnyway": "Apply anyway",
       "showRaw": "Tool details",
       "collision": "name already used by {{name}}",
       "kind": {

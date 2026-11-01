@@ -1044,6 +1044,7 @@
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
     "transferLinkedTo": "Vinculada a:",
     "transferTooltip": "Transferências são excluídas dos totais de relatórios e dashboard",
+    "transferPairGone": "O outro lado deste vínculo não existe mais. Esta linha conta nos totais.",
     "installmentTooltip": "Compra parcelada — {{count}} parcelas totalizando {{total}}",
     "billOverrideTooltip": "Movida para a fatura com vencimento em {{date}}",
     "effectiveBillDate": "Data efetiva da fatura",
@@ -2953,6 +2954,8 @@
       "applied": "aplicada",
       "apply": "Aplicar",
       "applyFailed": "Falha ao aplicar",
+      "notCorroborated": "Estas duas linhas não parecem a mesma transferência. Confira antes de vincular.",
+      "applyAnyway": "Aplicar mesmo assim",
       "showRaw": "Detalhes da ferramenta",
       "collision": "nome já usado por {{name}}",
       "kind": {

@@ -1044,6 +1044,7 @@
     "transferInfo": "Esta é uma transferência — alterações na descrição, data e notas serão aplicadas em ambos os lados",
     "transferLinkedTo": "Associada a:",
     "transferTooltip": "Transferências são excluídas dos totais de relatórios e do painel",
+    "transferPairGone": "O outro lado desta ligação já não existe. Esta linha conta nos totais.",
     "installmentTooltip": "Compra a prestações — {{count}} prestações totalizando {{total}}",
     "billOverrideTooltip": "Movida para a fatura com vencimento em {{date}}",
     "effectiveBillDate": "Data efetiva da fatura",
@@ -2952,6 +2953,8 @@
       "applied": "aplicada",
       "apply": "Aplicar",
       "applyFailed": "Falha ao aplicar",
+      "notCorroborated": "Estas duas linhas não parecem a mesma transferência. Verifique-as antes de as ligar.",
+      "applyAnyway": "Aplicar mesmo assim",
       "showRaw": "Detalhes da ferramenta",
       "collision": "nome já usado por {{name}}",
       "kind": {

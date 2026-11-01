@@ -39,6 +39,7 @@ export interface ProposalData {
   transaction_ids?: string[]
   transfer_pair_id?: string
   legs?: TransferLeg[]
+  corroborated?: boolean
   error?: string
 }
 

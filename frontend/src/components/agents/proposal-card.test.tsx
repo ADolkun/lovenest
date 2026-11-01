@@ -78,6 +78,51 @@ describe('ProposalCard transfer kinds', () => {
     await waitFor(() => expect(linkTransfer).toHaveBeenCalledWith(['tx-credit', 'tx-debit']))
   })
 
+  it('warns and needs a second click when the pair has no transfer evidence', async () => {
+    linkTransfer.mockResolvedValue({ transfer_pair_id: 'pair-2' })
+    const { user } = renderWithProviders(
+      <ProposalCard
+        toolCallId="call-uncorroborated"
+        data={{
+          kind: 'link_transfer',
+          transaction_ids: ['tx-debit', 'tx-credit'],
+          legs: [debitLeg, creditLeg],
+          corroborated: false,
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/don't look like the same transfer/)
+
+    await user.click(screen.getByRole('button', { name: /Apply/ }))
+    expect(linkTransfer).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /Apply anyway/ }))
+    await waitFor(() => expect(linkTransfer).toHaveBeenCalledWith(['tx-debit', 'tx-credit']))
+  })
+
+  it.each([
+    ['corroborated', { corroborated: true }],
+    ['unflagged', {}],
+  ])('applies a %s link preview on the first click without a warning', async (_label, extra) => {
+    linkTransfer.mockResolvedValue({ transfer_pair_id: 'pair-3' })
+    const { user } = renderWithProviders(
+      <ProposalCard
+        toolCallId={`call-${_label}`}
+        data={{
+          kind: 'link_transfer',
+          transaction_ids: ['tx-debit', 'tx-credit'],
+          legs: [debitLeg, creditLeg],
+          ...extra,
+        }}
+      />,
+    )
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Apply/ }))
+    await waitFor(() => expect(linkTransfer).toHaveBeenCalledTimes(1))
+  })
+
   it('unlinks the pair by its id on Apply', async () => {
     unlinkTransfer.mockResolvedValue(undefined)
     const { user } = renderWithProviders(
