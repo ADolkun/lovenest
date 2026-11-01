@@ -967,3 +967,58 @@ async def test_sync_tolerated_placeholder_rescales_splits_and_unlinks_its_pair(
         .order_by(TransactionSplit.created_at)
     )).scalars().all()
     assert shares == [Decimal("57.60"), Decimal("38.40")]
+
+
+@pytest.mark.asyncio
+async def test_sync_tolerated_placeholder_keeps_a_pair_with_typed_amounts(
+    session, test_user, test_workspace, conn_account
+):
+    """Both legs of a pair whose amounts the user typed are observed facts:
+    the bank re-reporting one leg does not make the other leg wrong."""
+    conn, account = conn_account
+    conn_id, account_id = conn.id, account.id
+    await reconciliation_rule_service.upsert_override(
+        session, test_workspace.id, test_user.id,
+        reconciliation_policy.MATCH_RECURRING["node"], "same_account_exact",
+        {"when": {"amount": {"match": "tolerance", "percent": "5"},
+                  "unique_candidate": True}},
+    )
+    bill = await _make_bill(session, test_workspace, test_user, account,
+                            amount=Decimal("100.00"), start_date=date(2025, 1, 10))
+    bill.next_occurrence = date(2025, 2, 10)
+    savings = Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Savings EUR", type="savings", balance=Decimal("0"), currency="EUR",
+    )
+    session.add(savings)
+    pair_id = uuid.uuid4()
+    placeholder = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=account_id, description="Netflix Subscription",
+        amount=Decimal("100.00"), currency="BRL", date=date(2025, 1, 10),
+        type="debit", source="recurring", status="posted",
+        recurring_transaction_id=bill.id, transfer_pair_id=pair_id,
+        transfer_amount_explicit=True,
+    )
+    other_leg = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=savings.id, description="Netflix Subscription",
+        amount=Decimal("17.00"), currency="EUR", date=date(2025, 1, 10),
+        type="credit", source="manual", status="posted", transfer_pair_id=pair_id,
+        transfer_amount_explicit=True,
+    )
+    session.add_all([placeholder, other_leg])
+    await session.commit()
+    placeholder_id, other_leg_id = placeholder.id, other_leg.id
+    provider = _provider([_tx(external_id="s1", description="NETFLIX SUBSCRIPTION",
+                              amount=Decimal("96.00"), date=date(2025, 1, 11))])
+
+    await _run_sync(session, conn_id, test_workspace, test_user, provider)
+
+    refreshed = await session.get(Transaction, placeholder_id)
+    refreshed_leg = await session.get(Transaction, other_leg_id)
+    assert refreshed is not None and refreshed_leg is not None
+    assert refreshed.amount == Decimal("96.00")
+    assert refreshed.transfer_pair_id == pair_id
+    assert refreshed_leg.transfer_pair_id == pair_id
+    assert refreshed_leg.amount == Decimal("17.00")

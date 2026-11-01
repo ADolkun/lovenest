@@ -113,7 +113,9 @@ async def take_incoming_amount(
     What was sized to the old amount follows it: group-split shares are
     rescaled to the new total, reimbursement links shrink to fit (ADR 0012),
     and a transfer pair is unlinked, since its other leg still carries the
-    old amount.
+    old amount. A pair whose amounts the user typed on both legs stays
+    linked: neither leg was derived from the other, so the other leg's
+    amount is still what landed there.
     """
     if Decimal(transaction.amount) == amount:
         return
@@ -138,7 +140,7 @@ async def take_incoming_amount(
     await reimbursement_service.fit_links_to_amount(session, transaction)
 
     pair_id = transaction.transfer_pair_id
-    if pair_id is not None:
+    if pair_id is not None and not transaction.transfer_amount_explicit:
         await session.execute(
             update(Transaction)
             .where(Transaction.transfer_pair_id == pair_id)
