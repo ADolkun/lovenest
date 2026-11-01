@@ -23,8 +23,9 @@ spending offset) on the other, so income minus expenses across the months
 involved is unchanged. That holds only while no row's links exceed its own
 amount, which is the invariant every write path keeps: a link edit is checked
 against both rows, an edit that shrinks a linked row below its links is
-refused, and a sync that re-reports a smaller amount shrinks the links
-proportionally to fit. Links are never grown to follow a larger amount — the
+refused, and a sync or import that re-reports a smaller amount (a charge
+that replaces a recurring placeholder under an amount tolerance, say) shrinks
+the links proportionally to fit. Links are never grown to follow a larger amount — the
 money that changed hands is what the user linked.
 
 It also holds only while both rows are counted. So a link is in effect only

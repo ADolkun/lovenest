@@ -2,12 +2,15 @@ import re
 import uuid
 from collections.abc import Collection
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.transaction import Transaction
+from app.models.transaction_split import TransactionSplit
+from app.services import reimbursement_service
 
 
 def _normalize_description(value: str | None) -> str:
@@ -100,3 +103,45 @@ async def find_unique_transaction_match(
         # deterministically; the caller's exclusions prevent reusing it.
         return min(exact_matches, key=lambda candidate: str(candidate.id))
     return None
+
+
+async def take_incoming_amount(
+    session: AsyncSession, transaction: Transaction, amount: Decimal
+) -> None:
+    """Give a matched row the amount its bank or file reported.
+
+    What was sized to the old amount follows it: group-split shares are
+    rescaled to the new total, reimbursement links shrink to fit (ADR 0012),
+    and a transfer pair is unlinked, since its other leg still carries the
+    old amount.
+    """
+    if Decimal(transaction.amount) == amount:
+        return
+    transaction.amount = amount
+
+    splits = (await session.execute(
+        select(TransactionSplit)
+        .where(TransactionSplit.transaction_id == transaction.id)
+        .order_by(TransactionSplit.created_at, TransactionSplit.id)
+    )).scalars().all()
+    if splits:
+        new_total = abs(Decimal(amount)).quantize(Decimal("0.01"))
+        old_total = sum((split.share_amount for split in splits), Decimal("0"))
+        allocated = Decimal("0")
+        for split in splits[:-1]:
+            split.share_amount = (
+                split.share_amount * new_total / old_total
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            allocated += split.share_amount
+        splits[-1].share_amount = new_total - allocated
+
+    await reimbursement_service.fit_links_to_amount(session, transaction)
+
+    pair_id = transaction.transfer_pair_id
+    if pair_id is not None:
+        await session.execute(
+            update(Transaction)
+            .where(Transaction.transfer_pair_id == pair_id)
+            .values(transfer_pair_id=None)
+        )
+        transaction.transfer_pair_id = None

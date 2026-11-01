@@ -4,7 +4,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 from typing import Literal, Optional
 
 from sqlalchemy import delete, exists, func, or_, select, update
@@ -33,7 +33,6 @@ from app.models.collection import collection_asset_groups
 from app.models.credit_card_bill import CreditCardBill
 from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
-from app.models.transaction_split import TransactionSplit
 from app.models.user import User
 from app.providers import get_provider
 from app.providers.enable_banking import _txn_fingerprint
@@ -69,7 +68,10 @@ from app.services.rule_service import apply_rules_to_transaction, preview_rules_
 from app.services.transfer_detection_service import detect_transfer_pairs
 from app.services.fx_rate_service import stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
-from app.services.transaction_match_service import find_unique_transaction_match
+from app.services.transaction_match_service import (
+    find_unique_transaction_match,
+    take_incoming_amount,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -528,7 +530,6 @@ async def _counted_holdings(
     session: AsyncSession,
     connection: BankConnection,
     holdings: Optional[list[HoldingData]],
-    accounts_data: list[AccountData],
     synced_account_ids: Optional[set[str]] = None,
 ) -> list[_CountedHolding]:
     """Holdings this sync leaves counted in net worth, with their owners.
@@ -542,8 +543,11 @@ async def _counted_holdings(
     and whatever it stored last stays in place, so the answer comes from
     the database: every live (not archived, not sold) asset this
     connection's holdings sync owns, at its latest stored value. Its owner
-    is read back from the per-account wallet the sync put it in, else from
-    the attribution stored on the asset; neither means unattributed.
+    is the attribution stored on the asset and nothing else, because that is
+    all net worth reads (holding_inside_account_balance): an asset filed in a
+    per-account wallet before migration 073 stored attributions, and not
+    re-synced since, is counted beside its account, so it is unattributed
+    here too.
     """
     if holdings is not None:
         live = [h for h in holdings if not h.is_withdrawn]
@@ -587,15 +591,7 @@ async def _counted_holdings(
     )
     rows = (
         await session.execute(
-            select(
-                AssetGroup.external_id,
-                Asset.account_external_id,
-                latest_value,
-                Asset.currency,
-            )
-            .select_from(Asset)
-            .outerjoin(AssetGroup, Asset.group_id == AssetGroup.id)
-            .where(
+            select(Asset.account_external_id, latest_value, Asset.currency).where(
                 Asset.workspace_id == connection.workspace_id,
                 Asset.source == connection.provider,
                 Asset.connection_id == connection.id,
@@ -605,18 +601,11 @@ async def _counted_holdings(
             )
         )
     ).all()
-    account_by_wallet = {
-        _wallet_external_id(connection.external_id, acc.external_id): acc.external_id
-        for acc in accounts_data
-        if acc.external_id
-    }
     return [
         _CountedHolding(
-            (account_by_wallet.get(key) if key else None) or stored_owner,
-            Decimal(value) if value is not None else Decimal(0),
-            currency,
+            owner, Decimal(value) if value is not None else Decimal(0), currency
         )
-        for key, stored_owner, value, currency in rows
+        for owner, value, currency in rows
     ]
 
 
@@ -696,7 +685,7 @@ async def _resolve_auto_invested_deductions(
     if not any(acc.auto_invested_balance > 0 for acc in accounts_data):
         return set()
     counted = await _counted_holdings(
-        session, connection, holdings, accounts_data, synced_account_ids
+        session, connection, holdings, synced_account_ids
     )
     # A holding attributed to an account is carried inside that account's
     # balance and left out of net worth (holding_inside_account_balance), so
@@ -2650,47 +2639,16 @@ async def _promote_synced_transaction(
     user_currency: str,
     replace_external_id: bool,
 ) -> None:
-    old_amount = Decimal(transaction.amount)
-    pair_id = transaction.transfer_pair_id
-
     _merge_sync_metadata(
         transaction, txn_data, replace_external_id=replace_external_id
     )
     # Posted truth wins outright: a merge would keep pending-only keys.
     if replace_external_id and transaction.source == "sync" and txn_data.raw_data:
         transaction.raw_data = txn_data.raw_data
-    transaction.amount = txn_data.amount
     transaction.date = txn_data.date
     transaction.status = "posted"
     apply_effective_date(transaction, account)
-
-    if old_amount != txn_data.amount:
-        splits = (await session.execute(
-            select(TransactionSplit)
-            .where(TransactionSplit.transaction_id == transaction.id)
-            .order_by(TransactionSplit.created_at, TransactionSplit.id)
-        )).scalars().all()
-        if splits:
-            new_total = abs(Decimal(txn_data.amount)).quantize(Decimal("0.01"))
-            old_total = sum((split.share_amount for split in splits), Decimal("0"))
-            allocated = Decimal("0")
-            for split in splits[:-1]:
-                split.share_amount = (
-                    split.share_amount * new_total / old_total
-                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                allocated += split.share_amount
-            splits[-1].share_amount = new_total - allocated
-        # Only a pending row is promoted and a pending row can't be linked,
-        # so this is a backstop for the invariant reporting relies on.
-        await reimbursement_service.fit_links_to_amount(session, transaction)
-
-        if pair_id is not None:
-            await session.execute(
-                update(Transaction)
-                .where(Transaction.transfer_pair_id == pair_id)
-                .values(transfer_pair_id=None)
-            )
-            transaction.transfer_pair_id = None
+    await take_incoming_amount(session, transaction, txn_data.amount)
 
     await _stamp_synced_primary_amount(
         session, user_id, transaction,
@@ -3123,10 +3081,7 @@ async def _sync_bill_finance_charges(
         )
 
         if existing:
-            amount_changed = existing.amount != abs(amount)
-            existing.amount = abs(amount)
-            if amount_changed:
-                await reimbursement_service.fit_links_to_amount(session, existing)
+            await take_incoming_amount(session, existing, abs(amount))
             existing.description = description
             existing.date = charge_date
             existing.effective_date = bill.due_date
@@ -3789,7 +3744,9 @@ async def sync_connection(
                         # charge cost in the primary currency: the row now
                         # stands for what was actually charged, not for what
                         # the bill expected.
-                        placeholder.amount = txn_data.amount
+                        await take_incoming_amount(
+                            session, placeholder, txn_data.amount
+                        )
                         await _stamp_synced_primary_amount(
                             session, user_id, placeholder, converted
                         )

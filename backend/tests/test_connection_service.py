@@ -3573,6 +3573,52 @@ async def test_sync_attributes_stored_holding_when_fetch_fails(
 
 
 @pytest.mark.asyncio
+async def test_sync_fetch_fails_reads_only_the_stored_attribution(
+    session: AsyncSession, test_user, test_workspace
+):
+    """Issue #843: an asset in the account's own wallet but stored without
+    an attribution (before migration 073, not re-synced since) is counted
+    beside the account in net worth, so with the fetch failing it is
+    unattributed for the deduction too. Read off the wallet instead, it
+    would be counted in the account balance and in net worth."""
+    from app.models.asset_group import AssetGroup
+    from app.services._query_filters import holding_inside_account_balance
+    from app.services.connection_service import _wallet_external_id
+
+    conn = await _make_connection(session, test_user.id, "Legacy Wallet Bank")
+    accounts = [_auto_invest_account("acc-checking", "1000", "400")]
+    first, _ = await _sync_accounts(
+        session, test_user, test_workspace, conn, accounts,
+        [_holding("fund-a", "400", account_external_id="acc-checking")],
+    )
+    assert first["acc-checking"] == Decimal("1000")
+    asset, wallet_key = (
+        await session.execute(
+            select(Asset, AssetGroup.external_id)
+            .join(AssetGroup, Asset.group_id == AssetGroup.id)
+            .where(Asset.external_id == "fund-a")
+        )
+    ).one()
+    assert wallet_key == _wallet_external_id(conn.external_id, "acc-checking")
+    asset.account_external_id = None
+    await session.commit()
+
+    balances, provider = await _sync_accounts(
+        session, test_user, test_workspace, conn, accounts,
+        RuntimeError("investments unavailable"),
+    )
+
+    provider.get_holdings.assert_awaited_once()
+    assert balances["acc-checking"] == Decimal("600")
+    inside_balance = await session.scalar(
+        select(Asset.id).where(
+            Asset.external_id == "fund-a", holding_inside_account_balance()
+        )
+    )
+    assert inside_balance is None
+
+
+@pytest.mark.asyncio
 async def test_sync_allowlist_excluded_holding_does_not_deduct(
     session: AsyncSession, test_user, test_workspace
 ):

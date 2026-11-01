@@ -112,15 +112,19 @@ async def _add_txn(
 async def _pay_card(
     session: AsyncSession, user_id: uuid.UUID, card_id: uuid.UUID,
     amount: float, txn_date: date, category_id: uuid.UUID | None = None,
+    status: str = "posted",
 ) -> Transaction:
     """Both legs of a card payment. A pair id with no second leg is not a
     transfer in Lovenest, so a one-legged credit would read as a refund."""
     pair_id = uuid.uuid4()
     checking = await _make_account(session, user_id, "Paying Checking")
-    await _add_txn(session, user_id, checking.id, amount, "debit", txn_date, transfer_pair_id=pair_id)
+    await _add_txn(
+        session, user_id, checking.id, amount, "debit", txn_date,
+        transfer_pair_id=pair_id, status=status,
+    )
     return await _add_txn(
         session, user_id, card_id, amount, "credit", txn_date,
-        transfer_pair_id=pair_id, category_id=category_id,
+        transfer_pair_id=pair_id, category_id=category_id, status=status,
     )
 
 
@@ -1109,11 +1113,9 @@ async def test_get_account_summary_bill_nets_pending_paired_payment_in_projectio
     payment is part of it (issue #668)."""
     account = await _make_account(session, test_user.id, "CC Mid Pay Pending", acc_type="credit_card")
     today = date.today()
-    pair_id = uuid.uuid4()
 
     await _add_txn(session, test_user.id, account.id, 1000, "debit", today)
-    await _add_txn(session, test_user.id, account.id, 400, "credit", today,
-                   transfer_pair_id=pair_id, status="pending")
+    await _pay_card(session, test_user.id, account.id, 400, today, status="pending")
 
     summary = await get_account_summary(session, account.id, test_workspace.id)
     assert summary is not None

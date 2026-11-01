@@ -8,13 +8,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 
+from app.models.account import Account
 from app.models.payee import Payee
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring_transaction import RecurringTransactionCreate
 from app.schemas.rule import RuleAction, RuleCondition, RuleCreate
 from app.schemas.transaction import TransactionImport
-from app.services import reconciliation_policy, reconciliation_rule_service
+from app.services import (
+    reconciliation_policy,
+    reconciliation_rule_service,
+    reimbursement_service,
+)
 from app.services.import_service import import_transactions
 from app.services.recurring_transaction_service import create_recurring_transaction
 from app.services.rule_service import create_rule
@@ -721,3 +726,64 @@ async def test_import_tolerated_placeholder_takes_the_files_fx_rate(
     assert txs[0].amount_primary == Decimal("98.79")
     assert txs[0].fx_rate_used == Decimal("5.28")
     stamp.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_import_tolerated_placeholder_shrinks_its_reimbursement_links(
+    session, test_user, test_workspace
+):
+    """ADR 0012: no row's links exceed its own amount. A placeholder already
+    repaid in full takes a smaller charge under the tolerance, so the link
+    shrinks with it rather than outgrowing the expense it is booked against."""
+    account = Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Manual Checking", type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(account)
+    await session.commit()
+    account_id = account.id
+    await reconciliation_rule_service.upsert_override(
+        session, test_workspace.id, test_user.id,
+        reconciliation_policy.MATCH_RECURRING["node"], "same_account_exact",
+        {"when": {"amount": {"match": "tolerance", "percent": "5"},
+                  "unique_candidate": True}},
+    )
+    bill = await _make_bill(session, test_workspace, test_user, account,
+                            amount=Decimal("100.00"), start_date=date(2026, 1, 10))
+    bill.next_occurrence = date(2026, 2, 10)
+    placeholder = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=account_id,
+        workspace_id=test_workspace.id, description="Netflix Subscription",
+        amount=Decimal("100.00"), currency="BRL", date=date(2026, 1, 10),
+        type="debit", source="recurring", status="posted",
+        recurring_transaction_id=bill.id, created_at=datetime.now(timezone.utc),
+    )
+    credit = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, account_id=account_id,
+        workspace_id=test_workspace.id, description="Netflix share from Ana",
+        amount=Decimal("100.00"), currency="BRL", date=date(2026, 1, 20),
+        type="credit", source="manual", status="posted",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add_all([placeholder, credit])
+    await session.commit()
+    placeholder_id, credit_id = placeholder.id, credit.id
+    await reimbursement_service.replace_reimbursements(
+        session, test_workspace.id, credit_id, [(placeholder_id, Decimal("100.00"))],
+    )
+    await session.commit()
+
+    txns = [TransactionImport(description="NETFLIX SUBSCRIPTION", amount=Decimal("96.00"),
+                              date=date(2026, 1, 11), type="debit", currency="BRL")]
+    imported, _, _, _ = await _run_import(
+        session, test_workspace, test_user, account_id, txns
+    )
+
+    assert imported == 1
+    upgraded = await session.get(Transaction, placeholder_id)
+    assert upgraded is not None
+    assert upgraded.source == "csv"
+    assert upgraded.amount == Decimal("96.00")
+    assert await reimbursement_service.linked_totals(
+        session, [placeholder_id, credit_id]
+    ) == {placeholder_id: Decimal("96.00"), credit_id: Decimal("96.00")}

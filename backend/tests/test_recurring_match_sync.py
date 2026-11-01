@@ -23,9 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
+from app.models.group import Group, GroupMember
 from app.models.payee import Payee
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.transaction import Transaction
+from app.models.transaction_split import TransactionSplit
 from app.schemas.recurring_transaction import RecurringTransactionCreate
 from app.schemas.rule import RuleAction, RuleCondition, RuleCreate
 from app.services import reconciliation_policy, reconciliation_rule_service
@@ -884,3 +886,84 @@ async def test_sync_placeholder_without_a_conversion_is_not_restamped(
     assert txs[0].amount_primary == Decimal("90.00")
     assert txs[0].fx_rate_used == Decimal("4.8833")
     stamp.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_tolerated_placeholder_rescales_splits_and_unlinks_its_pair(
+    session, test_user, test_workspace, conn_account
+):
+    """A placeholder that takes a smaller charge under the tolerance keeps its
+    group split adding up to the new amount, and leaves a transfer pair whose
+    other leg still carries the old one."""
+    conn, account = conn_account
+    conn_id, account_id = conn.id, account.id
+    await reconciliation_rule_service.upsert_override(
+        session, test_workspace.id, test_user.id,
+        reconciliation_policy.MATCH_RECURRING["node"], "same_account_exact",
+        {"when": {"amount": {"match": "tolerance", "percent": "5"},
+                  "unique_candidate": True}},
+    )
+    bill = await _make_bill(session, test_workspace, test_user, account,
+                            amount=Decimal("100.00"), start_date=date(2025, 1, 10))
+    bill.next_occurrence = date(2025, 2, 10)
+    savings = Account(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Savings", type="savings", balance=Decimal("0"), currency="BRL",
+    )
+    session.add(savings)
+    pair_id = uuid.uuid4()
+    placeholder = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=account_id, description="Netflix Subscription",
+        amount=Decimal("100.00"), currency="BRL", date=date(2025, 1, 10),
+        type="debit", source="recurring", status="posted",
+        recurring_transaction_id=bill.id, transfer_pair_id=pair_id,
+    )
+    other_leg = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=savings.id, description="Netflix Subscription",
+        amount=Decimal("100.00"), currency="BRL", date=date(2025, 1, 10),
+        type="credit", source="manual", status="posted", transfer_pair_id=pair_id,
+    )
+    group = Group(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Streaming", default_currency="BRL",
+    )
+    session.add_all([placeholder, other_leg, group])
+    await session.flush()
+    members = [
+        GroupMember(id=uuid.uuid4(), group_id=group.id,
+                    workspace_id=test_workspace.id, name=name)
+        for name in ("Me", "Ana")
+    ]
+    session.add_all(members)
+    await session.flush()
+    session.add_all([
+        TransactionSplit(
+            transaction_id=placeholder.id, workspace_id=test_workspace.id,
+            group_member_id=member.id, share_amount=Decimal(share),
+            share_type="exact", created_at=datetime(2025, 1, 10, n, tzinfo=timezone.utc),
+        )
+        for n, (member, share) in enumerate(zip(members, ("60.00", "40.00")))
+    ])
+    await session.commit()
+    placeholder_id, other_leg_id = placeholder.id, other_leg.id
+    provider = _provider([_tx(external_id="s1", description="NETFLIX SUBSCRIPTION",
+                              amount=Decimal("96.00"), date=date(2025, 1, 11))])
+
+    await _run_sync(session, conn_id, test_workspace, test_user, provider)
+
+    txs = await _all_txs(session, account_id)
+    assert [tx.id for tx in txs] == [placeholder_id]
+    assert txs[0].amount == Decimal("96.00")
+    assert txs[0].transfer_pair_id is None
+    refreshed_leg = await session.get(Transaction, other_leg_id)
+    assert refreshed_leg is not None
+    assert refreshed_leg.transfer_pair_id is None
+    assert refreshed_leg.amount == Decimal("100.00")
+    shares = (await session.execute(
+        select(TransactionSplit.share_amount)
+        .where(TransactionSplit.transaction_id == placeholder_id)
+        .order_by(TransactionSplit.created_at)
+    )).scalars().all()
+    assert shares == [Decimal("57.60"), Decimal("38.40")]
