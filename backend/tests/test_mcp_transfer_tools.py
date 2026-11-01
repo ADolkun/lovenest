@@ -634,3 +634,19 @@ async def test_moved_account_name_is_not_returned(
     names = {leg["id"]: leg["account_name"] for leg in unlink["legs"]}
     assert names == {str(debit.id): test_account.name, str(credit.id): None}
     assert "Secret Elsewhere" not in repr(listed) + repr(unlink)
+
+
+async def test_list_transactions_flags_only_valid_pairs_as_transfers(
+    session: AsyncSession, ctx: CallContext, test_user, test_account, second_account
+):
+    debit, credit = await _seed_linked_pair(session, test_user, test_account, second_account)
+    orphan = await _mk_tx(session, user=test_user, account=test_account, ws=test_account.workspace_id,
+                          description="ORPHAN LEG", amount="40.00", tx_type="debit")
+    orphan.transfer_pair_id = uuid.uuid4()
+    await session.commit()
+
+    result = await _call("list_transactions")(session=session, ctx=ctx, limit=50)
+    flags = {item["id"]: item["is_transfer"] for item in result["items"]}
+    assert flags[str(debit.id)] is True
+    assert flags[str(credit.id)] is True
+    assert flags[str(orphan.id)] is False
