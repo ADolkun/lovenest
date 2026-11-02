@@ -113,17 +113,20 @@ services:
       retries: 5
 
   db:
-    # docker.io/pgvector/pgvector:pg16 is a drop-in replacement for postgres:16
+    # docker.io/pgvector/pgvector:pg18 is a drop-in replacement for postgres:18
     # that ships the `vector` extension. Required for the agents
     # knowledge base; harmless when AGENTS_ENABLED=false.
-    image: ${DB_IMAGE:-docker.io/pgvector/pgvector:pg16}
+    # Postgres 18+ images keep data in /var/lib/postgresql/<major>/docker, so
+    # the volume is mounted one level up. Moving from the 16 `pgdata` volume
+    # is a one-time scripts/upgrade-postgres.sh run (docs/postgres-upgrade.md).
+    image: ${DB_IMAGE:-docker.io/pgvector/pgvector:pg18}
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: securo
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -183,7 +186,7 @@ services:
       - "${AGENTS_MCP_EXTERNAL_HOST_PORT:-127.0.0.1:8765}:8765"
 
 volumes:
-  pgdata:
+  postgres-data:
   attachments:
   agent_knowledge:
   agent_embedding_models:

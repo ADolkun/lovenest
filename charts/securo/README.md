@@ -54,6 +54,57 @@ global:
 
 The secret must contain the corresponding keys (e.g., `secretKey`, `databaseUrl`, `agentsOpenaiApiKey`).
 
+## Upgrading to PostgreSQL 18
+
+This applies only to the bundled database (`postgresql.enabled: true`). Chart
+releases after 0.16.6 run it on PostgreSQL 18 instead of 16. A new PostgreSQL
+major version cannot read the old one's data files, so the data moves over with
+a dump and restore.
+
+The database now lives on a new claim, `postgres-data-<fullname>-postgresql-0`,
+mounted at `/var/lib/postgresql`. The old claim, `data-<fullname>-postgresql-0`,
+is never written to again and is your rollback. Because the claim changed,
+`helm upgrade` refuses to update the existing StatefulSet until you delete it;
+deleting a StatefulSet leaves its claims in place.
+
+`<fullname>` is the prefix of the StatefulSet that `kubectl get statefulset`
+lists as `<fullname>-postgresql`.
+
+1. Stop everything that writes to the database, then dump it from the
+   PostgreSQL 16 pod:
+
+   ```bash
+   kubectl scale deployment -l app.kubernetes.io/instance=<release> --replicas=0
+   kubectl exec <fullname>-postgresql-0 -- pg_dump -U postgres -Fc securo > securo-pg16.dump
+   ```
+
+2. Delete the StatefulSet and upgrade the chart with your usual arguments.
+   PostgreSQL 18 starts on the new, empty claim, and the migration job creates
+   an empty schema in it:
+
+   ```bash
+   kubectl delete statefulset <fullname>-postgresql
+   helm upgrade <release> <chart> ...
+   ```
+
+3. Stop the app again and replace the empty database with the dump:
+
+   ```bash
+   kubectl scale deployment -l app.kubernetes.io/instance=<release> --replicas=0
+   kubectl exec <fullname>-postgresql-0 -- psql -U postgres -c 'DROP DATABASE securo WITH (FORCE)' -c 'CREATE DATABASE securo'
+   kubectl exec -i <fullname>-postgresql-0 -- pg_restore -U postgres -d securo --exit-on-error --single-transaction < securo-pg16.dump
+   kubectl exec <fullname>-postgresql-0 -- psql -U postgres -d securo -c ANALYZE
+   ```
+
+4. Run the same `helm upgrade` again. It scales the app back up, and the
+   migration job brings the restored schema up to date.
+
+To roll back, delete the StatefulSet again and run
+`helm rollback <release> <revision>` with the revision from before the upgrade
+(`helm history <release>` lists them); that revision mounts the old claim.
+Once you are satisfied, delete the old claim with
+`kubectl delete pvc data-<fullname>-postgresql-0`, and the dump file.
+
 ## Uninstalling the Chart
 
 To uninstall/delete the `securo` deployment:

@@ -17,7 +17,7 @@ jobs:
     # ponytail: retain service startup on skipped PRs; split detection if its cost warrants it.
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_USER: securo_test
           POSTGRES_PASSWORD: securo_test

@@ -112,6 +112,10 @@ docker compose -f docker-compose.prod.yml up -d
 Then open the app on the configured port. Configure OIDC and any other secrets via environment as
 described in the deployment docs before logging in.
 
+An existing install that ran PostgreSQL 16 needs a one-time data migration first: run
+`scripts/upgrade-postgres.sh` after pulling and before `up`. See
+[docs/postgres-upgrade.md](docs/postgres-upgrade.md).
+
 ## Running the checks CI runs
 
 Product CI keeps two required checks: **Backend (lint + tests)** and
@@ -149,14 +153,14 @@ same environment without resolving or installing dependencies again.
 Add tests for new backend behavior.
 
 The PostgreSQL report and concurrency tests use a separate disposable schema per
-test. CI supplies a PostgreSQL 16 service through `EVIDENCE_TEST_DATABASE_URL`;
+test. CI supplies a PostgreSQL 18 service through `EVIDENCE_TEST_DATABASE_URL`;
 missing configuration fails CI, while local runs skip these tests unless opted in.
 To run them locally against a disposable database (never your application database):
 
 ```bash
 docker run --rm -d --name securo-test-postgres -p 127.0.0.1:55432:5432 \
   -e POSTGRES_USER=securo_test -e POSTGRES_PASSWORD=securo_test \
-  -e POSTGRES_DB=securo_test pgvector/pgvector:pg16
+  -e POSTGRES_DB=securo_test pgvector/pgvector:pg18
 # Wait for this readiness check to succeed before running pytest.
 docker exec securo-test-postgres pg_isready -h 127.0.0.1 -U securo_test -d securo_test
 EVIDENCE_TEST_DATABASE_URL=postgresql+asyncpg://securo_test:securo_test@127.0.0.1:55432/securo_test \

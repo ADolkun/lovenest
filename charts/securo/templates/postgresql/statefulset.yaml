@@ -34,18 +34,19 @@ spec:
               value: postgres
             - name: POSTGRES_DB
               value: securo
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
+          # The image's PGDATA is /var/lib/postgresql/<major>/docker, a
+          # subdirectory of the claim, so lost+found does not block initdb.
+          # The pre-18 `data` claim is kept for rollback; see the chart README.
           volumeMounts:
-            - name: data
-              mountPath: /var/lib/postgresql/data
+            - name: postgres-data
+              mountPath: /var/lib/postgresql
           {{- if .Values.postgresql.resources }}
           resources:
             {{- toYaml .Values.postgresql.resources | nindent 12 }}
           {{- end }}
   volumeClaimTemplates:
     - metadata:
-        name: data
+        name: postgres-data
       spec:
         accessModes: [ "ReadWriteOnce" ]
         resources:

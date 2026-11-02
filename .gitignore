@@ -29,8 +29,9 @@ OVERVIEW.html
 backups/
 # Personal tooling & local state — live SimpleFIN token, real emails, workspace ids.
 # Only the upstream-tracked dev helper stays published.
-scripts/
+scripts/*
 !scripts/dev-frontend.mjs
+!scripts/upgrade-postgres.sh
 
 # Vestigial bind-mount overlays (the fixes are baked into source on this branch)
 # and personal sample data.
