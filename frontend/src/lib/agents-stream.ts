@@ -52,12 +52,7 @@ export async function streamChat(opts: SendMessageOptions): Promise<void> {
   })
 
   if (!res.ok || !res.body) {
-    let detail = ''
-    try {
-      detail = await res.text()
-    } catch {
-      detail = ''
-    }
+    const detail = await res.text().catch(() => '')
     opts.onEvent({ kind: 'error', error_code: String(res.status), error_message: detail || res.statusText })
     return
   }

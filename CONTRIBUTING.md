@@ -194,7 +194,7 @@ lovenest's head rather than kept at the number Securo gave it. CI catches a
 clash: the Migration Chain job runs against your branch merged with the base,
 so it fails there rather than on someone's `alembic upgrade head`.
 
-### Frontend (Node 24 LTS, from `frontend/`)
+### Frontend (Node 26 LTS, from `frontend/`)
 
 ```bash
 cd frontend
@@ -211,10 +211,9 @@ Assert on user-visible behavior.
 ### Adding a frontend dependency
 
 `frontend/.npmrc` disables package install scripts and skips releases younger than seven days.
-The cooldown requires npm 11.10 or newer, so upgrade npm before adding a dependency:
+The cooldown requires npm 11.10 or newer, which every Node 26 release bundles:
 
 ```bash
-npm install --global npm@latest
 cd frontend && npm install <package>
 ```
 

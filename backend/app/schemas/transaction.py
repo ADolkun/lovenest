@@ -19,7 +19,6 @@ class TransactionBase(BaseModel):
     date: _Date
     type: str  # debit, credit
     external_id: Optional[str] = None
-    currency: Optional[str] = None
     fx_rate: Optional[Decimal] = None
     payee_raw: Optional[str] = None  # raw payee string from import (OFX/QIF)
 
@@ -332,6 +331,7 @@ class TransferRead(BaseModel):
 
 class TransactionImport(TransactionBase):
     """TransactionBase extended with import-only fields not exposed in read responses."""
+    currency: Optional[str] = None
     category_name: Optional[str] = None
     suggested_category_id: Optional[uuid.UUID] = None
     suggested_category_name: Optional[str] = None
