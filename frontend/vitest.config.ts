@@ -27,7 +27,6 @@ export default defineConfig({
     css: false,
     projects: [
       {
-        extends: true,
         test: {
           name: 'node',
           environment: 'node',
@@ -35,7 +34,6 @@ export default defineConfig({
         },
       },
       {
-        extends: true,
         test: {
           name: 'dom',
           environment: 'jsdom',

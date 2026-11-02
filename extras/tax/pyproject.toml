@@ -5,9 +5,9 @@ version = "0.0.0"
 description = "Lovenest tax and retirement planner"
 requires-python = ">=3.14"
 dependencies = [
-    "fastapi>=0.141.1",
-    "uvicorn[standard]>=0.52.4",
-    "psycopg[binary]>=3.3.5",
+    "fastapi>=0.162.0",
+    "uvicorn[standard]>=0.54.0",
+    "psycopg[binary]>=3.3.6",
 ]
 
 [tool.uv]
