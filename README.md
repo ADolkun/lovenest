@@ -37,6 +37,8 @@ docker compose -f docker-compose.prod.yml build && docker compose -f docker-comp
 
 Environment configuration lives in `.env` — copy `.env.example` to `.env` and fill in your values (`SECRET_KEY`, optional bank-sync and OIDC settings, etc.) before bringing the stack up.
 
+Upgrading an install that ran PostgreSQL 16? Run `scripts/upgrade-postgres.sh` once after pulling and before `up`; see [Upgrading PostgreSQL](docs/postgres-upgrade.md).
+
 Balances, budgets, due dates, and recurring transactions use the application timezone configured in **Admin Settings → Date and time**. Each workspace can override it in **Workspace settings**. Without a saved setting, the application uses `TZ`, then the host timezone, then UTC.
 
 ## Branch model

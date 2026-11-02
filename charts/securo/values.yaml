@@ -221,7 +221,7 @@ postgresql:
   enabled: true
   image:
     repository: docker.io/pgvector/pgvector
-    tag: pg16
+    tag: pg18
     pullPolicy: IfNotPresent
   resources: {}
 

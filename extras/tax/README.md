@@ -17,7 +17,7 @@ The ledger query tests in `test_app_ledger.py` skip unless
 tables, for example:
 
 ```bash
-docker run -d --rm --name tax-test-pg -e POSTGRES_PASSWORD=t -p 127.0.0.1:55432:5432 postgres:16
+docker run -d --rm --name tax-test-pg -e POSTGRES_PASSWORD=t -p 127.0.0.1:55432:5432 postgres:18
 TAX_TEST_DATABASE_URL=postgresql://postgres:t@127.0.0.1:55432/postgres \
   uv run --no-sync python -m unittest discover -v
 ```
