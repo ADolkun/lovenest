@@ -1,5 +1,6 @@
 """Shared transaction semantics used by matching and P&L queries."""
 
+import functools
 import re
 
 from sqlalchemy import and_, func, or_, select
@@ -11,6 +12,12 @@ from app.models.transaction import Transaction
 # The SQL predicates below read `Transaction` unless handed an alias, which is
 # how a query asks the same question about a second row it has joined in.
 TransactionEntity = type[Transaction] | AliasedClass[Transaction]
+
+# P&L queries nest these builders dozens of times; rebuilding the trees per
+# call dominated report time. SQL expressions are immutable, so sharing one is
+# safe as long as the builder reads nothing but its arguments. Bounded because
+# a query may pass its own aliased(Transaction), which never recurs.
+cached_expression = functools.lru_cache(maxsize=8)
 
 
 _BANK_DEBIT_CARD_PAYMENT_MARKERS = (
@@ -112,6 +119,7 @@ def credit_card_issuer(description: str, account_name: str = "") -> str | None:
     )
 
 
+@cached_expression
 def credit_card_payment_filter(entity: TransactionEntity = Transaction):
     """SQL predicate equivalent of :func:`is_credit_card_payment`."""
     account_is_card = entity.account_id.in_(
@@ -152,6 +160,7 @@ def credit_card_payment_filter(entity: TransactionEntity = Transaction):
     )
 
 
+@cached_expression
 def credit_card_refund_filter(entity: TransactionEntity = Transaction):
     """SQL predicate for card credits that are refunds, not repayments."""
     account_is_card = entity.account_id.in_(
