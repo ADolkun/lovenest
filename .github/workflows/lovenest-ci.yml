@@ -80,9 +80,6 @@ jobs:
 
       - name: Install dependencies
         if: steps.changes.outputs.run_backend != 'false'
-        env:
-          # Each xdist worker would otherwise compile site-packages on first import.
-          UV_COMPILE_BYTECODE: "1"
         run: uv sync --locked --group dev
 
       - name: Lint with Ruff
@@ -154,7 +151,7 @@ jobs:
 
       - name: Lint
         if: steps.changes.outputs.run_frontend != 'false'
-        run: npm run lint -- --max-warnings=0 --concurrency=auto
+        run: npm run lint -- --max-warnings=0
 
       - name: Type check & build
         if: steps.changes.outputs.run_frontend != 'false'
