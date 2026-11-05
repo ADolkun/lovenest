@@ -20,11 +20,13 @@ from app.models.transaction import Transaction
 from app.models.transaction_reimbursement import TransactionReimbursement
 from app.services.transaction_semantics import (
     TransactionEntity,
+    cached_expression,
     credit_card_payment_filter,
     credit_card_refund_filter,
 )
 
 
+@cached_expression
 def has_valid_transfer_pair(entity: TransactionEntity = Transaction):
     """SQL predicate requiring a second transaction with the same pair id."""
     counterpart = aliased(Transaction)
@@ -63,6 +65,7 @@ def reimbursement_link_side_counts(entity: TransactionEntity = Transaction):
     return counts_as_user_pnl(entity)
 
 
+@cached_expression
 def reimbursement_unlinked_share():
     """The fraction of a row that reimbursement links leave in user P&L.
 
@@ -103,6 +106,7 @@ def reimbursement_unlinked_share():
     return type_coerce(1 - func.coalesce(linked_fraction, 0), Numeric())
 
 
+@cached_expression
 def spending_offset_filter():
     """SQL predicate for a credit that gives money back on spending.
 
@@ -267,6 +271,7 @@ def is_not_ignored():
     )
 
 
+@cached_expression
 def is_transfer(entity: TransactionEntity = Transaction):
     """SQL predicate: the row moves money between the user's own places, so
     P&L leaves it out of income and expense.
@@ -314,6 +319,7 @@ async def transfer_ids(
     return set(result.scalars())
 
 
+@cached_expression
 def counts_as_pnl(entity: TransactionEntity = Transaction):
     """SQL filter: True when a transaction should contribute to income/expense totals.
 
@@ -425,6 +431,7 @@ def counts_on_bill(net_payments: bool = False):
     )
 
 
+@cached_expression
 def counts_as_user_pnl(entity: TransactionEntity = Transaction):
     """SQL filter for *user-level* P/L (dashboard, reports, budgets).
 
