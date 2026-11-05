@@ -37,3 +37,10 @@ scripts/*
 # and personal sample data.
 patches/
 holdings-template.csv
+
+# Agent rules, skills and MCP servers are shared through the repository.
+!/.claude/
+/.claude/*
+!/.claude/rules/
+!/.claude/skills/
+!/.mcp.json
