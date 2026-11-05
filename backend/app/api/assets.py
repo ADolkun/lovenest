@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.core.auth import current_active_user
 from app.core.database import get_async_session
 from app.core.workspace_context import (
@@ -317,7 +318,7 @@ async def projection_feed(
     """Balances by bucket, withdrawable basis and this year's contributions,
     under the key names the tax sidecar's projection already reads."""
     return await projection_feed_service.projection_feed(
-        session, ctx.workspace.id, ctx.user_id, as_of=date.today()
+        session, ctx.workspace.id, ctx.user_id, as_of=app_today()
     )
 
 

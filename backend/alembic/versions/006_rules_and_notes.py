@@ -48,6 +48,7 @@ def downgrade() -> None:
         sa.Column("category_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("categories.id"), nullable=False),
         sa.Column("priority", sa.Integer(), nullable=False, server_default="100"),
     )
+    op.create_index("ix_categorization_rules_user_id", "categorization_rules", ["user_id"])
     op.drop_index("ix_rules_user_id", "rules")
     op.drop_table("rules")
     op.drop_column("transactions", "notes")
