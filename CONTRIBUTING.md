@@ -101,16 +101,27 @@ This fork has a strict two-branch model. Read this before you open a PR.
 
 ## Development environment (build from source)
 
-lovenest builds the backend and frontend images locally — there are no pre-pinned images on this
-branch. You need Docker with Compose v2.
+lovenest builds its production images locally. To run the app without host
+development tools, use the [self-hosting setup](docs/self-hosting.md):
 
 ```bash
-docker compose -f docker-compose.prod.yml build
-docker compose -f docker-compose.prod.yml up -d
+tools/deploy/setup.sh
 ```
 
-Then open the app on the configured port. Configure OIDC and any other secrets via environment as
-described in the deployment docs before logging in.
+For development, install the Python/Node tools and dependencies described below.
+Dependency-sync hooks are separate from optional pull deployment:
+
+```bash
+uv tool install prek
+prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+tools/dev/sync-deps.sh
+```
+
+The hooks are per clone and shared by worktrees. A normal `prek install` preserves
+an enabled Lovenest pull hook through legacy chaining; `--force` removes legacy
+hooks. Pull deployment is off until explicitly enabled and never runs from a
+linked worktree. Both Compose files name the live `securo` stack, so do not start
+one from a worktree while that stack is running.
 
 An existing install that ran PostgreSQL 16 needs a one-time data migration first: run
 `scripts/upgrade-postgres.sh` after pulling and before `up`. See

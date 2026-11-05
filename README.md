@@ -29,13 +29,25 @@ The two sign-in / sync fixes above were submitted back to Securo as pull request
 
 ## Quickstart
 
-lovenest builds the production stack from source in this repository:
+lovenest needs **Git, Bash, and Docker with the Compose plugin** (supporting
+`up --wait`). Node, Python, and bank-provider accounts are not needed on the host.
+Clone the product branch, then run the fork's setup command:
 
 ```bash
-docker compose -f docker-compose.prod.yml build && docker compose -f docker-compose.prod.yml up -d
+git clone --branch lovenest https://github.com/ADolkun/lovenest.git
+cd lovenest
+tools/deploy/setup.sh
 ```
 
-Environment configuration lives in `.env` — copy `.env.example` to `.env` and fill in your values (`SECRET_KEY`, optional bank-sync and OIDC settings, etc.) before bringing the stack up.
+Setup creates a private `.env` with random secrets, builds the production images
+from source, and waits for the app to be ready. It preserves an existing `.env`.
+Open **http://localhost:3000** and complete the first-admin setup. Bank sync, OIDC,
+and AI agents can be configured later; they are optional.
+
+For custom ports or a domain, run `tools/deploy/setup.sh --env-only`, edit `.env`,
+then run `tools/deploy/deploy.sh`. See [self-hosting](docs/self-hosting.md) for
+updates, optional rebuilds after pulls, logs, backups, and troubleshooting.
+The upstream `install.sh` installs Securo; use `tools/deploy/setup.sh` for Lovenest.
 
 Upgrading an install that ran PostgreSQL 16? Run `scripts/upgrade-postgres.sh` once after pulling and before `up`; see [Upgrading PostgreSQL](docs/postgres-upgrade.md).
 
