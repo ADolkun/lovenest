@@ -31,6 +31,7 @@ Find the owner of a fact here before opening a doc. Code, migrations, schemas an
 
 ## Feature and operations docs
 
+- [Self-hosting and pull deployment](self-hosting.md)
 - [Automatic bank synchronization](automatic-bank-sync.md)
 - [Owned historical evidence](onchain-history.md)
 - [Reviewed owned transfers](owned-transfers.md)
