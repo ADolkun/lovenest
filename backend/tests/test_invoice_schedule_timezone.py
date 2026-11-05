@@ -1,5 +1,6 @@
 """Recurring invoices follow the workspace calendar in requests and background jobs."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
+from typing import Self
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -8,6 +9,7 @@ from app.core import app_clock
 from app.models.app_settings import AppSetting
 from app.services import invoice_schedule_service as schedules
 from app.tasks import invoice_schedule_tasks
+from tests.clock_helpers import instant_in
 
 
 @pytest.fixture
@@ -16,8 +18,8 @@ def frozen_clock(monkeypatch):
         instant = datetime(2026, 10, 5, 1, tzinfo=timezone.utc)
 
         @classmethod
-        def now(cls, tz=None):
-            return cls.instant.astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return instant_in(cls, cls.instant, tz)
 
     monkeypatch.setattr(app_clock, "datetime", FixedDatetime)
     monkeypatch.setattr(schedules, "datetime", FixedDatetime)

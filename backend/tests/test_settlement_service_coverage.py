@@ -22,19 +22,20 @@ from app.schemas.group_settlement import (
     GroupSettlementUpdate,
 )
 from app.services import group_service, settlement_service, workspace_service
+from tests.group_helpers import create_member
 
 
 async def _setup_group(session, user_id, workspace_id):
     group = await group_service.create_group(
         session, workspace_id, user_id, GroupCreate(name=f"S-{uuid.uuid4().hex[:6]}")
     )
-    a = await group_service.create_member(
+    a = await create_member(
         session, group.id, workspace_id, GroupMemberCreate(name="Alice", is_self=True)
     )
-    b = await group_service.create_member(
+    b = await create_member(
         session, group.id, workspace_id, GroupMemberCreate(name="Bob")
     )
-    c = await group_service.create_member(
+    c = await create_member(
         session, group.id, workspace_id, GroupMemberCreate(name="Carol")
     )
     return group, a, b, c
@@ -192,10 +193,10 @@ async def test_create_settlement_receiver_self_member_owner_fallback(session: As
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="SelfRx")
     )
-    owner_self = await group_service.create_member(
+    owner_self = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="Me", is_self=True)
     )
-    friend = await group_service.create_member(
+    friend = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="Friend")
     )
     assert owner_self is not None
@@ -368,10 +369,10 @@ async def test_settlement_permission_for_linked_member(session: AsyncSession, te
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="Perm")
     )
-    me = await group_service.create_member(
+    me = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="Me", is_self=True)
     )
-    payer = await group_service.create_member(
+    payer = await create_member(
         session, group.id, test_workspace.id,
         GroupMemberCreate(name="Payer", linked_user_id=payer_user.id),
     )
@@ -423,10 +424,10 @@ async def test_update_settlement_permission_denied(session: AsyncSession, test_u
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="Owned")
     )
-    a = await group_service.create_member(
+    a = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="Owner", is_self=True)
     )
-    b = await group_service.create_member(
+    b = await create_member(
         session, group.id, test_workspace.id,
         GroupMemberCreate(name="Intruder", linked_user_id=intruder.id),
     )

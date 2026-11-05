@@ -14,6 +14,7 @@ from app.models.workspace import Workspace
 from app.schemas.investment_source_review import SourceReviewConfirm, SourceReviewRequest, SourceSemantics
 from app.services import investment_evidence_service as evidence
 from app.services import investment_source_review_service as reviews
+from tests.http_errors import error_code
 from tests.test_investment_evidence import apply, observation, save
 
 
@@ -64,11 +65,12 @@ async def test_postgres_exact_correction_concurrent_apply_key_collision_and_reve
     assert any(not isinstance(result, Exception) for result in results)
     for result in results:
         if isinstance(result, HTTPException):
-            assert result.status_code == 409 and result.detail["code"] == "investment_busy"
+            assert result.status_code == 409 and error_code(result) == "investment_busy"
             result = await apply_once(confirm)
         assert not isinstance(result, Exception)
     collision = confirm.model_copy(update={"request": request.model_copy(update={"reason": "Conflicting request identity"})})
-    assert (await apply_once(collision)).status_code == 409
+    collided = await apply_once(collision)
+    assert isinstance(collided, HTTPException) and collided.status_code == 409
     async with postgres_sessions() as session:
         txs = list(await session.scalars(select(AssetTransaction)))
         assert len(txs) == 1 and txs[0].quantity == Decimal("0.123456789012345678")

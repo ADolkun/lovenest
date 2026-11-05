@@ -14,6 +14,7 @@ from app.schemas.transaction_split import (
     TransactionSplitsInput,
 )
 from app.services import group_service, split_service
+from tests.group_helpers import create_member
 
 
 async def _make_account(session: AsyncSession, user_id) -> Account:
@@ -55,7 +56,7 @@ async def _make_group_with_members(session, user_id, workspace_id, names):
     )
     members = []
     for n in names:
-        m = await group_service.create_member(
+        m = await create_member(
             session, group.id, workspace_id, GroupMemberCreate(name=n)
         )
         members.append(m)
@@ -340,10 +341,10 @@ async def test_member_linked_from_another_workspace_can_split(session: AsyncSess
     group = await group_service.create_group(
         session, owner_ws.id, owner.id, GroupCreate(name="Trip")
     )
-    owner_member = await group_service.create_member(
+    owner_member = await create_member(
         session, group.id, owner_ws.id, GroupMemberCreate(name="Owner")
     )
-    friend_member = await group_service.create_member(
+    friend_member = await create_member(
         session, group.id, owner_ws.id,
         GroupMemberCreate(name="Friend", email=f"friend-{suffix}@example.com"),
     )

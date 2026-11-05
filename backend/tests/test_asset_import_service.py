@@ -1,5 +1,6 @@
 """Importing broker orders: reading the file, and applying it to holdings."""
 import uuid
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 
@@ -25,7 +26,7 @@ class FakeProvider:
         self.latest_price_calls = 0
         self.quote_calls = 0
 
-    async def get_latest_prices(self, symbols):
+    async def get_latest_prices(self, symbols: Iterable[str]) -> dict[str, Decimal | None]:
         self.latest_price_calls += 1
         return {s.upper(): (Decimal("100") if s.upper() in self.known else None) for s in symbols}
 
@@ -603,7 +604,7 @@ class FlakyBatchProvider(FakeProvider):
     whole file as unknown tickers.
     """
 
-    async def get_latest_prices(self, symbols):
+    async def get_latest_prices(self, symbols: Iterable[str]) -> dict[str, Decimal | None]:
         self.latest_price_calls += 1
         return {s.upper(): None for s in symbols}
 

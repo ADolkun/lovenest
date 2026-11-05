@@ -587,6 +587,7 @@ async def test_sync_writer_obeys_canonical_version_and_link_barrier(
         account_external_id="portfolio-A",
         metadata={"provider_asset_id": "currency-SYN"},
     )
+    assert first.event_at is not None
     trade = TradeData(
         external_id="api-execution",
         holding_external_id="currency-wallet-A",

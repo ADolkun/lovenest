@@ -204,6 +204,7 @@ async def test_retained_onchain_value_keeps_original_collection_time(
     account, group, connection, _ = await _portfolio(session, test_user, test_workspace)
     connection.provider = "onchain"
     provider = OnChainProvider()
+    assert account.external_id is not None
     data = AccountData(external_id=account.external_id, name="Synthetic", type="investment",
                        balance=account.balance, currency="BRL")
     provider.holdings_observation = provider.account_holdings_observation = {
@@ -249,6 +250,7 @@ async def test_account_write_without_holdings_cannot_reuse_old_reconciliation(
 ):
     account, group, connection, _ = await _portfolio(session, test_user, test_workspace)
     account.balance = Decimal(balance)
+    assert account.external_id is not None
     data = AccountData(external_id=account.external_id, name="Synthetic", type="investment",
                        balance=account.balance, currency="BRL")
     _record_balance_observation(connection, [data], SimpleFinProvider(), persisted_account_ids=set())
@@ -480,10 +482,13 @@ async def test_rejected_current_currency_survives_retained_snapshot_binding(
     from app.services.connection_service import sync_connection
     account, _, connection, _ = await _portfolio(session, test_user, test_workspace, values=())
     connection.credentials = {'synthetic': 'credential'}
-    original = connection.settings['account_balance_observations'][account.external_id]
-    connection.settings = {**connection.settings, 'sync_assets': False}
+    settings = connection.settings
+    assert settings is not None
+    original = settings['account_balance_observations'][account.external_id]
+    settings = {**settings, 'sync_assets': False}
+    connection.settings = settings
     account.currency = 'USD'
-    connection.settings = {**connection.settings, 'account_balance_observations': {
+    connection.settings = {**settings, 'account_balance_observations': {
         account.external_id: {**original, 'currency': 'USD'},
     }}
     await session.commit()
