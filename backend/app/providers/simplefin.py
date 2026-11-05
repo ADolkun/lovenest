@@ -89,6 +89,9 @@ def _epoch_to_date(value: Any) -> Optional[date]:
         seconds = int(value)
         if seconds <= 0:
             return None
+        # UTC, not the app timezone: banks send date-only postings as noon UTC
+        # or as the bank's local midnight, which a US-zone conversion would
+        # move to the previous day. Actual Budget's importer does the same.
         return datetime.fromtimestamp(seconds, tz=timezone.utc).date()
     except (ValueError, TypeError, OSError):
         return None

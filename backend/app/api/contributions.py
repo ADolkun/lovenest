@@ -1,9 +1,9 @@
 import uuid
-from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.core.database import get_async_session
 from app.core.workspace_context import (
     WorkspaceContext,
@@ -33,7 +33,7 @@ async def list_contributions(
     session: AsyncSession = Depends(get_async_session),
 ):
     return await contribution_service.list_contributions(
-        session, ctx.workspace.id, group_id=group_id, tax_year=tax_year, as_of=date.today()
+        session, ctx.workspace.id, group_id=group_id, tax_year=tax_year, as_of=app_today()
     )
 
 
@@ -45,7 +45,7 @@ async def contribution_summary(
     """Net Contribution per wallet, with the employer and vesting split and the
     per-year totals annual limits are measured against."""
     return await contribution_service.summaries(
-        session, ctx.workspace.id, ctx.user_id, as_of=date.today()
+        session, ctx.workspace.id, ctx.user_id, as_of=app_today()
     )
 
 
@@ -56,7 +56,7 @@ async def create_contribution(
     session: AsyncSession = Depends(get_async_session),
 ):
     return await contribution_service.create_contribution(
-        session, ctx.workspace.id, data, as_of=date.today()
+        session, ctx.workspace.id, data, as_of=app_today()
     )
 
 
@@ -68,7 +68,7 @@ async def update_contribution(
     session: AsyncSession = Depends(get_async_session),
 ):
     row = await contribution_service.update_contribution(
-        session, contribution_id, ctx.workspace.id, data, as_of=date.today()
+        session, contribution_id, ctx.workspace.id, data, as_of=app_today()
     )
     if not row:
         raise HTTPException(

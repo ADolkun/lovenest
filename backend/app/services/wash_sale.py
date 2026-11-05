@@ -21,6 +21,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
@@ -210,7 +211,7 @@ async def wash_sale_exposure(
         .all()
     )
 
-    sell_date = sell_date or date.today()
+    sell_date = sell_date or app_today()
     price = price if price is not None else asset.last_price
     average = asset.average_price
     # Average Price is per contract where a price is per share, so the two only

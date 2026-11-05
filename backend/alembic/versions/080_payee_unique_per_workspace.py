@@ -112,15 +112,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Going back cannot recreate the user-scoped constraint unconditionally:
-    # the rows this migration made legal are exactly the ones it forbade.
+    # On this chain 066 already dropped `uq_payees_user_id_name`, so the
+    # guarded drop in upgrade() never fires here; 066's downgrade owns
+    # restoring it.
     op.drop_constraint("uq_payees_workspace_id_name", "payees", type_="unique")
-    duplicated_per_user = op.get_bind().execute(
-        sa.text(
-            "SELECT 1 FROM payees GROUP BY user_id, name HAVING count(*) > 1 LIMIT 1"
-        )
-    ).scalar()
-    if not duplicated_per_user:
-        op.create_unique_constraint(
-            "uq_payees_user_id_name", "payees", ["user_id", "name"]
-        )
