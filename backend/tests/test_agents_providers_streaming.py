@@ -293,8 +293,6 @@ async def test_anthropic_chat_stream_parses_text_block_sequence():
 
 @pytest.mark.asyncio
 async def test_anthropic_chat_stream_parses_tool_use_block():
-    # Build SSE lines via explicit json.dumps payloads — avoids backslash
-    # escapes inside f-strings, which Python 3.11 doesn't allow.
     events = [
         {"type": "content_block_start", "index": 0,
          "content_block": {"type": "tool_use", "id": "toolu_1", "name": "list_accounts"}},

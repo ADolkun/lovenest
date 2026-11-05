@@ -9,8 +9,7 @@ import math
 import re
 import secrets
 from datetime import datetime, timezone
-from collections.abc import Awaitable
-from typing import Any, cast
+from typing import Any
 
 from redis.exceptions import RedisError
 
@@ -91,11 +90,11 @@ async def save(workspace_id: str, token: str, snapshot: dict[str, Any]) -> None:
     try:
         async with asyncio.timeout(STORE_TIMEOUT_SECONDS):
             redis = await redis_store.get_redis()
-            await cast(Awaitable[Any], redis.eval(
+            await redis.eval(
                 _SAVE, 2, _key(workspace_id, token), _key(workspace_id, "index"),
                 raw, str(max(1, math.ceil(expires - now))), str(now * 1000),
                 str(MAX_PER_WORKSPACE), str(TTL_SECONDS),
-            ))
+            )
     except (RedisError, TimeoutError, OSError) as exc:
         raise CheckpointError("storage_unavailable") from exc
 
