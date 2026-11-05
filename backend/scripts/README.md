@@ -8,6 +8,12 @@ compatible versions, or `./scripts/lock.sh --check` to verify the lock is curren
 Then install the project and development tools with `uv sync --locked --group dev`
 and run checks with `uv run --no-sync`.
 
+Unless given `--check`, `--locked` or `--dry-run`, `lock.sh` then runs
+`uv sync --locked --group dev` and `code-intel capture`, which refreshes
+`.code-intel/library-capture.json` (it records the locked versions of the
+packages that build routes, and CI runs `capture --check`). Commit the capture
+with `uv.lock`.
+
 ## seed_perf.py
 
 Populates the database with realistic data for performance benchmarking and manual testing. Must be run inside the backend container since it imports app modules directly.
