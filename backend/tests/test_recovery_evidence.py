@@ -16,7 +16,7 @@ from app.models.investment_evidence import InvestmentObservation
 from app.schemas.investment_evidence import EvidenceOpeningBoundary
 from app.schemas.recovery_evidence import (
     RecoveryDetails, RecoveryEntryInput, RecoveryPreviewRequest, RecoveryRetainRequest,
-    RecoveryReviewInput, RecoveryReviewsRequest,
+    RecoveryReviewInput, RecoveryReviewsRequest, Role,
 )
 from app.services import investment_evidence_service as evidence
 from app.services import recovery_evidence_service as service
@@ -24,7 +24,12 @@ from app.services.asset_import_service import parse_orders_csv
 from tests.test_investment_evidence import observation, wallet as wallet
 
 
-def entry(key='notice', role='recovery_notice', **changes):
+def ident(value: uuid.UUID | None) -> uuid.UUID:
+    assert value is not None
+    return value
+
+
+def entry(key='notice', role: Role = 'recovery_notice', **changes):
     return RecoveryEntryInput(key=key, observation=observation(key, source_kind='tax_workpaper' if role == 'tax_workpaper' else 'primary_activity'),
                               leg_key='amount', case_key='synthetic-case', round_key='first', round_asset_key='SYN',
                               role=role, reported_state='confirmed', **changes)
@@ -102,7 +107,7 @@ async def test_recovery_workpaper_cannot_bypass_review_via_opening_lots(session,
 async def test_review_revisions_corrections_and_lossless_exports(session, test_workspace, test_user, wallet):
     package = await retain(session, test_workspace, test_user, wallet, [entry(role='equity_statement')])
     row = package.entries[0]
-    assertion = RecoveryReviewInput(key='allocation', kind='assertion', entry_id=row.id, assertion_kind='provisional_allocation',
+    assertion = RecoveryReviewInput(key='allocation', kind='assertion', entry_id=ident(row.id), assertion_kind='provisional_allocation',
                                      assertion_status='modeled', value='110.00000000000000000000000000001', currency='USD',
                                      source_locator='synthetic/model', reason='Provisional source assertion')
     request = RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=[assertion])
@@ -115,8 +120,8 @@ async def test_review_revisions_corrections_and_lossless_exports(session, test_w
     assert error.value.status_code == 409
     for entity in (wallet, test_workspace, test_user):
         await session.refresh(entity)
-    model = RecoveryReviewInput(key='model', kind='allocation', entry_id=row.id, assertion_status='modeled', source_locator='synthetic/model',
-                                reason='Incomplete input preview', required_entry_ids=[row.id], required_review_ids=[package.reviews[0].id],
+    model = RecoveryReviewInput(key='model', kind='allocation', entry_id=ident(row.id), assertion_status='modeled', source_locator='synthetic/model',
+                                reason='Incomplete input preview', required_entry_ids=[ident(row.id)], required_review_ids=[package.reviews[0].id],
                                 conflicting_fields=['shifted_reference'])
     package = await service.review_recovery(session, test_workspace.id, test_user.id, RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=[model]))
     assert 'valuation_missing' in package.allocation_blockers
@@ -135,7 +140,7 @@ async def test_filters_include_assertion_conflicts_and_derived_missing_without_c
     saved = await retain(session, test_workspace, test_user, wallet, [entry('notice'), entry('stock', 'equity_statement')])
     stock = next(item for item in saved.entries if item.key == 'stock')
     request = RecoveryReviewsRequest(group_id=wallet.id, expected_revision=saved.revision, reviews=[RecoveryReviewInput(
-        key='cost-conflict', kind='assertion', entry_id=stock.id, assertion_kind='reported_cost', assertion_status='conflict',
+        key='cost-conflict', kind='assertion', entry_id=ident(stock.id), assertion_kind='reported_cost', assertion_status='conflict',
         value='80', currency='USD', source_locator='synthetic/stock', reason='Competing cost assertion')])
     await service.review_recovery(session, test_workspace.id, test_user.id, request)
     conflicts = await service.list_recovery(session, test_workspace.id, wallet.id, relation_state='conflict')
@@ -150,9 +155,9 @@ async def test_filters_include_assertion_conflicts_and_derived_missing_without_c
 async def test_supported_assertion_requalifies_when_source_is_superseded(session, test_workspace, test_user, wallet):
     package = await retain(session, test_workspace, test_user, wallet, [entry('stock', 'equity_statement')])
     stock = package.entries[0]
-    decision = RecoveryReviewInput(key='reviewed-value', kind='assertion', entry_id=stock.id, assertion_kind='valuation',
+    decision = RecoveryReviewInput(key='reviewed-value', kind='assertion', entry_id=ident(stock.id), assertion_kind='valuation',
                                     assertion_status='supported', value='80', currency='USD',
-                                    supporting_observation_ids=[stock.observation_id], source_locator='synthetic/statement', reason='Source-stated valuation')
+                                    supporting_observation_ids=[ident(stock.observation_id)], source_locator='synthetic/statement', reason='Source-stated valuation')
     package = await service.review_recovery(session, test_workspace.id, test_user.id, RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=[decision]))
     assert package.reviews[0].ready_for_review
     source = await session.get(InvestmentObservation, stock.observation_id)
@@ -168,9 +173,9 @@ async def test_supported_assertion_requalifies_when_source_is_superseded(session
 async def test_workpaper_cannot_verify_a_filing_assertion(session, test_workspace, test_user, wallet):
     package = await retain(session, test_workspace, test_user, wallet, [entry('workpaper', 'tax_workpaper')])
     row = package.entries[0]
-    assertion = RecoveryReviewInput(key='filing-label', kind='assertion', entry_id=row.id, assertion_kind='filing_assertion',
+    assertion = RecoveryReviewInput(key='filing-label', kind='assertion', entry_id=ident(row.id), assertion_kind='filing_assertion',
                                      assertion_status='unverified', source_locator='synthetic/workpaper',
-                                     supporting_observation_ids=[row.observation_id], reason='Model claims this was already filed')
+                                     supporting_observation_ids=[ident(row.observation_id)], reason='Model claims this was already filed')
     package = await service.review_recovery(session, test_workspace.id, test_user.id, RecoveryReviewsRequest(group_id=wallet.id, expected_revision=package.revision, reviews=[assertion]))
     assert 'filed_record_unverified' in package.reviews[0].blockers
     assert not package.reviews[0].ready_for_review
@@ -188,21 +193,22 @@ async def review(session, workspace, user, wallet, *decisions):
 
 
 def assertion(key, row, **changes):
-    return RecoveryReviewInput(key=key, kind='assertion', entry_id=row.id, source_locator='synthetic/review',
+    return RecoveryReviewInput(key=key, kind='assertion', entry_id=ident(row.id), source_locator='synthetic/review',
                                reason='Synthetic provenance review', **changes)
 
 
 async def modeled_inputs(session, workspace, user, wallet):
     item = entry('valued-equity', 'equity_statement')
+    assert item.observation is not None
     item.observation.legs[0].valuation_amount = Decimal('80')
     package = await retain(session, workspace, user, wallet, [item])
     row = package.entries[0]
     assumption = assertion('assumption', row, assertion_kind='accounting_assumption', assertion_status='supported',
-                           supporting_observation_ids=[row.observation_id], proposed_value='USD source valuation review')
+                           supporting_observation_ids=[ident(row.observation_id)], proposed_value='USD source valuation review')
     package = await review(session, workspace, user, wallet, assumption)
-    model = RecoveryReviewInput(key='model', kind='allocation', entry_id=row.id, assertion_status='modeled',
+    model = RecoveryReviewInput(key='model', kind='allocation', entry_id=ident(row.id), assertion_status='modeled',
                                 source_locator='synthetic/model', reason='Review preview only', value='80', currency='USD',
-                                required_entry_ids=[row.id], required_review_ids=[package.reviews[0].id])
+                                required_entry_ids=[ident(row.id)], required_review_ids=[package.reviews[0].id])
     return row, model
 
 
@@ -259,6 +265,7 @@ async def test_models_exclude_other_outputs_and_unrelated_controls_but_detect_ex
     package = await review(session, test_workspace, test_user, wallet, conflict, other, model)
     assert next(item for item in package.reviews if item.key == 'model').ready_for_review
     state = await service._load(session, test_workspace.id, wallet.id)
+    assert state is not None
     models = {item.review_key: item for item in state['recovery_reviews'].values() if item.payload['kind'] == 'allocation'}
     active = {item.id for item in service._current_reviews(state)}
     current = models['model']
@@ -276,9 +283,11 @@ async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_r
     from app.models.investment_evidence import InvestmentObservationLink
 
     receipt = entry('receipt', 'receiving_receipt')
-    receipt.observation.legs[0].classification = 'transfer'
+    receipt_observation = receipt.observation
+    assert receipt_observation is not None
+    receipt_observation.legs[0].classification = 'transfer'
     if alias_kind == 'physical_identity':
-        receipt.observation.legs[0] = receipt.observation.legs[0].model_copy(update={
+        receipt_observation.legs[0] = receipt_observation.legs[0].model_copy(update={
             'chain': 'ethereum', 'token_address': 'native', 'transaction_ref': 'synthetic-receipt', 'leg_ref': '0',
             'source_address': 'synthetic-source', 'destination_address': 'synthetic-destination', 'quantity_role': 'principal',
         })
@@ -291,7 +300,7 @@ async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_r
         return RecoveryReviewInput(key=key, kind='relation', entry_id=notice.id, target_entry_id=target.id,
                                     relation_kind='notice_receipt', relation_state='confirmed',
                                     source_locator='synthetic/notice-receipt', reason='Reviewed source account and timing',
-                                    supporting_observation_ids=[received.observation_id], account_mapping_evidence='Synthetic account review',
+                                    supporting_observation_ids=[ident(received.observation_id)], account_mapping_evidence='Synthetic account review',
                                     timing_evidence='Source dates agree')
 
     links = [link('first-link', rows['notice'], received), link('repeated-link', rows['repeated-notice'], received)]
@@ -301,7 +310,7 @@ async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_r
     if alias_kind == 'same_observation':
         alias = receipt.model_copy(update={'key': 'alias', 'observation': None, 'observation_id': received.observation_id, 'round_key': 'second'})
     else:
-        source = receipt.observation.model_copy(update={'reference': 'alias-source', 'source_local_id': 'alias-source', 'source': 'api'})
+        source = receipt_observation.model_copy(update={'reference': 'alias-source', 'source_local_id': 'alias-source', 'source': 'api'})
         alias = receipt.model_copy(update={'key': 'alias', 'observation': source, 'round_key': 'second'})
     package = await retain(session, test_workspace, test_user, wallet, [alias])
     annotated = next(row for row in package.entries if row.key == 'alias')
@@ -322,7 +331,7 @@ async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_r
     for entity in (wallet, test_workspace, test_user):
         await session.refresh(entity)
     candidate = conflicting_link.model_copy(update={'relation_state': 'candidate'})
-    correction = RecoveryReviewInput(key='round-dispute', kind='correction', entry_id=annotated.id,
+    correction = RecoveryReviewInput(key='round-dispute', kind='correction', entry_id=ident(annotated.id),
                                      field='round_key', proposed_value='first', assertion_status='conflict',
                                      source_locator='synthetic/round-review', reason='Conflicting annotation requires support')
     package = await review(session, test_workspace, test_user, wallet, candidate, correction)

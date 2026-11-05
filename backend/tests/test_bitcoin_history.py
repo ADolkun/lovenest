@@ -19,19 +19,19 @@ OWNER = "owned-A"
 STAMP = 1_800_000_000
 
 
-def output(value, address=OWNER, script="51"):
-    item = {"value": value, "scriptpubkey": script, "scriptpubkey_type": "unknown"}
+def output(value, address=OWNER, script="51") -> dict[str, Any]:
+    item: dict[str, Any] = {"value": value, "scriptpubkey": script, "scriptpubkey_type": "unknown"}
     if address is not None:
         item["scriptpubkey_address"] = address
     return item
 
 
-def spend(previous="funding-A", index=0, value=1000, address=OWNER, script="51"):
+def spend(previous="funding-A", index=0, value=1000, address=OWNER, script="51") -> dict[str, Any]:
     return {"txid": previous, "vout": index, "is_coinbase": False, "sequence": 4294967293,
             "scriptsig": "", "witness": ["aa"], "prevout": output(value, address, script)}
 
 
-def transaction(reference="send-A", *, inputs=None, outputs=None, height=95, stamp=STAMP, confirmed=True):
+def transaction(reference="send-A", *, inputs=None, outputs=None, height=95, stamp=STAMP, confirmed=True) -> dict[str, Any]:
     status = {"confirmed": confirmed}
     if confirmed:
         status.update(block_height=height, block_hash=f"block-{height}", block_time=stamp)
@@ -764,7 +764,11 @@ async def test_projection_keeps_long_addressless_scripts_and_does_not_charge_fee
     assert len(legs) == 2
     assert all(leg.classification != "fee" for leg in legs)
     assert {leg.direction for leg in legs} == {"in", "out"}
-    assert sum(leg.quantity if leg.direction == "in" else -leg.quantity for leg in legs) == Decimal("-0.00000610")
+    signed = []
+    for leg in legs:
+        assert leg.quantity is not None
+        signed.append(leg.quantity if leg.direction == "in" else -leg.quantity)
+    assert sum(signed) == Decimal("-0.00000610")
     assert current(archive)["outputs"][1]["scriptpubkey"] == script
     assert current(archive)["legs"][2]["derivation"]["outpoint"] == "send-A:1"
 

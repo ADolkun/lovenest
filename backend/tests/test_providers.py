@@ -12,7 +12,7 @@ from app.providers import (
     get_storage_provider,
     _PROVIDERS,
 )
-from app.providers.base import BankProvider
+from app.providers.base import BankProvider, ConnectionData
 from app.core.config import Settings
 
 
@@ -33,8 +33,8 @@ class FakeProvider(BankProvider):
     ) -> str:
         return "https://fake.example.com"
 
-    async def handle_oauth_callback(self, code: str):
-        pass
+    async def handle_oauth_callback(self, code: str) -> ConnectionData:
+        raise NotImplementedError
 
     async def get_accounts(self, credentials: dict):
         return []

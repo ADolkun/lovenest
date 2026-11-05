@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -57,7 +58,7 @@ async def history_context(session, test_workspace, test_user):
     return await connected_context(session, test_workspace.id, test_user.id)
 
 
-def native_transaction(*, incoming=False, slot=102):
+def native_transaction(*, incoming=False, slot=102) -> dict[str, Any]:
     keys = [B, A] if incoming else [A, B]
     return {
         "slot": slot, "blockTime": 1738584000 + slot, "version": "legacy",
@@ -78,7 +79,7 @@ def native_transaction(*, incoming=False, slot=102):
 
 def rpc_fixture(monkeypatch):
     calls = []
-    payloads = {"synthetic-receipt": native_transaction(incoming=True, slot=101), "synthetic-send": native_transaction()}
+    payloads: dict[str, dict[str, Any]] = {"synthetic-receipt": native_transaction(incoming=True, slot=101), "synthetic-send": native_transaction()}
 
     async def rpc(*args, **kwargs):
         body = kwargs["json_body"]
@@ -400,7 +401,7 @@ async def test_missing_group_retains_unmapped_crosswalk_without_financial_mappin
 async def test_summary_listing_hashes_payloads_once_without_reconciling_raw_archives(monkeypatch):
     rows = []
     for collection in range(100):
-        archive = {"chain": "solana", "owner": A, "coverage": {"interpretation": "complete", "settlement": "complete"},
+        archive: dict[str, Any] = {"chain": "solana", "owner": A, "coverage": {"interpretation": "complete", "settlement": "complete"},
                    "transactions": {}, "payloads": {}}
         for transaction in range(100):
             digest = f"payload-{collection}-{transaction}"
@@ -451,10 +452,10 @@ async def test_postgres_busy_mapping_locks_do_not_wait_or_start_rpc(history_pg_c
         assert calls == []
 
 
-def _ownership_scope_archive(records):
+def _ownership_scope_archive(records) -> dict[str, Any]:
     from tests.test_solana_history import TOKEN, balance, instruction, transaction
 
-    archive = {"owner": A, "transactions": {}, "coverage": {"retrieval": "complete"}}
+    archive: dict[str, Any] = {"owner": A, "transactions": {}, "coverage": {"retrieval": "complete"}}
     for index, (slot, owner, incoming, pre, amount) in enumerate(records):
         signature = f"synthetic-scope-{index}"
         units = int(Decimal(amount) * 1_000_000)
@@ -481,7 +482,7 @@ def _ownership_scope_archive(records):
 @pytest.mark.parametrize("external_slot", [8, 12])
 def test_reconciliation_excludes_other_owner_movements_outside_snapshot_bounds(external_slot):
     archive = _ownership_scope_archive([(10, A, True, "10", "4"), (external_slot, B, False, "14", "3")])
-    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    row: dict[str, Any] = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
     assert row["status"] == "matched"
     assert Decimal(row["opening"]) == 10
     assert Decimal(row["settled_change"]) == 4
@@ -511,7 +512,7 @@ def test_reconciliation_keeps_unknown_in_interval_ownership_or_placement(uncerta
         elif uncertainty == "boundary_sibling":
             version["slot"] = 10
             token_observation["owner"] = B
-    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    row: dict[str, Any] = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
     assert row["status"] == "unknown"
     # Unknown movements happen to cancel. That must never certify the interval.
     assert Decimal(row["settled_change"]) == 4
@@ -528,7 +529,7 @@ def test_reconciliation_keeps_unknown_in_interval_ownership_or_placement(uncerta
 def test_reconciliation_unknown_slot_cannot_be_assumed_outside_owned_interval():
     archive = _ownership_scope_archive([(10, A, True, "10", "4"), (12, B, False, "14", "3")])
     archive["transactions"]["solana:synthetic-scope-1"]["versions"][0]["slot"] = None
-    row = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
+    row: dict[str, Any] = next(item for item in service.reconcile_history(archive) if item["account"] == "token-A")
     assert row["status"] == "unknown"
     assert Decimal(row["settled_change"]) == 4
     assert "snapshot_scope_unresolved" in row["reasons"]

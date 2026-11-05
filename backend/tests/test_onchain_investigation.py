@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any, Literal
 
 import pytest
 from fastapi import HTTPException
@@ -34,7 +35,7 @@ def event(identifier, minute, legs, *, mechanics=None):
         assets=[TimelineAsset(canonical_asset_key=part.canonical_asset_key, identity_status="canonical") for part in legs], legs=legs)
 
 
-def leg(identifier, asset, quantity, source, destination, direction="out", **kwargs):
+def leg(identifier, asset, quantity, source, destination, direction: Literal["in", "out", "unknown"] = "out", **kwargs):
     return TimelineLeg(key=identifier, leg_id=identifier, canonical_asset_key=asset, chain="solana", token_address="native" if asset == "SOL" else "synthetic-USDC",
         quantity=Decimal(quantity), source_address=source, destination_address=destination,
         source_owner=source, destination_owner=destination, direction=direction, classification="transfer",
@@ -809,7 +810,7 @@ def test_completed_frontier_requires_compatible_source_scope_and_explicit_comple
     monkeypatch.setattr(history, "history_source_identity", lambda chain: "current-source")
     request = InvestigationRequest(event_id="event", leg_id="leg", max_hops=6, max_branches=5)
     frontier = {"key": "key", "chain": "bitcoin", "depth": 2}
-    binding = {"version": research.RESEARCH_VERSION, "root_anchor": {"height": 50}, "root_decoder": DECODER_VERSION}
+    binding: dict[str, Any] = {"version": research.RESEARCH_VERSION, "root_anchor": {"height": 50}, "root_decoder": DECODER_VERSION}
     archive = {"source_identity": "current-source", "decoder_version": DECODER_VERSION, "resumable": False, "research": {"limits": {"hops": 4, "branches": 5}}}
     root = SimpleNamespace(payload={"chain": "bitcoin", "source_identity": "current-source", "anchor": {"height": 50}, "decoder_version": DECODER_VERSION})
     if changed == "source":
