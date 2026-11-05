@@ -1,0 +1,16 @@
+# Dependency sync after checkouts, merges and rebases. Separate from the
+# root .pre-commit-config.yaml, which tracks upstream. Install once per clone:
+#
+#   uv tool run prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+#
+# Skip it for one git command with SKIP=sync-deps.
+repos:
+  - repo: local
+    hooks:
+      - id: sync-deps
+        name: sync dependencies with the lockfiles
+        entry: tools/dev/sync-deps.sh
+        language: script
+        always_run: true
+        pass_filenames: false
+        stages: [post-checkout, post-merge, post-rewrite]

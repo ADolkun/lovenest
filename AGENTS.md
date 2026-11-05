@@ -89,6 +89,14 @@ Run from the repository root. All Python goes through `uv run --no-sync` after a
 docker compose up -d                                # dev stack
 ```
 
+Keep each checkout's installs in step with its lockfiles after a branch switch, pull, rebase or `git worktree add`. Install the hooks once per clone, from the repository root:
+
+```bash
+uv tool run prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+```
+
+`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
+
 `docker-compose.yml` and `docker-compose.prod.yml` both use the project name `securo`, the live stack. Do not bring a stack up from a worktree while the live one is running.
 
 **Per-run test command (one file):**
