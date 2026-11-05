@@ -18,7 +18,7 @@ Check these before changing the tooling:
 
 - Registration: [`.mcp.json`](../../../.mcp.json). Config: [`.code-intel/config.toml`](../../../.code-intel/config.toml). Pin: [`.code-intel/requirements.txt`](../../../.code-intel/requirements.txt).
 - The tool itself lives in <https://github.com/ADolkun/code-intel>. Its README has the config reference, response contract and analysis notes; the pinned commit is the one in the pin file.
-- Installs: [`tools/dev/sync-deps.sh`](../../../tools/dev/sync-deps.sh).
+- Installs of `backend/.venv` and `frontend/node_modules`: [`tools/dev/sync-deps.sh`](../../../tools/dev/sync-deps.sh). It does not touch code-intel.
 - `backend/mcp_server/` is the product's MCP server for users' agents. It is unrelated to this tooling.
 
 ## Tool routing
@@ -57,7 +57,7 @@ uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.t
 
 | Command | Use |
 |---------|-----|
-| `setup` | Installs the TypeScript the frontend analysis needs, once, in `~/.cache/code-intel` (shared by every checkout; `sync-deps.sh` runs it) |
+| `setup` | Provisions the TypeScript the frontend analysis needs now, in `~/.cache/code-intel` (shared by every checkout, keyed by the tool's lockfile). Optional: the first use provisions it anyway, and CI runs `setup` explicitly to stay deterministic |
 | `config-check` | Validates `.code-intel/config.toml`; an error names the key and file |
 | `verify` | Cross-checks the analyzers against each other and the working tree; expect every check to pass (`library-capture` needs `backend/.venv`) |
 | `doc-check` | The docs check: broken links, stale code references, orphaned docs, agent files |
@@ -105,7 +105,8 @@ Pinned in `.mcp.json` (no registry query at session start); bump it deliberately
 |---------|--------------|-----|
 | Server `code-intel` or `probe` is missing, or "needs approval" | Claude Code asks you to approve project MCP servers once per user | Approve both when prompted, or run `/mcp` |
 | `uv` or `npx` refuses to start in a worktree ("not trusted") | mise does not trust the directory, which happens for worktree roots outside the main checkout | `mise trust` in the worktree, or add the root to `trusted_config_paths` |
-| `frontend_unavailable` | No Node or TypeScript for the analysis | Run the `setup` command above, then `status` |
+| `frontend_provisioning` | First use on this machine: the MCP server is installing TypeScript (about 5 s) | Retry in a few seconds; the CLI provisions synchronously instead |
+| `frontend_unavailable` | No Node, or provisioning failed | Run the `setup` command above to see the error, then `status` |
 | `runtime_incompatible` | The server runs on a Python older than `backend/.python-version` | The launcher passes `--python 3.14`; do not drop it |
 | LSP returns empty, or only the symbol itself | Cold start | Retry once |
 | LSP results miss imports and cross-file references | `backend/.venv` is missing or empty, so the server could not resolve `app` | `uv sync --locked` in `backend/` (or `tools/dev/sync-deps.sh`), then restart the client |

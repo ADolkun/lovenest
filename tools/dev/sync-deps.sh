@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Brings a checkout's installed dependencies in line with its lockfiles:
-# backend/.venv and extras/tax/.venv (uv), frontend/node_modules (npm), and the
-# TypeScript install code-intel shares across checkouts (when .code-intel/ is pinned).
+# backend/.venv and extras/tax/.venv (uv) and frontend/node_modules (npm).
 #
 # The post-checkout, post-merge and post-rewrite hooks in tools/dev/git-hooks.yaml
 # run it, so switching branches, pulling, rebasing and `git worktree add` keep the
@@ -37,10 +36,6 @@ if command -v uv >/dev/null 2>&1; then
   for dir in backend extras/tax; do
     (cd "$dir" && uv sync --locked) || fail "cd $dir && uv sync --locked"
   done
-  if [ -f .code-intel/requirements.txt ]; then
-    code_intel="uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup"
-    $code_intel || fail "$code_intel"
-  fi
 else
   fail "install uv (https://docs.astral.sh/uv/), then rerun tools/dev/sync-deps.sh"
 fi

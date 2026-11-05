@@ -99,7 +99,7 @@ uv tool install prek
 prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
 ```
 
-`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, `code-intel setup` (below), and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
+`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
 
 `docker-compose.yml` and `docker-compose.prod.yml` both use the project name `securo`, the live stack. Do not bring a stack up from a worktree while the live one is running.
 
@@ -149,7 +149,7 @@ Use the cheapest tool that answers exactly. Read `.claude/skills/code-intel-refe
 
 ### Prerequisites
 
-Every checkout and worktree needs `backend/.venv`, `frontend/node_modules` and code-intel's TypeScript install (shared in `~/.cache/code-intel`). The sync hook above provides all three; without them LSP and the frontend tools quietly return less. Claude Code asks you to approve the project's `code-intel` and `probe` servers once.
+Every checkout and worktree needs `backend/.venv` and `frontend/node_modules`; the sync hook above provides both, and without them LSP and the frontend tools quietly return less. code-intel provisions its own TypeScript on first use (cache shared by all checkouts), so its frontend tools answer `frontend_provisioning` for a few seconds once. Claude Code asks you to approve the project's `code-intel` and `probe` servers once.
 
 ### Before committing
 

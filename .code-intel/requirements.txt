@@ -1,1 +1,1 @@
-code-intel @ git+https://github.com/ADolkun/code-intel@9335398e96eaef1cac217c027670c4b52f1cc17d  # v0.2.0
+code-intel @ git+https://github.com/ADolkun/code-intel@863a91d405e6ed26973bb7628f1f112f73378fa1  # v0.2.1
