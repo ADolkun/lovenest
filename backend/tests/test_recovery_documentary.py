@@ -221,9 +221,12 @@ async def test_verified_holding_identity_can_support_both_legs_but_conflicts_req
     saved = await package(v)
     assert saved['reviews'][0]['blockers']
     state = await service._load(v.session, v.workspace.id, v.b.group_id)
+    assert state is not None
     state['assets'][v.b.id].units = Decimal('0.123456789012345678901234567890123456789')
     projected = service._project(state, v.workspace.id, v.b.group_id)
-    assert projected.entries[0].associated_holding.model_dump(mode='json')['stored_quantity'] == '0.123456789012345678901234567890123456789'
+    holding = projected.entries[0].associated_holding
+    assert holding is not None
+    assert holding.model_dump(mode='json')['stored_quantity'] == '0.123456789012345678901234567890123456789'
 
 
 async def test_shared_isin_can_bridge_distinct_provider_identifiers(transfers):

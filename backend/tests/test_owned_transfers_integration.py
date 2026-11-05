@@ -3,6 +3,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -86,7 +87,9 @@ async def transfers(session, test_workspace, test_user, client, auth_headers):
     return v
 
 
-async def pair(v, source, destination, *, quantity="3", reference="synthetic-transfer", when="2025-02-03T12:00:00+00:00"):
+async def pair(
+    v, source, destination, *, quantity="3", reference="synthetic-transfer", when="2025-02-03T12:00:00+00:00",
+) -> dict[str, Any]:
     endpoints = {"source": v.addresses[source.id], "destination": v.addresses[destination.id]}
     out = await retain_movement(v.session, source, direction="out", reference=reference, quantity=quantity, when=when, **endpoints)
     incoming = await retain_movement(v.session, destination, direction="in", reference=reference, quantity=quantity, when=when, **endpoints)
@@ -102,7 +105,7 @@ async def transfer_preview(v, request):
     return checked(await v.client.post(f"{PREFIX}/transfers/preview", headers=v.headers, json=request))
 
 
-async def select_lots(v, request, quantities=None):
+async def select_lots(v, request, quantities=None) -> dict[str, Any]:
     preview = await transfer_preview(v, request)
     lots = preview["available_lots"]
     if quantities is None:

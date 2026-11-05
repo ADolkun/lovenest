@@ -277,6 +277,7 @@ def _preview(state, request):
         association = _review(state, request.review_id, "associate")
         sources = association.payload["sources"]
     else:
+        asset = replacement = fee_treatment = source_fee = None
         if request.action == "correct":
             association = _review(state, request.review_id, "associate")
             declaration = SourceReviewRequest.model_validate(association.payload["request"])

@@ -1774,8 +1774,9 @@ def test_institution_rename_wins_on_single_links_but_not_multi():
 
     single = _mem_connection(display_name="My Bank")
     with_own = Account(name="Checking", type="checking")
-    with_own.institution = _mem_institution("First Bank")
-    single.institutions = [with_own.institution]
+    own_institution = _mem_institution("First Bank")
+    with_own.institution = own_institution
+    single.institutions = [own_institution]
     assert _institution(with_own, single)[0] == "My Bank"
 
     multi = _mem_multi_connection(display_name="My Bank Link")

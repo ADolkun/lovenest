@@ -84,12 +84,12 @@ async def disable_2fa(
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ):
-    from fastapi_users.db import SQLAlchemyUserDatabase
     from fastapi.security import OAuth2PasswordRequestForm
 
+    from app.core.auth import UserDatabase, UserManager
+
     # Verify password by authenticating
-    user_db = SQLAlchemyUserDatabase(session, User)
-    from app.core.auth import UserManager
+    user_db = UserDatabase(session, User)
     user_manager = UserManager(user_db)
 
     creds = OAuth2PasswordRequestForm(username=user.email, password=body.password)

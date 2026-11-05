@@ -75,7 +75,7 @@ uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.t
 
 Claude Code's `LSP` tool takes an operation, a file and a 1-based line and character on the identifier's name. It needs language servers registered by a user-scope plugin; the repository carries no LSP config. The plugin should start:
 
-- Python: `pyrefly lsp` from `backend/.venv` (the [`backend/pyproject.toml`](../../../backend/pyproject.toml) dev group pins `pyrefly>=1.4.1`; `[tool.pyrefly]` keeps its type errors out of the editor, because ty is the gate).
+- Python: `pyrefly lsp` from `backend/.venv` (the [`backend/pyproject.toml`](../../../backend/pyproject.toml) dev group pins `pyrefly>=1.4.1`).
 - TypeScript: the native server of the frontend's TypeScript 7, `node frontend/node_modules/typescript/bin/tsc --lsp --stdio`, rooted at `frontend/`.
 
 Both read the checkout's own installs, so a worktree needs `backend/.venv` and `frontend/node_modules`. The sync hook ([`tools/dev/sync-deps.sh`](../../../tools/dev/sync-deps.sh), installed per clone as AGENTS.md describes) creates them after `git worktree add`. Without them the server starts, cannot resolve `app` or third-party imports, and answers with quietly missing references.

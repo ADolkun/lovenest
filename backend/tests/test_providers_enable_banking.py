@@ -7,8 +7,9 @@ HTTP is mocked end-to-end via httpx.MockTransport.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
+from typing import Self
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -456,8 +457,9 @@ class _EveningInLosAngeles(datetime):
     """2026-05-19 01:00 UTC, still 2026-05-18 west of UTC."""
 
     @classmethod
-    def now(cls, tz=None):
-        return datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        instant = datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+        return cls.combine(instant.date(), instant.timetz())
 
 
 @pytest.mark.asyncio

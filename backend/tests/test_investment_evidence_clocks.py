@@ -165,6 +165,7 @@ async def test_sync_clock_enrichment_uses_actual_writer_readiness(
         account_external_id="portfolio-A",
         metadata={"provider_asset_id": "currency-SYN"},
     )
+    assert new.event_at is not None
     trade = TradeData(
         external_id="same-api-execution",
         holding_external_id="currency-wallet-A",

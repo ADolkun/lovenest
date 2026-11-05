@@ -132,7 +132,7 @@ selection, also run `python3 .github/ci/test_changes.py` from the repository roo
 cd backend
 uv sync --locked --group dev   # creates .venv and rejects an out-of-date uv.lock
 uv run --no-sync ruff check .
-uv run --no-sync ty check .
+uv run --no-sync pyrefly check
 uv run --no-sync pytest -n auto --dist loadfile --cov=app --cov-report=term-missing --cov-fail-under=60
 
 # After changing dependencies in pyproject.toml: regenerate the lock and
@@ -242,7 +242,7 @@ PR titles follow the same convention.
 
 - Open PRs against **`lovenest`** (never `main`).
 - Keep PRs focused — one feature or fix each.
-- Make sure both CI jobs pass: `ruff` + `ty` + `pytest` clean, frontend lint + build + tests green.
+- Make sure both CI jobs pass: `ruff` + `pyrefly` + `pytest` clean, frontend lint + build + tests green.
 - Add tests for new backend functionality.
 - Update translations if you add user-facing strings (EN + PT-BR).
 - The PR template asks **"Could this also benefit upstream Securo?"** — answer honestly (see below).

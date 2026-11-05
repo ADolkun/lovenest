@@ -5,6 +5,7 @@ import uuid
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal, localcontext
+from typing import Any, Literal, overload
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -62,9 +63,9 @@ async def lock_workspace(session, workspace_id):
         raise
 
 
-async def _state(session, workspace_id):
+async def _state(session, workspace_id) -> dict[str, Any]:
     from app.models.investment_evidence import InvestmentSourceReview
-    result = {}
+    result: dict[str, Any] = {}
     for key, model in (("assets", Asset), ("groups", AssetGroup), ("transactions", AssetTransaction),
                        ("observations", InvestmentObservation), ("legs", InvestmentLeg),
                        ("links", InvestmentObservationLink),
@@ -367,6 +368,10 @@ def _qualify(state):
                                  "missing_links": sorted(set((tx.movement or {}).get("missing_links", [])) | set(qualification[row.id]["missing_links"]))}
 
 
+@overload
+async def prepare_replay(session, workspace_id, *, if_movements: Literal[False] = False) -> dict[str, Any]: ...
+@overload
+async def prepare_replay(session, workspace_id, *, if_movements: bool) -> dict[str, Any] | None: ...
 async def prepare_replay(session, workspace_id, *, if_movements=False):
     if if_movements and await session.scalar(select(InvestmentMovementApplication.id).where(
         InvestmentMovementApplication.workspace_id == workspace_id,

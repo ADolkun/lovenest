@@ -245,6 +245,8 @@ def parse_ofx(content: bytes) -> list[TransactionImport]:
         ofx = OfxParser.parse(io.BytesIO(content))
     transactions = []
 
+    # ofxparse attaches `accounts` to the `Ofx` object inside `OfxParser.parse`, not in its class body.
+    # pyrefly: ignore[missing-attribute]
     for account in ofx.accounts:
         for txn in account.statement.transactions:
             raw_payee = getattr(txn, 'payee', None) or None

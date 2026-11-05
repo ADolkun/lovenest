@@ -224,7 +224,7 @@ def compose(node: str, rows: list[ReconciliationRule]) -> dict[str, Any]:
         # one would offer to "restore" a rule that was never altered.
         merged["customised"] = bool(row and row.config)
         asked = row is not None and row.position is not None
-        place = float(row.position) if asked and row else float(index)
+        place = float(row.position) if row is not None and row.position is not None else float(index)
         ordered.append((place, 0 if asked else 1, index, merged))
 
     for offset, row in enumerate(r for r in rows if r.origin == "custom"):
@@ -236,7 +236,7 @@ def compose(node: str, rows: list[ReconciliationRule]) -> dict[str, Any]:
         asked = row.position is not None
         place = (
             float(row.position)
-            if asked
+            if row.position is not None
             else float(len(policy["strategies"]) + offset)
         )
         ordered.append(

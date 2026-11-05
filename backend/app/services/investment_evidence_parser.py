@@ -5,18 +5,18 @@ import io
 import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import TypeAdapter, ValidationError
 
 from app.schemas.investment_evidence import EvidenceLegInput, EvidenceObservationInput
 
 
-def evidence_time(raw: str | None, formats=(), zone: str | None = None) -> tuple[dict, list[str]]:
+def evidence_time(raw: str | None, formats=(), zone: str | None = None) -> tuple[dict[str, Any], list[str]]:
     """Keep the original clock; only an explicit timezone establishes an instant."""
     if raw is not None and not isinstance(raw, str):
         return {"event_time_raw": None, "time_precision": "unknown"}, ["invalid_event_time"]
-    result = {"event_time_raw": raw or None, "time_precision": "unknown"}
+    result: dict[str, Any] = {"event_time_raw": raw or None, "time_precision": "unknown"}
     if not raw:
         return result, ["missing_event_time"]
     value = raw.strip()
@@ -288,30 +288,30 @@ def parse_observations_csv(
                 historical_workspace_label=cell(row, "historical_workspace_label") or None,
                 coverage=["source_history_bounds_unknown"] + (["unmapped_columns"] if unmapped else []),
                 reason_codes=list(dict.fromkeys(reasons)), source_fields=source_fields,
-                legs=[EvidenceLegInput(
-                    key=cell(row, "leg_ref") or "row", asset_symbol=cell(row, "ticker").upper() or None,
-                    direction=direction, classification=classification,
-                    quantity=quantity.copy_abs() if quantity is not None else None, **values,
-                    execution_currency=execution_currency, valuation_currency=valuation_currency,
-                    unit_price_origin="reported" if values.get("unit_price") is not None else "unknown",
-                    fee_currency=cell(row, "fee_currency") or None,
-                    external_funding_currency=cell(row, "external_funding_currency") or None,
-                    chain=cell(row, "chain") or None, token_address=cell(row, "token_address") or None,
-                    provider_asset_id=cell(row, "provider_asset_id") or None, isin=cell(row, "isin") or None,
-                    transaction_ref=cell(row, "transaction_ref") or None,
-                    leg_ref=cell(row, "leg_ref") or None,
-                    execution_id=cell(row, "execution_id") or None,
-                    token_program=cell(row, "token_program") or None,
-                    source_address=cell(row, "source_address") or None,
-                    destination_address=cell(row, "destination_address") or None,
-                    source_owner=cell(row, "source_owner") or None,
-                    destination_owner=cell(row, "destination_owner") or None,
-                    raw_units=cell(row, "raw_units") or None,
-                    decimals=cell(row, "decimals") or None,
-                    quantity_role=cell(row, "quantity_role") or None,
-                    fee_payer=cell(row, "fee_payer") or None,
-                    fee_semantics=cell(row, "fee_semantics") or "unknown",
-                )],
+                legs=[EvidenceLegInput.model_validate({
+                    "key": cell(row, "leg_ref") or "row", "asset_symbol": cell(row, "ticker").upper() or None,
+                    "direction": direction, "classification": classification,
+                    "quantity": quantity.copy_abs() if quantity is not None else None, **values,
+                    "execution_currency": execution_currency, "valuation_currency": valuation_currency,
+                    "unit_price_origin": "reported" if values.get("unit_price") is not None else "unknown",
+                    "fee_currency": cell(row, "fee_currency") or None,
+                    "external_funding_currency": cell(row, "external_funding_currency") or None,
+                    "chain": cell(row, "chain") or None, "token_address": cell(row, "token_address") or None,
+                    "provider_asset_id": cell(row, "provider_asset_id") or None, "isin": cell(row, "isin") or None,
+                    "transaction_ref": cell(row, "transaction_ref") or None,
+                    "leg_ref": cell(row, "leg_ref") or None,
+                    "execution_id": cell(row, "execution_id") or None,
+                    "token_program": cell(row, "token_program") or None,
+                    "source_address": cell(row, "source_address") or None,
+                    "destination_address": cell(row, "destination_address") or None,
+                    "source_owner": cell(row, "source_owner") or None,
+                    "destination_owner": cell(row, "destination_owner") or None,
+                    "raw_units": cell(row, "raw_units") or None,
+                    "decimals": cell(row, "decimals") or None,
+                    "quantity_role": cell(row, "quantity_role") or None,
+                    "fee_payer": cell(row, "fee_payer") or None,
+                    "fee_semantics": cell(row, "fee_semantics") or "unknown",
+                })],
             ))
         except ValidationError as exc:
             for error in exc.errors(include_input=False, include_url=False):

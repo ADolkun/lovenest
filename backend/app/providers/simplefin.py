@@ -305,7 +305,7 @@ class SimpleFinProvider(BankProvider):
 
     # ----- connection flow ---------------------------------------------------
 
-    def get_oauth_url(self, *args, **kwargs):  # type: ignore[override]
+    def get_oauth_url(self, *args, **kwargs):
         raise NotImplementedError("SimpleFIN uses paste-a-token flow, not OAuth redirect")
 
     async def handle_oauth_callback(self, code: str) -> ConnectionData:

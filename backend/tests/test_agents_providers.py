@@ -209,7 +209,7 @@ class _ScriptedProvider(LLMProvider):
         super().__init__()
         self._chunks = chunks
 
-    async def chat_stream(  # type: ignore[override]
+    async def chat_stream(
         self, messages, *, model, tools=None, temperature=0.4, max_tokens=None
     ) -> AsyncIterator[ChatChunk]:
         for c in self._chunks:

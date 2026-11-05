@@ -13,8 +13,8 @@ ProductOrigin = Literal["local", "imported"]
 
 class PriceInput(BaseModel):
     currency: str = Field(..., min_length=3, max_length=3)
-    unit_price: Decimal = Field(..., ge=0)
-    tax_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    unit_price: Decimal = Field(..., ge=Decimal(0))
+    tax_rate: Optional[Decimal] = Field(default=None, ge=Decimal(0), le=Decimal(100))
     billing: PriceBilling = "one_time"
     #: Required when `billing` is recurring, refused otherwise.
     interval: Optional[PriceInterval] = None
@@ -27,8 +27,8 @@ class PriceInput(BaseModel):
 
 class PriceUpdate(BaseModel):
     currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
-    unit_price: Optional[Decimal] = Field(default=None, ge=0)
-    tax_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    unit_price: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    tax_rate: Optional[Decimal] = Field(default=None, ge=Decimal(0), le=Decimal(100))
     billing: Optional[PriceBilling] = None
     interval: Optional[PriceInterval] = None
     nickname: Optional[str] = Field(default=None, max_length=100)

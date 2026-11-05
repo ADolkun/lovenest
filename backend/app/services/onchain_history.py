@@ -5,6 +5,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, localcontext
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -153,7 +154,7 @@ def project_observations(archive, collection_id):
     return result
 
 
-def reconcile_history(archive):
+def reconcile_history(archive: dict[str, Any]) -> list[dict[str, Any]]:
     """Exact quantities at observed transaction boundaries, separately qualified UTC scope."""
     rows = {}
     versions = list(current_versions(archive))
@@ -264,7 +265,7 @@ def reconcile_history(archive):
 
 def _transaction_conflicts(archives):
     """Hash each content-addressed payload once for the whole authorized scope."""
-    facts = {}
+    facts: dict[tuple, dict[str, Any]] = {}
     payload_hashes = {}
     prevout_fields = {}
     spends = {}

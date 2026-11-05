@@ -26,9 +26,9 @@ repos:
         # The chain is a property of the whole directory, not of one file.
         pass_filenames: false
 
-      - id: ty
-        name: ty (backend)
-        entry: uv run --directory backend --locked ty check .
+      - id: pyrefly
+        name: pyrefly (backend)
+        entry: uv run --directory backend --locked pyrefly check
         language: system
         types: [python]
         files: ^backend/

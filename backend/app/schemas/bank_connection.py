@@ -46,7 +46,7 @@ class BankConnectionRead(BankConnectionBase):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def pending_account_count(self) -> int:
         """How many provider accounts appeared after the allowlist was configured.

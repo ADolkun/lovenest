@@ -5,6 +5,7 @@ import json
 import uuid
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -33,7 +34,9 @@ ASSET_ID = "synthetic-currency-identity"
 WHEN = "2026-01-02T12:00:00Z"
 
 
-def _api_row(identifier="api-trade-A", *, quantity="12", amount="84", kind="buy", **changes):
+def _api_row(
+    identifier="api-trade-A", *, quantity="12", amount="84", kind="buy", **changes
+) -> dict[str, Any]:
     return {
         "id": identifier, "type": kind, "status": "completed", "created_at": WHEN,
         "amount": {"amount": quantity, "currency": "SYN"},

@@ -15,16 +15,17 @@ from app.schemas.group_settlement import (
     GroupSettlementUpdate,
 )
 from app.services import group_service, settlement_service, workspace_service
+from tests.group_helpers import create_member
 
 
 async def _setup_group(session, user_id, workspace_id):
     group = await group_service.create_group(
         session, workspace_id, user_id, GroupCreate(name=f"S-{uuid.uuid4().hex[:6]}")
     )
-    a = await group_service.create_member(
+    a = await create_member(
         session, group.id, workspace_id, GroupMemberCreate(name="Alice")
     )
-    b = await group_service.create_member(
+    b = await create_member(
         session, group.id, workspace_id, GroupMemberCreate(name="Bob")
     )
     return group, a, b
@@ -217,13 +218,13 @@ async def test_receiver_credit_created_when_to_member_is_linked_with_account(
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="LinkedReceiver")
     )
-    me = await group_service.create_member(
+    me = await create_member(
         session,
         group.id,
         test_workspace.id,
         GroupMemberCreate(name="Me", is_self=True),
     )
-    bob = await group_service.create_member(
+    bob = await create_member(
         session,
         group.id,
         test_workspace.id,
@@ -270,13 +271,13 @@ async def test_receiver_credit_skipped_when_to_member_is_shadow(
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="ShadowReceiver")
     )
-    me = await group_service.create_member(
+    me = await create_member(
         session,
         group.id,
         test_workspace.id,
         GroupMemberCreate(name="Me", is_self=True),
     )
-    shadow = await group_service.create_member(
+    shadow = await create_member(
         session, group.id, test_workspace.id,         GroupMemberCreate(name="Shadow")
     )
 
@@ -317,13 +318,13 @@ async def test_receiver_credit_skipped_when_linked_user_has_no_spendable_account
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="CCOnly")
     )
-    me = await group_service.create_member(
+    me = await create_member(
         session,
         group.id,
         test_workspace.id,
         GroupMemberCreate(name="Me", is_self=True),
     )
-    bob = await group_service.create_member(
+    bob = await create_member(
         session,
         group.id,
         test_workspace.id,
@@ -366,13 +367,13 @@ async def test_receiver_credit_lands_on_cash_account(
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="CashOnly")
     )
-    me = await group_service.create_member(
+    me = await create_member(
         session,
         group.id,
         test_workspace.id,
         GroupMemberCreate(name="Me", is_self=True),
     )
-    bob = await group_service.create_member(
+    bob = await create_member(
         session,
         group.id,
         test_workspace.id,
@@ -414,13 +415,13 @@ async def test_receiver_credit_lands_on_owner_when_self_member_unlinked(
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="SelfFallback")
     )
-    owner_self = await group_service.create_member(
+    owner_self = await create_member(
         session,
         group.id,
         test_workspace.id,
         GroupMemberCreate(name="Me", is_self=True),
     )
-    friend = await group_service.create_member(
+    friend = await create_member(
         session, group.id, test_workspace.id,         GroupMemberCreate(name="Friend")
     )
 

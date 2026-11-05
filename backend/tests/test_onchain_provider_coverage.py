@@ -41,6 +41,7 @@ async def test_ceiling_only_reaches_the_second_page_before_examining_payloads():
     newer = [_sig(f"new-{i}", JAN23 + (6 - 2 * i) * DAY) for i in range(3)]
     wanted = [_sig("wanted", JAN23)]
     result, calls = await _solana([newer, wanted], _payloads(wanted), until=AT)
+    assert result.coverage is not None
     coverage = result.coverage
     assert result.complete and [t.reference for t in result.items] == ["wanted"]
     assert calls[1][1][1]["before"] == "new-2"
@@ -65,6 +66,7 @@ async def test_inclusive_floor_and_ceiling_keep_equal_timestamps_across_pages():
 async def test_crossing_floor_is_complete_without_claiming_provider_exhaustion():
     rows = [_sig("new", JAN23 + 4 * DAY), _sig("at", JAN23), _sig("old", JAN23 - 2 * DAY)]
     result, calls = await _solana([rows], _payloads(rows), since=AT)
+    assert result.coverage is not None
     assert result.complete and len(result.items) == 2
     assert result.coverage.since_reached is True
     assert result.coverage.provider_exhausted is False
@@ -76,6 +78,7 @@ async def test_dense_solana_page_before_floor_keeps_the_inclusive_payment():
     first = [_sig("new", JAN23 + 4 * DAY), _sig("newer", JAN23 + 2 * DAY), _sig("payment", JAN23)]
     older = [_sig(f"old-{i}", JAN23 - i - 1) for i in range(3)]
     result, calls = await _solana([first, older], _payloads(first), since=AT, until=AT)
+    assert result.coverage is not None
     assert result.complete and result.saturated is None
     assert [t.reference for t in result.items] == ["payment"]
     assert result.coverage.pages_read == 2 and result.coverage.since_reached is True
@@ -88,6 +91,7 @@ async def test_dense_solana_page_touching_floor_keeps_activity_stop(newest):
     first = [_sig(f"new-{i}", JAN23 + (6 - 2 * i) * DAY) for i in range(3)]
     dense = [_sig(f"dense-{i}", JAN23 + newest - i) for i in range(3)]
     result, calls = await _solana([first, dense], since=AT)
+    assert result.coverage is not None
     assert not result.complete and result.saturated == onchain.SATURATED_POOLED
     assert result.coverage.stop_reasons == ["high_activity"]
     assert all(method == "getSignaturesForAddress" for method, _, _ in calls)
@@ -96,6 +100,7 @@ async def test_dense_solana_page_touching_floor_keeps_activity_stop(newest):
 async def test_open_window_requires_exhaustion_after_a_full_page():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     result, calls = await _solana([rows, []], _payloads(rows))
+    assert result.coverage is not None
     assert result.complete and result.coverage.pages_read == 2
     assert result.coverage.provider_exhausted is True
     assert calls[1][1][1]["before"] == "s2"
@@ -104,6 +109,7 @@ async def test_open_window_requires_exhaustion_after_a_full_page():
 async def test_four_page_limit_keeps_cursor_and_unreached_ceiling():
     pages = [[_sig(f"s{p}-{i}", JAN23 + (30 - p * 6 - i * 2) * DAY) for i in range(3)] for p in range(4)]
     result, calls = await _solana(pages, until=AT)
+    assert result.coverage is not None
     assert len(calls) == 4 and result.items == [] and not result.complete
     assert result.coverage.next_cursor == "s3-2"
     assert result.coverage.until_reached is False
@@ -114,6 +120,7 @@ async def test_four_page_limit_keeps_cursor_and_unreached_ceiling():
 @pytest.mark.parametrize("page", [None, {}, "bad", 3, [None], [{"blockTime": JAN23}]])
 async def test_malformed_signature_pages_cannot_prove_empty_history(page):
     result, _ = await _solana([page])
+    assert result.coverage is not None
     assert result.items == [] and not result.complete
     assert set(result.coverage.stop_reasons) & {"invalid_page", "invalid_row"}
 
@@ -121,6 +128,7 @@ async def test_malformed_signature_pages_cannot_prove_empty_history(page):
 @pytest.mark.parametrize("stamp", [None, True, "unknown", float("inf"), 10**30])
 async def test_unknown_signature_time_survives_short_page_exhaustion(stamp):
     result, _ = await _solana([[_sig("unknown", stamp)]])
+    assert result.coverage is not None
     assert not result.complete and result.coverage.provider_exhausted is True
     assert result.coverage.missing_timestamps == 1
     assert result.coverage.payloads_requested == 0
@@ -130,6 +138,7 @@ async def test_unknown_signature_time_survives_short_page_exhaustion(stamp):
 async def test_full_page_with_unknown_timestamp_keeps_gap_despite_exhaustion():
     rows = [_sig("a", JAN23 + 4 * DAY), _sig("b", JAN23 + 2 * DAY), _sig("unknown", None)]
     result, _ = await _solana([rows, []], until=AT)
+    assert result.coverage is not None
     assert result.coverage.provider_exhausted is True
     assert result.coverage.missing_timestamps == 1 and not result.complete
 
@@ -142,6 +151,7 @@ async def test_full_page_with_unknown_timestamp_keeps_gap_despite_exhaustion():
 ])
 async def test_reordered_or_oversized_signature_data_retains_invalid_gap(pages):
     result, _ = await _solana(pages, until=AT)
+    assert result.coverage is not None
     assert not result.complete
     assert set(result.coverage.stop_reasons) & {"invalid_row", "invalid_page"}
 
@@ -149,6 +159,7 @@ async def test_reordered_or_oversized_signature_data_retains_invalid_gap(pages):
 async def test_repeated_cursor_stops_and_does_not_duplicate_payload_requests():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     result, calls = await _solana([rows, rows], _payloads(rows))
+    assert result.coverage is not None
     assert not result.complete and len(result.items) == 3
     assert "nonadvancing_cursor" in result.coverage.stop_reasons
     assert sum(method == "getTransaction" for method, _, _ in calls) == 3
@@ -157,6 +168,7 @@ async def test_repeated_cursor_stops_and_does_not_duplicate_payload_requests():
 async def test_payload_limit_reports_omitted_signatures_and_preserves_nearest_floor():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     result, _ = await _solana([rows, []], _payloads(rows), limit=1, since=AT - timedelta(days=5))
+    assert result.coverage is not None
     assert [t.reference for t in result.items] == ["s2"]
     assert result.coverage.omitted_signatures == 2
     assert result.coverage.payloads_requested == result.coverage.payloads_read == 1
@@ -167,6 +179,7 @@ async def test_good_missing_and_unsupported_payloads_keep_distinct_counts():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     txs = {"s0": _payloads(rows)["s0"], "s2": {"blockTime": JAN23 - 4 * DAY, "meta": ["bad"]}}
     result, _ = await _solana([rows, []], txs)
+    assert result.coverage is not None
     assert [t.reference for t in result.items] == ["s0"] and not result.complete
     assert result.unreadable == 2
     assert result.coverage.payloads_requested == 3 and result.coverage.payloads_read == 2
@@ -179,6 +192,7 @@ async def test_epoch_zero_and_naive_dates_are_utc_and_inclusive():
     rows = [_sig("epoch", 0)]
     epoch = datetime(1970, 1, 1)
     result, _ = await _solana([rows], _payloads(rows), since=epoch, until=epoch)
+    assert result.coverage is not None
     assert result.complete and result.items[0].occurred_at == epoch.replace(tzinfo=timezone.utc)
     assert result.coverage.requested_since == result.coverage.requested_until == epoch.replace(tzinfo=timezone.utc)
 
@@ -192,6 +206,7 @@ async def test_inverted_provider_window_rejects_before_rpc():
 
 async def test_signature_payload_timestamp_disagreement_does_not_escape_window():
     result, _ = await _solana([[_sig("x", JAN23)]], {"x": _tx(JAN23 + DAY, {A: -COIN, B: COIN})}, until=AT)
+    assert result.coverage is not None
     assert result.items == [] and not result.complete
     assert "invalid_row" in result.coverage.stop_reasons
 
@@ -199,6 +214,7 @@ async def test_signature_payload_timestamp_disagreement_does_not_escape_window()
 async def test_later_signature_page_error_keeps_earlier_evidence_and_gap():
     rows = [_sig(f"s{i}", JAN23 - i * 2 * DAY) for i in range(3)]
     result, _ = await _solana([rows], _payloads(rows))  # exhausted mock iterator is a failed second read
+    assert result.coverage is not None
     assert len(result.items) == 3 and not result.complete
     assert result.coverage.pages_read == 1
     assert "provider_unavailable" in result.coverage.stop_reasons
@@ -370,6 +386,7 @@ async def test_bitcoin_repeated_page_does_not_duplicate_transfers():
 async def test_invalid_signature_error_is_a_gap_with_usable_siblings(error):
     rows = [_sig("good", JAN23), _sig("bad", JAN23 - DAY, err=error)]
     result, _ = await _solana([rows], _payloads(rows))
+    assert result.coverage is not None
     assert not result.complete and result.coverage.stop_reasons == ["invalid_row"]
     assert [t.reference for t in result.items] == ["good"]
 
@@ -380,6 +397,7 @@ async def test_invalid_payload_error_is_unreadable_with_usable_siblings(error):
     txs = _payloads(rows)
     txs["bad"]["meta"]["err"] = error
     result, _ = await _solana([rows], txs)
+    assert result.coverage is not None
     assert not result.complete and result.coverage.unsupported_payloads == 1
     assert [t.reference for t in result.items] == ["good"]
 
@@ -390,6 +408,7 @@ async def test_missing_signature_and_payload_error_fields_are_gaps():
     txs = _payloads(rows)
     del txs["bad-payload"]["meta"]["err"]
     result, _ = await _solana([rows], txs)
+    assert result.coverage is not None
     assert not result.complete and result.items == []
     assert set(result.coverage.stop_reasons) == {"invalid_row", "unsupported_payload"}
 

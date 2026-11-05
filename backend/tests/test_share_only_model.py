@@ -39,6 +39,7 @@ from app.services import (
     settlement_service,
     split_service,
 )
+from tests.group_helpers import create_member
 
 
 # ──────────────────────────── helpers ─────────────────────────────
@@ -107,7 +108,7 @@ async def _setup_group(
     )
     members = []
     for i, name in enumerate(member_names):
-        m = await group_service.create_member(
+        m = await create_member(
             session,
             group.id,
             workspace_id,

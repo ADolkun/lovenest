@@ -84,7 +84,7 @@ Run from the repository root. All Python goes through `uv run --no-sync` after a
 (cd extras/tax && uv sync --locked)
 (cd backend && uv run --no-sync ruff check .)       # lint
 (cd frontend && npm run lint)
-(cd backend && uv run --no-sync ty check .)         # type gate
+(cd backend && uv run --no-sync pyrefly check)         # type gate
 (cd frontend && npm run typecheck)
 (cd backend && uv run --no-sync python scripts/check_migration_chain.py)  # migration chain
 uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel doc-check  # docs, links, agent files

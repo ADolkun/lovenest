@@ -15,6 +15,7 @@ a drawer, and nothing here knows about them.
 import uuid
 from datetime import date as _date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,7 +79,7 @@ async def projection_feed(
         tax_year=as_of.year, primary_currency=primary_currency,
     )
 
-    feed = {
+    feed: dict[str, Any] = {
         "as_of": as_of.isoformat(),
         "tax_year": as_of.year,
         "currency": primary_currency,

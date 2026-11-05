@@ -293,7 +293,7 @@ class TransferCreate(BaseModel):
     # Amount that actually landed on the destination account, for
     # cross-currency transfers. Left blank, the destination is converted at the
     # market rate for `date`.
-    destination_amount: Optional[Decimal] = Field(default=None, gt=0)
+    destination_amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
     date: _Date
     description: str
     notes: Optional[str] = None

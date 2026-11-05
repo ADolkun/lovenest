@@ -203,19 +203,19 @@ async def test_default_trigger_refresh_returns_skipped():
         name = "stub"
         flow_type = "oauth"
 
-        async def get_oauth_url(self, *a, **kw):  # type: ignore[override]
+        async def get_oauth_url(self, *a, **kw):
             return ""
 
-        async def handle_oauth_callback(self, code):  # type: ignore[override]
+        async def handle_oauth_callback(self, code):
             raise NotImplementedError
 
-        async def get_accounts(self, credentials):  # type: ignore[override]
+        async def get_accounts(self, credentials):
             return []
 
-        async def get_transactions(self, *a, **kw):  # type: ignore[override]
+        async def get_transactions(self, *a, **kw):
             return []
 
-        async def refresh_credentials(self, credentials):  # type: ignore[override]
+        async def refresh_credentials(self, credentials):
             return credentials
 
     assert await _Stub().trigger_refresh({}) == "skipped"

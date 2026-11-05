@@ -10,5 +10,5 @@ paths:
 - **Optional modules.** A route that belongs to a workspace module uses `require_module` / `require_module_write` from `app/core/module_gate.py`. They answer 404, not 403, so a workspace without the module cannot tell it exists. Which modules a workspace has is decided in `app/services/module_service.py`, not in route code.
 - **Flag-mounted routers.** The on-chain router (`ONCHAIN_ENABLED`) and the agents routers (`AGENTS_ENABLED`) are mounted conditionally in `app/main.py`. Add a router for a gated feature inside that block, so an install without the flag has no route and imports nothing.
 - **Lint contract.** Ruff's rule selection is explicit in `[tool.ruff.lint]` in `backend/pyproject.toml`; widen it deliberately, in its own change.
-- **Type gate.** ty is the gate (`[tool.ty]`, CI step "Type check with ty"). pyrefly only serves the editor and agents (`[tool.pyrefly]`); its errors are not a CI signal.
+- **Type gate.** pyrefly is both the gate (`[tool.pyrefly]`, CI step "Type check with pyrefly") and the editor and agent language server. A suppression needs an error code and a reason; `pyrefly suppress --remove-unused=all` drops the dead ones.
 - **Dependencies.** Change `pyproject.toml` and run `backend/scripts/lock.sh`; commit `uv.lock` with it, because CI uses `uv sync --locked`.

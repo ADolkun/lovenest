@@ -49,7 +49,7 @@ class _ScriptedProvider(LLMProvider):
         self._turns = list(turns)
         self.requests = []
 
-    async def chat_stream(  # type: ignore[override]
+    async def chat_stream(
         self, messages, *, model, tools=None, temperature=0.4, max_tokens=None
     ) -> AsyncIterator[ChatChunk]:
         self.requests.append(deepcopy(messages))
@@ -252,7 +252,9 @@ async def test_provider_auth_error_surfaced_as_friendly_message(
     class _BoomProvider(LLMProvider):
         name = "openai"
 
-        async def chat_stream(self, *args, **kwargs):  # type: ignore[override]
+        async def chat_stream(
+            self, messages, *, model, tools=None, temperature=0.4, max_tokens=None
+        ) -> AsyncIterator[ChatChunk]:
             raise LLMAuthError("missing key")
             yield  # unreachable, makes this a generator
 

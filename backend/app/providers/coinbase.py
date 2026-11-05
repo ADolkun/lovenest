@@ -421,7 +421,7 @@ class CoinbaseProvider(BankProvider):
 
     # ----- connection flow ---------------------------------------------------
 
-    def get_oauth_url(self, *args, **kwargs):  # type: ignore[override]
+    def get_oauth_url(self, *args, **kwargs):
         raise NotImplementedError("Coinbase uses paste-a-key flow, not OAuth redirect")
 
     async def _assert_read_only(self, credentials: dict) -> str:

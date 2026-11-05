@@ -882,6 +882,7 @@ async def _sync_holdings(
                 )
             )
             legacy: Optional[AssetGroup] = None
+            per_account_ids: set[uuid.UUID] = set()
             if existing is None:
                 claimed = {g.id for g in groups_by_key.values()}
                 key_shape = ~AssetGroup.external_id.contains("::")

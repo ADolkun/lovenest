@@ -18,7 +18,7 @@ ContributionParty = Literal["self", "employer"]
 class AssetContributionBase(BaseModel):
     kind: ContributionKind
     party: ContributionParty = "self"
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=Decimal(0))
     date: _date
     #: CONTEXT.md's Tax Year, which is not always `date.year`. Defaults to
     #: `date.year` when the caller does not say.
@@ -45,7 +45,7 @@ class AssetContributionUpdate(BaseModel):
     group_id: Optional[uuid.UUID] = None
     kind: Optional[ContributionKind] = None
     party: Optional[ContributionParty] = None
-    amount: Optional[Decimal] = Field(default=None, gt=0)
+    amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
     date: Optional[_date] = None
     tax_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     vested_on: Optional[_date] = None

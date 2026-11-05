@@ -9,7 +9,8 @@ Both sides share AGENTS_MCP_JWT_SECRET. We test that:
 
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, tzinfo
+from typing import Self
 
 import pytest
 from jose import jwt
@@ -108,8 +109,8 @@ def test_short_ttl_respected(monkeypatch):
 
     class Clock(datetime):
         @classmethod
-        def now(cls, tz=None):
-            return datetime.fromtimestamp(now, tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return cls.fromtimestamp(now, tz)
 
     monkeypatch.setattr(jwt, "datetime", Clock)
     assert verify_request(_req_bearer(token)).user_id == user_id

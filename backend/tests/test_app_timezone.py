@@ -1,16 +1,18 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
+from typing import Self
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.models.app_settings import AppSetting
+from tests.clock_helpers import instant_in
 
 
 class FixedDatetime(datetime):
     @classmethod
-    def now(cls, tz=None):
-        return datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        return instant_in(cls, datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc), tz)
 
 
 @pytest.mark.asyncio
@@ -261,8 +263,8 @@ async def test_mcp_calls_use_the_workspace_calendar(session, test_user, test_wor
 
     class MonthBoundary(datetime):
         @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return instant_in(cls, datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc), tz)
 
     session.add(AppSetting(key="timezone", value="America/Sao_Paulo"))
     test_workspace.timezone = "Asia/Tokyo"
@@ -484,8 +486,8 @@ async def test_mcp_defaults_use_application_month(session, test_user, test_works
 
     class MonthBoundary(datetime):
         @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return instant_in(cls, datetime(2026, 6, 1, 1, 0, tzinfo=timezone.utc), tz)
 
     session.add(AppSetting(key="timezone", value="America/Sao_Paulo"))
     await session.commit()
