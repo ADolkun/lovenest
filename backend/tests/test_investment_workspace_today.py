@@ -6,8 +6,9 @@ and from the unfrozen host date, so any other source of "today" shows.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
 from decimal import Decimal
+from typing import Self
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +18,7 @@ from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.providers.base import INCOME_AT_RECEIPT_NOTE
+from tests.clock_helpers import instant_in
 
 WORKSPACE_ZONE = "Pacific/Kiritimati"
 INSTANT = datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc)
@@ -25,8 +27,8 @@ WORKSPACE_TODAY = date(2025, 1, 1)
 
 class _FrozenClock(datetime):
     @classmethod
-    def now(cls, tz=None):
-        return INSTANT.astimezone(tz)
+    def now(cls, tz: tzinfo | None = None) -> Self:
+        return instant_in(cls, INSTANT, tz)
 
 
 @pytest_asyncio.fixture

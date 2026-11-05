@@ -78,6 +78,7 @@ async def correction_case(session, test_workspace, test_user, wallet, request):
     if "programs" in options:
         source.legs[0].chain, source.legs[0].token_address = "solana", "synthetic-mint"
         source.legs[0].token_program = options["programs"][1]
+    assert source.event_at is not None and source.event_date is not None
     source.event_at += timedelta(seconds=10)
     if options.get("next_day"):
         source.event_date += timedelta(days=1)

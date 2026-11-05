@@ -17,6 +17,7 @@ from app.models.workspace import Workspace
 from app.schemas.owned_transfer import (
     MovementConfirmRequest, MovementPreviewRequest, OwnershipCreate, TransferConfirmRequest, TransferPreviewRequest,
 )
+from tests.http_errors import error_code
 from tests.test_owned_transfers_integration import add_acquisition, make_holding, pair, retain_movement
 
 
@@ -40,6 +41,7 @@ async def transfer_pg_context(postgres_sessions):
             c=second_destination, acquisition=acquisition, ownership={}, addresses={},
         )
         for asset, address in zip([source, destination, second_destination], ["A" * 44, "B" * 44, "C" * 44]):
+            assert asset.group_id is not None
             ownership = await service.create_ownership(session, workspace.id, user.id, OwnershipCreate(
                 group_id=asset.group_id, beneficial_owner="synthetic-owner", chain="solana", address=address,
                 reason="Reviewed synthetic same-owner mapping",
@@ -100,12 +102,14 @@ async def test_same_confirmation_race_has_one_pair_of_committed_movements(transf
     request = await reviewed(v, await pg_request(v, v.b, "synthetic-duplicate", "3"))
     results = await race_confirmations(v, [request, request])
     assert any(not isinstance(result, HTTPException) for result in results), results
-    for index, result in enumerate(results):
+    transfers = []
+    for result in results:
         if isinstance(result, HTTPException):
-            assert result.status_code == 409 and result.detail["code"] == "investment_busy"
+            assert result.status_code == 409 and error_code(result) == "investment_busy"
             async with v.sessions() as session:
-                results[index] = await service.confirm_transfer(session, v.workspace.id, v.user.id, request)
-    assert results[0].id == results[1].id
+                result = await service.confirm_transfer(session, v.workspace.id, v.user.id, request)
+        transfers.append(result)
+    assert transfers[0].id == transfers[1].id
     async with v.sessions() as session:
         assert len(list(await session.scalars(select(InvestmentOwnedTransfer)))) == 1
         assert len(list(await session.scalars(select(InvestmentMovementApplication)))) == 2

@@ -279,7 +279,9 @@ async def test_running_balance_is_null_when_the_list_is_not_one_ledger(
             session, test_user.id, target, "10", "debit", date(2026, 2, 3), category_id=category.id,
         )
 
-    params = {"account_id": str(account.id), "from": "2026-02-01", "to": "2026-02-28"}
+    params: dict[str, str | list[str]] = {
+        "account_id": str(account.id), "from": "2026-02-01", "to": "2026-02-28",
+    }
     if case == "flag_off":
         params["include_running_balance"] = "false"
     elif case == "no_from":

@@ -192,6 +192,7 @@ async def test_full_holdings_and_api_sync_is_safe_in_either_order(session, test_
         quantity=Decimal("12"), current_value=Decimal("84"), account_external_id="portfolio-A",
         metadata={"provider_asset_id": "currency-SYN"},
     )
+    assert api.event_at is not None
     trade = TradeData(
         external_id="api-trade-A", holding_external_id="currency-wallet-A", kind="buy",
         quantity=Decimal("12"), price=Decimal("7"), occurred_at=api.event_at,

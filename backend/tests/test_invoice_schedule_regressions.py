@@ -1,6 +1,7 @@
 """Calendar and attribution regressions found while integrating recurring invoices."""
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, tzinfo
+from typing import Self
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -11,6 +12,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import admin_service, invoice_schedule_service as schedules
 from app.tasks import invoice_schedule_tasks
+from tests.clock_helpers import instant_in
 
 
 @pytest.fixture
@@ -19,8 +21,8 @@ def frozen_clock(monkeypatch):
         instant = datetime(2026, 10, 5, 1, tzinfo=timezone.utc)
 
         @classmethod
-        def now(cls, tz=None):
-            return cls.instant.astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return instant_in(cls, cls.instant, tz)
 
     monkeypatch.setattr(app_clock, "datetime", FixedDatetime)
     monkeypatch.setattr(schedules, "datetime", FixedDatetime)

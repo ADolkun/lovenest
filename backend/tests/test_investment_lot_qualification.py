@@ -190,6 +190,7 @@ async def test_snapshot_and_oversell_zero_never_certify_a_complete_history(
     assert result["snapshot"] is True and result["lots"] == []
     assert "recorded_transactions_missing" in result["qualification"]["reason_codes"]
     asset.units = Decimal(0)
+    assert asset.external_metadata is not None
     asset.external_metadata = {
         **asset.external_metadata,
         "provider_quantity_observation": {
@@ -225,6 +226,7 @@ async def test_active_and_withdrawn_refresh_preserve_reviewed_identity_only(
     withdrawn,
 ):
     connection, _, asset = await _portfolio(session, test_user, test_workspace)
+    assert asset.external_id is not None
     holding = HoldingData(
         external_id=asset.external_id,
         account_external_id=asset.account_external_id,
@@ -254,6 +256,7 @@ async def test_active_and_withdrawn_refresh_preserve_reviewed_identity_only(
     for _ in range(2):
         await _sync_holdings(session, test_user.id, connection, {}, provider=provider)
         await session.commit()
+        assert asset.external_metadata is not None
         assert asset.external_metadata["evidence_asset_identity"] == IDENTITY
         assert "obsolete" not in asset.external_metadata
         assert _holding_conflicts(leg, asset) == []
@@ -280,6 +283,7 @@ async def test_refresh_does_not_carry_reviewed_identity_across_conflicts(
     case,
 ):
     connection, _, asset = await _portfolio(session, test_user, test_workspace)
+    assert asset.external_id is not None
     holding = HoldingData(
         external_id=asset.external_id,
         account_external_id=asset.account_external_id,
@@ -305,6 +309,7 @@ async def test_refresh_does_not_carry_reviewed_identity_across_conflicts(
     if case == "unproven_reconnect":
         cid, holding.metadata = uuid.uuid4(), {}
     await _upsert_asset_from_holding(session, asset, holding, test_user.id, cid, "coinbase", wid)
+    assert asset.external_metadata is not None
     assert "evidence_asset_identity" not in asset.external_metadata
 
 
@@ -314,6 +319,7 @@ async def test_sparse_quantity_and_failed_refresh_preserve_position_but_invalida
     test_workspace,
 ):
     connection, _, asset = await _portfolio(session, test_user, test_workspace, "10")
+    assert asset.external_id is not None
     provider = AsyncMock()
     provider.get_holdings.return_value = [
         HoldingData(
@@ -515,6 +521,7 @@ async def test_sync_adopts_reviewed_identity_only_with_real_scoped_proof(
     session, test_user, test_workspace, case
 ):
     connection, group, asset = await _portfolio(session, test_user, test_workspace, "10")
+    assert asset.external_id is not None
     external_id = asset.external_id
     group.external_id = f"{connection.external_id}::{asset.account_external_id}"
     asset.source, asset.external_id, asset.connection_id = "import", None, None
@@ -586,6 +593,7 @@ async def test_sync_adopts_reviewed_identity_only_with_real_scoped_proof(
     await session.commit()
     if case == "verified":
         assert asset.connection_id == connection.id and asset.external_id == external_id
+        assert asset.external_metadata is not None
         assert asset.external_metadata["evidence_asset_identity"] == identity
         assert "investment_evidence_created" not in asset.external_metadata
     else:

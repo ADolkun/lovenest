@@ -213,11 +213,10 @@ async def test_generate_title_silently_swallows_llm_errors(
     is still returned."""
     from app.agents.models.agent import Agent
     from app.agents.models.conversation import Conversation, Message
-    from app.agents.providers.base import LLMProvider
+    from tests.agent_fakes import ChatOnlyProvider
 
-    class _Boom(LLMProvider):
+    class _Boom(ChatOnlyProvider):
         name = "openai"
-        async def chat_stream(self, *a, **kw): yield  # pragma: no cover
         async def chat(self, *a, **kw):
             raise RuntimeError("provider down")
         async def embed(self, *a, **kw): return []

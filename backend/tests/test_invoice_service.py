@@ -337,6 +337,7 @@ class TestSnapshot:
         )
         await session.commit()
         invoice = await create(session, workspace, test_user)
+        assert invoice.snapshot is not None
         assert invoice.snapshot["issuer"]["display_name"] == "Alpha ME"
         assert invoice.snapshot["template"]["labels"]["quantity"] == "Hours"
 
@@ -344,6 +345,7 @@ class TestSnapshot:
         await svc.update_settings(session, workspace.id, {"issuer_display_name": "Beta LTDA"})
         await session.commit()
         await session.refresh(invoice)
+        assert invoice.snapshot is not None
         assert invoice.snapshot["issuer"]["display_name"] == "Alpha ME"
 
     async def test_records_the_absence_of_a_prefix_as_a_real_answer(
@@ -355,6 +357,7 @@ class TestSnapshot:
         reading as "1" after someone later sets a prefix.
         """
         invoice = await create(session, workspace, test_user)
+        assert invoice.snapshot is not None
         assert "number_prefix" in invoice.snapshot
         assert invoice.snapshot["number_prefix"] is None
 

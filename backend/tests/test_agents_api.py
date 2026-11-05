@@ -352,19 +352,11 @@ async def test_generate_title_uses_llm(
     from unittest.mock import patch
     from app.agents.models.agent import Agent
     from app.agents.models.conversation import Conversation, Message
-    from app.agents.providers.base import (
-        ChatResponse,
-        LLMProvider,
-        Usage,
-    )
+    from app.agents.providers.base import ChatResponse, Usage
+    from tests.agent_fakes import ChatOnlyProvider
 
-    class _Scripted(LLMProvider):
+    class _Scripted(ChatOnlyProvider):
         name = "openai"
-
-        async def chat_stream(self, messages, *, model, tools=None, temperature=0.4, max_tokens=None):
-            # not used for title (we call .chat() which goes through .chat_stream)
-            yield  # pragma: no cover
-            return  # pragma: no cover
 
         async def chat(self, messages, *, model, tools=None, temperature=0.4, max_tokens=None):
             return ChatResponse(content="Brazilian Cuisine Picks", usage=Usage(2, 4))
@@ -406,13 +398,11 @@ async def test_generate_title_strips_reasoning_tags(
     from unittest.mock import patch
     from app.agents.models.agent import Agent
     from app.agents.models.conversation import Conversation, Message
-    from app.agents.providers.base import ChatResponse, LLMProvider, Usage
+    from app.agents.providers.base import ChatResponse, Usage
+    from tests.agent_fakes import ChatOnlyProvider
 
-    class _Scripted(LLMProvider):
+    class _Scripted(ChatOnlyProvider):
         name = "openai_compatible"
-
-        async def chat_stream(self, *a, **kw):
-            yield  # pragma: no cover
 
         async def chat(self, *a, **kw):
             return ChatResponse(

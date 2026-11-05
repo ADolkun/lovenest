@@ -19,6 +19,7 @@ from app.services import (
     settlement_service,
     split_service,
 )
+from tests.group_helpers import create_member
 
 
 async def _make_account(session: AsyncSession, user_id) -> Account:
@@ -56,7 +57,7 @@ async def _setup(session, test_user, workspace_id, n_others=2):
     group = await group_service.create_group(
         session, workspace_id, test_user.id, GroupCreate(name="Trip")
     )
-    self_member = await group_service.create_member(
+    self_member = await create_member(
         session,
         group.id,
         workspace_id,
@@ -64,7 +65,7 @@ async def _setup(session, test_user, workspace_id, n_others=2):
     )
     others = []
     for i in range(n_others):
-        m = await group_service.create_member(
+        m = await create_member(
             session,
             group.id,
             workspace_id,
@@ -343,10 +344,10 @@ async def test_no_self_member_means_only_split_totals(
     group = await group_service.create_group(
         session, test_workspace.id, test_user.id, GroupCreate(name="NoSelf")
     )
-    a = await group_service.create_member(
+    a = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="A")
     )
-    b = await group_service.create_member(
+    b = await create_member(
         session, group.id, test_workspace.id, GroupMemberCreate(name="B")
     )
     assert a is not None
