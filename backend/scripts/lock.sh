@@ -14,3 +14,16 @@ cd "$(dirname "$0")/.."
 
 # renovate: datasource=pypi depName=uv
 uvx uv@0.13.7 lock "$@"
+
+# The code-intel library capture records the locked dist versions of the
+# packages that build routes (fastapi-users), and CI runs `capture --check`,
+# so a re-lock refreshes it here.
+refresh=1
+for arg in "$@"; do
+  case "$arg" in --check | --locked | --dry-run) refresh=0 ;; esac
+done
+if [[ $refresh == 1 && -f ../.code-intel/requirements.txt ]]; then
+  uv sync --locked --group dev || { echo "lock.sh: 'uv sync --locked --group dev' failed" >&2; exit 1; }
+  (cd .. && uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture) \
+    || { echo "lock.sh: 'code-intel capture' failed" >&2; exit 1; }
+fi

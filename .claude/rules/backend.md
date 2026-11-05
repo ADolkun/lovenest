@@ -11,4 +11,4 @@ paths:
 - **Flag-mounted routers.** The on-chain router (`ONCHAIN_ENABLED`) and the agents routers (`AGENTS_ENABLED`) are mounted conditionally in `app/main.py`. Add a router for a gated feature inside that block, so an install without the flag has no route and imports nothing.
 - **Lint contract.** Ruff's rule selection is explicit in `[tool.ruff.lint]` in `backend/pyproject.toml`; widen it deliberately, in its own change.
 - **Type gate.** pyrefly is both the gate (`[tool.pyrefly]`, CI step "Type check with pyrefly") and the editor and agent language server. A suppression needs an error code and a reason; `pyrefly suppress --remove-unused=all` drops the dead ones.
-- **Dependencies.** Change `pyproject.toml` and run `backend/scripts/lock.sh`; commit `uv.lock` with it, because CI uses `uv sync --locked`.
+- **Dependencies.** Change `pyproject.toml` and run `backend/scripts/lock.sh`; commit `uv.lock` with it, because CI uses `uv sync --locked`. `lock.sh` also refreshes `.code-intel/library-capture.json`; commit that too, because CI runs `code-intel capture --check`.

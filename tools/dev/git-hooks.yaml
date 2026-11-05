@@ -1,7 +1,9 @@
 # Dependency sync after checkouts, merges and rebases. Separate from the
-# root .pre-commit-config.yaml, which tracks upstream. Install once per clone:
+# root .pre-commit-config.yaml, which tracks upstream. Hooks are per clone
+# (its worktrees share them) and nothing runs until they are installed. Once
+# per clone, after `uv tool install prek`:
 #
-#   uv tool run prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+#   prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
 #
 # Skip it for one git command with SKIP=sync-deps.
 repos:
