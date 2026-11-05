@@ -46,6 +46,10 @@ _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _ROUTE_DISCRIMINATOR = hashlib.sha256(b"global:route").digest()[:8]
 
 
+def _native_mint(program: object) -> str | None:
+    return NATIVE_MINTS.get(program) if isinstance(program, str) else None
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
@@ -165,10 +169,10 @@ def decode_solana_transaction(
                 gaps.append("malformed_token_balance")
                 continue
             account_index = _integer(balance.get("accountIndex"))
-            if account_index is None or account_index >= len(keys) or not isinstance(keys[account_index], str):
+            account = keys[account_index] if account_index is not None and account_index < len(keys) else None
+            if not isinstance(account, str):
                 gaps.append("unresolved_token_account_index")
                 continue
-            account = keys[account_index]
             amount = balance.get("uiTokenAmount") or {}
             if not isinstance(amount, dict):
                 gaps.append("malformed_token_balance")
@@ -198,7 +202,7 @@ def decode_solana_transaction(
         if token.get("program") not in onchain.SOLANA_TOKEN_PROGRAMS or not token.get("mint"):
             token["conflict"] = True
             gaps.append("unresolved_token_identity")
-        if token.get("mint") == NATIVE_MINTS.get(token.get("program")) and token.get("decimals") != 9:
+        if token.get("mint") == _native_mint(token.get("program")) and token.get("decimals") != 9:
             token["conflict"] = True
             gaps.append("invalid_native_token_decimals")
 
@@ -230,13 +234,16 @@ def decode_solana_transaction(
             gaps.append("invalid_token_decimals")
         observe(account, _asset(token.get("mint"), token.get("program")), token.get("pre"), token.get("post"), decimals, token["owner"])
 
+    def token_owner(account: str | None) -> str | None:
+        return tokens[account].get("owner") if account is not None and account in tokens else None
+
     def add_leg(path: str, role: str, source: str | None, destination: str | None, units: int, asset: dict, decimals: int, **extra: Any) -> dict:
         native = asset["native"]
         leg = {
             "key": f"solana:{signature}:{path}:{role}", "asset": asset, "role": role,
             "source": source, "destination": destination,
-            "source_owner": (owner if source == owner else None) if native else tokens.get(source, {}).get("owner"),
-            "destination_owner": (owner if destination == owner else None) if native else tokens.get(destination, {}).get("owner"),
+            "source_owner": (owner if source == owner else None) if native else token_owner(source),
+            "destination_owner": (owner if destination == owner else None) if native else token_owner(destination),
             "raw_units": str(units), "quantity": _quantity(units, decimals), "decimals": decimals,
             "settlement": settlement, "derivation": {"payload_digest": payload_digest, "path": path},
             **extra,
@@ -351,7 +358,7 @@ def decode_solana_transaction(
         token = tokens.get(account, {})
         funding = [leg for leg in instruction_legs if leg["asset"]["native"] and leg["destination"] == account]
         token_legs = [leg for leg in instruction_legs if not leg["asset"]["native"] and account in (leg["source"], leg["destination"])]
-        if (token.get("conflict") or token.get("mint") != NATIVE_MINTS.get(token.get("program")) or token.get("post") is None or not funding
+        if (token.get("conflict") or token.get("mint") != _native_mint(token.get("program")) or token.get("post") is None or not funding
             or sum(item.get("account") == account for _, item in syncs) != 1
             or any(instruction_order.get(leg["derivation"]["path"], -1) >= instruction_order[path] for leg in funding)):
             gaps.append("unresolved_wrap")
@@ -388,10 +395,10 @@ def decode_solana_transaction(
 
     for path, info in closes:
         account, destination = info.get("account"), info.get("destination")
-        token = tokens.get(account, {})
         if not isinstance(account, str) or account not in keys or not isinstance(destination, str):
             gaps.append("unresolved_close_account")
             continue
+        token = tokens.get(account, {})
         index = keys.index(account)
         pre = _integer(pre_balances[index]) if index < len(pre_balances) else None
         post = _integer(post_balances[index]) if index < len(post_balances) else None
@@ -405,7 +412,7 @@ def decode_solana_transaction(
         result["ownership"].append({"address": account, "owner": token.get("owner"), "slot": slot, "side": "closed", "source": "instruction",
                                     "mint": token.get("mint"), "token_program": token.get("program"), "path": path,
                                     "payload_digest": payload_digest, "period": "observation_only"})
-        is_wrapped = token.get("mint") == NATIVE_MINTS.get(token.get("program"))
+        is_wrapped = token.get("mint") == _native_mint(token.get("program"))
         if token.get("conflict"):
             gaps.append("unresolved_unwrap" if is_wrapped else "unresolved_close_account")
             continue

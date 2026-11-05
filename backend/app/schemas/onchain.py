@@ -25,7 +25,7 @@ class TraceRequest(BaseModel):
     direction: Literal["out", "in"] = "out"
     max_hops: int = Field(default=3, ge=1, le=6)
     max_branches: int = Field(default=3, ge=1, le=5)
-    min_amount: Optional[Decimal] = Field(default=None, ge=0)
+    min_amount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
     since: Optional[datetime] = None
     until: Optional[datetime] = None
     continuation_token: Optional[str] = Field(default=None, max_length=256)

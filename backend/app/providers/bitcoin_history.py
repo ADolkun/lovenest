@@ -90,9 +90,12 @@ def _inventory(owner, supplied):
             raise ValueError("Invalid reviewed Bitcoin address")
         if script is not None and _hex(script) is None:
             raise ValueError("Invalid reviewed Bitcoin script")
-        if not address and script is None:
+        if address:
+            key = address
+        elif script is not None:
+            key = "script:" + script.lower()
+        else:
             raise ValueError("A reviewed Bitcoin address or script is required")
-        key = address or "script:" + script.lower()
         inventory[key] = {"address": address, "scriptpubkey": script.lower() if script is not None else None,
                           "kind": "reviewed", "ownership": [{"owner": owner, "source": "user_review",
                           "period": "declared_scope", "provenance": entry.get("provenance")}]}
@@ -185,7 +188,7 @@ def decode_bitcoin_transaction(
     stamp = _timestamp(status.get("block_time"))
     if stamp is None:
         gaps.append("unknown_timestamp")
-    result = {
+    result: dict[str, Any] = {
         "version_id": _digest({"payload": payload, "prevouts": prevouts, "anchor": anchor, "block_status": block_status}),
         "payload_digest": payload_digest, "decoder_version": DECODER_VERSION,
         "evidence_fingerprint": _digest({key: value for key, value in payload.items() if key not in {"status", "fee"}} | {
@@ -327,23 +330,24 @@ def decode_bitcoin_transaction(
     owned_outputs = [item for item in result["outputs"] if item["owned"]]
     known_delta = sum(int(item["raw_units"]) for item in owned_outputs if item["raw_units"] is not None) - sum(int(item["raw_units"]) for item in owned_inputs if item["raw_units"] is not None)
     quantity_complete = not any(item["raw_units"] is None for item in owned_inputs + owned_outputs) and not any(gap in gaps for gap in ("missing_prevout_script", "missing_output_script", "invalid_or_duplicate_outpoint", "prevout_conflict", "malformed_input"))
-    result["owned_quantity"] = {"known_delta_raw_units": str(known_delta),
+    owned_quantity: dict[str, Any] = {"known_delta_raw_units": str(known_delta),
         "delta_raw_units": str(known_delta) if quantity_complete else None,
         "status": "known_declared_inventory" if quantity_complete else "unresolved",
         "scope": "declared_addresses_and_scripts", "whole_wallet_inventory": "unknown", "fee_already_included": True,
         "maturity_eligible_output_raw_units": str(sum(int(item["raw_units"]) for item in owned_outputs if item["maturity_eligible"] is True and item["raw_units"] is not None)),
         "spendable_quantity": None}
-    result["owned_quantity"]["known_maturity_eligible_output_raw_units"] = result["owned_quantity"]["maturity_eligible_output_raw_units"]
+    result["owned_quantity"] = owned_quantity
+    owned_quantity["known_maturity_eligible_output_raw_units"] = owned_quantity["maturity_eligible_output_raw_units"]
     if any(item["maturity_eligible"] is None or item["raw_units"] is None for item in owned_outputs):
-        result["owned_quantity"]["maturity_eligible_output_raw_units"] = None
+        owned_quantity["maturity_eligible_output_raw_units"] = None
     invalid = {"transaction_wire_identity_mismatch", "witness_hash_conflict", "prevout_conflict",
                "invalid_or_duplicate_outpoint", "malformed_coinbase", "malformed_input", "invalid_input_output_totals"}
     if invalid.intersection(gaps):
         result["settlement"] = "provisional"
-        result["owned_quantity"]["delta_raw_units"] = None
-        result["owned_quantity"]["status"] = "unresolved"
-        result["owned_quantity"]["maturity_eligible_output_raw_units"] = None
-        result["owned_quantity"]["known_maturity_eligible_output_raw_units"] = "0"
+        owned_quantity["delta_raw_units"] = None
+        owned_quantity["status"] = "unresolved"
+        owned_quantity["maturity_eligible_output_raw_units"] = None
+        owned_quantity["known_maturity_eligible_output_raw_units"] = "0"
         for leg in result["legs"]:
             leg["settlement"] = "provisional"
             leg["interpretation"] = "unresolved"

@@ -588,3 +588,8 @@ def test_atomic_native_wrap_and_jupiter_swap_reconciles_each_representation():
     ambiguous = decode(payload)
     assert "unresolved_wrap" in ambiguous["gaps"]
     assert not any(leg["role"] == "rent_deposit" for leg in ambiguous["legs"])
+
+
+def test_unhashable_token_program_is_an_unresolved_identity_not_a_crash():
+    payload = transaction([], tokens_pre=[balance(0, 0, program=["not", "a", "program"])])
+    assert "unresolved_token_identity" in decode(payload)["gaps"]
