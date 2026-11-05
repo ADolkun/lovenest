@@ -6,6 +6,9 @@ LOVENEST_TEST_PREK names it). Set LOVENEST_TEST_BASH to exercise e.g. /bin/bash.
 """
 from __future__ import annotations
 
+import contextlib
+import email.message
+import io
 import json
 import os
 from pathlib import Path
@@ -15,6 +18,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
+import urllib.response
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 PREK = os.environ.get("LOVENEST_TEST_PREK") or shutil.which("prek")
@@ -81,6 +89,67 @@ elif command == 'port':
     print('0.0.0.0:' + values.get('FRONTEND_PORT', '3000'))
 else: sys.exit(91)
 '''
+
+
+class ReadinessProbeTests(unittest.TestCase):
+    """Run the actual container heredoc with urllib's real redirect machinery."""
+
+    def probe(self, frontend_url, *, force_redirect=False, public_healthy=False):
+        source = (ROOT / "tools/deploy/deploy.sh").read_text()
+        probe = source.split("<<'PY'", 1)[1].split("\n", 1)[1].split("\nPY\n", 1)[0]
+        calls = []
+        canonical = urllib.parse.urlsplit(frontend_url).hostname
+
+        class Transport(urllib.request.BaseHandler):
+            handler_order = 100
+
+            def http_open(self, request):
+                calls.append((request.full_url, request.get_header("Host")))
+                host = urllib.parse.urlsplit(request.full_url).hostname
+                headers = email.message.Message()
+                status = 200
+                if host == "frontend":
+                    if force_redirect or (canonical not in {"localhost", "127.0.0.1"} and request.get_header("Host") != canonical):
+                        headers["Location"] = frontend_url + urllib.parse.urlsplit(request.full_url).path
+                        status = 308
+                elif host != "tax-planner":
+                    if not public_healthy:
+                        raise urllib.error.URLError("public endpoint unavailable")
+                response = urllib.response.addinfourl(io.BytesIO(b"fixture"), headers, request.full_url, status)
+                response.msg = "OK" if status == 200 else "Permanent Redirect"
+                return response
+
+            https_open = http_open
+
+        build_opener = urllib.request.build_opener
+        with (
+            mock.patch.dict(os.environ, {"FRONTEND_URL": frontend_url}),
+            mock.patch("urllib.request.build_opener", side_effect=lambda *handlers: build_opener(*handlers, Transport())),
+            mock.patch("time.monotonic", side_effect=[0, 0, 61]),
+            mock.patch("time.sleep"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            try:
+                exec(compile(probe, "deploy-readiness-heredoc", "exec"), {})
+            except SystemExit as error:
+                return calls, str(error)
+        return calls, None
+
+    def test_canonical_host_probes_stay_internal_without_public_access(self):
+        for url in ("https://finance.example.test", "http://localhost:3132", "http://127.0.0.1:3132"):
+            for public_healthy in (False, True):
+                with self.subTest(url=url, public_healthy=public_healthy):
+                    calls, error = self.probe(url, public_healthy=public_healthy)
+                    self.assertIsNone(error)
+                    self.assertEqual(len(calls), 3)
+                    self.assertTrue(all(urllib.parse.urlsplit(url).hostname in {"frontend", "tax-planner"} for url, _ in calls))
+                    expected = urllib.parse.urlsplit(url).hostname
+                    self.assertEqual([host for target, host in calls if urllib.parse.urlsplit(target).hostname == "frontend"], [expected, expected])
+
+    def test_redirect_cannot_validate_a_wrong_public_instance(self):
+        calls, error = self.probe("https://finance.example.test", force_redirect=True, public_healthy=True)
+        self.assertIn("Not ready:", error)
+        self.assertTrue(all(urllib.parse.urlsplit(url).hostname in {"frontend", "tax-planner"} for url, _ in calls))
 
 
 class DeployTests(unittest.TestCase):

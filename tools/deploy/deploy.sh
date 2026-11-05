@@ -28,9 +28,21 @@ deploy() {
     || die 'Build/start/readiness failed. Inspect docker compose -f docker-compose.prod.yml logs --tail=100, fix the error, then rerun tools/deploy/deploy.sh.'
   # Python is already in the backend image; no host Python or curl is required.
   "${COMPOSE[@]}" exec -T backend python - <<'PY' || die 'Frontend/API/tax readiness failed; inspect Compose logs and rerun tools/deploy/deploy.sh.'
+import os
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
+# Nginx canonicalizes Host against FRONTEND_URL. Reach this stack internally
+# using that Host, and never follow a redirect to an unrelated public instance.
+frontend_host = urllib.parse.urlsplit(os.environ.get("FRONTEND_URL", "http://localhost:3000")).hostname or "localhost"
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 pending = {
     "frontend": "http://frontend:8080/",
     "frontend API proxy": "http://frontend:8080/api/health",
@@ -40,9 +52,13 @@ deadline = time.monotonic() + 60
 while pending and time.monotonic() < deadline:
     for name, url in list(pending.items()):
         try:
-            with urllib.request.urlopen(url, timeout=3) as response:
+            headers = {"Host": frontend_host} if name.startswith("frontend") else {}
+            request = urllib.request.Request(url, headers=headers)
+            with opener.open(request, timeout=3) as response:
                 if response.status == 200:
                     del pending[name]
+        except urllib.error.HTTPError as error:
+            error.close()
         except (OSError, ValueError):
             pass
     if pending:
