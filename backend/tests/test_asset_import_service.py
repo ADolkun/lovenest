@@ -998,6 +998,7 @@ async def test_a_skip_names_its_row_and_says_why(
 
     skip = summary["skips"][0]
     assert (skip.row, skip.ticker, skip.reason) == (2, "AAPL", "already_imported")
+    assert skip.detail is not None
     assert "2026-01-15" in skip.detail
 
 

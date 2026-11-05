@@ -154,7 +154,7 @@ def project_observations(archive, collection_id):
     return result
 
 
-def reconcile_history(archive):
+def reconcile_history(archive: dict[str, Any]) -> list[dict[str, Any]]:
     """Exact quantities at observed transaction boundaries, separately qualified UTC scope."""
     rows = {}
     versions = list(current_versions(archive))

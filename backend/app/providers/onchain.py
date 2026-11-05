@@ -2211,7 +2211,7 @@ class OnChainProvider(BankProvider):
     def flow_type(self) -> str:
         return "token"
 
-    async def get_oauth_url(self, *args, **kwargs) -> str:  # type: ignore[override]
+    async def get_oauth_url(self, *args, **kwargs) -> str:
         raise NotImplementedError("On-chain wallets are connected by pasting addresses")
 
     async def handle_oauth_callback(self, code: str) -> ConnectionData:

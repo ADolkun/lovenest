@@ -40,7 +40,7 @@ class _VectorJSON(sqlalchemy.types.JSON):
     def __init__(self, dim=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def cosine_distance(self, other):  # type: ignore[override]
+    def cosine_distance(self, other):
         # Tests for similarity_search are exercised against the real Postgres;
         # the SQLite path just needs a valid SQL fragment.
         from sqlalchemy import literal

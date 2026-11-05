@@ -36,8 +36,8 @@ async def test_list_agents_populates_conversation_and_knowledge_counts(
 
     rows = await agent_service.list_agents(session, test_workspace.id)
     assert len(rows) == 1
-    assert rows[0].conversation_count == 2  # type: ignore[attr-defined]
-    assert rows[0].knowledge_count == 1  # type: ignore[attr-defined]
+    assert rows[0].conversation_count == 2
+    assert rows[0].knowledge_count == 1
 
 
 # --------------------------------------------------------------------- agent_service.set_tool_enabled

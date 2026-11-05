@@ -93,9 +93,9 @@ jobs:
         if: steps.changes.outputs.run_backend != 'false'
         run: uv run --no-sync python scripts/check_migration_chain.py
 
-      - name: Type check with ty
+      - name: Type check with pyrefly
         if: steps.changes.outputs.run_backend != 'false'
-        run: uv run --no-sync ty check .
+        run: uv run --no-sync pyrefly check
 
       - name: Check tax planner lock and tests
         if: steps.changes.outputs.run_backend != 'false'

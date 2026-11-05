@@ -30,7 +30,9 @@ async def get_user_db(session: AsyncSession = Depends(get_async_session)):
     yield UserDatabase(session, User)
 
 
-class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):  # pyrefly: ignore[bad-specialization]
+# Same `UserProtocol` bound limitation as `UserDatabase` above.
+# pyrefly: ignore[bad-specialization]
+class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     reset_password_token_secret = settings.secret_key
     verification_token_secret = settings.secret_key
 

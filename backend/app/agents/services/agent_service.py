@@ -49,8 +49,8 @@ async def list_agents(
         )
         # Stash on the model instances; pydantic AgentRead reads them.
         for a in rows:
-            a.conversation_count = int(conv_counts.get(a.id, 0))  # type: ignore[attr-defined]
-            a.knowledge_count = int(kb_counts.get(a.id, 0))  # type: ignore[attr-defined]
+            a.conversation_count = int(conv_counts.get(a.id, 0))
+            a.knowledge_count = int(kb_counts.get(a.id, 0))
     return rows
 
 
