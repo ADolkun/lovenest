@@ -59,6 +59,7 @@ dev = [
     # Upgrade these checks deliberately: new releases can change diagnostics.
     "ruff==0.17.3",
     "ty==0.0.95",
+    "pyrefly==1.4.1",
 ]
 
 [build-system]
@@ -108,6 +109,10 @@ python-version = "3.11"
 
 [tool.ty.rules]
 unused-ignore-comment = "error"
+
+# pyrefly backs editor/agent LSP only; ty remains the CI type gate.
+[tool.pyrefly]
+python-version = "3.11"
 
 [tool.ruff]
 line-length = 100
