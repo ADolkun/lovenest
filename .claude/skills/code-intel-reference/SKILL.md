@@ -59,14 +59,16 @@ uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.t
 |---------|-----|
 | `setup` | Installs the TypeScript the frontend analysis needs, once, in `~/.cache/code-intel` (shared by every checkout; `sync-deps.sh` runs it) |
 | `config-check` | Validates `.code-intel/config.toml`; an error names the key and file |
-| `verify` | Cross-checks the analyzers against each other and the working tree; expect every check to pass |
+| `verify` | Cross-checks the analyzers against each other and the working tree; expect every check to pass (`library-capture` needs `backend/.venv`) |
 | `doc-check` | The docs check: broken links, stale code references, orphaned docs, agent files |
 | `summary` | Counts for the current tree |
+| `capture` | Rewrites the library capture by importing the app with `backend/.venv` and the synthetic env in the config; needs a venv synced to the lock (`uv sync --locked` in `backend/`). `capture --check` exits non-zero when the file is stale |
 
 ### Known limits on lovenest
 
-- **fastapi-users routers are invisible.** Their routes (register, reset-password, users) come from an installed package, so `route_match` and the docs check miss them (`unresolved_include`). A doc that names one needs an `[[docs.ignore]]` entry with a reason.
-- **`current_active_user` and `current_superuser` are external.** `di_reverse` lists their consumers under one id and shows the expression they are bound to in `app/core/auth.py`, but their own sub-dependencies are unknown (`unresolved_dependency`).
+- **Library routes come from a committed capture.** The fastapi-users routers and the `current_active_user` and `current_superuser` dependencies are built by installed packages. [`.code-intel/library-capture.json`](../../../.code-intel/library-capture.json) records them from the real app, so `route_match`, `di_deps` and the docs check see them. The MCP server and `doc-check` only read the file; they never import the app. Library routes match frontend calls but stay out of the backend-only list and the coverage figure.
+- **Recapture deliberately** with `capture` (below) after a backend dependency bump, or after editing an `include_router(...)` of a library router or a captured binding (such as `current_active_user` in `app/core/auth.py`). Review the diff of the JSON and commit it. Never script it: `sync-deps.sh` leaves it alone. The `Backend (lint + tests)` job runs `capture --check` and fails when the file is out of date.
+- **`library_capture_stale`** means the capture no longer matches the tree: a captured package's version differs from `backend/uv.lock`, or an include or binding it describes changed. The analysis still applies the capture, so answers can be wrong until you run `capture` again. An include with no entry in the capture is reported as `unresolved_include`.
 - **Flag-mounted routers.** The agents and on-chain routers are mounted behind flags in `app/main.py` and are reported as `conditional_router_mount` / `conditional_import`; their routes are analyzed as if enabled.
 - **Frontend calls** are recognized through the `api` axios instance, bare `axios` calls and `fetch`, as `[[frontend.clients]]` declares. A URL string that is never passed to one of them (a link or download built into a component) is a backend-only route.
 - **Frontend pages** come from the literal `<Route path>` values in `frontend/src/App.tsx`. A computed `path={...}` is invisible.

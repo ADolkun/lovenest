@@ -5,6 +5,10 @@ app = "app.main:app"
 lock = "backend/uv.lock"
 python_version_file = "backend/.python-version"
 
+[backend.capture]
+python = "backend/.venv/bin/python"
+env = { AGENTS_ENABLED = "true", ONCHAIN_ENABLED = "true", AGENTS_MCP_JWT_SECRET = "test-secret-not-for-production", AGENTS_BUILTIN_MCP_URL = "http://test-mcp:8765/mcp", SECRET_KEY = "synthetic-test-signing-key-not-for-production", CREDENTIALS_DIRECTORY = "", OIDC_ENABLED = "false", OIDC_EXISTING_USER_LINK_MODE = "disabled" }
+
 [frontend]
 root = "frontend"
 tsconfig = "frontend/tsconfig.app.json"

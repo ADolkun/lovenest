@@ -1,0 +1,384 @@
+{
+ "app": "app.main:app",
+ "callables": {
+  "fastapi.security.oauth2:OAuth2PasswordBearer()": {
+   "dist": "fastapi",
+   "file": "fastapi/security/oauth2.py",
+   "line": 536
+  },
+  "fastapi.security.oauth2:OAuth2PasswordRequestForm": {
+   "dist": "fastapi",
+   "file": "fastapi/security/oauth2.py",
+   "line": 14
+  },
+  "fastapi_users.authentication.authenticator:Authenticator.current_user": {
+   "dist": "fastapi-users",
+   "file": "fastapi_users/authentication/authenticator.py",
+   "line": 107
+  },
+  "fastapi_users.router.users:get_users_router": {
+   "dist": "fastapi-users",
+   "file": "fastapi_users/router/users.py",
+   "line": 9
+  }
+ },
+ "dependencies": [
+  {
+   "binding": "app.core.auth:current_active_user",
+   "bound_to": "fastapi_users.current_user(active=True)",
+   "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+   "sub": [
+    {
+     "id": "app.core.auth:get_user_manager",
+     "param": "user_manager"
+    },
+    {
+     "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+     "param": "jwt",
+     "sub": []
+    },
+    {
+     "id": "app.core.auth:get_jwt_strategy",
+     "param": "strategy_jwt"
+    }
+   ]
+  },
+  {
+   "binding": "app.core.auth:current_superuser",
+   "bound_to": "fastapi_users.current_user(active=True, superuser=True)",
+   "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+   "sub": [
+    {
+     "id": "app.core.auth:get_user_manager",
+     "param": "user_manager"
+    },
+    {
+     "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+     "param": "jwt",
+     "sub": []
+    },
+    {
+     "id": "app.core.auth:get_jwt_strategy",
+     "param": "strategy_jwt"
+    }
+   ]
+  },
+  {
+   "external": "fastapi.security.OAuth2PasswordRequestForm",
+   "id": "fastapi.security.oauth2:OAuth2PasswordRequestForm",
+   "sub": []
+  }
+ ],
+ "distributions": {
+  "fastapi": "0.162.0",
+  "fastapi-users": "15.0.5"
+ },
+ "format": 1,
+ "includes": [
+  {
+   "file": "backend/app/main.py",
+   "occurrence": 1,
+   "router": "fastapi_users.get_register_router(UserRead, UserCreate)",
+   "routes": [
+    {
+     "handler_id": "fastapi_users.router.register:get_register_router.<locals>.register",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/register.py",
+      "line": 49
+     },
+     "method": "POST",
+     "param_deps": [
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/register",
+     "route_deps": []
+    }
+   ]
+  },
+  {
+   "file": "backend/app/main.py",
+   "occurrence": 1,
+   "router": "fastapi_users.get_reset_password_router()",
+   "routes": [
+    {
+     "handler_id": "fastapi_users.router.reset:get_reset_password_router.<locals>.forgot_password",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/reset.py",
+      "line": 46
+     },
+     "method": "POST",
+     "param_deps": [
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/forgot-password",
+     "route_deps": []
+    },
+    {
+     "handler_id": "fastapi_users.router.reset:get_reset_password_router.<locals>.reset_password",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/reset.py",
+      "line": 68
+     },
+     "method": "POST",
+     "param_deps": [
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/reset-password",
+     "route_deps": []
+    }
+   ]
+  },
+  {
+   "file": "backend/app/main.py",
+   "occurrence": 1,
+   "router": "fastapi_users.get_users_router(UserRead, UserUpdate)",
+   "routes": [
+    {
+     "handler_id": "fastapi_users.router.users:get_users_router.<locals>.me",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/users.py",
+      "line": 46
+     },
+     "method": "GET",
+     "param_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "param": "user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ]
+      }
+     ],
+     "path": "/me",
+     "route_deps": []
+    },
+    {
+     "handler_id": "fastapi_users.router.users:get_users_router.<locals>.update_me",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/users.py",
+      "line": 87
+     },
+     "method": "PATCH",
+     "param_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "param": "user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ]
+      },
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/me",
+     "route_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ],
+       "via": "route decorator"
+      }
+     ]
+    },
+    {
+     "handler_id": "fastapi_users.router.users:get_users_router.<locals>.get_user",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/users.py",
+      "line": 129
+     },
+     "method": "GET",
+     "param_deps": [
+      {
+       "id": "fastapi_users.router.users:get_users_router",
+       "param": "user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        }
+       ]
+      }
+     ],
+     "path": "/{id}",
+     "route_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ],
+       "via": "route decorator"
+      }
+     ]
+    },
+    {
+     "handler_id": "fastapi_users.router.users:get_users_router.<locals>.update_user",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/users.py",
+      "line": 174
+     },
+     "method": "PATCH",
+     "param_deps": [
+      {
+       "id": "fastapi_users.router.users:get_users_router",
+       "param": "user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        }
+       ]
+      },
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/{id}",
+     "route_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ],
+       "via": "route decorator"
+      }
+     ]
+    },
+    {
+     "handler_id": "fastapi_users.router.users:get_users_router.<locals>.delete_user",
+     "kind": "http",
+     "location": {
+      "dist": "fastapi-users",
+      "file": "fastapi_users/router/users.py",
+      "line": 217
+     },
+     "method": "DELETE",
+     "param_deps": [
+      {
+       "id": "fastapi_users.router.users:get_users_router",
+       "param": "user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        }
+       ]
+      },
+      {
+       "id": "app.core.auth:get_user_manager",
+       "param": "user_manager"
+      }
+     ],
+     "path": "/{id}",
+     "route_deps": [
+      {
+       "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
+       "sub": [
+        {
+         "id": "app.core.auth:get_user_manager",
+         "param": "user_manager"
+        },
+        {
+         "id": "fastapi.security.oauth2:OAuth2PasswordBearer()",
+         "param": "jwt",
+         "sub": []
+        },
+        {
+         "id": "app.core.auth:get_jwt_strategy",
+         "param": "strategy_jwt"
+        }
+       ],
+       "via": "route decorator"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
