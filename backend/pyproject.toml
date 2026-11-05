@@ -110,9 +110,11 @@ python-version = "3.11"
 [tool.ty.rules]
 unused-ignore-comment = "error"
 
-# pyrefly backs editor/agent LSP only; ty remains the CI type gate.
+# pyrefly backs editor/agent LSP navigation only. ty is the type gate, so pyrefly's
+# own type errors stay out of the IDE rather than competing with ty's verdict.
 [tool.pyrefly]
 python-version = "3.11"
+disable-type-errors-in-ide = true
 
 [tool.ruff]
 line-length = 100
