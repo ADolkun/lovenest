@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -31,7 +32,7 @@ def transfer(index, value, source=OWNER, destination=OTHER, reference=TX):
             "transactionIndex": "0x0", "logIndex": hex(index), "removed": False}
 
 
-def bundle(reference=TX, *, failed=False, logs=None, payer=OWNER, amount=6 * 10**18):
+def bundle(reference=TX, *, failed=False, logs=None, payer=OWNER, amount=6 * 10**18) -> dict[str, Any]:
     tx = {"hash": reference, "blockNumber": "0xa", "blockHash": block(10)["hash"], "from": payer, "to": OTHER, "value": hex(amount), "type": "0x2"}
     receipt = {"transactionHash": reference, "blockNumber": "0xa", "blockHash": block(10)["hash"],
                "transactionIndex": "0x0" if reference == TX else "0x1", "from": payer, "status": "0x0" if failed else "0x1",
@@ -55,7 +56,8 @@ def policy():
 class RPC:
     def __init__(self, payloads=None):
         self.payloads = payloads if payloads is not None else {TX: bundle(), INTERNAL_TX: bundle(INTERNAL_TX, logs=[], payer=OTHER, amount=0)}
-        self.calls, self.overrides, self.log_span = [], {}, None
+        self.calls, self.overrides = [], {}
+        self.log_span: int | None = None
 
     async def __call__(self, client, method, url, **kwargs):
         kwargs["budget"].consume()
@@ -736,6 +738,7 @@ async def test_owned_transfer_accepts_qualified_chain_archive_and_rejects_confli
     await test_collector_archive_api_activity_bidirectional_and_no_financial_writes(
         monkeypatch, client, auth_headers, session, test_workspace, test_user, chain)
     state = await owned.prepare_replay(session, test_workspace.id)
+    assert state is not None
     selected = [identifier for identifier, row in state["legs"].items()
                 if state["observations"][row.observation_id].payload.get("source") == "onchain_history"
                 and row.payload.get("quantity_role") == "principal" and Decimal(row.payload.get("quantity") or "0") > 0]

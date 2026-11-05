@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -21,15 +22,15 @@ def instruction(program, kind, **info):
     return {"programId": program, "parsed": {"type": kind, "info": info}}
 
 
-def balance(index, amount, *, owner=OWNER, mint="mint-A", program=TOKEN, decimals=6):
-    result = {"accountIndex": index, "mint": mint, "programId": program,
+def balance(index, amount, *, owner=OWNER, mint="mint-A", program=TOKEN, decimals=6) -> dict[str, Any]:
+    result: dict[str, Any] = {"accountIndex": index, "mint": mint, "programId": program,
               "uiTokenAmount": {"amount": str(amount), "decimals": decimals}}
     if owner is not None:
         result["owner"] = owner
     return result
 
 
-def transaction(instructions=(), *, keys=(OWNER, "recipient-A"), pre=(11_000_000_000, 0), post=(4_970_000_000, 6_000_000_000), fee=30_000_000, err=None, tokens_pre=(), tokens_post=()):
+def transaction(instructions=(), *, keys=(OWNER, "recipient-A"), pre=(11_000_000_000, 0), post=(4_970_000_000, 6_000_000_000), fee=30_000_000, err=None, tokens_pre=(), tokens_post=()) -> dict[str, Any]:
     return {"slot": 10, "blockTime": STAMP, "version": "legacy",
             "transaction": {"signatures": ["synthetic-signature"], "message": {"accountKeys": list(keys), "instructions": list(instructions)}},
             "meta": {"err": err, "fee": fee, "preBalances": list(pre), "postBalances": list(post),

@@ -7,6 +7,7 @@ import sys
 import uuid
 from copy import deepcopy
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from sqlalchemy import func, select, text
@@ -30,11 +31,11 @@ pytestmark = pytest.mark.asyncio
 RECOVERY = "/api/assets/recovery"
 
 
-def entry(key, role="recovery_notice", *, quantity="4", symbol="SYN", round_key="round-1", **changes):
+def entry(key, role="recovery_notice", *, quantity="4", symbol="SYN", round_key="round-1", **changes) -> dict[str, Any]:
     kind = {"allowed_claim": "recovery_notice", "recovery_notice": "recovery_notice",
             "tax_workpaper": "tax_workpaper", "equity_statement": "balance_snapshot"}.get(role, "primary_activity")
     classification = {"receiving_receipt": "transfer", "disposition": "sell"}.get(role, "unknown")
-    value = {
+    value: dict[str, Any] = {
         "key": key, "leg_key": "amount", "case_key": "synthetic-recovery",
         "round_key": round_key, "round_asset_key": symbol if round_key else None, "role": role,
         "reported_state": "confirmed", "details": {}, "missing_evidence": [],

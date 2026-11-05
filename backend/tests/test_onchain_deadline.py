@@ -128,7 +128,7 @@ async def test_failed_optional_balances_stay_unknown_after_successful_history():
 async def test_one_failed_payload_cancels_and_drains_its_siblings():
     sibling_started = asyncio.Event()
     release = asyncio.Event()
-    pending = set()
+    pending: set[asyncio.Task[object]] = set()
 
     async def handler(request):
         body = json.loads(request.content)
@@ -140,6 +140,7 @@ async def test_one_failed_payload_cancels_and_drains_its_siblings():
             await sibling_started.wait()
             return httpx.Response(400)
         task = asyncio.current_task()
+        assert task is not None
         pending.add(task)
         sibling_started.set()
         try:

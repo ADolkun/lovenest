@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
-from typing import Iterable
+from typing import Any, Iterable
 
 import pytest
 
@@ -104,18 +104,18 @@ async def test_openai_tool_signatures_survive_multiple_rounds(provider_class, si
         ] + ['data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}', "data: [DONE]"])
 
     signature_a = "opaque-A+/=="
-    first = {"index": 0, "id": "a", "function": {"name": "lookup", "arguments": '{"city":'}}
+    first: dict[str, Any] = {"index": 0, "id": "a", "function": {"name": "lookup", "arguments": '{"city":'}}
     extra_a = {"google": {"thought_signature": signature_a}}
     if signature_timing == "first":
         first["extra_content"] = extra_a
-    deltas = [
+    deltas: list[dict[str, Any]] = [
         {"tool_calls": [first]},
         {"tool_calls": [{"index": 1, "id": "b", "function": {"name": "lookup", "arguments": "{}"}}]},
         {"tool_calls": [{"index": 0, "function": {"arguments": '"Paris"}'}}]},
     ]
     if signature_timing == "late":
         deltas.append({"tool_calls": [{"index": 0, "extra_content": extra_a}]})
-    second_call = {"index": 0, "id": "c", "function": {"name": "lookup", "arguments": "{}"}}
+    second_call: dict[str, Any] = {"index": 0, "id": "c", "function": {"name": "lookup", "arguments": "{}"}}
     if signature_timing != "absent":
         second_call["extra_content"] = {"google": {"thought_signature": "opaque-B=="}}
     _FakeAsyncClient.queue_stream.extend([
