@@ -20,13 +20,13 @@ ScheduleOrigin = Literal["local", "imported"]
 class ScheduleTermInput(BaseModel):
     effective_from: _Date
     lines: list[InvoiceLineInput] = Field(..., min_length=1)
-    discount: Optional[Decimal] = Field(default=None, ge=0)
+    discount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
 
 
 class ScheduleTermUpdate(BaseModel):
     effective_from: Optional[_Date] = None
     lines: Optional[list[InvoiceLineInput]] = Field(default=None, min_length=1)
-    discount: Optional[Decimal] = Field(default=None, ge=0)
+    discount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
 
 
 class ScheduleTermRead(BaseModel):
@@ -58,7 +58,7 @@ class ScheduleCreate(BaseModel):
     custom_fields: Optional[dict[str, Any]] = None
     #: The first term, in force from `start_date`.
     lines: list[InvoiceLineInput] = Field(..., min_length=1)
-    discount: Optional[Decimal] = Field(default=None, ge=0)
+    discount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
     origin: Optional[ScheduleOrigin] = None
     external_source: Optional[str] = Field(default=None, max_length=50)
     external_id: Optional[str] = Field(default=None, max_length=255)

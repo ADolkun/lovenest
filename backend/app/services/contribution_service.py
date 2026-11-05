@@ -431,7 +431,9 @@ async def summaries(
         summary = summarise(
             group_rows,
             as_of=as_of,
-            current_value=Decimal(str(wallet.current_value)) if comparable else None,
+            current_value=(
+                Decimal(str(wallet.current_value)) if wallet is not None and comparable else None
+            ),
         )
         out.append(
             ContributionSummaryRead(

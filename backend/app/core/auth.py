@@ -20,15 +20,21 @@ from app.models.user import User
 settings = get_settings()
 
 
+# pyrefly rejects `User` for fastapi-users' `UserProtocol` bound: `User` declares
+# its columns as `Mapped[...]` descriptors, which the checker won't match
+# against the protocol's plain attributes. Instances satisfy it at runtime.
+UserDatabase = SQLAlchemyUserDatabase[User, uuid.UUID]  # pyrefly: ignore[bad-specialization]
+
+
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
-    yield SQLAlchemyUserDatabase(session, User)
+    yield UserDatabase(session, User)
 
 
-class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
+class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):  # pyrefly: ignore[bad-specialization]
     reset_password_token_secret = settings.secret_key
     verification_token_secret = settings.secret_key
 
-    def __init__(self, user_db: SQLAlchemyUserDatabase[User, uuid.UUID]):
+    def __init__(self, user_db: UserDatabase):
         super().__init__(user_db)
         self.session = user_db.session
 
@@ -80,7 +86,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         await create_default_rules(session, user.id, lang, workspace_id=workspace.id)
 
 
-async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db)):
+async def get_user_manager(user_db: UserDatabase = Depends(get_user_db)):
     yield UserManager(user_db)
 
 
@@ -100,6 +106,9 @@ auth_backend = AuthenticationBackend(
     get_strategy=get_jwt_strategy,
 )
 
+# pyrefly swaps the type arguments of fastapi-users' `UserManagerDependency`
+# alias (it reports `BaseUserManager[UUID, User]`), even for a plain model.
+# pyrefly: ignore[bad-argument-type, bad-specialization]
 fastapi_users = FastAPIUsers[User, uuid.UUID](get_user_manager, [auth_backend])
 
 current_active_user = fastapi_users.current_user(active=True)

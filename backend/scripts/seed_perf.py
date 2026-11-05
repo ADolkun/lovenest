@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.core.auth import UserManager
+from app.core.auth import UserDatabase, UserManager
 from app.core.database import async_session_maker
 from app.models.account import Account
 from app.models.asset import Asset
@@ -46,7 +46,6 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.user import UserCreate
 from app.services.workspace_service import create_personal_workspace_for_user
-from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
 
 # ---------------------------------------------------------------------------
@@ -211,7 +210,7 @@ async def seed(
 
         if not user:
             print(f"Creating user {email} …")
-            user_db = SQLAlchemyUserDatabase(session, User)
+            user_db = UserDatabase(session, User)
             manager = UserManager(user_db)
             try:
                 user = await manager.create(UserCreate(email=email, password=password))

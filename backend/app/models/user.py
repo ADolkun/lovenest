@@ -22,16 +22,17 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
 
     if TYPE_CHECKING:
         # fastapi-users declares its inherited columns as plain types (e.g.
-        # `email: str`) under its own TYPE_CHECKING branch, so `ty` can't see
-        # them as SQLAlchemy `Mapped` attributes (`.ilike()`, `.in_()`, ...).
+        # `email: str`) under its own TYPE_CHECKING branch, so checkers can't
+        # see them as SQLAlchemy `Mapped` attributes (`.ilike()`, `.in_()`, ...).
         # Re-annotate them here so type checkers treat them as real mapped
-        # columns everywhere.
-        id: Mapped[uuid.UUID]
-        email: Mapped[str]
-        hashed_password: Mapped[str]
-        is_active: Mapped[bool]
-        is_superuser: Mapped[bool]
-        is_verified: Mapped[bool]
+        # columns everywhere. pyrefly's bad-override on each line is a false
+        # positive: at runtime the mixin's columns are `Mapped` too.
+        id: Mapped[uuid.UUID]  # pyrefly: ignore[bad-override]
+        email: Mapped[str]  # pyrefly: ignore[bad-override]
+        hashed_password: Mapped[str]  # pyrefly: ignore[bad-override]
+        is_active: Mapped[bool]  # pyrefly: ignore[bad-override]
+        is_superuser: Mapped[bool]  # pyrefly: ignore[bad-override]
+        is_verified: Mapped[bool]  # pyrefly: ignore[bad-override]
 
     preferences: Mapped[Optional[dict]] = mapped_column(
         JSON,

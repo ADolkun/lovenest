@@ -47,6 +47,7 @@ def _entry_payload(item):
 
 
 def _source(state, group_id, item):
+    row = None
     if item.observation_id is not None:
         row = _get(state, 'observations', item.observation_id)
         observation = evidence._input(row)
@@ -58,7 +59,7 @@ def _source(state, group_id, item):
     for leg in observation.legs:
         if leg.asset_id:
             asset = _get(state, 'assets', leg.asset_id)
-            source_group = row.group_id if item.observation_id else group_id
+            source_group = row.group_id if row is not None else group_id
             if asset.group_id != source_group:
                 raise HTTPException(404, 'Holding is unavailable in the selected wallet')
             if set(evidence._holding_conflicts(leg, asset)) - {'unverified_holding_identity'}:
@@ -467,21 +468,22 @@ def _validate_review(state, group_id, data, seen=None):
             raise HTTPException(422, 'A correction/review can supersede only the same logical assertion')
         if any(row.supersedes_id == old.id for row in state['recovery_reviews'].values()):
             raise HTTPException(409, 'This review has already been superseded')
+    source_application = None
     if data.owned_transfer_id:
         transfer = _get(state, 'transfers', data.owned_transfer_id)
         qualified = movements._transfer_read(state, transfer)
         if qualified.status != 'confirmed':
             raise HTTPException(422, 'Referenced owned transfer is not currently qualified')
-    if data.owned_transfer_id and target:
-        source_application = state['applications'][transfer.out_application_id]
-        destination_application = state['applications'][transfer.in_application_id]
-        if (state['observations'][entry.observation_id].group_id != state['assets'][source_application.asset_id].group_id
-                or state['observations'][target.observation_id].group_id != state['assets'][destination_application.asset_id].group_id):
-            raise HTTPException(422, 'Owned transfer endpoints do not establish this account chain')
-        for candidate, asset_id in ((entry, source_application.asset_id), (target, destination_application.asset_id)):
-            part = EvidenceLegInput.model_validate(state['legs'][candidate.leg_id].payload)
-            if part.asset_id and part.asset_id != asset_id or evidence._holding_conflicts(part, state['assets'][asset_id]):
-                raise HTTPException(422, 'Owned transfer asset does not support this relationship')
+        if target:
+            source_application = state['applications'][transfer.out_application_id]
+            destination_application = state['applications'][transfer.in_application_id]
+            if (state['observations'][entry.observation_id].group_id != state['assets'][source_application.asset_id].group_id
+                    or state['observations'][target.observation_id].group_id != state['assets'][destination_application.asset_id].group_id):
+                raise HTTPException(422, 'Owned transfer endpoints do not establish this account chain')
+            for candidate, asset_id in ((entry, source_application.asset_id), (target, destination_application.asset_id)):
+                part = EvidenceLegInput.model_validate(state['legs'][candidate.leg_id].payload)
+                if part.asset_id and part.asset_id != asset_id or evidence._holding_conflicts(part, state['assets'][asset_id]):
+                    raise HTTPException(422, 'Owned transfer asset does not support this relationship')
     if data.kind != 'relation' or target is None:
         return
     allowed = {
@@ -544,7 +546,7 @@ def _validate_review(state, group_id, data, seen=None):
         receipt = movements._application(state, entry.leg_id)
         if receipt is None or receipt.reversed_at or state['qualification'].get(receipt.id, {}).get('settlement_complete') is not True:
             raise HTTPException(422, 'Receipt lineage is not currently supported; retain a candidate')
-        if data.owned_transfer_id:
+        if source_application is not None:
             selected = source_application.payload.get('selected_lots', [])
             if not selected or any(lot.get('source_leg_id') != str(receipt.leg_id) for lot in selected):
                 raise HTTPException(422, 'Owned transfer selected lots do not establish this receipt lineage')

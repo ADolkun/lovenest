@@ -556,8 +556,8 @@ async def _project(session, workspace_id):
             # another movement or sum transfers that may carry the same lot twice.
             qualified = [read for read in transfer_reads if str(read.id) in {part["id"] for part in event.transfers} and read.status == "confirmed"]
             event.basis = TimelineBasis(reason_codes=["transfer_basis_scoped_to_selected_legs"])
+            current_principal = [leg for leg in event.legs if leg.is_current and leg.classification != "fee" and leg.quantity_role != "balance_delta"]
             if qualified:
-                current_principal = [leg for leg in event.legs if leg.is_current and leg.classification != "fee" and leg.quantity_role != "balance_delta"]
                 if {leg.classification for leg in current_principal} - {"transfer", "move_in", "move_out"}:
                     event.kind = "unknown"
                 if len({leg.settlement_status for leg in current_principal}) > 1 or any(

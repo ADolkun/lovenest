@@ -28,13 +28,13 @@ TaxFieldsMode = Literal["hidden", "optional", "required"]
 
 class InvoiceLineInput(BaseModel):
     description: str = Field(..., max_length=500)
-    quantity: Decimal = Field(default=Decimal("1"), ge=0)
+    quantity: Decimal = Field(default=Decimal("1"), ge=Decimal(0))
     #: What the quantity counts — hours, words, pieces. Free text.
     unit: Optional[str] = Field(default=None, max_length=20)
     unit_price: Decimal = Field(default=Decimal("0"))
     # A percentage, not an amount — and only meaningful when the
     # workspace shows tax fields at all.
-    tax_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    tax_rate: Optional[Decimal] = Field(default=None, ge=Decimal(0), le=Decimal(100))
     #: Where the line came from, when it came from the catalog. The
     #: values above are still the line's own; these only remember.
     product_id: Optional[uuid.UUID] = None
@@ -73,7 +73,7 @@ class AllocationTransaction(BaseModel):
 
 class InstallmentInput(BaseModel):
     due_date: _Date
-    amount: Decimal = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=Decimal(0))
     #: "Entrada", "2/3", "On delivery". Optional.
     label: Optional[str] = Field(default=None, max_length=60)
 
@@ -95,7 +95,7 @@ DeductionKind = Literal["withholding_tax", "gateway_fee", "fx_difference", "othe
 
 class DeductionCreate(BaseModel):
     kind: DeductionKind
-    amount: Decimal = Field(..., gt=0)
+    amount: Decimal = Field(..., gt=Decimal(0))
     #: Which tax, in the jurisdiction's words (`irrf`, `iss`, `irpf`).
     tax_kind: Optional[str] = Field(default=None, max_length=30)
     note: Optional[str] = Field(default=None, max_length=500)
@@ -159,10 +159,10 @@ class InvoiceCreate(BaseModel):
     due_date: Optional[_Date] = None
     competence_date: Optional[_Date] = None
     currency: Optional[str] = Field(default=None, max_length=3)
-    total: Optional[Decimal] = Field(default=None, ge=0)
-    discount: Optional[Decimal] = Field(default=None, ge=0)
-    subtotal: Optional[Decimal] = Field(default=None, ge=0)
-    tax_total: Optional[Decimal] = Field(default=None, ge=0)
+    total: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    discount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    subtotal: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    tax_total: Optional[Decimal] = Field(default=None, ge=Decimal(0))
     notes: Optional[str] = None
     internal_notes: Optional[str] = None
     custom_fields: Optional[dict[str, Any]] = None
@@ -178,10 +178,10 @@ class InvoiceUpdate(BaseModel):
     due_date: Optional[_Date] = None
     competence_date: Optional[_Date] = None
     currency: Optional[str] = Field(default=None, max_length=3)
-    total: Optional[Decimal] = Field(default=None, ge=0)
-    discount: Optional[Decimal] = Field(default=None, ge=0)
-    subtotal: Optional[Decimal] = Field(default=None, ge=0)
-    tax_total: Optional[Decimal] = Field(default=None, ge=0)
+    total: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    discount: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    subtotal: Optional[Decimal] = Field(default=None, ge=Decimal(0))
+    tax_total: Optional[Decimal] = Field(default=None, ge=Decimal(0))
     notes: Optional[str] = None
     internal_notes: Optional[str] = None
     custom_fields: Optional[dict[str, Any]] = None
@@ -271,7 +271,7 @@ class AllocationCreate(BaseModel):
     transaction_id: uuid.UUID
     #: Omitted means "as much as fits": the smaller of what remains on
     #: the invoice and what the transaction carries.
-    amount: Optional[Decimal] = Field(default=None, gt=0)
+    amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
 
 
 class AgingBuckets(BaseModel):

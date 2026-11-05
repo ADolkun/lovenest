@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class GroupSettlementBase(BaseModel):
     from_member_id: uuid.UUID
     to_member_id: uuid.UUID
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=Decimal(0))
     currency: str = Field(min_length=3, max_length=3)
     date: _Date
     transaction_id: Optional[uuid.UUID] = None
@@ -35,7 +35,7 @@ class GroupSettlementCreate(GroupSettlementBase):
 class GroupSettlementUpdate(BaseModel):
     from_member_id: Optional[uuid.UUID] = None
     to_member_id: Optional[uuid.UUID] = None
-    amount: Optional[Decimal] = Field(default=None, gt=0)
+    amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
     currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
     date: Optional[_Date] = None
     transaction_id: Optional[uuid.UUID] = None

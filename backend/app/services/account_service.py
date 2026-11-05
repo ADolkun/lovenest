@@ -1197,7 +1197,7 @@ async def get_account_summary(
             ~credit_card_refund_filter(),
         ))
     )
-    monthly_income = float(income_result.scalar())
+    monthly_income = float(income_result.scalar_one())
 
     # Expenses = SUM of debit transactions in window (same exclusions).
     # For credit-card accounts, NET refund credits against debits so the
@@ -1205,11 +1205,11 @@ async def get_account_summary(
     # invoice amount). Paired transfers are dropped by `has_valid_transfer_pair`
     # and netted separately below (see `netted_now`); unpaired card payments
     # by the payment classifier in `counts_on_bill`.
+    signed_for_bill = case(
+        (Transaction.type == "credit", -func.abs(effective_amount)),
+        else_=func.abs(effective_amount),
+    )
     if account.type == "credit_card":
-        signed_for_bill = case(
-            (Transaction.type == "credit", -func.abs(effective_amount)),
-            else_=func.abs(effective_amount),
-        )
         expenses_result = await session.execute(
             _scope(select(func.coalesce(func.sum(signed_for_bill), 0)).where(
                 Transaction.account_id == account_id,
@@ -1229,7 +1229,7 @@ async def get_account_summary(
                 summary_filter,
             ))
         )
-    monthly_expenses = float(expenses_result.scalar()) - netted_now
+    monthly_expenses = float(expenses_result.scalar_one()) - netted_now
 
     # Forecast values use the same cycle/date scope as the actual totals, but
     # include every pending row and every row bucketed after today. The current

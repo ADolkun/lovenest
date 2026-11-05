@@ -35,7 +35,7 @@ drawing line items off the bottom edge where nobody ever sees them.
 """
 import io
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Literal, Optional
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -44,7 +44,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas as pdf_canvas
-from reportlab.platypus import Paragraph, Table, TableStyle
+from reportlab.platypus import Flowable, Paragraph, Table, TableStyle
 
 from app.services.invoice_document import DEFAULT_ACCENT, InvoiceDocument
 
@@ -91,7 +91,7 @@ def _para(
     color: colors.Color = INK,
     bold: bool = False,
     leading: Optional[float] = None,
-    align: int = 0,
+    align: Literal[0, 1, 2, 4] = 0,
 ) -> Paragraph:
     style = ParagraphStyle(
         "cell",
@@ -404,7 +404,7 @@ def _totals_table(document: InvoiceDocument, accent) -> Table:
         ],
         colWidths=[width * 0.5, width * 0.5],
     )
-    style = [
+    style: list[tuple[Any, ...]] = [
         ("TOPPADDING", (0, 0), (-1, -1), 3.5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -569,7 +569,7 @@ def _flow(
     for whatever has to share that page with it. `pages` grows by one per
     page break, for the page count.
     """
-    remaining: Optional[Table] = table
+    remaining: Optional[Flowable] = table
     # Whether the next attempt is happening on an otherwise empty page,
     # which is what tells a "too full" failure apart from a "will never
     # fit" one.

@@ -75,6 +75,9 @@ async def _apply_growth_rules() -> int:
         with use_resolved_timezone(operation_timezone):
             for asset in assets:
                 try:
+                    growth_rate, growth_frequency = asset.growth_rate, asset.growth_frequency
+                    if growth_rate is None or growth_frequency is None:
+                        continue
                     async with session_maker() as session:
                         if asset.workspace_id not in todays:
                             todays[asset.workspace_id] = today_in(
@@ -102,14 +105,14 @@ async def _apply_growth_rules() -> int:
                         created = 0
 
                         while True:
-                            next_due = _next_due_date(current_date, asset.growth_frequency)
+                            next_due = _next_due_date(current_date, growth_frequency)
                             if next_due > today:
                                 break
 
                             if asset.growth_type == "percentage":
-                                current_amount = current_amount * (1 + float(asset.growth_rate) / 100)
+                                current_amount = current_amount * (1 + float(growth_rate) / 100)
                             elif asset.growth_type == "absolute":
-                                current_amount = current_amount + float(asset.growth_rate)
+                                current_amount = current_amount + float(growth_rate)
                             else:
                                 break
 

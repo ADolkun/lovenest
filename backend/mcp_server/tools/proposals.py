@@ -15,6 +15,7 @@ unchanged for Securo's own UI.
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -484,7 +485,7 @@ async def propose_create_transaction(
         )
         if len(rows) != len(set(member_ids)):
             return {"error": "one or more members do not belong to the given group"}
-        name_by_id = {m.id: m.name for m in rows}
+        name_by_id: dict[uuid.UUID | None, str] = {m.id: m.name for m in rows}
 
         # Materialize a preview for the UI/LLM. The actual write happens
         # via POST /api/transactions which re-runs the same math.
