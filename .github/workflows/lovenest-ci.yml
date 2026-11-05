@@ -82,6 +82,11 @@ jobs:
         if: steps.changes.outputs.run_backend != 'false'
         run: uv sync --locked --group dev
 
+      - name: Check the library capture
+        if: steps.changes.outputs.run_backend != 'false'
+        working-directory: .
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --check
+
       - name: Lint with Ruff
         if: steps.changes.outputs.run_backend != 'false'
         run: uv run --no-sync ruff check .
@@ -230,7 +235,14 @@ jobs:
         with:
           version: "0.13.7"
           enable-cache: true
-          cache-dependency-glob: .code-intel/requirements.txt
+          cache-dependency-glob: |
+            .code-intel/requirements.txt
+            backend/uv.lock
+
+      - name: Install backend dependencies
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
+        working-directory: backend
+        run: uv sync --locked
 
       - name: Set up Node.js
         if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'

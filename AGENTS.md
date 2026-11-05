@@ -88,6 +88,7 @@ Run from the repository root. All Python goes through `uv run --no-sync` after a
 (cd frontend && npm run typecheck)
 (cd backend && uv run --no-sync python scripts/check_migration_chain.py)  # migration chain
 uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel doc-check  # docs, links, agent files
+uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture  # recapture library routes after a backend dependency bump (CI runs `capture --check`)
 docker compose up -d                                # dev stack
 ```
 
