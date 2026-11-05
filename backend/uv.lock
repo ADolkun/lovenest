@@ -3156,7 +3156,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "aiosqlite", specifier = ">=0.19.0" },
-    { name = "pyrefly", specifier = "==1.4.1" },
+    { name = "pyrefly", specifier = ">=1.4.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },

@@ -56,10 +56,10 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
     "aiosqlite>=0.19.0",
+    "pyrefly>=1.4.1",
     # Upgrade these checks deliberately: new releases can change diagnostics.
     "ruff==0.17.3",
     "ty==0.0.95",
-    "pyrefly==1.4.1",
 ]
 
 [build-system]
