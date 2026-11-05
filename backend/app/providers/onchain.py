@@ -32,7 +32,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, AsyncGenerator, Iterable, Optional
+from typing import Any, AsyncGenerator, Iterable, Optional, TypeIs
 
 import httpx
 
@@ -632,6 +632,13 @@ def parse_addresses(raw: str) -> list[WatchedAddress]:
     return watched
 
 
+def _is_decimal_digits(value: object) -> TypeIs[str | int]:
+    return (
+        isinstance(value, (str, int)) and not isinstance(value, bool)
+        and str(value).isascii() and str(value).isdecimal()
+    )
+
+
 def _scale(raw: Any, decimals: int) -> Optional[Decimal]:
     """Base units to whole coins, or None when the node sent something else.
 
@@ -1138,9 +1145,10 @@ def _solana_payload_valid(tx: Any) -> bool:
     if not isinstance(message, dict):
         return False
     keys, pre, post = message.get("accountKeys"), meta.get("preBalances"), meta.get("postBalances")
+    if not (isinstance(keys, list) and isinstance(pre, list) and isinstance(post, list)):
+        return False
     return (
-        all(isinstance(values, list) for values in (keys, pre, post))
-        and bool(keys) and len(keys) == len(pre) == len(post)
+        bool(keys) and len(keys) == len(pre) == len(post)
         and all(isinstance(key, dict) and isinstance(key.get("pubkey"), str) and key["pubkey"] for key in keys)
         and len({key["pubkey"] for key in keys}) == len(keys)
         and all(type(value) is int and value >= 0 for value in pre + post)
@@ -1180,12 +1188,12 @@ def _solana_deltas(
         return None
     raw_keys = message.get("accountKeys")
     pre, post = meta.get("preBalances"), meta.get("postBalances")
-    if not all(isinstance(values, list) for values in (raw_keys, pre, post)):
+    if not (isinstance(raw_keys, list) and isinstance(pre, list) and isinstance(post, list)):
         return None
-    keys = [k.get("pubkey") for k in raw_keys if isinstance(k, dict)]
+    pubkeys = [k.get("pubkey") for k in raw_keys if isinstance(k, dict)]
+    keys = [key for key in pubkeys if isinstance(key, str) and key]
     if (
-        not keys or not (len(raw_keys) == len(keys) == len(pre) == len(post))
-        or any(not isinstance(key, str) or not key for key in keys)
+        not keys or not (len(raw_keys) == len(pubkeys) == len(keys) == len(pre) == len(post))
         or len(set(keys)) != len(keys)
         or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in pre + post)
     ):
@@ -2138,11 +2146,7 @@ async def _evm_token_holdings(
             found.reasons.add("token_inventory_unreadable")
             continue
         raw, decimals = row.get("value"), token.get("decimals")
-        if any(
-            isinstance(value, bool) or not isinstance(value, (str, int))
-            or not str(value).isascii() or not str(value).isdecimal()
-            for value in (raw, decimals)
-        ):
+        if not _is_decimal_digits(raw) or not _is_decimal_digits(decimals):
             found.reasons.add("token_inventory_unreadable")
             continue
         try:

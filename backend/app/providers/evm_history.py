@@ -801,7 +801,7 @@ async def collect_evm_history(
                 if finalized_number is None or not _hex(_mapping(finalized).get("hash"), 32):
                     head_gaps.append("finalized_anchor_unavailable")
                     finalized = {}
-                elif finalized_number > latest_number or (finalized_number == latest_number and finalized["hash"] != latest["hash"]):
+                elif finalized_number > latest_number or (finalized_number == latest_number and _mapping(finalized)["hash"] != latest["hash"]):
                     head_gaps.append("finalized_anchor_conflict")
                     finalized = {}
                 anchor: dict[str, Any] = {"number": latest_number, "hash": latest["hash"], "finalized": finalized if isinstance(finalized, dict) else {},
