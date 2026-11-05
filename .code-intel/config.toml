@@ -1,0 +1,55 @@
+[backend]
+root = "backend"
+package = "app"
+app = "app.main:app"
+lock = "backend/uv.lock"
+python_version_file = "backend/.python-version"
+
+[frontend]
+root = "frontend"
+tsconfig = "frontend/tsconfig.app.json"
+lockfile = "frontend/package-lock.json"
+
+[[frontend.clients]]
+kind = "instance"
+module = "frontend/src/lib/api.ts"
+export = "api"
+base_path = "/api"
+
+[[frontend.clients]]
+kind = "instance"
+package = "axios"
+
+[[frontend.clients]]
+kind = "global"
+name = "fetch"
+url_arg = 0
+init_arg = 1
+same_origin_only = true
+
+[frontend.pages]
+kind = "react-router"
+modules = ["frontend/src/App.tsx"]
+public_dir = "frontend/public"
+
+[symbols]
+primary_prefixes = ["frontend/src/components/", "frontend/src/lib/", "frontend/src/hooks/", "backend/app/"]
+
+[docs]
+scope = ["docs/**/*.md", "AGENTS.md", "CONTEXT.md", "extras/**/*.md", ".claude/rules/**/*.md", ".claude/skills/**/*.md"]
+route_prefixes = ["/api"]
+
+[docs.reachability]
+root = "docs/README.md"
+include = ["docs/**/*.md"]
+exclude = []
+
+[[docs.rules]]
+paths = ["docs/automatic-bank-sync.md", "docs/rfc-235-investment-ledger.md"]
+checks = ["links"]
+reason = "Upstream-owned docs: fixing their code references would edit upstream files on every sync."
+
+[agents]
+rules_dir = ".claude/rules"
+skills_dir = ".claude/skills"
+instruction_map = { file = "AGENTS.md", heading = "Scoped instruction map" }

@@ -49,6 +49,7 @@ Route a question to the source that owns that kind of fact. This is not a preced
 - Executable behaviour and data shape: code, Alembic migrations (`backend/alembic/versions/`), `backend/app/schemas/`, tests.
 - Repository rules: this file.
 - Path-scoped guidance: `.claude/rules/`.
+- Task workflows and tool reference: `.claude/skills/`.
 - Domain vocabulary: `CONTEXT.md`.
 - Decisions: `docs/adr/`.
 - Doc routing: `docs/README.md`.
@@ -71,7 +72,7 @@ A rule loads into every session that touches a matching file, so it holds only w
 
 - Name the function, file, setting or workflow that owns a fact instead of copying its value. Copied lists and limits go stale without failing a check.
 - How a component works belongs in `docs/` or a comment beside the code.
-- A change that makes a rule or doc wrong fixes it in the same PR.
+- A change that makes a rule or doc wrong fixes it in the same PR. `doc_refs` (code-intel) lists the docs and rules that name a file, route or symbol you changed.
 
 ## Development Commands
 
@@ -86,6 +87,7 @@ Run from the repository root. All Python goes through `uv run --no-sync` after a
 (cd backend && uv run --no-sync ty check .)         # type gate
 (cd frontend && npm run typecheck)
 (cd backend && uv run --no-sync python scripts/check_migration_chain.py)  # migration chain
+uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel doc-check  # docs, links, agent files
 docker compose up -d                                # dev stack
 ```
 
@@ -95,7 +97,7 @@ Keep each checkout's installs in step with its lockfiles after a branch switch, 
 uv tool run prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
 ```
 
-`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
+`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, `code-intel setup` (below), and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
 
 `docker-compose.yml` and `docker-compose.prod.yml` both use the project name `securo`, the live stack. Do not bring a stack up from a worktree while the live one is running.
 
@@ -121,6 +123,39 @@ docker compose -f docker-compose.prod.yml config --quiet
 (cd backend && ruff check . && pytest --cov=app --cov-report=term-missing --cov-fail-under=60)  # backend checks
 (cd frontend && npm run lint && npm run build)  # frontend checks
 ```
+
+## Code Search & Navigation
+
+Use the cheapest tool that answers exactly. Read `.claude/skills/code-intel-reference/SKILL.md` when a tool errors, returns empty, or you need its blind spots.
+
+- `rg` for a known identifier or literal, always with a path (without one it can wait on stdin). Construction sites: `rg 'ClassName\('`.
+- probe (`search_code`, `extract_code`) for a concept when you do not know the identifier. `path` must be absolute; keep it narrow; `exact: true` for identifiers.
+- LSP for callers of a method whose name is defined in several places, shadowed or re-exported symbols, and multi-hop callers.
+- code-intel MCP server (`mcp__code-intel__<tool>`):
+  - `di_deps` / `di_reverse`: FastAPI `Depends` chains and the routes a dependency guards.
+  - `route_match` / `route_unmatched`: a route's full URL and its frontend callers; orphaned routes.
+  - `jsx_usage` / `symbol_resolve`: JSX render sites; which same-name definition a name means.
+  - `doc_refs`: docs that mention a file, route or symbol.
+  - `status`: completeness and blind spots. Replies that lead with `ⓘ` or `⚠ INCOMPLETE` name what the answer may miss; confirm with `rg` or LSP.
+
+### Using LSP
+
+- Positions are 1-based and must sit on the name. A wrong column returns nothing.
+- The first call per language can come back empty or partial; retry once.
+- Run Python calls one at a time: pyrefly cancels a pending request when another file opens.
+- LSP does not see `Depends(...)` as a call, nor calls through a `Protocol` to the implementing class. Use `di_reverse` and `symbol_resolve` for those, and check the receiver's type before dropping an `rg` hit.
+
+### Prerequisites
+
+Every checkout and worktree needs `backend/.venv`, `frontend/node_modules` and code-intel's TypeScript install (shared in `~/.cache/code-intel`). The sync hook above provides all three; without them LSP and the frontend tools quietly return less. Claude Code asks you to approve the project's `code-intel` and `probe` servers once.
+
+### Before committing
+
+Check callers and DI consumers of what you changed (`di_reverse` for a dependency, LSP or `rg` for a function), and run `doc-check` when you touched a route, a symbol that docs name, or an agent file.
+
+### Briefing subagents
+
+A subagent does not necessarily see this file. Put the routing lines it needs in its brief: which tool answers which question, the absolute-path rule for probe, and "retry LSP once".
 
 ## Safety
 

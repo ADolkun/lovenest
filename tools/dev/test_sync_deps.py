@@ -40,7 +40,7 @@ SYSTEM_TOOLS = (
 FAKE_UV = """\
 #!/bin/sh
 echo "uv $* @${PWD##*/}" >>"$FAKE_LOG"
-[ "$1" = sync ] || exit 2
+case "$1" in sync | run) ;; *) exit 2 ;; esac
 case " ${FAKE_UV_FAIL:-} " in *" ${PWD##*/} "*) exit 1 ;; esac
 """
 
@@ -64,9 +64,11 @@ GITCONFIG = """\
 
 SYNC_BACKEND = "uv sync --locked @backend"
 SYNC_TAX = "uv sync --locked @tax"
+SETUP_COMMAND = "uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup"
+SETUP = f"{SETUP_COMMAND} @repo"
 NPM = "npm ci --no-audit --no-fund @frontend"
-EVERYTHING = [SYNC_BACKEND, SYNC_TAX, NPM]
-UV_ONLY = [SYNC_BACKEND, SYNC_TAX]
+EVERYTHING = [SYNC_BACKEND, SYNC_TAX, SETUP, NPM]
+UV_ONLY = [SYNC_BACKEND, SYNC_TAX, SETUP]
 
 Expect = Callable[[str, object, object], None]
 
@@ -142,6 +144,7 @@ class Sandbox:
         self.write("extras/tax/pyproject.toml", "")
         self.write("frontend/package.json", '{"name": "x"}\n')
         self.write("frontend/package-lock.json", '{"lockfileVersion": 3}\n')
+        self.write(".code-intel/requirements.txt", "code-intel @ git+https://example.invalid/code-intel@0\n")
         (self.root / "tools/dev").mkdir(parents=True)
         shutil.copy2(SCRIPT, self.root / "tools/dev/sync-deps.sh")
         self.git("add", "-A")
@@ -286,6 +289,21 @@ def test_npm_failure_is_reported_and_retried(sb: Sandbox, expect: Expect) -> Non
     expect("retry", sb.run().calls, EVERYTHING)
 
 
+def test_code_intel_setup_runs_only_when_pinned(sb: Sandbox, expect: Expect) -> None:
+    (sb.root / ".code-intel/requirements.txt").unlink()
+    result = sb.run()
+    expect("exit", result.code, 0)
+    expect("calls", result.calls, [SYNC_BACKEND, SYNC_TAX, NPM])
+
+
+def test_code_intel_setup_failure_is_reported_and_other_steps_run(sb: Sandbox, expect: Expect) -> None:
+    result = sb.run(extra={"FAKE_UV_FAIL": "repo"})
+    expect("exit", result.code, 1)
+    expect("everything attempted", result.calls, EVERYTHING)
+    expect("reported", result.failures, [f"sync-deps: failed, run by hand: {SETUP_COMMAND}"])
+    expect("retry", sb.run().calls, UV_ONLY)
+
+
 def test_independent_failures_are_all_reported(sb: Sandbox, expect: Expect) -> None:
     result = sb.run(extra={"FAKE_UV_FAIL": "backend tax", "FAKE_NPM_FAIL": "1"})
     expect("exit", result.code, 1)
@@ -350,9 +368,10 @@ def test_stamps_are_per_worktree(sb: Sandbox, expect: Expect) -> None:
     worktree = sb.tmp / "wt"
     sb.git("worktree", "add", "-q", "-b", "other", str(worktree))
     script = worktree / "tools/dev/sync-deps.sh"
-    expect("worktree installs", sb.run(cwd=worktree, script=script).calls, EVERYTHING)
+    in_worktree = [call.replace("@repo", "@wt") if call == SETUP else call for call in EVERYTHING]
+    expect("worktree installs", sb.run(cwd=worktree, script=script).calls, in_worktree)
     expect("main is untouched by it", sb.run().calls, UV_ONLY)
-    expect("worktree is stamped", sb.run(cwd=worktree, script=script).calls, UV_ONLY)
+    expect("worktree is stamped", sb.run(cwd=worktree, script=script).calls, in_worktree[:-1])
     main_dir = sb.git("rev-parse", "--path-format=absolute", "--git-path", "sync-deps")
     wt_dir = sb.git("rev-parse", "--path-format=absolute", "--git-path", "sync-deps", cwd=worktree)
     expect("separate stamp dirs", main_dir != wt_dir, True)
@@ -372,6 +391,8 @@ TESTS: list[Callable[[Sandbox, Expect], None]] = [
     test_missing_node_modules_reinstalls,
     test_uv_failure_is_reported_and_other_steps_run,
     test_npm_failure_is_reported_and_retried,
+    test_code_intel_setup_runs_only_when_pinned,
+    test_code_intel_setup_failure_is_reported_and_other_steps_run,
     test_independent_failures_are_all_reported,
     test_missing_lockfile_fails,
     test_missing_npm_fails,

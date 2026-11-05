@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "code-intel": {
+      "command": "git",
+      "args": [
+        "-c",
+        "alias.code-intel-mcp=!exec uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel mcp",
+        "code-intel-mcp"
+      ]
+    },
+    "probe": {
+      "command": "npx",
+      "args": ["-y", "@probelabs/probe@0.6.0-rc344", "mcp"]
+    }
+  }
+}
