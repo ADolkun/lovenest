@@ -13,4 +13,4 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # renovate: datasource=pypi depName=uv
-uvx uv@0.13.6 lock "$@"
+uvx uv@0.13.7 lock "$@"

@@ -8,11 +8,10 @@ import math
 import random
 import time
 import uuid
-from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import redis.asyncio as redis
@@ -171,16 +170,13 @@ def _is_rpc_throttle(payload: Any) -> bool:
 
 async def _finish(client: redis.Redis, key: str, token: str, cooldown: float) -> float:
     async with asyncio.timeout(REDIS_TIMEOUT_SECONDS):
-        milliseconds = await cast(
-            Awaitable[Any],
-            client.eval(
-                _FINISH_SCRIPT,
-                2,
-                key + ":leases",
-                key + ":cooldown",
-                token,
-                str(math.ceil(cooldown * 1000)),
-            ),
+        milliseconds = await client.eval(
+            _FINISH_SCRIPT,
+            2,
+            key + ":leases",
+            key + ":cooldown",
+            token,
+            str(math.ceil(cooldown * 1000)),
         )
     return int(milliseconds) / 1000
 
@@ -222,17 +218,14 @@ async def request_json(
                     # trip, so delayed Redis replies cannot outlive the lease.
                     attempt_deadline = min(deadline, time.monotonic() + timeout)
                     async with asyncio.timeout(min(_remaining(deadline), REDIS_TIMEOUT_SECONDS)):
-                        granted, wait_ms = await cast(
-                            Awaitable[Any],
-                            coordinator.eval(
-                                _ACQUIRE_SCRIPT,
-                                2,
-                                key + ":leases",
-                                key + ":cooldown",
-                                token,
-                                str(concurrency),
-                                str(math.ceil((timeout + 5.0) * 1000)),
-                            ),
+                        granted, wait_ms = await coordinator.eval(
+                            _ACQUIRE_SCRIPT,
+                            2,
+                            key + ":leases",
+                            key + ":cooldown",
+                            token,
+                            str(concurrency),
+                            str(math.ceil((timeout + 5.0) * 1000)),
                         )
                     remaining = _remaining(deadline)
                     if granted:
