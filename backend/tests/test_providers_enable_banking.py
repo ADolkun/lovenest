@@ -10,6 +10,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -17,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwt
 
+from app.core.app_clock import use_resolved_timezone
 from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
@@ -450,6 +452,14 @@ def _span_days(request: httpx.Request) -> int:
     return (end - start).days + 1
 
 
+class _EveningInLosAngeles(datetime):
+    """2026-05-19 01:00 UTC, still 2026-05-18 west of UTC."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc).astimezone(tz)
+
+
 @pytest.mark.asyncio
 async def test_get_transactions_default_window_is_90_days_inclusive(eb_keys):
     provider = EnableBankingProvider()
@@ -459,11 +469,15 @@ async def test_get_transactions_default_window_is_90_days_inclusive(eb_keys):
         requests.append(request)
         return httpx.Response(200, json={"transactions": []})
 
-    with _patch_client(provider, handler):
+    with (
+        _patch_client(provider, handler),
+        patch("app.providers.enable_banking.datetime", _EveningInLosAngeles),
+        use_resolved_timezone(ZoneInfo("America/Los_Angeles")),
+    ):
         await provider.get_transactions(_CREDENTIALS, "acc-1")
 
     assert len(requests) == 1
-    assert requests[0].url.params["date_to"] == date.today().isoformat()
+    assert requests[0].url.params["date_to"] == "2026-05-19"
     assert _span_days(requests[0]) == DEFAULT_HISTORY_DAYS == 90
 
 

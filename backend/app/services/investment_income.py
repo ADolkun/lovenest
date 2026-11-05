@@ -37,6 +37,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
@@ -292,7 +293,7 @@ async def workspace_income(
     with a zero: a zero would claim it pays nothing, when it may equally be one
     whose payouts this cannot see.
     """
-    as_of = as_of or _date.today()
+    as_of = as_of or app_today()
     payouts = await collect_payouts(
         session, workspace_id, since=as_of - timedelta(days=round(months * 30.44)), until=as_of
     )

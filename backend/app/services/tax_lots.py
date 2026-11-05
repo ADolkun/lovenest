@@ -25,6 +25,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_clock import app_today
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
@@ -437,7 +438,7 @@ async def asset_tax_lots(
         .scalars()
         .all()
     )
-    as_of = as_of or date.today()
+    as_of = as_of or app_today()
     head = {
         "asset_id": str(asset.id),
         "ticker": asset.ticker,
