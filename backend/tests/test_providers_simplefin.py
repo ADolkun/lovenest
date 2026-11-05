@@ -737,7 +737,7 @@ async def test_get_holdings_parses_investment_data():
                             },
                             {  # bridge sends 0.00 when it has no cost basis
                                 "id": "h-4",
-                                "description": "Ford",
+                                "description": "Coca-Cola",
                                 "market_value": "90.00",
                                 "shares": "3",
                                 "purchase_price": "17.72",
