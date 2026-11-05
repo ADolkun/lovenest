@@ -161,6 +161,20 @@ jobs:
         if: steps.changes.outputs.run_frontend != 'false'
         run: npm test
 
+  dev-scripts:
+    name: Dev scripts self-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/dev
+          persist-credentials: false
+
+      - name: Test sync-deps.sh
+        run: python3 -I tools/dev/test_sync_deps.py
+
   helm:
     name: Helm (lint + kubeconform)
     runs-on: ubuntu-latest
