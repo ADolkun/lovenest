@@ -175,6 +175,81 @@ jobs:
       - name: Test sync-deps.sh
         run: python3 -I tools/dev/test_sync_deps.py
 
+  docs-check:
+    name: Docs Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: true
+          cache-dependency-glob: .code-intel/requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Set up code-intel
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup
+
+      - name: Check docs against the code
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel doc-check
+
+  code-intel-verify:
+    name: Code-intel verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Check CI selection and detect changes
+        id: changes
+        run: |
+          python3 .github/ci/test_changes.py
+          python3 .github/ci/changes.py
+
+      - name: Report code-intel checks not needed
+        if: steps.changes.outputs.run_backend == 'false' && steps.changes.outputs.run_frontend == 'false'
+        run: echo "No backend or frontend changes; skipping code-intel verify."
+
+      - name: Set up uv
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: true
+          cache-dependency-glob: .code-intel/requirements.txt
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Set up code-intel
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup
+
+      - name: Verify the analyzers
+        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel verify
+
+      - name: Summarize the analysis
+        if: ${{ !cancelled() && (steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false') }}
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel summary >> "$GITHUB_STEP_SUMMARY"
+
   helm:
     name: Helm (lint + kubeconform)
     runs-on: ubuntu-latest
