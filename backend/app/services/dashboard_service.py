@@ -927,7 +927,7 @@ async def get_spending_by_category(
         posted_only=True,
     )
     if shared_by_cat:
-        cat_meta_cache: dict[str, dict] = {}
+        cat_meta_cache: dict[str | None, dict] = {}
         for cat_uuid, share_total in shared_by_cat.items():
             cat_id = str(cat_uuid) if cat_uuid else None
             if cat_id and cat_id not in cat_meta_cache and cat_id not in spending_map:
@@ -964,7 +964,7 @@ async def get_spending_by_category(
         session, workspace_id, month_start, month_end, account_ids
     )
     # We need category info for recurring projections — fetch categories
-    cat_cache: dict[str, dict] = {}
+    cat_cache: dict[str | None, dict] = {}
     for proj in projections:
         if proj["pnl_group"] != "expenses":
             continue

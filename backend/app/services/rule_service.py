@@ -784,7 +784,8 @@ async def _ensure_categories_for_keys(
 
     for key in missing_keys:
         data = DEFAULT_CATEGORIES[key]
-        target_group = groups_by_key.get(CATEGORY_TO_GROUP.get(key))
+        group_key = CATEGORY_TO_GROUP.get(key)
+        target_group = groups_by_key.get(group_key) if group_key else None
         cat = Category(
             user_id=user_id,
             workspace_id=workspace_id,

@@ -1148,8 +1148,11 @@ async def get_asset_values_at(
     totals: dict[str, float] = {}
     primary_total = 0.0
 
-    if as_of_date is not None:
-        values_map = await _load_asset_native_values(session, assets, up_to_date=as_of_date)
+    values_map = (
+        await _load_asset_native_values(session, assets, up_to_date=as_of_date)
+        if as_of_date is not None
+        else {}
+    )
 
     for asset in assets:
         if as_of_date is not None:

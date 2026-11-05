@@ -27,7 +27,7 @@ from collections import Counter
 from datetime import date as date_type
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation, localcontext
-from typing import Optional
+from typing import NotRequired, Optional, TypedDict
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select
@@ -871,6 +871,18 @@ async def _already_imported(
     return seen, with_ledger
 
 
+class ImportSummary(TypedDict):
+    imported: int
+    accepted: list[AssetOrderImport]
+    skipped: int
+    skips: list[AssetImportSkip]
+    holdings_created: int
+    holdings_matched: int
+    errors: list[AssetImportRowError]
+    warnings: list[AssetImportWarning]
+    import_log_id: NotRequired[str | None]
+
+
 async def import_orders(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -882,7 +894,7 @@ async def import_orders(
     filename: Optional[str] = None,
     market_provider: Optional[MarketPriceProvider] = None,
     allow_unpriced: bool = False,
-) -> dict:
+) -> ImportSummary:
     """Apply a file of orders to the workspace's holdings.
 
     Returns the counts the UI reports, and — on a dry run — the same numbers
@@ -1024,7 +1036,7 @@ async def import_orders(
     )
 
     to_create = sorted({o.ticker for o in accepted if o.ticker not in holdings})
-    summary = {
+    summary: ImportSummary = {
         'imported': len(accepted),
         # The preview shows these rather than the parsed rows: a lot report
         # line becomes a buy and a sell, and only one of the two may already
