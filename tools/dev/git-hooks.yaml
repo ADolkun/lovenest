@@ -1,11 +1,13 @@
-# Dependency sync after checkouts, merges and rebases. Separate from the
-# root .pre-commit-config.yaml, which tracks upstream. Hooks are per clone
-# (its worktrees share them) and nothing runs until they are installed. Once
-# per clone, after `uv tool install prek`:
+# Lovenest's own git hooks, separate from the root .pre-commit-config.yaml,
+# which tracks upstream. Hooks are per clone (its worktrees share them) and
+# nothing runs until they are installed. Once per clone, after
+# `uv tool install prek`:
 #
-#   prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+#   prek install --config tools/dev/git-hooks.yaml -t pre-commit -t post-checkout -t post-merge -t post-rewrite
 #
-# Skip it for one git command with SKIP=sync-deps.
+# That makes this file own the pre-commit hook, so the root config's optional
+# checks then run by hand (`prek run --all-files`). Skip a hook for one git
+# command with SKIP=<id>.
 repos:
   - repo: local
     hooks:
@@ -16,3 +18,14 @@ repos:
         always_run: true
         pass_filenames: false
         stages: [post-checkout, post-merge, post-rewrite]
+
+      # Checks statically (a few seconds) and starts the app only when the
+      # capture is stale. A rewrite fails the commit: stage the file and commit
+      # again. CI's `capture --check` still covers what static checks cannot see.
+      - id: code-intel-capture
+        name: refresh the code-intel library capture
+        entry: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --if-stale
+        language: system
+        files: ^(backend/(uv\.lock|app/.+\.py)|\.code-intel/.+)$
+        pass_filenames: false
+        stages: [pre-commit]

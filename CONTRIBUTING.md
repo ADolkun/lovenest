@@ -109,11 +109,11 @@ tools/deploy/setup.sh
 ```
 
 For development, install the Python/Node tools and dependencies described below.
-Dependency-sync hooks are separate from optional pull deployment:
+Dependency-sync and capture hooks are separate from optional pull deployment:
 
 ```bash
 uv tool install prek
-prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+prek install --config tools/dev/git-hooks.yaml -t pre-commit -t post-checkout -t post-merge -t post-rewrite
 tools/dev/sync-deps.sh
 ```
 

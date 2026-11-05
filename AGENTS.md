@@ -88,7 +88,7 @@ Run from the repository root. All Python goes through `uv run --no-sync` after a
 (cd frontend && npm run typecheck)
 (cd backend && uv run --no-sync python scripts/check_migration_chain.py)  # migration chain
 uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel doc-check  # docs, links, agent files
-uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture  # by hand only after editing a library include or captured binding; backend/scripts/lock.sh refreshes it on re-lock (CI runs `capture --check`)
+uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --if-stale  # the pre-commit hook and backend/scripts/lock.sh run this; starts the app only when the capture is stale (CI runs `capture --check`)
 docker compose up -d                                # dev stack
 ```
 
@@ -96,10 +96,10 @@ Keep each checkout's installs in step with its lockfiles after a branch switch, 
 
 ```bash
 uv tool install prek
-prek install --config tools/dev/git-hooks.yaml -t post-checkout -t post-merge -t post-rewrite
+prek install --config tools/dev/git-hooks.yaml -t pre-commit -t post-checkout -t post-merge -t post-rewrite
 ```
 
-`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`.
+`tools/dev/sync-deps.sh` runs `uv sync --locked` in `backend/` and `extras/tax/`, and `npm ci` in `frontend/` when its manifest or lockfile changed. Run it by hand after a fresh clone, or skip it for one command with `SKIP=sync-deps git checkout <branch>`. The `code-intel-capture` pre-commit hook refreshes `.code-intel/library-capture.json` when a commit leaves it stale; it then fails the commit, so stage the file and commit again.
 
 `docker-compose.yml` and `docker-compose.prod.yml` both use the project name `securo`, the live stack. Do not bring a stack up from a worktree while the live one is running.
 

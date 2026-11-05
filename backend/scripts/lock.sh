@@ -24,6 +24,6 @@ for arg in "$@"; do
 done
 if [[ $refresh == 1 && -f ../.code-intel/requirements.txt ]]; then
   uv sync --locked --group dev || { echo "lock.sh: 'uv sync --locked --group dev' failed" >&2; exit 1; }
-  (cd .. && uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture) \
-    || { echo "lock.sh: 'code-intel capture' failed" >&2; exit 1; }
+  (cd .. && uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --if-stale) \
+    || { echo "lock.sh: 'code-intel capture --if-stale' failed" >&2; exit 1; }
 fi

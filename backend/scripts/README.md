@@ -9,7 +9,7 @@ Then install the project and development tools with `uv sync --locked --group de
 and run checks with `uv run --no-sync`.
 
 Unless given `--check`, `--locked` or `--dry-run`, `lock.sh` then runs
-`uv sync --locked --group dev` and `code-intel capture`, which refreshes
+`uv sync --locked --group dev` and `code-intel capture --if-stale`, which refreshes
 `.code-intel/library-capture.json` (it records the locked versions of the
 packages that build routes, and CI runs `capture --check`). Commit the capture
 with `uv.lock`.
