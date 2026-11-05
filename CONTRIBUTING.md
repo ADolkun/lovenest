@@ -221,8 +221,9 @@ The cooldown requires npm 11.10 or newer, which every Node 26 release bundles:
 cd frontend && npm install <package>
 ```
 
-Commit both `package.json` and `package-lock.json`. If the newest package release is less than a
-week old, wait or explain the exception in the PR.
+npm records it as a `>=` floor (`save-prefix` in `.npmrc`), and `package-lock.json` pins the
+installed version. Commit both. If the newest package release is less than a week old, wait or
+explain the exception in the PR.
 
 ## Commit messages
 

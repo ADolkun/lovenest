@@ -18,6 +18,17 @@
       "minimumReleaseAge": "7 days"
     },
     {
+      "description": "Dependencies are `>=` floors (frontend/.npmrc save-prefix). Raise the floor with each release; package-lock.json pins the installed version.",
+      "matchManagers": ["npm"],
+      "rangeStrategy": "bump"
+    },
+    {
+      "description": "typescript-eslint peers on typescript <6.1, so the `typescript` package stays on 6.0.x. Type checking runs on TypeScript 7 through the `@typescript/native` alias. Lift when typescript-eslint supports 7.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<6.1.0"
+    },
+    {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "GitHub Actions (non-major)"
