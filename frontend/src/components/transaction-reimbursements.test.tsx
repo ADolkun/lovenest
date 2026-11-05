@@ -95,9 +95,9 @@ describe('TransactionReimbursements', () => {
 
   it('shows a reimbursed debit its credits and its net cost', async () => {
     const credit = link({
-      id: 'link-ford',
-      counterpart_id: 'ford',
-      counterpart_description: 'FORD MOTOR COMPA PAYMENTS',
+      id: 'link-acme',
+      counterpart_id: 'acme',
+      counterpart_description: 'ACME CORP PAYMENTS',
       counterpart_category_name: null,
       amount: '45.00',
     })
@@ -117,7 +117,7 @@ describe('TransactionReimbursements', () => {
 
     const section = screen.getByTestId('transaction-reimbursements')
     expect(within(section).getByText(t('transactions.reimbursedBy'))).toBeInTheDocument()
-    expect(within(section).getByText('FORD MOTOR COMPA PAYMENTS')).toBeInTheDocument()
+    expect(within(section).getByText('ACME CORP PAYMENTS')).toBeInTheDocument()
     expect(within(section).getByText(t('transactions.reimbursementNetCost'))).toBeInTheDocument()
     expect(within(section).getByTestId('reimbursement-balance')).toHaveTextContent('$75.00')
     expect(within(section).queryByText(t('transactions.linkExpenses'))).not.toBeInTheDocument()

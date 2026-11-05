@@ -174,11 +174,11 @@ describe('TransactionDrillDown', () => {
           description: 'Team dinner',
           type: 'debit',
           amount: 120,
-          reimbursement_links: [link({ id: 'l1', counterpart_id: 'ford' })],
+          reimbursement_links: [link({ id: 'l1', counterpart_id: 'acme' })],
         }),
         row({
-          id: 'ford',
-          description: 'FORD MOTOR COMPA PAYMENTS',
+          id: 'acme',
+          description: 'ACME CORP PAYMENTS',
           type: 'credit',
           amount: 45,
           reimbursement_links: [link({ id: 'l1', counterpart_id: 'dinner' })],
@@ -216,11 +216,11 @@ describe('TransactionDrillDown', () => {
     expect(screen.getByText(t('transactions.appliedToExpenses', { count: 1 }))).toBeInTheDocument()
     expect(screen.getByText(t('transactions.appliedToExpenses', { count: 2 }))).toBeInTheDocument()
 
-    const fullyLinked = screen.getByText('FORD MOTOR COMPA PAYMENTS').closest('.opacity-60')
+    const fullyLinked = screen.getByText('ACME CORP PAYMENTS').closest('.opacity-60')
     expect(fullyLinked).not.toBeNull()
     expect(screen.getByText('Zelle from family').closest('.opacity-60')).toBeNull()
 
-    // 120 - 45 reimbursed, the Ford credit spent in full, 54.02 of Zelle left over.
+    // 120 - 45 reimbursed, the Acme credit spent in full, 54.02 of Zelle left over.
     const label = await screen.findByText(t('dashboard.drillDownTotal', { count: 3, total: '$20.98' }))
     expect(label).toBeInTheDocument()
   })
@@ -243,8 +243,8 @@ describe('TransactionDrillDown', () => {
           attachment_count: 0,
           reimbursement_links: [{
             id: 'l1',
-            counterpart_id: 'ford',
-            counterpart_description: 'FORD MOTOR COMPA PAYMENTS',
+            counterpart_id: 'acme',
+            counterpart_description: 'ACME CORP PAYMENTS',
             counterpart_date: '2026-09-05',
             counterpart_category_name: null,
             amount: '45.00',
