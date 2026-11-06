@@ -68,3 +68,79 @@ check_postgres_layout() {
     die 'Found the old PostgreSQL volume. Before deploying, follow docs/postgres-upgrade.md and run scripts/upgrade-postgres.sh. No services were started.'
   fi
 }
+
+# Fingerprint resolved runtime settings, including shell overrides and profiles.
+# Hash only: never write resolved settings/secrets into the deployment receipts.
+config_fingerprint() {
+  {
+    "${COMPOSE[@]}" config || return 1
+    printf 'profiles=%s\n' "$(env_value COMPOSE_PROFILES)"
+    git -C "$ROOT" hash-object -- "$ROOT/.env" || return 1
+  } | git -C "$ROOT" hash-object --stdin
+}
+
+image_fingerprint() {
+  local images image
+  images=$("${COMPOSE[@]}" config --images) || return 1
+  [[ -n "$images" ]] || return 1
+  while IFS= read -r image; do
+    printf '%s\n' "$image"
+    docker image inspect --format '{{.Id}}' "$image" || return 1
+  done <<< "$(printf '%s\n' "$images" | sort -u)" | git -C "$ROOT" hash-object --stdin
+}
+
+# Require exactly the configured services to be running and healthy where a
+# healthcheck exists. Container IDs detect manual replacements/config changes;
+# the HTTP probe additionally checks frontend/tax services without healthchecks.
+stack_fingerprint() {
+  local expected running='' managed_ids='' ids id details oneoff service status health
+  local services=()
+  expected=$("${COMPOSE[@]}" config --services | sort -u) || return 1
+  [[ -n "$expected" ]] || return 1
+  while IFS= read -r service; do services+=("$service"); done <<< "$expected"
+  ids=$("${COMPOSE[@]}" ps --all --quiet "${services[@]}" | sort -u) || return 1
+  [[ -n "$ids" ]] || return 1
+  while IFS= read -r id; do
+    details=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.oneoff"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id") || return 1
+    IFS='|' read -r oneoff service status health <<< "$details"
+    # `compose run` containers may be stopped or running alongside the service.
+    # They neither invalidate its receipt nor substitute for a missing service.
+    case "$oneoff" in True|true) continue ;; esac
+    [[ "$status" == running && ( "$health" == healthy || "$health" == none ) ]] || return 1
+    running+="$service"$'\n'
+    managed_ids+="$id"$'\n'
+  done <<< "$ids"
+  [[ -n "$managed_ids" && "$(printf '%s' "$running" | sort -u)" == "$expected" ]] || return 1
+  printf '%s' "$managed_ids" | git -C "$ROOT" hash-object --stdin
+}
+
+receipt_value() {
+  local key value
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "$1" ]]; then printf '%s' "$value"; return; fi
+  done < "$state/last-success-state"
+}
+
+# Only a known successful, clean ancestor plus a narrow non-runtime allowlist
+# may skip. Unknown paths, old receipts, missing images, drift or failed attempts
+# fall back to a full deployment. Manual deploy.sh never takes this fast path.
+can_skip_deploy() {
+  local previous completed dirty saved_config current_images current_stack
+  [[ "$if_needed" == true && -z "$status" && ! -e "$state/needs-deploy" \
+    && -f "$state/last-success" && -f "$state/last-success-state" ]] || return 1
+  read -r previous completed dirty < "$state/last-success" || return 1
+  [[ "$dirty" == dirty=false && "$(receipt_value schema)" == 1 \
+    && "$(receipt_value revision)" == "$previous" ]] || return 1
+  git -C "$ROOT" merge-base --is-ancestor "$previous" "$revision" || return 1
+  git -C "$ROOT" diff --quiet "$previous" "$revision" -- . \
+    ':(exclude)docs/' ':(exclude).github/' \
+    ':(exclude)README.md' ':(exclude)CONTRIBUTING.md' \
+    ':(exclude)CODE_OF_CONDUCT.md' ':(exclude)SECURITY.md' \
+    ':(exclude)LICENSE' ':(exclude)AGENTS.md' || return 1
+  saved_config=$(receipt_value config)
+  [[ -n "$saved_config" && "$saved_config" == "$config_before" ]] || return 1
+  current_images=$(image_fingerprint) || return 1
+  [[ "$current_images" == "$(receipt_value images)" ]] || return 1
+  current_stack=$(stack_fingerprint) || return 1
+  [[ "$current_stack" == "$(receipt_value containers)" ]] || return 1
+}

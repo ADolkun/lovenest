@@ -126,6 +126,28 @@ git config --local lovenest.deployOnPull true
 
 The tracked guard still checks the opted-in checkout, branch and clean tree.
 
+Pulls that only change `docs/`, `.github/`, or the top-level README, CONTRIBUTING,
+CODE_OF_CONDUCT, SECURITY, LICENSE or AGENTS files can skip the image build and
+restart. The comparison is against the last **successful deployment**, not just
+the previous pull. Skipping requires a clean successful ancestor, unchanged
+resolved Compose settings (including `.env`, shell overrides and profiles), all
+expected images still present with the same identities, and the same running
+containers. Healthchecks and the frontend/API/tax HTTP probes must also pass.
+Unknown paths and any failed deployment attempt take the normal deployment path.
+The first deployment after upgrading this tooling also runs normally to create
+the new verification receipt. A skip does not rewrite the deployed revision.
+
+`tools/deploy/deploy.sh` always forces the normal build/start/readiness flow.
+Only the pull hook uses its `--if-needed` fast path. Images are built once each
+(backend, frontend and tax planner); worker, beat and optional MCP containers
+reuse the backend image. Startup still waits for migrations and backend health,
+then checks the frontend, API proxy and tax planner before recording success.
+
+The backend image excludes local runtime `data/`, test files, Python bytecode
+and build leftovers. Runtime data stays in the existing named volumes; required
+`app/data/` category definitions remain in the image. The build does not remove
+local data, Docker volumes, or caches.
+
 ## Troubleshooting
 
 - **Missing Docker/Compose or stopped daemon:** install/start Docker and rerun
