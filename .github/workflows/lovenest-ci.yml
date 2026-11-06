@@ -41,8 +41,6 @@ jobs:
     if: needs.changes.outputs.backend != 'false'
     runs-on: ubuntu-26.04-arm
     timeout-minutes: 10
-    env:
-      UV_COMPILE_BYTECODE: "1"
     defaults:
       run:
         working-directory: backend
@@ -105,8 +103,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    env:
-      UV_COMPILE_BYTECODE: "1"
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -117,7 +113,6 @@ jobs:
         ports:
           - 5432/tcp
         options: >-
-          --tmpfs /var/lib/postgresql
           --health-cmd "pg_isready -h 127.0.0.1 -U securo_test -d securo_test"
           --health-interval 5s --health-timeout 3s --health-retries 5
       redis:
@@ -153,23 +148,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked --group dev
-
-      # Without these, each of the four xdist workers compiles every test module
-      # itself at the same moment, which costs about 40 s before the first test.
-      - name: Precompile bytecode
-        run: uv run --no-sync python -m compileall -q -j 0 app tests
-
-      # Disposable database: every test builds and drops its own schema, so
-      # durability only costs time.
-      - name: Relax Postgres durability
-        env:
-          PGPASSWORD: securo_test
-        run: |
-          psql -h 127.0.0.1 -p ${{ job.services.postgres.ports['5432'] }} -U securo_test -d securo_test \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "SELECT pg_reload_conf()"
 
       - name: Run tests
         env:
