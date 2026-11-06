@@ -14,6 +14,7 @@ output_init() {
   fi
   phase='' phase_started=0 progress_pid='' progress_kind=''
   progress_parser="$(dirname "${BASH_SOURCE[0]}")/progress.awk"
+  progress_plain_file="${log%.log}.progress-plain"
   printf '%sLovenest deployment%s\n' "$color_heading" "$color_reset" >&3
 }
 
@@ -34,7 +35,7 @@ phase_begin() {
       printf '  %-21s RUNNING\n' "$phase" >&3
     fi
     progress_stop_file="${log%.log}.progress-stop"
-    rm -f "$progress_stop_file"
+    rm -f "$progress_stop_file" "$progress_plain_file"
     progress_watch &
     progress_pid=$!
   else
@@ -43,8 +44,9 @@ phase_begin() {
 }
 
 phase_end() {
-  local outcome=${1:-OK} elapsed=$((SECONDS - phase_started)) color=$color_ok
+  local outcome=${1:-OK} elapsed=$((SECONDS - phase_started)) color
   progress_stop
+  color=$color_ok
   [[ -z "$progress_kind" ]] || printf '  %-21s ' "$phase" >&3
   [[ "$outcome" == OK ]] || color=$color_fail
   printf '%s%s%s %ss\n' "$color" "$outcome" "$color_reset" "$elapsed" >&3
@@ -113,8 +115,10 @@ progress_watch() {
     tick=$((tick + 1))
     if [[ "$progress_animated" == true ]]; then
       if progress_draw "$tick" "$detail"; then continue; fi
-      # A disconnected/unqueryable terminal must not leave a partial frame.
-      printf '\r\033[2K\n' >&3
+      # End the partial line without more terminal controls, then tell the
+      # parent to keep completion/failure output plain as well.
+      printf '\n' >&3
+      : > "$progress_plain_file"
       progress_animated=false interval=5
     fi
     printf '    %ss elapsed | %s\n' "$((SECONDS - phase_started))" "$detail" >&3
@@ -130,8 +134,17 @@ progress_stop() {
     rm -f "$progress_stop_file"
   fi
   if [[ -n "${progress_kind:-}" && "${progress_animated:-false}" == true ]]; then
-    printf '\r\033[2K' >&3
+    if [[ -e "$progress_plain_file" ]] || ! progress_columns >/dev/null; then
+      # The watcher may already have ended its line. If it did not, do that
+      # now. Do not restore color/animation after a capability loss mid-phase.
+      [[ -e "$progress_plain_file" ]] || printf '\n' >&3
+      progress_animated=false
+      color_reset='' color_heading='' color_ok='' color_fail=''
+    else
+      printf '\r\033[2K' >&3
+    fi
   fi
+  if [[ -n "${progress_plain_file:-}" ]]; then rm -f "$progress_plain_file"; fi
 }
 
 output_total() {

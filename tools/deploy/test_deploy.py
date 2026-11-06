@@ -218,7 +218,7 @@ class OutputTests(unittest.TestCase):
     def output(self, extra_env=None, tty=False):
         with tempfile.TemporaryDirectory(prefix="lovenest-output-test-") as directory:
             env = dict(os.environ)
-            for name in ("CI", "NO_COLOR", "TERM"):
+            for name in ("CI", "NO_COLOR", "TERM", "LOVENEST_PROGRESS"):
                 env.pop(name, None)
             env.update({"TERM": "xterm", **(extra_env or {})})
             # Freeze Bash's special clock for formatting-only assertions. The
@@ -262,7 +262,7 @@ class OutputTests(unittest.TestCase):
                 self.assertIn("OK 2s", text)
 
 
-    def animation(self, ending="success", resize=False):
+    def animation(self, ending="success", resize=False, width=20):
         with tempfile.TemporaryDirectory(prefix="lovenest-animation-test-") as directory:
             env = dict(os.environ, TERM="xterm")
             for name in ("CI", "NO_COLOR", "LOVENEST_PROGRESS"):
@@ -305,7 +305,7 @@ printf 'complete\n'
                             break
                         chunks.append((elapsed, chunk))
                     if resize and elapsed >= 0.55 and not resized:
-                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 20, 0, 0))
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, width, 0, 0))
                         resized = True
                     if ending == "signal" and elapsed >= 0.55 and not signaled:
                         process.send_signal(signal.SIGTERM)
@@ -346,6 +346,14 @@ printf 'complete\n'
         self.assertIn("OK", plain)
         self.assertTrue(plain.endswith("complete\r\n"), repr(plain[-100:]))
         self.assertNotIn("\x1b", re.sub(r"\x1b\[2K", "", plain))
+
+    def test_lost_terminal_sizing_keeps_parent_completion_plain(self):
+        text, chunks = self.animation(resize=True, width=0)
+        later = b"".join(chunk for elapsed, chunk in chunks if elapsed >= 0.9).decode()
+        self.assertIn("Build images", later)
+        self.assertIn("OK", later)
+        self.assertNotIn("\x1b", later)
+        self.assertTrue(later.endswith("complete\r\n"), repr(later))
 
     def test_tty_animation_clears_on_failure_and_signal_without_changing_modes(self):
         for ending in ("failure", "signal"):
