@@ -19,6 +19,7 @@ exec 3>&1 4>&2
 cleanup() {
   local result=$?
   set +e
+  if declare -F progress_stop >/dev/null; then progress_stop; fi
   if [[ "$result" != 0 ]]; then
     : > "$state/needs-deploy" 2>/dev/null
     if declare -F output_total >/dev/null && [[ -f "${log:-}" ]]; then
@@ -139,13 +140,13 @@ fi
 deploy() {
   : > "$state/needs-deploy"
   log_event "Building commit $revision"
-  phase_begin 'Build images'
+  phase_begin 'Build images' build
   # Each runtime image is built once. Worker/beat/MCP services reuse the backend
   # tag instead of exporting the same build four times via the Compose anchor.
   "${COMPOSE[@]}" build backend frontend tax-planner >> "$log" 2>&1 \
     || die 'Build failed; no services were restarted. Fix the error and rerun tools/deploy/deploy.sh.'
   phase_end
-  phase_begin 'Start + health'
+  phase_begin 'Start + health' start
   "${COMPOSE[@]}" up -d --no-build --wait --wait-timeout 120 >> "$log" 2>&1 \
     || die 'Start/readiness failed. Inspect docker compose -f docker-compose.prod.yml logs --tail=100, fix the error, then rerun tools/deploy/deploy.sh.'
   phase_end
