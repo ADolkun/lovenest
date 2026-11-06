@@ -39,7 +39,7 @@ jobs:
     name: Backend static checks
     needs: changes
     if: needs.changes.outputs.backend != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     env:
       UV_COMPILE_BYTECODE: "1"
@@ -184,7 +184,7 @@ jobs:
     name: Frontend static checks
     needs: changes
     if: needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     defaults:
       run:
@@ -215,7 +215,7 @@ jobs:
     name: Frontend tests (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -264,7 +264,7 @@ jobs:
 
   docs-check:
     name: Docs Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
 
     steps:
@@ -294,7 +294,7 @@ jobs:
     name: Code-intel verify
     needs: changes
     if: needs.changes.outputs.backend != 'false' || needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
 
     steps:
