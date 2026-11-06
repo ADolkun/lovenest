@@ -1,8 +1,10 @@
 # Self-hosting Lovenest
 
 Use Git, Bash and standard Unix tools on Linux or macOS, plus a running Docker
-daemon and Docker Compose supporting `up --wait` and `--wait-timeout`. Docker
-Desktop, OrbStack, or Docker Engine with the Compose plugin can provide these.
+daemon (Engine 25.0 or newer) and Docker Compose 2.20.2 or newer. Startup-only
+health polling uses `start_interval`; deployment also requires `up --wait` and
+`--wait-timeout`. Docker Desktop, OrbStack, or Docker Engine with the Compose
+plugin can provide these.
 This flow builds from source; it does not require host Python, Node, uv or prek.
 The upstream `install.sh` targets Securo rather than this fork.
 
@@ -163,3 +165,32 @@ local data, Docker volumes, or caches.
   stored path.
 - **Deployment lock remains:** inspect `.git/lovenest-deploy.lock/pid` and confirm
   that process is no longer deploying before removing the stale lock directory.
+
+## Deployment progress and timing
+
+Deployment prints a compact, append-only summary: preparation, image build,
+service startup/health, HTTP checks and final verification, followed by the URL
+and total time. Dependency bytecode is compiled once in the cached dependency layer. This adds
+image size and first-build work to reduce Python startup time; ordinary source
+changes do not repeat that compilation. Application bytecode is not precompiled
+during each build.
+
+Startup checks poll every second during the existing 30-second
+grace period, then return to the normal five-second interval. Migration ordering,
+health requirements, shutdown grace and readiness timeouts are unchanged.
+
+Full command output stays in the printed `.git/lovenest-deploy/logs/` log. Each
+phase has UTC start/end markers and whole-second elapsed time; a neighboring
+`.timings.tsv` file records the same measurements, including the total. The
+`Start + health` phase includes container replacement, migrations and Compose's
+readiness wait; it does not claim to separate those operations. Timings cover the
+deployment command, not other Git hooks such as dependency sync.
+
+Successful commands do not flood the terminal. Failures identify the failed
+phase, print up to 12 recent error/tail lines and the full log path, and return a
+nonzero exit code. Logs and timing files are private to the current user. To
+watch detailed output while a deployment runs, use `tail -f` on its log.
+
+Color is only used on a capable interactive terminal. Pipes, CI, `TERM=dumb`,
+and `NO_COLOR` use plain text. Status words and timings remain visible without
+color; there are no spinners, cursor rewrites or animations.

@@ -10,10 +10,12 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 
 # Cache dependencies separately from source and leave uv out of the runtime image.
+# Compile dependency bytecode once in this cached layer to reduce cold startup;
+# do not repeat compilation after source edits in the final project sync.
 COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=from=uv,source=/uv,target=/bin/uv \
     --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --no-install-project --compile-bytecode
 
 COPY . .
 # Editable installation also supports the backend, Celery and MCP source binds.

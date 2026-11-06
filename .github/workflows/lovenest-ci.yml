@@ -242,9 +242,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # These stdlib-only tests read the production Compose and Dockerfile
+          # contracts too. Non-cone mode includes those files, not the full app.
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            tools/dev
-            tools/deploy
+            /tools/dev/
+            /tools/deploy/
+            /.env.example
+            /docker-compose.prod.yml
+            /backend/Dockerfile
           persist-credentials: false
 
       - name: Test sync-deps.sh
