@@ -216,7 +216,9 @@ class OutputTests(unittest.TestCase):
             for name in ("CI", "NO_COLOR", "TERM"):
                 env.pop(name, None)
             env.update({"TERM": "xterm", **(extra_env or {})})
-            script = 'exec 3>&1; source "$1"; log="$2"; SECONDS=0; output_init; phase_begin "Build images" build; SECONDS=2; phase_end; output_total OK'
+            # Freeze Bash's special clock for formatting-only assertions. The
+            # integration test below separately observes real-time updates.
+            script = 'exec 3>&1; source "$1"; log="$2"; unset SECONDS; SECONDS=0; output_init; phase_begin "Build images" build; SECONDS=2; phase_end; output_total OK'
             command = [os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log")]
             if not tty:
                 return subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
