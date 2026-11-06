@@ -129,13 +129,16 @@ An existing install that ran PostgreSQL 16 needs a one-time data migration first
 
 ## Running the checks CI runs
 
-Product CI keeps two required checks: **Backend (lint + tests)** and
-**Frontend (lint + build)**. PRs run the relevant component's checks; changes
-limited to allowlisted root prose or Markdown under `docs/` skip both suites.
-Shared, workflow, and unknown paths run both, and uncertain change detection
-runs both or fails the check. Every push to `lovenest` runs both full suites.
-Reproduce the relevant checks locally before opening a PR; when changing CI
-selection, also run `python3 .github/ci/test_changes.py` from the repository root.
+Product CI has one required check, **CI gate**, which passes when every other
+job passed or was skipped because its area did not change. PRs run the relevant
+component's checks; changes limited to allowlisted root prose or Markdown under
+`docs/` skip both suites. Shared, workflow, and unknown paths run both, and
+uncertain change detection runs both or fails the check. Every push to
+`lovenest` runs both full suites. The backend and frontend tests run split
+across parallel jobs (`PYTEST_SHARD=i/n` for pytest, `--shard=i/n` for Vitest);
+locally, run them whole. Reproduce the relevant checks locally before opening a
+PR; when changing CI selection, also run `python3 .github/ci/test_changes.py`
+from the repository root.
 
 ### Backend (Python version from `backend/.python-version`, run from `backend/`)
 
