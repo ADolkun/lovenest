@@ -39,7 +39,7 @@ jobs:
     name: Backend static checks
     needs: changes
     if: needs.changes.outputs.backend != 'false'
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     defaults:
       run:
@@ -97,7 +97,7 @@ jobs:
     name: Backend tests (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.backend != 'false'
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -162,7 +162,7 @@ jobs:
     name: Frontend static checks
     needs: changes
     if: needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     defaults:
       run:
@@ -193,7 +193,7 @@ jobs:
     name: Frontend tests (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -242,7 +242,7 @@ jobs:
 
   docs-check:
     name: Docs Check
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
 
     steps:
@@ -272,7 +272,7 @@ jobs:
     name: Code-intel verify
     needs: changes
     if: needs.changes.outputs.backend != 'false' || needs.changes.outputs.frontend != 'false'
-    runs-on: ubuntu-26.04-arm
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
 
     steps:
