@@ -55,6 +55,13 @@ if args[:2] == ['volume', 'ls']:
     if state.get('fail') == 'volumes': sys.exit(1)
     print('\n'.join(state.get('volumes', [])))
     sys.exit(0)
+if args[:2] == ['image', 'inspect']:
+    if state.get('missing_image'): sys.exit(1)
+    print(state.get('image_revision', 'sha256:fixture-image'))
+    sys.exit(0)
+if args and args[0] == 'inspect':
+    print('running unhealthy' if state.get('unhealthy') else 'running healthy')
+    sys.exit(0)
 if args[:2] == ['compose', 'version']:
     print('Docker Compose version test')
     sys.exit(0)
@@ -63,11 +70,18 @@ args = args[1:]
 while args and args[0] in ('--project-directory', '--env-file', '-f'):
     args = args[2:]
 command, rest = args[0], args[1:]
+services = ['backend', 'frontend', 'tax-planner', 'celery-worker', 'celery-beat', 'db', 'redis']
+if 'agents' in values.get('COMPOSE_PROFILES', '').split(','): services.append('mcp-server')
 if state.get('fail') == command:
     print('simulated ' + command + ' failure', file=sys.stderr)
     sys.exit(7)
 if command == 'config':
     if '--quiet' in rest: pass
+    elif '--images' in rest:
+        if state.get('fail') == 'images': sys.exit(7)
+        print('fixture-backend\nfixture-frontend\nfixture-tax\nfixture-db\nfixture-redis')
+    elif '--services' in rest:
+        print('\n'.join(services))
     elif '--environment' in rest:
         for key, value in values.items(): print(key + '=' + value)
     else:
@@ -75,12 +89,32 @@ if command == 'config':
         # Actual Compose emits quoted YAML for string names such as "true".
         rendered = json.dumps(project) if project in ('true', 'false', 'null', '0') else project
         print('name: ' + rendered)
+        print(json.dumps(values, sort_keys=True))
+elif command == 'build':
+    assert rest == ['backend', 'frontend', 'tax-planner']
+    state.pop('missing_image', None)
+    state_path.write_text(json.dumps(state))
+    print('fixture images built once')
+elif command == 'ps':
+    if '--services' in rest:
+        print('\n'.join(services[:-1] if state.get('stopped') else services))
+    else:
+        print('\n'.join('container-' + s + '-' + str(state.get('container_revision', 1)) for s in services))
 elif command == 'up':
-    assert '--build' in rest and '--wait' in rest and '--wait-timeout' in rest
+    assert '--no-build' in rest and '--build' not in rest and '--wait' in rest and '--wait-timeout' in rest
     assert '--profile' not in rest
+    state.pop('stopped', None)
+    state.pop('unhealthy', None)
+    state_path.write_text(json.dumps(state))
     print('fixture stack started')
 elif command == 'exec':
     assert rest[:4] == ['-T', 'backend', 'python', '-']
+    if state.get('mutate_env_on_exec'):
+        with env_file.open('a') as out: out.write('\nFRONTEND_PORT=9191\n')
+    if state.get('exec_fail_once'):
+        state.pop('exec_fail_once')
+        state_path.write_text(json.dumps(state))
+        sys.exit(7)
     probe = sys.stdin.read()
     assert 'http://frontend:8080/api/health' in probe
     assert 'http://tax-planner:8088/' in probe
@@ -320,7 +354,7 @@ class DeployTests(unittest.TestCase):
 
     def test_failed_build_or_readiness_never_reports_success(self):
         self.env_file()
-        for failed in ("up", "exec"):
+        for failed in ("build", "up", "exec"):
             with self.subTest(failed=failed):
                 self.state["fail"] = failed
                 self.save_state()
@@ -471,6 +505,182 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(self.calls("up"), [])
         self.assertEqual(receipt.read_bytes(), before)
 
+
+    def commit_file(self, path, content="changed\n"):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        self.git("add", "--", path)
+        self.git("commit", "-qm", "fixture change")
+
+    def baseline_for_skip(self):
+        self.env_file()
+        self.script("deploy.sh")
+        self.commit_file("docs/example.md")
+        self.clear_calls()
+
+    def assert_redeploy(self):
+        self.script("deploy.sh", "--if-needed")
+        self.assertEqual(len(self.calls("build")), 1)
+        self.assertEqual(len(self.calls("up")), 1)
+
+    def test_builds_three_unique_images_then_starts_without_building(self):
+        self.env_file()
+        self.script("deploy.sh")
+        build = self.calls("build")
+        self.assertEqual(len(build), 1)
+        self.assertEqual(build[0]["args"][-4:], ["build", "backend", "frontend", "tax-planner"])
+        self.assertLess(self.calls().index(build[0]), self.calls().index(self.calls("up")[0]))
+        self.assertIn("--no-build", self.calls("up")[0]["args"])
+
+    def test_docs_and_ci_skip_build_and_start_but_check_readiness(self):
+        self.baseline_for_skip()
+        self.commit_file(".github/workflows/ci.yml")
+        result = self.script("deploy.sh", "--if-needed")
+        self.assertIn("Pull deployment skipped", result.stdout)
+        self.assertEqual(self.calls("build"), [])
+        self.assertEqual(self.calls("up"), [])
+        self.assertEqual(len(self.calls("exec")), 1)
+
+    def test_fast_forward_hook_uses_skip_and_preserves_deployed_revision(self):
+        self.env_file()
+        self.script("deploy.sh")
+        receipt = self.repo / ".git/lovenest-deploy/last-success"
+        before = receipt.read_bytes()
+        self.script("install-pull-hook.sh", "enable")
+        docs = self.origin / "docs/example.md"
+        docs.parent.mkdir()
+        docs.write_text("docs only\n")
+        self.git("add", ".", cwd=self.origin)
+        self.git("commit", "-qm", "docs", cwd=self.origin)
+        self.clear_calls()
+        result = self.git("pull", "--ff-only")
+        self.assertIn("Pull deployment skipped", result.stdout + result.stderr)
+        self.assertEqual(self.calls("up"), [])
+        self.assertEqual(receipt.read_bytes(), before)
+
+    def test_manual_deploy_always_builds_even_for_docs(self):
+        self.baseline_for_skip()
+        self.script("deploy.sh")
+        self.assertEqual(len(self.calls("build")), 1)
+
+    def test_first_run_and_legacy_receipt_do_not_skip(self):
+        self.env_file()
+        self.assert_redeploy()
+        (self.repo / ".git/lovenest-deploy/last-success-state").unlink()
+        self.commit_file("docs/example.md")
+        self.clear_calls()
+        self.assert_redeploy()
+
+    def test_runtime_and_unknown_files_cannot_skip(self):
+        self.baseline_for_skip()
+        for path in ("backend/app/new.py", "frontend/src/new.ts", "extras/tax/app.py", "new-unknown-file", "tools/deploy/new.sh", "backend/.dockerignore"):
+            with self.subTest(path=path):
+                self.commit_file(path)
+                self.clear_calls()
+                self.assert_redeploy()
+
+    def test_runtime_rename_to_docs_is_not_mistaken_for_docs_only(self):
+        self.baseline_for_skip()
+        self.git("mv", "tracked", "docs/renamed.md")
+        self.git("commit", "-qm", "rename")
+        self.assert_redeploy()
+
+    def test_config_env_override_and_profiles_cannot_skip(self):
+        self.baseline_for_skip()
+        self.env_file("FRONTEND_PORT=3132\n")
+        self.assert_redeploy()
+        self.clear_calls()
+        self.script("deploy.sh", "--if-needed", extra_env={"FRONTEND_PORT": "4142"})
+        self.assertEqual(len(self.calls("up")), 1)
+        self.clear_calls()
+        self.env_file("COMPOSE_PROFILES=agents\nAGENTS_MCP_JWT_SECRET=fixture-agent-secret\n")
+        self.assert_redeploy()
+        self.assertEqual(self.calls("up")[0]["profiles"], "agents")
+
+    def test_changed_compose_file_cannot_skip(self):
+        self.baseline_for_skip()
+        path = self.repo / "docker-compose.prod.yml"
+        self.commit_file("docker-compose.prod.yml", path.read_text() + "\n# changed\n")
+        self.assert_redeploy()
+
+    def test_missing_or_retagged_image_and_replaced_container_cannot_skip(self):
+        self.baseline_for_skip()
+        for key, value in (("missing_image", True), ("image_revision", "sha256:replacement"), ("container_revision", 2)):
+            with self.subTest(key=key):
+                self.state = json.loads(self.state_file.read_text())
+                self.state[key] = value
+                self.save_state()
+                self.clear_calls()
+                self.assert_redeploy()
+
+    def test_stopped_unhealthy_or_unready_stack_cannot_skip(self):
+        self.baseline_for_skip()
+        for key in ("stopped", "unhealthy", "exec_fail_once"):
+            with self.subTest(key=key):
+                self.state = json.loads(self.state_file.read_text())
+                self.state[key] = True
+                self.save_state()
+                self.clear_calls()
+                self.assert_redeploy()
+
+    def test_failure_after_previous_success_requires_deploy_after_recovery(self):
+        self.baseline_for_skip()
+        receipt = self.repo / ".git/lovenest-deploy/last-success"
+        before = receipt.read_bytes()
+        self.state["fail"] = "up"
+        self.save_state()
+        result = self.script("deploy.sh", expected=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(receipt.read_bytes(), before)
+        marker = self.repo / ".git/lovenest-deploy/needs-deploy"
+        self.assertTrue(marker.exists())
+        self.state.pop("fail")
+        self.save_state()
+        self.clear_calls()
+        self.assert_redeploy()
+        self.assertFalse(marker.exists())
+
+    def test_dirty_success_and_missing_or_invalid_ancestor_cannot_skip(self):
+        self.baseline_for_skip()
+        state = self.repo / ".git/lovenest-deploy"
+        receipt = state / "last-success"
+        original = receipt.read_text()
+        receipt.write_text(original.replace("dirty=false", "dirty=true"))
+        self.assert_redeploy()
+        receipt.write_text("not-a-commit 2026-01-01T00:00:00Z dirty=false\n")
+        self.clear_calls()
+        self.assert_redeploy()
+        self.git("checkout", "-q", "--orphan", "unrelated")
+        self.git("commit", "-qm", "new history")
+        self.clear_calls()
+        self.assert_redeploy()
+
+    def test_old_unknown_or_mismatched_state_schema_cannot_skip(self):
+        self.baseline_for_skip()
+        state = self.repo / ".git/lovenest-deploy/last-success-state"
+        state.write_text(state.read_text().replace("schema=1", "schema=2"))
+        self.assert_redeploy()
+        state.write_text(state.read_text().replace("revision=", "revision=invalid"))
+        self.clear_calls()
+        self.assert_redeploy()
+
+    def test_changed_config_during_deploy_never_records_success(self):
+        self.env_file()
+        self.state["mutate_env_on_exec"] = True
+        self.save_state()
+        result = self.script("deploy.sh", expected=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("configuration changed", result.stdout)
+        self.assertFalse((self.repo / ".git/lovenest-deploy/last-success").exists())
+
+    def test_receipts_do_not_contain_secrets(self):
+        self.env_file()
+        self.script("deploy.sh")
+        for path in (self.repo / ".git/lovenest-deploy").glob("last-success*"):
+            self.assertNotIn("fixture-real-secret", path.read_text())
+            self.assertNotIn("fixture-password", path.read_text())
+
     @unittest.skipUnless(PREK, "optional real-prek check: install prek or set LOVENEST_TEST_PREK")
     def test_real_prek_install_preserves_native_hook_and_reinstall(self):
         self.env_file()
@@ -478,7 +688,7 @@ class DeployTests(unittest.TestCase):
         for _ in range(2):
             self.run_command(PREK, "install", "--config", "tools/dev/git-hooks.yaml", "-t", "post-merge")
             self.invoke_hook()
-        self.assertEqual(len(self.calls("up")), 2)
+        self.assertEqual(len(self.calls("up")), 1)
         self.assertEqual((self.repo / ".git/sync-fixture.log").read_text().splitlines(), ["sync", "sync"])
         self.script("install-pull-hook.sh", "status")
 

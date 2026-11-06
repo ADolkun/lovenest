@@ -14,4 +14,4 @@ branch=$(git -C "$ROOT" symbolic-ref --quiet --short HEAD) || skip 'HEAD is deta
 configured_branch=$(git -C "$ROOT" config --local --get lovenest.deployBranch || printf lovenest)
 [[ "$branch" == "$configured_branch" ]] || skip "current branch is $branch"
 [[ -z "$(git -C "$ROOT" --no-optional-locks status --porcelain --untracked-files=normal)" ]] || skip 'checkout has uncommitted or untracked files'
-exec "$ROOT/tools/deploy/deploy.sh"
+exec "$ROOT/tools/deploy/deploy.sh" --if-needed
