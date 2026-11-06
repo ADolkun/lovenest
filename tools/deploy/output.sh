@@ -18,6 +18,11 @@ output_init() {
   printf '%sLovenest deployment%s\n' "$color_heading" "$color_reset" >&3
 }
 
+progress_plain() {
+  progress_animated=false
+  color_reset='' color_heading='' color_ok='' color_fail=''
+}
+
 log_event() {
   printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$log"
 }
@@ -29,7 +34,7 @@ phase_begin() {
   log_event "START $phase"
   if [[ -n "$progress_kind" ]]; then
     if [[ "$progress_animated" == true ]]; then
-      progress_draw 0 'starting Docker' || progress_animated=false
+      progress_draw 0 'starting Docker' || progress_plain
     fi
     if [[ "$progress_animated" != true ]]; then
       printf '  %-21s RUNNING\n' "$phase" >&3
@@ -138,8 +143,7 @@ progress_stop() {
       # The watcher may already have ended its line. If it did not, do that
       # now. Do not restore color/animation after a capability loss mid-phase.
       [[ -e "$progress_plain_file" ]] || printf '\n' >&3
-      progress_animated=false
-      color_reset='' color_heading='' color_ok='' color_fail=''
+      progress_plain
     else
       printf '\r\033[2K' >&3
     fi

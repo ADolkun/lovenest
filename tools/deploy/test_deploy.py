@@ -215,7 +215,7 @@ class ReadinessProbeTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
-    def output(self, extra_env=None, tty=False):
+    def output(self, extra_env=None, tty=False, lose_size_before_phase=False):
         with tempfile.TemporaryDirectory(prefix="lovenest-output-test-") as directory:
             env = dict(os.environ)
             for name in ("CI", "NO_COLOR", "TERM", "LOVENEST_PROGRESS"):
@@ -223,7 +223,10 @@ class OutputTests(unittest.TestCase):
             env.update({"TERM": "xterm", **(extra_env or {})})
             # Freeze Bash's special clock for formatting-only assertions. The
             # integration test below separately observes real-time updates.
-            script = 'exec 3>&1; source "$1"; log="$2"; unset SECONDS; SECONDS=0; output_init; phase_begin "Build images" build; SECONDS=2; phase_end; output_total OK'
+            script = 'exec 3>&1; source "$1"; log="$2"; unset SECONDS; SECONDS=0; output_init; '
+            if lose_size_before_phase:
+                script += 'stty cols 0 <&3; '
+            script += 'phase_begin "Build images" build; SECONDS=2; phase_end; output_total OK'
             command = [os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log")]
             if not tty:
                 return subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
@@ -346,6 +349,14 @@ printf 'complete\n'
         self.assertIn("OK", plain)
         self.assertTrue(plain.endswith("complete\r\n"), repr(plain[-100:]))
         self.assertNotIn("\x1b", re.sub(r"\x1b\[2K", "", plain))
+
+    def test_initial_draw_fallback_disables_color_before_phase_starts(self):
+        text = self.output(tty=True, lose_size_before_phase=True)
+        # The heading precedes capability loss. Everything after it is plain.
+        body = text.split("\n", 1)[1]
+        self.assertIn("RUNNING", body)
+        self.assertIn("OK 2s", body)
+        self.assertNotIn("\x1b", body)
 
     def test_lost_terminal_sizing_keeps_parent_completion_plain(self):
         text, chunks = self.animation(resize=True, width=0)
