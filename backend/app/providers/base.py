@@ -163,6 +163,19 @@ class AccountData:
     auto_invested_balance: Decimal = Decimal(0)
 
 
+@dataclass(frozen=True)
+class TransactionCoverage:
+    """A complete transaction read over [start_date, end_date).
+
+    observed_at is the UTC source observation time, never retrieval time.
+    Coverage permits checking absence; it does not prove settlement.
+    """
+
+    start_date: date
+    end_date: date
+    observed_at: datetime
+
+
 @dataclass
 class TransactionData:
     external_id: str
@@ -411,6 +424,11 @@ class BankProvider(ABC):
     Implement this for each provider (Pluggy, Belvo, etc.)
     to enable bank account syncing via OAuth or widget flow.
     """
+
+    @property
+    def transaction_coverage(self) -> dict[str, TransactionCoverage]:
+        """No absence evidence unless a provider explicitly supplies it."""
+        return {}
 
     @property
     @abstractmethod

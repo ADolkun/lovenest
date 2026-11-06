@@ -201,6 +201,7 @@ class TransactionRead(TransactionBase):
     reimbursement_links: list[ReimbursementLinkRead] = []
     currency: str = "USD"
     source: str
+    sync_metadata: Optional[dict] = None
     status: str = "posted"
     payee: Optional[str] = None
     original_description: Optional[str] = None

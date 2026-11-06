@@ -14,7 +14,7 @@ the all-accounts endpoint, plus per-account quotas) are documented at
 https://beta-bridge.simplefin.org/info/developers — we don't try to enforce
 them client-side; the bridge surfaces warnings in the ``errlist`` response.
 
-All SimpleFIN-specific shapes (Setup Token base64, ``errlist`` codes, 90-day
+All SimpleFIN-specific shapes (Setup Token base64, ``errlist`` codes, 45-day
 window, ``balance-date`` epoch seconds) are contained in this module.
 """
 from __future__ import annotations
@@ -39,6 +39,7 @@ from app.providers.base import (
     ProviderUserActionRequired,
     SessionExpiredError,
     TransactionData,
+    TransactionCoverage,
     iso_currency as _iso_currency,
     normalize_ticker as _ticker,
     to_decimal as _to_decimal,
@@ -46,10 +47,9 @@ from app.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# SimpleFIN constrains each ``/accounts`` call to a 90-day window. For the
-# initial sync (since=None) we walk backwards in chunks of this size; for
-# follow-up syncs the sync layer's typical 30-90 day window fits in one call.
-SIMPLEFIN_MAX_WINDOW_DAYS = 90
+# The Bridge warns (gen.api) above its recommended 45-day request range.
+# Stay within that range: warned/truncated reads cannot establish absence.
+SIMPLEFIN_MAX_WINDOW_DAYS = 45
 SIMPLEFIN_DEFAULT_HISTORY_DAYS = 45  # routine overlap, not the per-request cap
 SIMPLEFIN_INITIAL_HISTORY_DAYS = 365  # ~1 year backfill on first connect
 SIMPLEFIN_HTTP_TIMEOUT = 60.0
@@ -93,7 +93,7 @@ def _epoch_to_date(value: Any) -> Optional[date]:
         # or as the bank's local midnight, which a US-zone conversion would
         # move to the previous day. Actual Budget's importer does the same.
         return datetime.fromtimestamp(seconds, tz=timezone.utc).date()
-    except (ValueError, TypeError, OSError):
+    except (ValueError, TypeError, OverflowError, OSError):
         return None
 
 
@@ -232,10 +232,14 @@ class SimpleFinProvider(BankProvider):
 
     def __init__(self) -> None:
         self.action_required_warnings: list[dict] = []
-        # External ids of accounts whose transaction fetch stopped early on
-        # an authorization failure. Their result is partial (earlier chunks
-        # only), so the sync layer must not treat it as the full live set.
+        # Structurally incomplete/partial reads, even when rows can be imported.
+        # Missing source freshness withholds coverage without freezing cursors.
         self.incomplete_account_ids: set[str] = set()
+        self._transaction_coverage: dict[str, TransactionCoverage] = {}
+
+    @property
+    def transaction_coverage(self) -> dict[str, TransactionCoverage]:
+        return self._transaction_coverage
 
     @property
     def name(self) -> str:
@@ -521,9 +525,17 @@ class SimpleFinProvider(BankProvider):
         since: Optional[date] = None,
         payee_source: str = "auto",
     ) -> list[TransactionData]:
+        # Evidence belongs to this invocation only. Mark incomplete up front
+        # so exceptions (including transport failures) cannot leave stale proof.
+        self._transaction_coverage.clear()
+        self.incomplete_account_ids.add(account_external_id)
+        complete = True
+        source_coverage_valid = True
+        observed_at: Optional[datetime] = None
+        now = datetime.now(timezone.utc)
         # SimpleFIN request windows are epoch-based and use UTC boundaries,
         # independent of Securo's configurable application calendar.
-        end_date = datetime.now(timezone.utc).date()
+        end_date = now.date()
         if since is None:
             start_date = end_date - timedelta(days=SIMPLEFIN_INITIAL_HISTORY_DAYS)
         else:
@@ -534,7 +546,12 @@ class SimpleFinProvider(BankProvider):
                 since,
                 end_date - timedelta(days=SIMPLEFIN_DEFAULT_HISTORY_DAYS - 1),
             )
-        # Walk the request window in 90-day chunks (SimpleFIN's per-call cap).
+        # An old sync cursor must not create an unbounded number of requests.
+        # Coverage describes only this bounded range, never the omitted past.
+        start_date = max(
+            start_date, end_date - timedelta(days=SIMPLEFIN_INITIAL_HISTORY_DAYS),
+        )
+        # Walk in chunks within the Bridge's recommended request range.
         transactions: list[TransactionData] = []
         seen_ids: set[str] = set()
         cursor = start_date
@@ -574,11 +591,31 @@ class SimpleFinProvider(BankProvider):
                 )
                 self.incomplete_account_ids.add(account_external_id)
                 return transactions
+            if not isinstance(payload, dict):
+                complete = False
+                cursor = chunk_end
+                continue
+            raw_accounts = payload.get("accounts")
+            if not isinstance(raw_accounts, list):
+                raw_accounts = []
+                complete = False
+            if any(not isinstance(acc, dict) for acc in raw_accounts):
+                complete = False
             matching_accounts = [
-                raw_acc for raw_acc in payload.get("accounts") or []
+                raw_acc for raw_acc in raw_accounts if isinstance(raw_acc, dict)
                 if str(raw_acc.get("id") or "") == account_external_id
             ]
-            errlist = payload.get("errlist") or []
+            if len(matching_accounts) != 1:
+                complete = False
+            for scope in [payload, *matching_accounts]:
+                for field in ("errlist", "errors"):
+                    if field in scope and scope[field] != []:
+                        complete = False
+            raw_errors = payload.get("errlist")
+            errlist = [
+                e for e in raw_errors
+                if isinstance(e, dict) and isinstance(e.get("code", ""), str)
+            ] if isinstance(raw_errors, list) else []
             reauth = [
                 e for e in errlist
                 if (e.get("code") or "").lower() in _REAUTH_ERROR_CODES
@@ -620,16 +657,45 @@ class SimpleFinProvider(BankProvider):
             )
             self.action_required_warnings.extend(warnings)
             for raw_acc in matching_accounts:
-                for raw_txn in raw_acc.get("transactions") or []:
-                    parsed = self._build_transaction(raw_txn, payee_source)
+                source_time = _balance_metadata(raw_acc, has_errors=False)["observed_at"]
+                source_time = datetime.fromisoformat(source_time) if source_time else None
+                if (
+                    source_time is None
+                    or not timedelta(0) <= now - source_time <= timedelta(hours=48)
+                    or (observed_at is not None and source_time != observed_at)
+                ):
+                    source_coverage_valid = False
+                if source_time is not None:
+                    observed_at = source_time
+                raw_transactions = raw_acc.get("transactions")
+                if not isinstance(raw_transactions, list):
+                    complete = False
+                    continue
+                for raw_txn in raw_transactions:
+                    try:
+                        parsed = self._build_transaction(raw_txn, payee_source) if isinstance(raw_txn, dict) else None
+                    except (TypeError, ValueError, AttributeError, OverflowError):
+                        parsed = None
+                    if parsed is None:
+                        complete = False
                     if parsed and parsed.external_id not in seen_ids:
                         seen_ids.add(parsed.external_id)
                         transactions.append(parsed)
             cursor = chunk_end
+        if complete:
+            self.incomplete_account_ids.discard(account_external_id)
+        if complete and source_coverage_valid and observed_at is not None:
+            self._transaction_coverage[account_external_id] = TransactionCoverage(
+                start_date=start_date, end_date=end_exclusive, observed_at=observed_at,
+            )
         return transactions
 
     @staticmethod
     def _build_transaction(raw: dict, payee_source: str) -> Optional[TransactionData]:
+        # JSON booleans are the only valid status signal. In particular,
+        # bool("false") would invent a pending hold from malformed data.
+        if "pending" in raw and not isinstance(raw["pending"], bool):
+            return None
         txn_id = str(raw.get("id") or "")
         if not txn_id:
             return None
