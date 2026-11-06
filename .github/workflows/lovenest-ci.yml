@@ -346,6 +346,8 @@ jobs:
 
   # The one required check. A job skipped because its area did not change counts
   # as passing; a failed, cancelled or never-run job does not.
+  # !cancelled() rather than always(): a superseded run then finishes cancelling
+  # at once, and the PR's next run starts only after it has.
   ci-gate:
     name: CI gate
     if: ${{ !cancelled() }}
