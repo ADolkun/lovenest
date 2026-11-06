@@ -261,6 +261,9 @@ def apply_rule_actions(
                 tx.notes = (existing + " " + new_tags).strip() if existing else new_tags
 
         elif op == "ignore":
+            # A rule is user intent, not a reversible sync-owned ignore.
+            from app.services.pending_transaction_service import preserve_pending_override
+            preserve_pending_override(tx)
             tx.is_ignored = True
 
     return category_already_set

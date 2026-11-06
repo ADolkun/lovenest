@@ -3,7 +3,7 @@ from datetime import date as _date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional, cast
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, Numeric, SmallInteger, String, event
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, Numeric, SmallInteger, String, event, inspect, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,8 @@ class Transaction(Base):
     payee_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("payees.id", ondelete="SET NULL"), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     raw_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # App-owned sync audit state, kept separate from the bank payload.
+    sync_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     import_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("import_logs.id"), nullable=True)
     transfer_pair_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     # True on both legs of a cross-currency transfer whose destination amount
@@ -157,3 +159,23 @@ def _default_effective_date(mapper, connection, target):
 def _default_effective_date_on_update(mapper, connection, target):
     if target.effective_date is None:
         target.effective_date = target.date
+
+
+@event.listens_for(Transaction, "before_update")
+def _merge_pending_manual_ownership(mapper, connection, target):
+    """Claim ownership without erasing audit written by a concurrent sync.
+
+    The ordinary UPDATE will take this same row lock. Read at flush time so
+    a user request that loaded the row before retirement keeps that newer
+    audit; only the two ownership keys belong to this manual transition.
+    Detached rule previews never flush and never reach this hook.
+    """
+    state = target.sync_metadata or {}
+    if not state.get("pending_manual_override") or not inspect(target).attrs.sync_metadata.history.has_changes():
+        return
+    latest = connection.execute(select(Transaction.sync_metadata).where(
+        Transaction.id == target.id,
+    ).with_for_update()).scalar_one_or_none()
+    target.sync_metadata = {
+        **(latest or {}), "pending_manual_override": True, "pending_ignore_owned": False,
+    }

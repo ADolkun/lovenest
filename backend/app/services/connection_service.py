@@ -33,6 +33,10 @@ from app.models.collection import collection_asset_groups
 from app.models.credit_card_bill import CreditCardBill
 from app.models.payee import Payee, PayeeMapping
 from app.models.transaction import Transaction
+from app.providers.base import TransactionCoverage
+from app.services.pending_transaction_service import (
+    pending_matches_bank_evidence, pending_recheck_since, reconcile_pending,
+)
 from app.models.user import User
 from app.providers import get_provider
 from app.providers.enable_banking import _txn_fingerprint
@@ -2716,6 +2720,20 @@ async def _find_synced_duplicate(
                     ):
                         return candidate
 
+    account = await session.get(Account, account_id)
+    connection = (
+        await session.get(BankConnection, account.connection_id)
+        if account is not None and account.connection_id is not None else None
+    )
+    simplefin = connection is not None and connection.provider == "simplefin"
+    if simplefin:
+        # Different pending and posted IDs are different observations. A bank
+        # can reuse its date-only timestamps for split shipments or repeats.
+        # Retire the absent authorization separately, without merging amounts,
+        # user edits or annotations into an arbitrarily selected settlement.
+        if txn_data.status == "pending":
+            return None
+
     # Path 1: installment fingerprint. Highly specific, so we don't require a
     # description match on top.
     if (
@@ -2755,9 +2773,10 @@ async def _find_synced_duplicate(
             Transaction.type == txn_data.type,
             Transaction.status != txn_data.status,
             Transaction.external_id != txn_data.external_id,
+            Transaction.is_ignored.is_(False),
         )
     )
-    candidates = list(result.scalars())
+    candidates = [] if simplefin else list(result.scalars())
     if eb_account_uid is not None and isinstance(raw, dict):
         matches = []
         for candidate in candidates:
@@ -2794,7 +2813,7 @@ async def _find_synced_duplicate(
     # date. The original bank transaction timestamp is the stable identity.
     raw = txn_data.raw_data if isinstance(txn_data.raw_data, dict) else {}
     transacted_at = raw.get("transacted_at")
-    if transacted_at is not None:
+    if transacted_at is not None and not simplefin:
         result = await session.execute(
             select(Transaction).where(
                 Transaction.account_id == account_id,
@@ -2928,6 +2947,8 @@ async def _cleanup_phantom_duplicates(
             Transaction.account_id.in_(account_ids),
             Transaction.source == "sync",
             Transaction.transfer_pair_id.is_(None),
+            Transaction.status == "posted",
+            Transaction.is_ignored.is_(False),
         )
     )
     unmatched = list(unmatched_result.scalars().all())
@@ -2946,6 +2967,8 @@ async def _cleanup_phantom_duplicates(
                 Transaction.date >= date_lo,
                 Transaction.date <= date_hi,
                 Transaction.transfer_pair_id.is_not(None),
+                Transaction.status == "posted",
+                Transaction.is_ignored.is_(False),
                 Transaction.id != tx.id,
             )
         )
@@ -3340,6 +3363,7 @@ async def sync_connection(
         merged_count = 0
         live_txn_external_ids: dict[uuid.UUID, set[str]] = {}
         incomplete_fetch_account_ids: set[uuid.UUID] = set()
+        unsafe_cleanup_account_ids: set[uuid.UUID] = set()
         provider_accounts = await provider.get_accounts(credentials)
         _record_seen_accounts(connection, provider_accounts)
         accounts_data, synced_account_ids = _syncable_accounts(connection, provider_accounts)
@@ -3518,9 +3542,22 @@ async def sync_connection(
                 if connection.last_sync_at
                 else None
             )
+            if connection.provider == "simplefin":
+                since = await pending_recheck_since(
+                    session, account.id, since, now=datetime.now(timezone.utc),
+                )
             transactions_data = await provider.get_transactions(
                 credentials, acc_data.external_id, since, payee_source=payee_source
             )
+            if connection.provider == "simplefin":
+                windows = getattr(provider, "transaction_coverage", None)
+                coverage = windows.get(acc_data.external_id) if isinstance(windows, dict) else None
+                if not isinstance(coverage, TransactionCoverage):
+                    unsafe_cleanup_account_ids.add(account.id)
+                await reconcile_pending(
+                    session, account.id, transactions_data,
+                    coverage if isinstance(coverage, TransactionCoverage) else None,
+                )
 
             # Every id the provider returned, pending ones included, so the
             # phantom cleanup still sees a pending row the filter below skips.
@@ -3554,8 +3591,26 @@ async def sync_connection(
                 if existing_tx:
                     # User-flagged rows are frozen: skip status/bill drift so
                     # a re-sync can't revive a transaction the user hid.
-                    if existing_tx.is_ignored:
+                    if existing_tx.is_ignored or (existing_tx.sync_metadata or {}).get("pending_manual_override"):
                         continue
+                    if existing_tx.status == "posted" and txn_data.status == "pending":
+                        continue
+                    if connection.provider == "simplefin" and existing_tx.status == "pending":
+                        if not pending_matches_bank_evidence(existing_tx):
+                            continue  # A legacy financial edit must not be overwritten.
+                        if txn_data.status == "pending":
+                            # Keep the original authorization snapshot until it
+                            # posts. Replacing only raw evidence on an adjusted
+                            # hold would make the stored amount look user-edited.
+                            continue
+                    if (
+                        connection.provider == "simplefin"
+                        and existing_tx.status == "posted" and txn_data.status == "posted"
+                        and txn_data.raw_data is not None
+                    ):
+                        # Refresh bank evidence rather than retaining pending-only
+                        # keys from old snapshots; leave user accounting fields alone.
+                        existing_tx.raw_data = txn_data.raw_data
                     if existing_tx.status == "pending" and txn_data.status == "posted":
                         await _promote_synced_transaction(
                             session, user_id, existing_tx, txn_data,
@@ -3826,7 +3881,7 @@ async def sync_connection(
         # the real one, the orphan twin gets removed here.
         touched_account_ids = await _cleanup_phantom_duplicates(
             session, [a.id for a in synced_account_rows], live_txn_external_ids,
-            skip_account_ids=incomplete_fetch_account_ids,
+            skip_account_ids=incomplete_fetch_account_ids | unsafe_cleanup_account_ids,
         )
 
         # The opening balances above were reconciled with the phantoms still

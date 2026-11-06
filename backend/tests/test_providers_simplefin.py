@@ -7,14 +7,15 @@ required and asserts the parse / dispatch behavior we care about.
 from __future__ import annotations
 
 import base64
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 from unittest.mock import patch
 
 import httpx
 import pytest
 
-from app.providers.base import ProviderUserActionRequired, SessionExpiredError
+from app.providers.base import BankProvider, ProviderUserActionRequired, SessionExpiredError
 from app.providers.simplefin import (
     SimpleFinProvider,
     _accounts_url_and_auth,
@@ -37,6 +38,290 @@ def _patched_client(handler):
         return httpx.AsyncClient(transport=transport, timeout=30)
 
     return patch.object(SimpleFinProvider, "_client", fake_client)
+
+
+# Coverage is affirmative evidence, independent of whether any rows are usable.
+def _coverage_payload() -> dict[str, Any]:
+    return {"accounts": [{
+        "id": "coverage-account", "transactions": [],
+        "balance-date": int(datetime.now(timezone.utc).timestamp()) - 60,
+    }]}
+
+
+async def _read_coverage(provider, payload, *, since=None):
+    with _patched_client(lambda request: httpx.Response(200, json=payload)):
+        return await provider.get_transactions(
+            {"access_url": "https://u:p@bridge.example/simplefin"},
+            "coverage-account", since=since or datetime.now(timezone.utc).date(),
+        )
+
+
+def test_base_provider_does_not_claim_transaction_coverage():
+    getter = BankProvider.transaction_coverage.fget
+    assert getter is not None
+    assert getter(object()) == {}
+
+
+async def test_clean_empty_transaction_feed_has_source_coverage():
+    provider = SimpleFinProvider()
+    payload: Any = _coverage_payload()
+    assert await _read_coverage(provider, payload) == []
+    coverage = provider.transaction_coverage["coverage-account"]
+    today = datetime.now(timezone.utc).date()
+    assert coverage.start_date == today - timedelta(days=44)
+    assert coverage.end_date == today + timedelta(days=1)
+    assert coverage.observed_at == datetime.fromtimestamp(
+        payload["accounts"][0]["balance-date"], timezone.utc,
+    )
+    assert provider.incomplete_account_ids == set()
+
+
+@pytest.mark.parametrize("shape", [
+    "missing-accounts", "null-accounts", "wrong-accounts", "missing-account",
+    "duplicate-account", "malformed-account", "missing-transactions",
+    "null-transactions", "wrong-transactions", "bad-row", "missing-row-id",
+    "bad-row-amount", "bad-row-date", "bad-row-description", "global-errors",
+    "global-errlist", "global-auth", "account-errors", "account-errlist",
+    "malformed-errlist", "missing-timestamp", "stale-timestamp", "future-timestamp",
+    "invalid-timestamp", "bool-timestamp", "overflow-timestamp", "null-payload",
+])
+async def test_unsafe_transaction_feed_never_claims_coverage(shape):
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    acc = payload["accounts"][0]
+    if shape == "missing-accounts":
+        del payload["accounts"]
+    elif shape == "null-accounts":
+        payload["accounts"] = None
+    elif shape == "wrong-accounts":
+        payload["accounts"] = {"id": "coverage-account"}
+    elif shape == "missing-account":
+        acc["id"] = "different-account"
+    elif shape == "duplicate-account":
+        payload["accounts"].append(dict(acc))
+    elif shape == "malformed-account":
+        payload["accounts"].append(None)
+    elif shape == "missing-transactions":
+        del acc["transactions"]
+    elif shape == "null-transactions":
+        acc["transactions"] = None
+    elif shape == "wrong-transactions":
+        acc["transactions"] = {}
+    elif shape.startswith("bad-row") or shape == "missing-row-id":
+        row: Any = {"id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200}
+        if shape == "bad-row":
+            row = None
+        elif shape == "missing-row-id":
+            del row["id"]
+        elif shape == "bad-row-amount":
+            row["amount"] = "NaN"
+        elif shape == "bad-row-date":
+            row["posted"] = "not-a-date"
+        else:
+            row["description"] = ["wrong-shape"]
+        acc["transactions"] = [row]
+    elif shape == "global-errors":
+        payload["errors"] = ["temporarily unavailable"]
+    elif shape in ("global-errlist", "global-auth"):
+        payload["errlist"] = [{"code": "con.auth" if shape == "global-auth" else "act.fetch"}]
+    elif shape == "account-errors":
+        acc["errors"] = ["temporarily unavailable"]
+    elif shape == "account-errlist":
+        acc["errlist"] = [{"code": "act.fetch"}]
+    elif shape == "malformed-errlist":
+        payload["errlist"] = [None, "warning"]
+    elif shape == "missing-timestamp":
+        del acc["balance-date"]
+    elif shape == "stale-timestamp":
+        acc["balance-date"] -= 49 * 3600
+    elif shape == "future-timestamp":
+        acc["balance-date"] += 3600
+    elif shape == "invalid-timestamp":
+        acc["balance-date"] = "yesterday"
+    elif shape == "bool-timestamp":
+        acc["balance-date"] = True
+    elif shape == "overflow-timestamp":
+        acc["balance-date"] = 10 ** 30
+    else:
+        payload = ["not-an-object"]
+    assert await _read_coverage(provider, payload) == []
+    assert provider.transaction_coverage == {}
+    timestamp_only = shape in {
+        "missing-timestamp", "stale-timestamp", "future-timestamp",
+        "invalid-timestamp", "bool-timestamp", "overflow-timestamp",
+    }
+    assert provider.incomplete_account_ids == (set() if timestamp_only else {"coverage-account"})
+
+
+@pytest.mark.parametrize("second_chunk", ["clean", "mixed-revision", "auth", "server", "timeout"])
+async def test_transaction_coverage_requires_every_chunk(second_chunk):
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    payload["accounts"][0]["transactions"] = [{
+        "id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200,
+    }]
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 2:
+            if second_chunk == "auth":
+                return httpx.Response(403)
+            if second_chunk == "server":
+                return httpx.Response(503)
+            if second_chunk == "timeout":
+                raise httpx.ReadTimeout("synthetic timeout", request=request)
+            if second_chunk == "mixed-revision":
+                payload["accounts"][0]["balance-date"] += 1
+        return httpx.Response(200, json=payload)
+
+    since = datetime.now(timezone.utc).date() - timedelta(days=80)
+    with _patched_client(handler):
+        request = provider.get_transactions(
+            {"access_url": "https://u:p@bridge.example/simplefin"},
+            "coverage-account", since=since,
+        )
+        if second_chunk in ("server", "timeout"):
+            with pytest.raises(httpx.HTTPError):
+                await request
+        else:
+            assert len(await request) == 1  # retained and deduplicated across chunks
+    assert len(calls) == 2
+    if second_chunk == "clean":
+        coverage = provider.transaction_coverage["coverage-account"]
+        assert coverage.start_date == since
+        assert coverage.end_date == datetime.now(timezone.utc).date() + timedelta(days=1)
+        assert provider.incomplete_account_ids == set()
+    else:
+        assert provider.transaction_coverage == {}
+        assert provider.incomplete_account_ids == (
+            set() if second_chunk == "mixed-revision" else {"coverage-account"}
+        )
+
+
+async def test_reused_provider_clears_coverage_and_recovers_incomplete_flag():
+    provider = SimpleFinProvider()
+    await _read_coverage(provider, _coverage_payload())
+    assert provider.transaction_coverage
+    await _read_coverage(provider, {"accounts": []})
+    assert provider.transaction_coverage == {}
+    assert provider.incomplete_account_ids == {"coverage-account"}
+    await _read_coverage(provider, _coverage_payload())
+    assert provider.transaction_coverage
+    assert provider.incomplete_account_ids == set()
+
+
+async def test_complete_stale_retry_clears_incomplete_without_claiming_coverage():
+    provider = SimpleFinProvider()
+    await _read_coverage(provider, {"accounts": []})
+    assert provider.incomplete_account_ids == {"coverage-account"}
+    payload = _coverage_payload()
+    payload["accounts"][0]["balance-date"] -= 49 * 3600
+    payload["accounts"][0]["transactions"] = [{
+        "id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200,
+    }]
+    assert len(await _read_coverage(provider, payload)) == 1
+    assert provider.incomplete_account_ids == set()
+    assert provider.transaction_coverage == {}
+
+
+@pytest.mark.parametrize("status", [403, 503])
+async def test_reused_provider_clears_coverage_before_failed_retry(status):
+    provider = SimpleFinProvider()
+    await _read_coverage(provider, _coverage_payload())
+    assert provider.transaction_coverage
+    with _patched_client(lambda request: httpx.Response(status)):
+        request = provider.get_transactions(
+            {"access_url": "https://u:p@bridge.example/simplefin"}, "coverage-account",
+        )
+        if status == 503:
+            with pytest.raises(httpx.HTTPStatusError):
+                await request
+        else:
+            assert await request == []
+    assert provider.transaction_coverage == {}
+    assert provider.incomplete_account_ids == {"coverage-account"}
+
+
+async def test_coverage_is_only_for_the_current_account_invocation():
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    await _read_coverage(provider, payload)
+    assert "coverage-account" in provider.transaction_coverage
+    payload["accounts"][0]["id"] = "second-account"
+    with _patched_client(lambda request: httpx.Response(200, json=payload)):
+        await provider.get_transactions(
+            {"access_url": "https://u:p@bridge.example/simplefin"},
+            "second-account", since=datetime.now(timezone.utc).date(),
+        )
+    assert set(provider.transaction_coverage) == {"second-account"}
+
+
+async def test_malformed_row_does_not_discard_usable_rows_or_claim_coverage():
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    payload["accounts"][0]["transactions"] = [
+        {"id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200},
+        {"id": "bad-txn", "amount": "invalid", "posted": 1761955200},
+    ]
+    assert len(await _read_coverage(provider, payload)) == 1
+    assert provider.transaction_coverage == {}
+    assert provider.incomplete_account_ids == {"coverage-account"}
+
+
+@pytest.mark.parametrize("pending", ["false", "true", 0, 1, None, [], {}])
+async def test_malformed_pending_flag_is_not_imported_or_covered(pending):
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    payload["accounts"][0]["transactions"] = [{
+        "id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200,
+        "pending": pending,
+    }]
+    assert await _read_coverage(provider, payload) == []
+    assert provider.transaction_coverage == {}
+    assert provider.incomplete_account_ids == {"coverage-account"}
+
+
+@pytest.mark.parametrize("pending, status", [(False, "posted"), (True, "pending")])
+async def test_boolean_pending_flag_is_imported_and_covered(pending, status):
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    payload["accounts"][0]["transactions"] = [{
+        "id": "synthetic-txn", "amount": "-8.25", "posted": 1761955200,
+        "pending": pending,
+    }]
+    transactions = await _read_coverage(provider, payload)
+    assert [txn.status for txn in transactions] == [status]
+    assert set(provider.transaction_coverage) == {"coverage-account"}
+    assert provider.incomplete_account_ids == set()
+
+
+async def test_ancient_sync_cursor_is_bounded_to_one_year_of_coverage():
+    provider = SimpleFinProvider()
+    payload = _coverage_payload()
+    today = datetime.now(timezone.utc).date()
+    calls = []
+
+    def handler(request):
+        calls.append((
+            int(request.url.params["start-date"]),
+            int(request.url.params["end-date"]),
+        ))
+        return httpx.Response(200, json=payload)
+
+    with _patched_client(handler):
+        assert await provider.get_transactions(
+            {"access_url": "https://u:p@bridge.example/simplefin"},
+            "coverage-account", since=today - timedelta(days=3650),
+        ) == []
+    coverage = provider.transaction_coverage["coverage-account"]
+    assert coverage.start_date == today - timedelta(days=365)
+    assert coverage.end_date == today + timedelta(days=1)
+    assert len(calls) == 9  # 366 inclusive days, at most 45 per request
+    assert datetime.fromtimestamp(calls[0][0], timezone.utc).date() == coverage.start_date
+    assert datetime.fromtimestamp(calls[-1][1], timezone.utc).date() == coverage.end_date
+    assert all(0 < end - start <= 45 * 86400 for start, end in calls)
+    assert all(left[1] == right[0] for left, right in zip(calls, calls[1:]))
 
 
 # ----- pure helpers -----------------------------------------------------------
@@ -557,7 +842,7 @@ async def test_get_transactions_uses_transacted_at_when_posted_zero():
 
 @pytest.mark.asyncio
 async def test_get_transactions_chunks_long_windows():
-    """``since`` more than 90 days ago → multiple requests with shifting windows."""
+    """Long history uses contiguous requests within the recommended range."""
 
     calls: list[tuple[str, str]] = []
 
@@ -577,7 +862,10 @@ async def test_get_transactions_chunks_long_windows():
     long_ago = today - timedelta(days=200)
     with _patched_client(handler):
         await SimpleFinProvider().get_transactions(creds, "acc-1", since=long_ago)
-    assert len(calls) >= 3  # 200 days / 90-day window
+    assert len(calls) == 5  # 201 days including today, in 45-day chunks
+    for start, end in calls:
+        assert 0 < int(end) - int(start) <= 45 * 24 * 60 * 60
+    assert all(left[1] == right[0] for left, right in zip(calls, calls[1:]))
 
 
 @pytest.mark.asyncio

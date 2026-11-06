@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.app_clock import app_today
 from app.models.transaction import Transaction
+from app.services.pending_transaction_service import preserve_pending_override
 from app.models.transaction_attachment import TransactionAttachment
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
@@ -1589,6 +1590,12 @@ async def _apply_update_to_row(
         _preserve_original_description(tx)
         tx.description_is_rule_managed = False
 
+    pending_financial_fields = {
+        "is_ignored", "status", "amount", "currency", "date", "type", "account_id",
+        "amount_primary", "fx_rate_used", "effective_bill_date", "exclude_from_pnl",
+    }
+    if pending_financial_fields & update_data.keys() or splits_payload is not None:
+        preserve_pending_override(tx, becoming_pending=update_data.get("status") == "pending")
     fx_keys = {"amount_primary", "fx_rate_used"}
     for key, value in update_data.items():
         if key in fx_keys:
@@ -1634,6 +1641,8 @@ async def _apply_update_to_row(
         )
         paired_tx = paired.scalar_one_or_none()
         if paired_tx:
+            if {"amount", "date"} & update_data.keys():
+                preserve_pending_override(paired_tx)
             if should_cascade_category:
                 paired_tx.category_id = tx.category_id
             # When the user typed both amounts, neither is a conversion of the
@@ -1995,6 +2004,7 @@ async def bulk_add_to_group(
             skipped += 1
             continue
         await split_service.replace_splits(session, tx, payload, user_id)
+        preserve_pending_override(tx)
         updated += 1
 
     # Account for ids that didn't match (wrong user, deleted, etc.)
@@ -2064,6 +2074,7 @@ async def toggle_ignore_transaction(
     transaction = await get_transaction(session, transaction_id, workspace_id)
     if not transaction:
         return None
+    preserve_pending_override(transaction)
     transaction.is_ignored = not transaction.is_ignored
     await session.commit()
     await session.refresh(transaction)
