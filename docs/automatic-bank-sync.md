@@ -38,7 +38,8 @@ posted transactions with different IDs and amounts. Date-only timestamps and
 merchant text cannot safely identify which posted row replaced a hold.
 Differently keyed SimpleFIN pending and posted rows therefore remain separate;
 exact-ID posting still upgrades the existing row and preserves its annotations.
-Same-ID pending adjustments refresh untouched bank-owned amounts and dates.
+Repeated pending observations retain the original authorization snapshot until
+posting, including when the authorization amount changes.
 
 The sync rechecks active pending rows within a bounded one-year history horizon,
 using 45-day requests. Older or undated holds require manual review. A hold is
@@ -52,7 +53,9 @@ Missing/closed/excluded accounts and incomplete reads never establish absence.
 
 Retirement sets the existing ignore flag, retaining the row, amount, pending
 status, bank payload, notes, category and attachments. App-owned `sync_metadata`
-records why and when it happened, separately from bank `raw_data`. The row remains
+records why and when it happened, separately from bank `raw_data`. Conditional
+writes prevent a concurrent user ownership change from being overwritten, and
+manual claims merge the latest retirement audit at flush time. The row remains
 available in ledger views and no longer counts in monetary totals. An exact-ID
 posted return or a newer complete feed containing the hold restores only an
 ignore owned by sync. A manual financial edit, ignore toggle or ignore rule takes

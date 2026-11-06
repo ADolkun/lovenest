@@ -2967,6 +2967,8 @@ async def _cleanup_phantom_duplicates(
                 Transaction.date >= date_lo,
                 Transaction.date <= date_hi,
                 Transaction.transfer_pair_id.is_not(None),
+                Transaction.status == "posted",
+                Transaction.is_ignored.is_(False),
                 Transaction.id != tx.id,
             )
         )
@@ -3597,18 +3599,10 @@ async def sync_connection(
                         if not pending_matches_bank_evidence(existing_tx):
                             continue  # A legacy financial edit must not be overwritten.
                         if txn_data.status == "pending":
-                            # An authorization can change before it posts. Compare
-                            # against the previous bank evidence before replacing it.
-                            existing_tx.raw_data = txn_data.raw_data
-                            existing_tx.date = txn_data.date
-                            existing_tx.type = txn_data.type
-                            existing_tx.currency = txn_data.currency or acc_data.currency or user_currency
-                            await take_incoming_amount(session, existing_tx, txn_data.amount)
-                            apply_effective_date(existing_tx, account)
-                            await _stamp_synced_primary_amount(
-                                session, user_id, existing_tx,
-                                _bank_converted_amount(txn_data, acc_data.currency or user_currency, user_currency),
-                            )
+                            # Keep the original authorization snapshot until it
+                            # posts. Replacing only raw evidence on an adjusted
+                            # hold would make the stored amount look user-edited.
+                            continue
                     if (
                         connection.provider == "simplefin"
                         and existing_tx.status == "posted" and txn_data.status == "posted"

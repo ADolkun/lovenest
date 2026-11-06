@@ -321,8 +321,9 @@ async def test_same_id_pending_adjustment_stays_reconcilable(session, pending_ca
     provider = _cc_provider_mock(bills=[], transactions=[adjusted])
     provider.transaction_coverage = {}
     await _sync(session, conn, test_user, test_workspace, provider)
-    assert row.amount == Decimal("95") and row.date == DAY + timedelta(days=1)
-    assert row.raw_data == adjusted.raw_data and row.description == "My custom label"
+    assert row.amount == Decimal("100") and row.date == DAY
+    assert row.raw_data["posted"] == row.raw_data["transacted_at"]
+    assert row.description == "My custom label"
     await reconcile_pending(session, account.id, [], coverage())
     await reconcile_pending(session, account.id, [], coverage(NOW + timedelta(days=2)))
     assert row.is_ignored
@@ -350,3 +351,26 @@ async def test_bulk_split_assignment_protects_pending_ownership(session, pending
     await reconcile_pending(session, account.id, [], coverage())
     await reconcile_pending(session, account.id, [], coverage(NOW + timedelta(days=2)))
     assert not row.is_ignored
+
+
+@pytest.mark.parametrize("retired", [False, True])
+async def test_pending_transfer_sibling_cannot_delete_real_settlement(session, pending_case, test_user, test_workspace, retired):
+    conn, account, hold = pending_case
+    hold.transfer_pair_id = uuid.uuid4()
+    hold.type = "credit"
+    hold.raw_data = {**hold.raw_data, "amount": "100"}
+    await session.commit()
+    if retired:
+        await reconcile_pending(session, account.id, [], coverage())
+        await reconcile_pending(session, account.id, [], coverage(NOW + timedelta(days=2)))
+    posted = incoming("actual-settlement", status="posted")
+    posted.type = "credit"
+    assert posted.raw_data is not None
+    posted.raw_data["amount"] = "100"
+    provider = _cc_provider_mock(bills=[], transactions=[posted])
+    provider.transaction_coverage = {"cc-acc-1": coverage(NOW + timedelta(days=3))}
+    for _ in range(2):
+        await _sync(session, conn, test_user, test_workspace, provider)
+        settlement = await session.scalar(select(Transaction).where(Transaction.external_id == "actual-settlement"))
+        assert settlement is not None and settlement.status == "posted" and not settlement.is_ignored
+        assert await session.get(Transaction, hold.id) is not None

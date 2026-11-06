@@ -7,7 +7,7 @@ ignore it only after repeated complete, fresh observations of its date window.
 from datetime import date, datetime, timedelta, timezone
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.transaction import Transaction
@@ -90,19 +90,48 @@ async def pending_recheck_since(
     return max(oldest, min([since, *dates]))
 
 
+async def _persist_state(
+    session: AsyncSession, row: Transaction, old_metadata: str | None,
+    state: dict, ignored: bool,
+) -> None:
+    """Compare-and-swap: never replace ownership written after this read.
+
+    Compare the database's own JSON text, not reserialized Python JSON. SQL
+    NULL and JSON null are different representations, both supported here.
+    Financial fields guard legacy writers which do not stamp edit ownership.
+    """
+    metadata_text = cast(Transaction.sync_metadata, String)
+    await session.execute(update(Transaction).where(
+        Transaction.id == row.id,
+        Transaction.account_id == row.account_id,
+        Transaction.external_id == row.external_id,
+        Transaction.source == "sync", Transaction.status == "pending",
+        Transaction.amount == row.amount, Transaction.date == row.date,
+        Transaction.type == row.type, Transaction.currency == row.currency,
+        Transaction.is_ignored.is_(row.is_ignored),
+        metadata_text.is_(None) if old_metadata is None else metadata_text == old_metadata,
+    ).values(sync_metadata=state or None, is_ignored=ignored).execution_options(synchronize_session=False))
+    # On a lost race, keep the newer user-owned state in this session too, so
+    # the subsequent exact-ID sync branch cannot act on its stale identity map.
+    await session.refresh(row, ["sync_metadata", "is_ignored", "status", "amount", "date", "type", "currency"])
+
+
 async def reconcile_pending(
     session: AsyncSession, account_id: uuid.UUID,
     incoming: list[TransactionData], coverage: TransactionCoverage | None,
 ) -> None:
-    rows = (await session.scalars(select(Transaction).where(
+    rows = (await session.execute(select(
+        Transaction, cast(Transaction.sync_metadata, String).label("metadata_snapshot"),
+    ).where(
         Transaction.account_id == account_id,
         Transaction.source == "sync",
         Transaction.status == "pending",
         Transaction.external_id.is_not(None),
-    ))).all()
+    ).execution_options(populate_existing=True))).all()
     by_id = {txn.external_id: txn for txn in incoming}
-    for row in rows:
+    for row, old_metadata in rows:
         state = dict(row.sync_metadata or {})
+        ignored = row.is_ignored
         if state.get("pending_manual_override"):
             continue
         observed = by_id.get(row.external_id) if row.external_id else None
@@ -113,7 +142,7 @@ async def reconcile_pending(
                 or (coverage is not None and retired_at is not None
                     and coverage.observed_at > retired_at)
             ):
-                row.is_ignored = False
+                ignored = False
                 state["pending_ignore_owned"] = False
                 state["pending_restored_at"] = (
                     coverage.observed_at if coverage else datetime.now(timezone.utc)
@@ -122,7 +151,8 @@ async def reconcile_pending(
             # other rows/pages are missing. It never erases the audit history.
             state.pop("pending_missing_since", None)
             state.pop("pending_last_missing_at", None)
-            row.sync_metadata = state or None
+            if state != (row.sync_metadata or {}) or ignored != row.is_ignored:
+                await _persist_state(session, row, old_metadata, state, ignored)
             continue
         if row.is_ignored or coverage is None or not pending_matches_bank_evidence(row):
             continue
@@ -138,9 +168,9 @@ async def reconcile_pending(
         if first_missing is None:
             state["pending_missing_since"] = coverage.observed_at.isoformat()
         elif coverage.observed_at - first_missing >= PENDING_MISSING_GRACE:
-            row.is_ignored = True
+            ignored = True
             state["pending_ignore_owned"] = True
             state["pending_retired_at"] = coverage.observed_at.isoformat()
             state["pending_retirement_reason"] = "absent_from_complete_provider_windows"
         state["pending_last_missing_at"] = coverage.observed_at.isoformat()
-        row.sync_metadata = state
+        await _persist_state(session, row, old_metadata, state, ignored)
