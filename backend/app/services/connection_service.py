@@ -69,7 +69,7 @@ from app.services.credit_card_service import apply_effective_date
 from app.services.rule_engine import merge_notes
 from app.services.rule_service import apply_rules_to_transaction, preview_rules_for_transaction
 from app.services.transfer_detection_service import detect_transfer_pairs
-from app.services.fx_rate_service import stamp_primary_amount
+from app.services.fx_rate_service import FetchedRateCache, stamp_primary_amount
 from app.services.payee_service import get_or_create_payee
 from app.services.transaction_match_service import (
     find_unique_transaction_match,
@@ -1745,6 +1745,8 @@ async def _stamp_synced_primary_amount(
     user_id: uuid.UUID,
     transaction: Transaction,
     converted: Optional[Decimal],
+    *,
+    fetched_rates: FetchedRateCache,
 ) -> None:
     """Prefer the bank's conversion (see _bank_converted_amount); else use our FX rates.
 
@@ -1763,8 +1765,12 @@ async def _stamp_synced_primary_amount(
             Decimal(transaction.amount) * Decimal(transaction.fx_rate_used)
         ).quantize(Decimal("0.01"))
     # OAuth import, pending promotion, and recurring sync all own the enclosing
-    # transaction. An on-demand FX fetch must never commit their partial data.
-    await stamp_primary_amount(session, user_id, transaction, commit_fetched_rates=False)
+    # transaction. Fetch into an import-local snapshot: never commit partial
+    # data or acquire shared FX cache write locks inside that transaction.
+    await stamp_primary_amount(
+        session, user_id, transaction,
+        persist_fetched_rates=False, fetched_rates=fetched_rates,
+    )
 
 
 async def _find_installment_category(
@@ -2168,6 +2174,7 @@ async def handle_oauth_callback(
     user = await session.get(User, user_id)
     user_currency = user.primary_currency if user else get_settings().default_currency
     new_tx_ids: list[uuid.UUID] = []
+    fetched_rates: FetchedRateCache = {}
 
     use_provider_cats = await admin_service.use_provider_categories(session)
 
@@ -2279,6 +2286,7 @@ async def handle_oauth_callback(
                         account_currency=acc_data.currency or user_currency,
                         user_currency=user_currency,
                         replace_external_id=True,
+                        fetched_rates=fetched_rates,
                     )
                     new_tx_ids.append(synced_dup.id)
                     if (
@@ -2363,6 +2371,7 @@ async def handle_oauth_callback(
                 _bank_converted_amount(
                     txn_data, acc_data.currency or user_currency, user_currency
                 ),
+                fetched_rates=fetched_rates,
             )
 
     # Detect transfer pairs among newly synced transactions
@@ -2718,6 +2727,7 @@ async def _promote_synced_transaction(
     account_currency: str,
     user_currency: str,
     replace_external_id: bool,
+    fetched_rates: FetchedRateCache,
 ) -> None:
     _merge_sync_metadata(
         transaction, txn_data, replace_external_id=replace_external_id
@@ -2733,6 +2743,7 @@ async def _promote_synced_transaction(
     await _stamp_synced_primary_amount(
         session, user_id, transaction,
         _bank_converted_amount(txn_data, account_currency, user_currency),
+        fetched_rates=fetched_rates,
     )
 
 
@@ -3464,6 +3475,7 @@ async def sync_connection(
         user = await session.get(User, user_id)
         user_currency = user.primary_currency if user else get_settings().default_currency
         new_tx_ids: list[uuid.UUID] = []
+        fetched_rates: FetchedRateCache = {}
         synced_account_rows: list[Account] = []
         moved_account_ids: list[uuid.UUID] = []
         merged_count = 0
@@ -3725,6 +3737,7 @@ async def sync_connection(
                             account_currency=acc_data.currency or user_currency,
                             user_currency=user_currency,
                             replace_external_id=True,
+                            fetched_rates=fetched_rates,
                         )
                         new_tx_ids.append(existing_tx.id)
                     else:
@@ -3786,6 +3799,7 @@ async def sync_connection(
                             account_currency=acc_data.currency or user_currency,
                             user_currency=user_currency,
                             replace_external_id=synced_dup.source == "sync",
+                            fetched_rates=fetched_rates,
                         )
                         new_tx_ids.append(synced_dup.id)
                         if (
@@ -3913,7 +3927,8 @@ async def sync_connection(
                             session, placeholder, txn_data.amount
                         )
                         await _stamp_synced_primary_amount(
-                            session, user_id, placeholder, converted
+                            session, user_id, placeholder, converted,
+                            fetched_rates=fetched_rates,
                         )
                     if placeholder.category_id is None:
                         placeholder.category_id = preview.category_id or category_id
@@ -3956,7 +3971,8 @@ async def sync_connection(
                     transaction.category_id = category_id
 
                 await _stamp_synced_primary_amount(
-                    session, user_id, transaction, converted
+                    session, user_id, transaction, converted,
+                    fetched_rates=fetched_rates,
                 )
 
         syncing_account_id = None
