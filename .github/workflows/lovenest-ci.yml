@@ -348,7 +348,7 @@ jobs:
   # as passing; a failed, cancelled or never-run job does not.
   ci-gate:
     name: CI gate
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     needs:
       - changes
       - backend-static
