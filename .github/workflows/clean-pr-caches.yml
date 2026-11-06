@@ -1,0 +1,26 @@
+name: Clean up PR caches
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  clean:
+    name: Delete the caches of the closed PR
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # A PR's caches live under its merge ref and cannot be restored by any other
+      # branch, so they only crowd out the lovenest caches within the repo's 10 GB.
+      - name: Delete the caches saved for the PR merge ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref "$REF" --limit 100 --json id --jq '.[].id' \
+            | while read -r id; do gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; done
