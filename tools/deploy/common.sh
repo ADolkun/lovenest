@@ -93,20 +93,25 @@ image_fingerprint() {
 # healthcheck exists. Container IDs detect manual replacements/config changes;
 # the HTTP probe additionally checks frontend/tax services without healthchecks.
 stack_fingerprint() {
-  local expected running ids id health service
+  local expected running='' managed_ids='' ids id details oneoff service status health
   local services=()
   expected=$("${COMPOSE[@]}" config --services | sort -u) || return 1
   [[ -n "$expected" ]] || return 1
   while IFS= read -r service; do services+=("$service"); done <<< "$expected"
-  running=$("${COMPOSE[@]}" ps --status running --services "${services[@]}" | sort -u) || return 1
-  [[ -n "$expected" && "$expected" == "$running" ]] || return 1
   ids=$("${COMPOSE[@]}" ps --all --quiet "${services[@]}" | sort -u) || return 1
   [[ -n "$ids" ]] || return 1
   while IFS= read -r id; do
-    health=$(docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id") || return 1
-    [[ "$health" == 'running healthy' || "$health" == 'running none' ]] || return 1
+    details=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.oneoff"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id") || return 1
+    IFS='|' read -r oneoff service status health <<< "$details"
+    # `compose run` containers may be stopped or running alongside the service.
+    # They neither invalidate its receipt nor substitute for a missing service.
+    case "$oneoff" in True|true) continue ;; esac
+    [[ "$status" == running && ( "$health" == healthy || "$health" == none ) ]] || return 1
+    running+="$service"$'\n'
+    managed_ids+="$id"$'\n'
   done <<< "$ids"
-  printf '%s\n' "$ids" | git -C "$ROOT" hash-object --stdin
+  [[ -n "$managed_ids" && "$(printf '%s' "$running" | sort -u)" == "$expected" ]] || return 1
+  printf '%s' "$managed_ids" | git -C "$ROOT" hash-object --stdin
 }
 
 receipt_value() {

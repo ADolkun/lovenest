@@ -60,7 +60,15 @@ if args[:2] == ['image', 'inspect']:
     print(state.get('image_revision', 'sha256:fixture-image'))
     sys.exit(0)
 if args and args[0] == 'inspect':
-    print('running unhealthy' if state.get('unhealthy') else 'running healthy')
+    container = args[-1]
+    if container.startswith('oneoff-'):
+        service = container[len('oneoff-'):]
+        print('True|' + service + '|' + state['oneoffs'][service] + '|none')
+    else:
+        service = container[len('container-'):].rsplit('-', 1)[0]
+        status = 'exited' if state.get('stopped') and service == 'backend' else 'running'
+        health = 'unhealthy' if state.get('unhealthy') else 'healthy'
+        print('False|' + service + '|' + status + '|' + health)
     sys.exit(0)
 if args[:2] == ['compose', 'version']:
     print('Docker Compose version test')
@@ -99,10 +107,13 @@ elif command == 'ps':
     if '--services' in rest:
         print('\n'.join(services[:-1] if state.get('stopped') else services))
     else:
-        print('\n'.join('container-' + s + '-' + str(state.get('container_revision', 1)) for s in services))
+        ids = ['container-' + s + '-' + str(state.get('container_revision', 1)) for s in services if s not in state.get('missing_services', [])]
+        ids += ['oneoff-' + s for s in state.get('oneoffs', {})]
+        print('\n'.join(ids))
 elif command == 'up':
     assert '--no-build' in rest and '--build' not in rest and '--wait' in rest and '--wait-timeout' in rest
     assert '--profile' not in rest
+    state.pop('missing_services', None)
     state.pop('stopped', None)
     state.pop('unhealthy', None)
     state_path.write_text(json.dumps(state))
@@ -623,6 +634,34 @@ class DeployTests(unittest.TestCase):
                 self.save_state()
                 self.clear_calls()
                 self.assert_redeploy()
+
+    def test_oneoff_containers_are_ignored_without_being_removed(self):
+        self.baseline_for_skip()
+        for oneoffs in ({"backend": "exited"}, {"backend": "running", "frontend": "exited"}, {}):
+            with self.subTest(oneoffs=oneoffs):
+                self.state = json.loads(self.state_file.read_text())
+                self.state["oneoffs"] = oneoffs
+                self.save_state()
+                self.clear_calls()
+                result = self.script("deploy.sh", "--if-needed")
+                self.assertIn("Pull deployment skipped", result.stdout)
+                self.assertEqual(self.calls("build"), [])
+                self.assertEqual(self.calls("up"), [])
+                self.assertEqual(json.loads(self.state_file.read_text())["oneoffs"], oneoffs)
+                self.assertFalse(any("rm" in row["args"] for row in self.calls()))
+        # Stopped `compose run` leftovers also cannot fail a forced deployment.
+        self.state["oneoffs"] = {"backend": "exited"}
+        self.save_state()
+        self.script("deploy.sh")
+        self.assertEqual(json.loads(self.state_file.read_text())["oneoffs"], {"backend": "exited"})
+
+    def test_running_oneoff_cannot_substitute_for_missing_service(self):
+        self.baseline_for_skip()
+        self.state["oneoffs"] = {"backend": "running"}
+        self.state["missing_services"] = ["backend"]
+        self.save_state()
+        self.assert_redeploy()
+        self.assertEqual(json.loads(self.state_file.read_text())["oneoffs"], {"backend": "running"})
 
     def test_failure_after_previous_success_requires_deploy_after_recovery(self):
         self.baseline_for_skip()
