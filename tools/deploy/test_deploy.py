@@ -12,12 +12,14 @@ import io
 import json
 import os
 import pty
+import select
 from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -29,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PREK = os.environ.get("LOVENEST_TEST_PREK") or shutil.which("prek")
 
 FAKE_DOCKER = r'''
-import json, os, pathlib, sys
+import json, os, pathlib, sys, time
 state_path = pathlib.Path(os.environ['FAKE_DOCKER_STATE'])
 state = json.loads(state_path.read_text())
 args = sys.argv[1:]
@@ -84,6 +86,9 @@ if 'agents' in values.get('COMPOSE_PROFILES', '').split(','): services.append('m
 if command == 'build':
     for i in range(state.get('noisy_build', 0)):
         print('fixture build detail ' + str(i))
+for line in state.get('progress_lines', {}).get(command, []):
+    print(line, flush=True)
+time.sleep(state.get('delay_seconds', {}).get(command, 0))
 if state.get('fail') == command:
     message = 'simulated ' + command + ' failure'
     if state.get('color_error'): message = '\x1b[31m' + message + '\x1b[0m'
@@ -211,7 +216,7 @@ class OutputTests(unittest.TestCase):
             for name in ("CI", "NO_COLOR", "TERM"):
                 env.pop(name, None)
             env.update({"TERM": "xterm", **(extra_env or {})})
-            script = 'exec 3>&1; source "$1"; log="$2"; SECONDS=0; output_init; phase_begin "Build images"; SECONDS=2; phase_end; output_total OK'
+            script = 'exec 3>&1; source "$1"; log="$2"; SECONDS=0; output_init; phase_begin "Build images" build; SECONDS=2; phase_end; output_total OK'
             command = [os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log")]
             if not tty:
                 return subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
@@ -247,6 +252,41 @@ class OutputTests(unittest.TestCase):
                 text = self.output(env, tty=True)
                 self.assertNotIn("\x1b", text)
                 self.assertIn("OK 2s", text)
+
+
+    def test_progress_activity_is_allowlisted_and_tracks_unfinished_steps(self):
+        cases = [
+            ("build", "#1 [backend stage-1 4/6] RUN uv sync --compile-bytecode --private-token=SECRET\n#2 [frontend] exporting to image\n#2 DONE 0.1s\n", "backend: installing dependencies and compiling bytecode"),
+            ("build", "#1 [backend] exporting to image\n#1 unpacking to SECRET\n", "backend: unpacking image"),
+            ("build", "#1 [backend] exporting to image\n#1 DONE 0.1s\n", "waiting for Docker build to finish"),
+            ("build", "#1 [backend] exporting to image\n#1 CACHED\n", "waiting for Docker build to finish"),
+            ("build", "#1 [SECRET] RUN SECRET\n\x1b[31mSECRET\x1b[0m\n", "waiting for Docker build to finish"),
+            ("start", " Container SECRET-backend-1 Waiting \n Container SECRET-db-1 Healthy \n", "backend: waiting for readiness"),
+            ("start", " Container SECRET-backend-1 Waiting \n Container SECRET-backend-1 Healthy \n", "waiting for Docker startup/readiness checks"),
+            ("start", " Container SECRET-celery-worker-1 Starting \n", "celery-worker: starting container"),
+            ("start", "SECRET private application log\n", "waiting for Docker startup/readiness checks"),
+        ]
+        for mode, lines, expected in cases:
+            with self.subTest(mode=mode, lines=lines):
+                phase = "Build images" if mode == "build" else "Start + health"
+                text = "#0 [backend] RUN uv sync --compile-bytecode\n[fixture] START " + phase + "\n" + lines
+                result = subprocess.run(["awk", "-v", "mode=" + mode, "-f", str(ROOT / "tools/deploy/progress.awk")], input=text, capture_output=True, text=True, check=True)
+                self.assertEqual(result.stdout.strip(), expected)
+                self.assertNotIn("SECRET", result.stdout)
+                self.assertNotIn("\x1b", result.stdout)
+
+    def test_progress_cleanup_is_prompt_on_success_failure_and_signal(self):
+        for ending in ("phase_end", "exit 7", "kill -TERM $$"):
+            with self.subTest(ending=ending), tempfile.TemporaryDirectory(prefix="lovenest-progress-cleanup-") as directory:
+                pid_file = Path(directory) / "pid"
+                script = 'set -euo pipefail; exec 3>&1; source "$1"; log="$2"; SECONDS=0; output_init; trap progress_stop EXIT; trap "exit 143" TERM; phase_begin "Build images" build; printf "%s\n" "$progress_pid" > "$3"; ' + ending
+                start = time.monotonic()
+                result = subprocess.run([os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log"), str(pid_file)], capture_output=True, text=True, timeout=4)
+                self.assertLess(time.monotonic() - start, 4)
+                self.assertEqual(result.returncode, 0 if ending == "phase_end" else 7 if ending == "exit 7" else 143)
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(int(pid_file.read_text()), 0)
+                self.assertNotIn("elapsed", result.stdout)
 
 
 class DeployTests(unittest.TestCase):
@@ -594,7 +634,7 @@ class DeployTests(unittest.TestCase):
         result = self.script("deploy.sh", extra_env={"TERM": "xterm", "CI": "true"})
         self.assertNotIn("fixture build detail", result.stdout + result.stderr)
         self.assertNotIn("\x1b", result.stdout + result.stderr)
-        self.assertLessEqual(len(result.stdout.splitlines()), 9)
+        self.assertLessEqual(len(result.stdout.splitlines()), 11)
         self.assertIn("Ready:", result.stdout)
         self.assertIn("total)", result.stdout)
         directory = self.repo / ".git/lovenest-deploy/logs"
@@ -633,6 +673,58 @@ class DeployTests(unittest.TestCase):
         self.assertIn("FAILED", log.with_suffix(".timings.tsv").read_text())
         self.assertFalse((self.repo / ".git/lovenest-deploy.lock").exists())
         self.assertTrue((self.repo / ".git/lovenest-deploy/needs-deploy").exists())
+
+    def test_build_and_start_progress_arrives_while_commands_are_running(self):
+        self.env_file()
+        self.state.update(
+            delay_seconds={"build": 6, "up": 6},
+            progress_lines={
+                "build": ["#10 [backend stage-1 4/6] RUN uv sync --compile-bytecode --token=SECRET", "#10 0.1 SECRET private build output"],
+                "up": [" Container SECRET-backend-1 Waiting ", "SECRET private application output"],
+            },
+        )
+        self.save_state()
+        started = time.monotonic()
+        process = subprocess.Popen([str(self.repo / "tools/deploy/deploy.sh")], cwd=self.repo, env={**self.env, "NO_COLOR": "1", "CI": "true"}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        lines = []
+        live = []
+        try:
+            pending = ""
+            deadline = started + 20
+            while True:
+                readable, _, _ = select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))
+                self.assertTrue(readable, "Deployment progress/cleanup timed out")
+                chunk = os.read(process.stdout.fileno(), 4096)
+                if not chunk:
+                    break
+                pending += chunk.decode()
+                while "\n" in pending:
+                    line, pending = pending.split("\n", 1)
+                    lines.append(line + "\n")
+                    if "RUNNING" in line or "elapsed |" in line:
+                        live.append((line, time.monotonic() - started))
+                        self.assertIsNone(process.poll(), "Progress must arrive before the deployment exits")
+            self.assertEqual(process.wait(timeout=2), 0, process.stderr.read())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            process.stdout.close()
+            process.stderr.close()
+        text = "".join(lines)
+        self.assertEqual(sum("RUNNING" in line for line, _ in live), 2)
+        self.assertEqual(sum("elapsed |" in line for line, _ in live), 2)
+        self.assertLess(live[0][1], 4)
+        self.assertIn("backend: installing dependencies and compiling bytecode", text)
+        self.assertIn("backend: waiting for readiness", text)
+        self.assertNotIn("SECRET", text)
+        self.assertNotIn("\x1b", text)
+        self.assertNotIn("\r", text)
+        self.assertNotIn("%", text)
+        self.assertIn("Ready:", text)
+        self.assertLess(time.monotonic() - started, 20)
+        log = next((self.repo / ".git/lovenest-deploy/logs").glob("*.log"))
+        self.assertIn("SECRET private build output", log.read_text())
 
     def test_dependency_bytecode_stays_in_the_cached_dependency_layer(self):
         dockerfile = (ROOT / "backend/Dockerfile").read_text()

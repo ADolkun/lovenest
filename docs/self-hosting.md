@@ -170,7 +170,13 @@ local data, Docker volumes, or caches.
 
 Deployment prints a compact, append-only summary: preparation, image build,
 service startup/health, HTTP checks and final verification, followed by the URL
-and total time. Dependency bytecode is compiled once in the cached dependency layer. This adds
+and total time. Build and startup phases show `RUNNING` immediately, then append
+an elapsed-time update every five seconds while Docker is working. Updates use
+fixed activity labels (such as `backend: exporting image` or
+`backend: waiting for readiness`) from Docker's latest unfinished steps. Unknown
+output falls back to a waiting message. These are activity reports, not a
+percentage or an estimated finish time; raw commands, container names and
+application output stay in the full log. Dependency bytecode is compiled once in the cached dependency layer. This adds
 image size and first-build work to reduce Python startup time; ordinary source
 changes do not repeat that compilation. Application bytecode is not precompiled
 during each build.
