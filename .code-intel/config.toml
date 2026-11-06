@@ -40,7 +40,7 @@ public_dir = "frontend/public"
 primary_prefixes = ["frontend/src/components/", "frontend/src/lib/", "frontend/src/hooks/", "backend/app/"]
 
 [docs]
-scope = ["docs/**/*.md", "AGENTS.md", "CONTEXT.md", "extras/**/*.md", ".claude/rules/**/*.md", ".claude/skills/**/*.md"]
+scope = ["docs/**/*.md", "AGENTS.md", "CONTEXT.md", "README.md", "CONTRIBUTING.md", "extras/**/*.md", ".claude/rules/**/*.md", ".claude/skills/**/*.md"]
 route_prefixes = ["/api"]
 
 [docs.reachability]
@@ -52,6 +52,12 @@ exclude = []
 paths = ["docs/automatic-bank-sync.md", "docs/rfc-235-investment-ledger.md"]
 checks = ["links"]
 reason = "Upstream-owned docs: fixing their code references would edit upstream files on every sync."
+
+[[docs.ignore]]
+file = "README.md"
+kind = "path"
+text = "tools/deps"
+reason = "Shorthand for tools and dependencies in a mise comment, not a path; the line is upstream's."
 
 [agents]
 rules_dir = ".claude/rules"
