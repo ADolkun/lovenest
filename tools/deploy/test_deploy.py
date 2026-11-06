@@ -11,6 +11,7 @@ import email.message
 import io
 import json
 import os
+import pty
 from pathlib import Path
 import shutil
 import stat
@@ -80,8 +81,13 @@ while args and args[0] in ('--project-directory', '--env-file', '-f'):
 command, rest = args[0], args[1:]
 services = ['backend', 'frontend', 'tax-planner', 'celery-worker', 'celery-beat', 'db', 'redis']
 if 'agents' in values.get('COMPOSE_PROFILES', '').split(','): services.append('mcp-server')
+if command == 'build':
+    for i in range(state.get('noisy_build', 0)):
+        print('fixture build detail ' + str(i))
 if state.get('fail') == command:
-    print('simulated ' + command + ' failure', file=sys.stderr)
+    message = 'simulated ' + command + ' failure'
+    if state.get('color_error'): message = '\x1b[31m' + message + '\x1b[0m'
+    print(message, file=sys.stderr)
     sys.exit(7)
 if command == 'config':
     if '--quiet' in rest: pass
@@ -195,6 +201,52 @@ class ReadinessProbeTests(unittest.TestCase):
         calls, error = self.probe("https://finance.example.test", force_redirect=True, public_healthy=True)
         self.assertIn("Not ready:", error)
         self.assertTrue(all(urllib.parse.urlsplit(url).hostname in {"frontend", "tax-planner"} for url, _ in calls))
+
+
+
+class OutputTests(unittest.TestCase):
+    def output(self, extra_env=None, tty=False):
+        with tempfile.TemporaryDirectory(prefix="lovenest-output-test-") as directory:
+            env = dict(os.environ)
+            for name in ("CI", "NO_COLOR", "TERM"):
+                env.pop(name, None)
+            env.update({"TERM": "xterm", **(extra_env or {})})
+            script = 'exec 3>&1; source "$1"; log="$2"; SECONDS=0; output_init; phase_begin "Build images"; SECONDS=2; phase_end; output_total OK'
+            command = [os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log")]
+            if not tty:
+                return subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
+            master, slave = pty.openpty()
+            process = subprocess.Popen(command, env=env, stdout=slave, stderr=slave)
+            os.close(slave)
+            chunks = []
+            try:
+                while True:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            finally:
+                os.close(master)
+            self.assertEqual(process.wait(timeout=10), 0)
+            return b"".join(chunks).decode()
+
+    def test_pipe_is_plain_and_accessible_even_with_terminal_environment(self):
+        text = self.output()
+        self.assertNotIn("\x1b", text)
+        self.assertNotIn("\r", text)
+        self.assertIn("Build images", text)
+        self.assertIn("OK 2s", text)
+
+    def test_color_is_optional_and_tty_only(self):
+        self.assertIn("\x1b[", self.output(tty=True))
+        for env in ({"NO_COLOR": "1"}, {"NO_COLOR": ""}, {"CI": "true"}, {"TERM": "dumb"}):
+            with self.subTest(env=env):
+                text = self.output(env, tty=True)
+                self.assertNotIn("\x1b", text)
+                self.assertIn("OK 2s", text)
 
 
 class DeployTests(unittest.TestCase):
@@ -535,6 +587,68 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(len(self.calls("build")), 1)
         self.assertEqual(len(self.calls("up")), 1)
 
+    def test_concise_success_keeps_full_private_log_and_phase_timings(self):
+        self.env_file()
+        self.state["noisy_build"] = 100
+        self.save_state()
+        result = self.script("deploy.sh", extra_env={"TERM": "xterm", "CI": "true"})
+        self.assertNotIn("fixture build detail", result.stdout + result.stderr)
+        self.assertNotIn("\x1b", result.stdout + result.stderr)
+        self.assertLessEqual(len(result.stdout.splitlines()), 9)
+        self.assertIn("Ready:", result.stdout)
+        self.assertIn("total)", result.stdout)
+        directory = self.repo / ".git/lovenest-deploy/logs"
+        log = next(directory.glob("*.log"))
+        text = log.read_text()
+        self.assertIn("fixture build detail 0", text)
+        self.assertIn("fixture build detail 99", text)
+        self.assertIn("START Start + health", text)
+        self.assertIn("END Start + health status=OK seconds=", text)
+        timings = log.with_suffix(".timings.tsv")
+        rows = [line.split("\t") for line in timings.read_text().splitlines()]
+        self.assertEqual(rows[0], ["Phase", "Seconds", "Status"])
+        self.assertEqual([row[0] for row in rows[1:]], ["Prepare", "Build images", "Start + health", "Check endpoints", "Verify deployment", "Total"])
+        self.assertTrue(all(row[1].isdigit() and row[2] == "OK" for row in rows[1:]))
+        self.assertLessEqual(sum(int(row[1]) for row in rows[1:-1]), int(rows[-1][1]))
+        for path in (log, timings):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_failure_is_actionable_bounded_and_preserves_full_output(self):
+        self.env_file()
+        self.state.update(noisy_build=100, fail="build", color_error=True)
+        self.save_state()
+        result = self.script("deploy.sh", expected=None, extra_env={"CI": "true"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Build images", result.stdout)
+        self.assertIn("FAILED", result.stdout)
+        self.assertIn("simulated build failure", result.stderr)
+        self.assertNotIn("\x1b", result.stdout + result.stderr)
+        self.assertIn("no services were restarted", result.stderr)
+        self.assertIn("Full log:", result.stderr)
+        self.assertLess(len(result.stderr.splitlines()), 20)
+        self.assertNotIn("Ready:", result.stdout)
+        log = next((self.repo / ".git/lovenest-deploy/logs").glob("*.log"))
+        self.assertIn("fixture build detail 0", log.read_text())
+        self.assertIn("Build images\t", log.with_suffix(".timings.tsv").read_text())
+        self.assertIn("FAILED", log.with_suffix(".timings.tsv").read_text())
+        self.assertFalse((self.repo / ".git/lovenest-deploy.lock").exists())
+        self.assertTrue((self.repo / ".git/lovenest-deploy/needs-deploy").exists())
+
+    def test_dependency_bytecode_stays_in_the_cached_dependency_layer(self):
+        dockerfile = (ROOT / "backend/Dockerfile").read_text()
+        dependencies, project = dockerfile.split("COPY . .", 1)
+        self.assertIn("uv sync --locked --no-dev --no-install-project --compile-bytecode", dependencies)
+        self.assertNotIn("--compile-bytecode", project)
+        self.assertNotIn("compileall", project)
+        self.assertIn("uv sync --locked --no-dev", project)
+
+    def test_startup_polling_does_not_relax_health_guarantees(self):
+        compose = (ROOT / "docker-compose.prod.yml").read_text()
+        backend = compose.split("  backend:\n", 1)[1].split("  tax-planner:\n", 1)[0]
+        for expected in ("alembic upgrade head && exec uvicorn", "interval: 5s", "timeout: 6s", "start_period: 30s", "start_interval: 1s", "retries: 12"):
+            self.assertIn(expected, backend)
+        self.assertNotIn("stop_grace_period:", backend)
+
     def test_builds_three_unique_images_then_starts_without_building(self):
         self.env_file()
         self.script("deploy.sh")
@@ -710,7 +824,7 @@ class DeployTests(unittest.TestCase):
         self.save_state()
         result = self.script("deploy.sh", expected=None)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("configuration changed", result.stdout)
+        self.assertIn("configuration changed", result.stdout + result.stderr)
         self.assertFalse((self.repo / ".git/lovenest-deploy/last-success").exists())
 
     def test_receipts_do_not_contain_secrets(self):

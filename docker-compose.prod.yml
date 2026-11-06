@@ -138,6 +138,8 @@ services:
       interval: 5s
       timeout: 6s
       start_period: 30s
+      # Check promptly during startup; keep the normal 5s interval after health.
+      start_interval: 1s
       retries: 12
     ports:
       # Client-IP rate limiting trusts nginx; keep direct access local.
