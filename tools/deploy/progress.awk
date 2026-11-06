@@ -2,6 +2,10 @@
 BEGIN {
   wanted = mode == "build" ? "Build images" : "Start + health"
   split("backend frontend tax-planner celery-worker celery-beat mcp-server db redis", services, " ")
+  # Exact tokens map to literals. Never echo even a partly matched log token.
+  build_services["[backend"] = build_services["[backend]"] = "backend"
+  build_services["[frontend"] = build_services["[frontend]"] = "frontend"
+  build_services["[tax-planner"] = build_services["[tax-planner]"] = "tax-planner"
 }
 index($0, "] START " wanted) { in_phase = 1; next }
 !in_phase { next }
@@ -11,9 +15,8 @@ mode == "build" && /^#[0-9]+ / {
     delete active[id]
     next
   }
-  if ($2 ~ /^\[(backend|frontend|tax-planner)(]|$)/) {
-    service = $2
-    gsub(/[][ ]/, "", service)
+  if ($2 in build_services) {
+    service = build_services[$2]
     names[id] = service
     label = "building image"
     if ($0 ~ /load metadata/) label = "fetching base image metadata"
