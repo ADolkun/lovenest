@@ -23,7 +23,7 @@ jobs:
       helm: ${{ steps.select.outputs.run_helm }}
 
     steps:
-      # Not a concurrency group: GitHub holds a PR's next run until the previous
+      # No concurrency group, because GitHub holds a PR's next run until the previous
       # one has finished cancelling, which took up to 77 s and delayed every update.
       - name: Cancel the runs this one supersedes
         if: github.event_name == 'pull_request'
