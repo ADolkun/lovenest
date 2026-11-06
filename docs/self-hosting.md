@@ -168,9 +168,14 @@ local data, Docker volumes, or caches.
 
 ## Deployment progress and timing
 
-Deployment prints a compact, append-only summary: preparation, image build,
-service startup/health, HTTP checks and final verification, followed by the URL
-and total time. Build and startup phases show `RUNNING` immediately, then append
+Deployment prints a compact summary: preparation, image build, service
+startup/health, HTTP checks and final verification, followed by the URL and total
+time. On capable interactive terminals, build and startup phases show a moving
+bar, elapsed time and a short activity label on one line. The bar moves back and
+forth: it indicates ongoing work, not a completion percentage. Terminal width is
+checked each frame; narrow terminals get a compact spinner. The line is cleared
+on completion, failure or interruption, without hiding the cursor or changing
+terminal modes. In plain mode these phases show `RUNNING` immediately, then append
 an elapsed-time update every five seconds while Docker is working. Updates use
 fixed activity labels (such as `backend: exporting image` or
 `backend: waiting for readiness`) from Docker's latest unfinished steps. Unknown
@@ -197,6 +202,9 @@ phase, print up to 12 recent error/tail lines and the full log path, and return 
 nonzero exit code. Logs and timing files are private to the current user. To
 watch detailed output while a deployment runs, use `tail -f` on its log.
 
-Color is only used on a capable interactive terminal. Pipes, CI, `TERM=dumb`,
-and `NO_COLOR` use plain text. Status words and timings remain visible without
-color; there are no spinners, cursor rewrites or animations.
+Color and animation are only used on a capable interactive terminal. Pipes, CI,
+`TERM=dumb`, `NO_COLOR`, or unavailable terminal sizing use plain, append-only
+text. Set `LOVENEST_PROGRESS=plain` to request that behavior explicitly (for
+example, with a screen reader). Status words and timings remain visible without
+color. Animation uses only carriage return and current-line erase; it never
+moves over previous output or changes cursor visibility.

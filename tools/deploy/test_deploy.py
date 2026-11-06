@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import contextlib
 import email.message
+import fcntl
 import io
 import json
 import os
 import pty
 import select
+import signal
+import re
+import struct
+import termios
 from pathlib import Path
 import shutil
 import stat
@@ -223,6 +228,7 @@ class OutputTests(unittest.TestCase):
             if not tty:
                 return subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
             master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
             process = subprocess.Popen(command, env=env, stdout=slave, stderr=slave)
             os.close(slave)
             chunks = []
@@ -249,12 +255,107 @@ class OutputTests(unittest.TestCase):
 
     def test_color_is_optional_and_tty_only(self):
         self.assertIn("\x1b[", self.output(tty=True))
-        for env in ({"NO_COLOR": "1"}, {"NO_COLOR": ""}, {"CI": "true"}, {"TERM": "dumb"}):
+        for env in ({"NO_COLOR": "1"}, {"NO_COLOR": ""}, {"CI": "true"}, {"TERM": "dumb"}, {"LOVENEST_PROGRESS": "plain"}):
             with self.subTest(env=env):
                 text = self.output(env, tty=True)
                 self.assertNotIn("\x1b", text)
                 self.assertIn("OK 2s", text)
 
+
+    def animation(self, ending="success", resize=False):
+        with tempfile.TemporaryDirectory(prefix="lovenest-animation-test-") as directory:
+            env = dict(os.environ, TERM="xterm")
+            for name in ("CI", "NO_COLOR", "LOVENEST_PROGRESS"):
+                env.pop(name, None)
+            script = r'''set -euo pipefail
+exec 3>&1
+source "$1"
+log="$2"
+SECONDS=0
+output_init
+cleanup() { result=$?; progress_stop; [[ -z "$phase" ]] || phase_end FAILED; return "$result"; }
+trap cleanup EXIT
+trap 'exit 143' TERM
+phase_begin 'Build images' build
+printf '#1 [backend] exporting to image\n#1 0.1 SECRET raw output\n' >> "$log"
+sleep 1.6
+if [[ "$3" == failure ]]; then exit 7; fi
+phase_end
+printf 'complete\n'
+'''
+            master, slave = pty.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+            before = termios.tcgetattr(slave)
+            command = [os.environ.get("LOVENEST_TEST_BASH", "bash"), "-c", script, "fixture", str(ROOT / "tools/deploy/output.sh"), str(Path(directory) / "run.log"), ending]
+            process = subprocess.Popen(command, env=env, stdout=slave, stderr=slave)
+            started = time.monotonic()
+            chunks = []
+            resized = signaled = False
+            try:
+                while True:
+                    elapsed = time.monotonic() - started
+                    self.assertLess(elapsed, 5, "Animation/cleanup timed out")
+                    readable, _, _ = select.select([master], [], [], 0.1)
+                    if readable:
+                        try:
+                            chunk = os.read(master, 8192)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        chunks.append((elapsed, chunk))
+                    if resize and elapsed >= 0.55 and not resized:
+                        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 20, 0, 0))
+                        resized = True
+                    if ending == "signal" and elapsed >= 0.55 and not signaled:
+                        process.send_signal(signal.SIGTERM)
+                        signaled = True
+                    if process.poll() is not None:
+                        # Parent holds the slave open to inspect unchanged modes;
+                        # drain any remaining output rather than waiting for EOF.
+                        while select.select([master], [], [], 0)[0]:
+                            chunks.append((elapsed, os.read(master, 8192)))
+                        break
+                self.assertEqual(termios.tcgetattr(slave), before)
+                self.assertEqual(process.wait(timeout=2), {"success": 0, "failure": 7, "signal": 143}[ending])
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                os.close(master)
+                os.close(slave)
+            text = b"".join(chunk for _, chunk in chunks).decode()
+            return text, chunks
+
+    def test_tty_bar_moves_without_fake_percentage_and_resizes(self):
+        text, chunks = self.animation(resize=True)
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        bars = re.findall(r"\[([ =]{12})\]", plain)
+        self.assertGreaterEqual(len(set(bars)), 2)
+        self.assertTrue(all(bar.count("=") == 3 for bar in bars))
+        self.assertNotIn("%", text)
+        self.assertNotIn("SECRET", text)
+        self.assertIn("backend: exporting image", plain)
+        # Subsequent frames fit a resized narrow terminal and use a spinner.
+        later = b"".join(chunk for elapsed, chunk in chunks if elapsed >= 0.9).decode()
+        later = re.sub(r"\x1b\[[0-9;]*m", "", later)
+        frames = re.findall(r"\r\x1b\[2K([^\r\n]*)", later)
+        spinner_frames = [frame for frame in frames if re.fullmatch(r"[|/\\-] [0-9]+s", frame)]
+        self.assertTrue(spinner_frames, frames)
+        self.assertTrue(all(len(frame) < 20 for frame in spinner_frames))
+        self.assertIn("OK", plain)
+        self.assertTrue(plain.endswith("complete\r\n"), repr(plain[-100:]))
+        self.assertNotIn("\x1b", re.sub(r"\x1b\[2K", "", plain))
+
+    def test_tty_animation_clears_on_failure_and_signal_without_changing_modes(self):
+        for ending in ("failure", "signal"):
+            with self.subTest(ending=ending):
+                text, _ = self.animation(ending)
+                plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+                self.assertIn("\r\x1b[2K  Build images          FAILED", plain)
+                self.assertNotIn("OK", plain)
+                self.assertNotIn("complete", plain)
+                self.assertNotIn("\x1b", re.sub(r"\x1b\[2K", "", plain))
 
     def test_progress_activity_is_allowlisted_and_tracks_unfinished_steps(self):
         cases = [
