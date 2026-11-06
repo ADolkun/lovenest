@@ -14,11 +14,95 @@ permissions:
   contents: read
 
 jobs:
-  backend:
-    name: Backend (lint + tests)
+  changes:
+    name: Detect changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # ponytail: retain service startup on skipped PRs; split detection if its cost warrants it.
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.select.outputs.run_backend }}
+      frontend: ${{ steps.select.outputs.run_frontend }}
+      helm: ${{ steps.select.outputs.run_helm }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Check CI selection and detect changes
+        id: select
+        run: |
+          python3 .github/ci/test_changes.py
+          python3 .github/ci/changes.py
+
+  backend-static:
+    name: Backend static checks
+    needs: changes
+    if: needs.changes.outputs.backend != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+            backend/.python-version
+            extras/tax/uv.lock
+            extras/tax/pyproject.toml
+            extras/tax/.python-version
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      - name: Check the library capture
+        working-directory: .
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --check
+
+      - name: Lint with Ruff
+        run: uv run --no-sync ruff check .
+
+      # Upstream runs this in its own workflow, which only fires on `main`.
+      # This fork renumbers every upstream migration onto its own head, so the
+      # clash the guard exists for is more likely here, not less.
+      - name: Check the Alembic revision chain
+        run: uv run --no-sync python scripts/check_migration_chain.py
+
+      - name: Type check with pyrefly
+        run: uv run --no-sync pyrefly check
+
+      - name: Check tax planner lock and tests
+        working-directory: extras/tax
+        run: |
+          uv sync --locked
+          uv run --no-sync python -m unittest discover -v
+
+  backend-tests:
+    name: Backend tests (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.backend != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -45,27 +129,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-
-      - name: Check CI selection and detect changes
-        id: changes
-        working-directory: .
-        run: |
-          python3 .github/ci/test_changes.py
-          python3 .github/ci/changes.py
-
-      - name: Report backend checks not needed
-        if: steps.changes.outputs.run_backend == 'false'
-        run: echo "No backend-relevant changes; skipping backend checks."
+          persist-credentials: false
 
       - name: Set up Python
-        if: steps.changes.outputs.run_backend != 'false'
         uses: actions/setup-python@v7
         with:
           python-version-file: backend/.python-version
 
       - name: Set up uv
-        if: steps.changes.outputs.run_backend != 'false'
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
@@ -74,54 +145,25 @@ jobs:
             backend/uv.lock
             backend/pyproject.toml
             backend/.python-version
-            extras/tax/uv.lock
-            extras/tax/pyproject.toml
-            extras/tax/.python-version
 
       - name: Install dependencies
-        if: steps.changes.outputs.run_backend != 'false'
         run: uv sync --locked --group dev
 
-      - name: Check the library capture
-        if: steps.changes.outputs.run_backend != 'false'
-        working-directory: .
-        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel capture --check
-
-      - name: Lint with Ruff
-        if: steps.changes.outputs.run_backend != 'false'
-        run: uv run --no-sync ruff check .
-
-      # Upstream runs this in its own workflow, which only fires on `main`.
-      # This fork renumbers every upstream migration onto its own head, so the
-      # clash the guard exists for is more likely here, not less.
-      - name: Check the Alembic revision chain
-        if: steps.changes.outputs.run_backend != 'false'
-        run: uv run --no-sync python scripts/check_migration_chain.py
-
-      - name: Type check with pyrefly
-        if: steps.changes.outputs.run_backend != 'false'
-        run: uv run --no-sync pyrefly check
-
-      - name: Check tax planner lock and tests
-        if: steps.changes.outputs.run_backend != 'false'
-        working-directory: extras/tax
-        run: |
-          uv sync --locked
-          uv run --no-sync python -m unittest discover -v
-
       - name: Run tests
-        if: steps.changes.outputs.run_backend != 'false'
         env:
           EVIDENCE_TEST_DATABASE_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
+          PYTEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         # worksteal, not loadfile: no fixture is module-scoped, and loadfile pins
         # a whole heavy file to one worker while the others sit idle.
         run: uv run --no-sync pytest -n auto --dist worksteal --durations=25 -ra -W error
 
-  frontend:
-    name: Frontend (lint + build)
+  frontend-static:
+    name: Frontend static checks
+    needs: changes
+    if: needs.changes.outputs.frontend != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -129,21 +171,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-
-      - name: Check CI selection and detect changes
-        id: changes
-        working-directory: .
-        run: |
-          python3 .github/ci/test_changes.py
-          python3 .github/ci/changes.py
-
-      - name: Report frontend checks not needed
-        if: steps.changes.outputs.run_frontend == 'false'
-        run: echo "No frontend-relevant changes; skipping frontend checks."
+          persist-credentials: false
 
       - name: Set up Node.js
-        if: steps.changes.outputs.run_frontend != 'false'
         uses: actions/setup-node@v7
         with:
           node-version: "26"
@@ -151,20 +181,45 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        if: steps.changes.outputs.run_frontend != 'false'
         run: npm ci
 
       - name: Lint
-        if: steps.changes.outputs.run_frontend != 'false'
         run: npm run lint -- --max-warnings=0
 
       - name: Type check & build
-        if: steps.changes.outputs.run_frontend != 'false'
         run: npm run build
 
+  frontend-tests:
+    name: Frontend tests (${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.frontend != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Run tests
-        if: steps.changes.outputs.run_frontend != 'false'
-        run: npm test
+        run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   dev-scripts:
     name: Dev scripts self-check
@@ -215,27 +270,17 @@ jobs:
 
   code-intel-verify:
     name: Code-intel verify
+    needs: changes
+    if: needs.changes.outputs.backend != 'false' || needs.changes.outputs.frontend != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
           persist-credentials: false
 
-      - name: Check CI selection and detect changes
-        id: changes
-        run: |
-          python3 .github/ci/test_changes.py
-          python3 .github/ci/changes.py
-
-      - name: Report code-intel checks not needed
-        if: steps.changes.outputs.run_backend == 'false' && steps.changes.outputs.run_frontend == 'false'
-        run: echo "No backend or frontend changes; skipping code-intel verify."
-
       - name: Set up uv
-        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.7"
@@ -245,30 +290,28 @@ jobs:
             backend/uv.lock
 
       - name: Install backend dependencies
-        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
         working-directory: backend
         run: uv sync --locked
 
       - name: Set up Node.js
-        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
         uses: actions/setup-node@v7
         with:
           node-version: "26"
 
       - name: Set up code-intel
-        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
         run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup
 
       - name: Verify the analyzers
-        if: steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false'
         run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel verify
 
       - name: Summarize the analysis
-        if: ${{ !cancelled() && (steps.changes.outputs.run_backend != 'false' || steps.changes.outputs.run_frontend != 'false') }}
+        if: ${{ !cancelled() }}
         run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel summary >> "$GITHUB_STEP_SUMMARY"
 
   helm:
     name: Helm (lint + kubeconform)
+    needs: changes
+    if: needs.changes.outputs.helm != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -278,26 +321,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
-
-      - name: Check CI selection and detect changes
-        id: changes
-        run: |
-          python3 .github/ci/test_changes.py
-          python3 .github/ci/changes.py
-
-      - name: Report helm checks not needed
-        if: steps.changes.outputs.run_helm == 'false'
-        run: echo "No helm-relevant changes; skipping helm checks."
+          persist-credentials: false
 
       - name: Set up Helm
-        if: steps.changes.outputs.run_helm != 'false'
         uses: azure/setup-helm@v5
         with:
           version: v4.3.1
 
       - name: Install kubeconform
-        if: steps.changes.outputs.run_helm != 'false'
         run: |
           curl -fsSLo kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
@@ -305,12 +336,36 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
 
       - name: Lint Helm chart
-        if: steps.changes.outputs.run_helm != 'false'
         run: helm lint charts/securo
 
       - name: Validate rendered manifests
-        if: steps.changes.outputs.run_helm != 'false'
         # Explicit bash enables pipefail; the default shell would let a failed
         # `helm template` feed kubeconform empty input and pass.
         shell: bash
         run: helm template securo-test charts/securo | kubeconform -summary -strict
+
+  # The one required check. A job skipped because its area did not change counts
+  # as passing; a failed, cancelled or never-run job does not.
+  ci-gate:
+    name: CI gate
+    if: ${{ always() }}
+    needs:
+      - changes
+      - backend-static
+      - backend-tests
+      - frontend-static
+      - frontend-tests
+      - dev-scripts
+      - docs-check
+      - code-intel-verify
+      - helm
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Require every job to have passed or been skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in *" failure "* | *" cancelled "*) exit 1 ;; esac
