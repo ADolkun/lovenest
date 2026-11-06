@@ -7,9 +7,9 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Optional
 
-from sqlalchemy import delete, exists, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, exists, func, or_, select, text, update
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.orm import selectinload
 
 from app.core.app_clock import app_today
@@ -39,7 +39,6 @@ from app.services.pending_transaction_service import (
 )
 from app.models.user import User
 from app.providers import get_provider
-from app.providers.enable_banking import _txn_fingerprint
 from app.providers.base import (
     AccountData,
     BankProvider,
@@ -1763,7 +1762,9 @@ async def _stamp_synced_primary_amount(
         transaction.amount_primary = (
             Decimal(transaction.amount) * Decimal(transaction.fx_rate_used)
         ).quantize(Decimal("0.01"))
-    await stamp_primary_amount(session, user_id, transaction)
+    # OAuth import, pending promotion, and recurring sync all own the enclosing
+    # transaction. An on-demand FX fetch must never commit their partial data.
+    await stamp_primary_amount(session, user_id, transaction, commit_fetched_rates=False)
 
 
 async def _find_installment_category(
@@ -1831,9 +1832,46 @@ async def get_connection(
         .options(selectinload(BankConnection.accounts))
     )
     if for_update:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update().execution_options(populate_existing=True)
     result = await session.execute(statement)
     return result.scalar_one_or_none()
+
+
+class ConnectionSyncInProgressError(RuntimeError):
+    """A connection mutation could not acquire the running sync's row lock."""
+
+    def __init__(self) -> None:
+        super().__init__("Connection sync in progress. Please try again shortly.")
+
+
+async def _get_connection_for_mutation(
+    session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID,
+) -> Optional[BankConnection]:
+    """Bound reconnect/delete lock waits without changing queued sync behavior.
+
+    SET LOCAL is transaction-scoped, so pooled connections cannot retain the
+    timeout. Restore the previous value after acquisition too: later import or
+    cleanup queries must not inherit this short user-facing lock budget.
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return await get_connection(session, connection_id, workspace_id, for_update=True)
+
+    previous_timeout = await session.scalar(text("SHOW lock_timeout"))
+    await session.execute(text("SET LOCAL lock_timeout = '1s'"))
+    try:
+        connection = await get_connection(session, connection_id, workspace_id, for_update=True)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "55P03":
+            raise
+        # A lock timeout aborts PostgreSQL's transaction. No provider calls or
+        # mutation writes have happened yet, and rollback also resets SET LOCAL.
+        await session.rollback()
+        raise ConnectionSyncInProgressError() from exc
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": previous_timeout},
+    )
+    return connection
 
 
 async def get_oauth_url(
@@ -2050,11 +2088,8 @@ async def handle_oauth_callback(
     reconnect_id = state_payload.get("reconnect_connection_id") or reconnect_connection_id
     existing_reconnect: BankConnection | None = None
     if reconnect_id:
-        existing_reconnect = await get_connection(
-            session,
-            uuid.UUID(str(reconnect_id)),
-            workspace_id,
-            for_update=True,
+        existing_reconnect = await _get_connection_for_mutation(
+            session, uuid.UUID(str(reconnect_id)), workspace_id,
         )
         if not existing_reconnect:
             raise ValueError("Reconnect target connection not found")
@@ -2231,6 +2266,8 @@ async def handle_oauth_callback(
                 session, account.id, txn_data, incoming_external_ids
             )
             if synced_dup:
+                if _sync_row_is_frozen(synced_dup, provider_name):
+                    continue
                 if synced_dup.status == "posted" and txn_data.status == "pending":
                     continue
                 if synced_dup.original_description is None:
@@ -2633,6 +2670,44 @@ def _merge_sync_metadata(
         transaction.payee = txn_data.payee
 
 
+def _sync_row_is_frozen(transaction: Transaction, provider_name: str) -> bool:
+    """Re-keyed rows retain the same user ownership as exact-ID matches."""
+    if transaction.is_ignored or (transaction.sync_metadata or {}).get("pending_manual_override"):
+        return True
+    if provider_name != "enable_banking" or transaction.source != "sync" or transaction.status != "pending":
+        return False
+
+    # Rows edited before ownership markers existed still carry immutable bank
+    # evidence. A verified identity may suppress a duplicate without replacing
+    # the person's financial fields with the later settlement's values.
+    from app.providers.enable_banking import _parse_iso_date
+
+    raw = transaction.raw_data
+    if not isinstance(raw, dict):
+        return True
+    amount_data = raw.get("transaction_amount")
+    if not isinstance(amount_data, dict):
+        return True
+    try:
+        source_amount = Decimal(str(amount_data.get("amount", "0"))).copy_abs()
+    except InvalidOperation:
+        return True
+    source_date = (
+        _parse_iso_date(raw.get("booking_date"))
+        or _parse_iso_date(raw.get("value_date"))
+        or _parse_iso_date(raw.get("transaction_date"))
+    )
+    source_type = "debit" if str(raw.get("credit_debit_indicator") or "").upper() == "DBIT" else "credit"
+    return (
+        transaction.amount != source_amount
+        or transaction.currency != (amount_data.get("currency") or "EUR")
+        or transaction.type != source_type
+        or transaction.date != source_date
+        or transaction.effective_bill_date is not None
+        or transaction.transfer_amount_explicit
+    )
+
+
 async def _promote_synced_transaction(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -2691,7 +2766,7 @@ async def _find_synced_duplicate(
     # when the stored bank payload independently produces the new identity;
     # same-date/amount rows with different counterparties must stay separate.
     raw = txn_data.raw_data
-    eb_account_uid: str | None = None
+    legacy_account_uid: str | None = None
     if isinstance(raw, dict) and "transaction_amount" in raw:
         account = await session.get(Account, account_id)
         connection = (
@@ -2700,25 +2775,50 @@ async def _find_synced_duplicate(
             else None
         )
         if connection is not None and connection.provider == "enable_banking" and account:
+            from app.providers.enable_banking import (
+                legacy_fallback_candidates,
+                matches_legacy_fallback,
+            )
+
             account_uid = account.external_id or ""
-            if _txn_fingerprint(account_uid, raw) == txn_data.external_id:
-                eb_account_uid = account_uid
-                old_id = (
-                    "0" if str(raw.get("entry_reference") or "").strip() == "0"
-                    else _txn_fingerprint(account_uid, raw, legacy=True)
-                )
-                if old_id not in incoming_external_ids:
-                    candidate = await session.scalar(select(Transaction).where(
+            old_ids = legacy_fallback_candidates(account_uid, txn_data)
+            if old_ids:
+                legacy_account_uid = account_uid
+                # An old fingerprint can be shared by distinct counterparties
+                # or duplicate copies. Verify the payload and claim the oldest
+                # matching copy deterministically, without a transaction-date
+                # filter: booking can arrive days after the pending row.
+                legacy_rows = await session.scalars(
+                    select(Transaction).where(
                         Transaction.account_id == account_id,
                         Transaction.source == "sync",
-                        Transaction.external_id == old_id,
-                    ))
-                    if (
-                        candidate is not None
-                        and isinstance(candidate.raw_data, dict)
-                        and _txn_fingerprint(account_uid, candidate.raw_data) == txn_data.external_id
+                        Transaction.external_id.in_(old_ids - incoming_external_ids),
+                        Transaction.status.in_(
+                            ["pending"] if txn_data.status == "pending" else ["pending", "posted"]
+                        ),
+                    ).order_by(Transaction.created_at, Transaction.id)
+                )
+                for candidate in legacy_rows:
+                    if matches_legacy_fallback(
+                        account_uid, candidate.external_id, candidate.raw_data, txn_data,
+                        pending_to_posted=(
+                            candidate.status == "pending" and txn_data.status == "posted"
+                        ),
                     ):
                         return candidate
+
+    def requires_legacy_match(candidate: Transaction) -> bool:
+        # Once a stored row is recognized as legacy, only the payload-checked
+        # compatibility path above can claim it. Generic description or
+        # installment matches must not override its identity/status rejection.
+        # Other synced rows and local imports retain their existing fallbacks.
+        if legacy_account_uid is None or candidate.source != "sync":
+            return False
+        from app.providers.enable_banking import is_legacy_fallback
+
+        return is_legacy_fallback(
+            legacy_account_uid, candidate.external_id, candidate.raw_data,
+        )
 
     account = await session.get(Account, account_id)
     connection = (
@@ -2754,6 +2854,8 @@ async def _find_synced_duplicate(
             )
         )
         for candidate in result.scalars():
+            if requires_legacy_match(candidate):
+                continue
             if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
                 continue
             return candidate
@@ -2777,29 +2879,9 @@ async def _find_synced_duplicate(
         )
     )
     candidates = [] if simplefin else list(result.scalars())
-    if eb_account_uid is not None and isinstance(raw, dict):
-        matches = []
-        for candidate in candidates:
-            stored = candidate.raw_data
-            if not isinstance(stored, dict) or candidate.external_id in incoming_external_ids:
-                continue
-            old_id = (
-                "0" if str(stored.get("entry_reference") or "").strip() == "0"
-                else _txn_fingerprint(eb_account_uid, stored, legacy=True)
-            )
-            if candidate.external_id != old_id or candidate.currency != txn_data.currency:
-                continue
-            # Booking can fill in dates on a legacy pending row whose old
-            # description was only "Transaction". Compare the bank identity
-            # with those dates aligned, keeping the counterparty and amount.
-            booked = dict(stored)
-            for key in ("booking_date", "value_date", "transaction_date"):
-                booked[key] = raw.get(key)
-            if _txn_fingerprint(eb_account_uid, booked) == txn_data.external_id:
-                matches.append(candidate)
-        if matches:
-            return matches[0] if len(matches) == 1 else None
     for candidate in candidates:
+        if requires_legacy_match(candidate):
+            continue
         if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
             continue
         if _sync_duplicate_description_match(
@@ -2824,6 +2906,8 @@ async def _find_synced_duplicate(
             )
         )
         for candidate in result.scalars():
+            if requires_legacy_match(candidate):
+                continue
             if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
                 continue
             candidate_raw = candidate.raw_data if isinstance(candidate.raw_data, dict) else {}
@@ -2861,6 +2945,8 @@ async def _find_synced_duplicate(
             )
         )
         for candidate in result.scalars():
+            if requires_legacy_match(candidate):
+                continue
             if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
                 continue
             if candidate.external_id in incoming_external_ids:
@@ -3257,6 +3343,22 @@ async def _set_sync_status_if_current(
 SyncOutcome = Literal["refreshed", "rate_limited"]
 
 
+class ConnectionSyncValidationError(ValueError):
+    """Required local connection state is missing; its message is safe for clients."""
+
+
+async def _rollback_sync_attempt(
+    session: AsyncSession, savepoint: AsyncSessionTransaction,
+) -> None:
+    if savepoint.is_active or session.in_nested_transaction():
+        # Undo imported data while retaining the outer connection row lock.
+        await savepoint.rollback()
+    else:
+        # A failure in the refresh after a successful commit has no savepoint;
+        # the version guard still protects that newer committed result.
+        await session.rollback()
+
+
 async def sync_connection(
     session: AsyncSession,
     connection_id: uuid.UUID,
@@ -3270,9 +3372,9 @@ async def sync_connection(
         session, connection_id, workspace_id, for_update=True
     )
     if not connection:
-        raise ValueError("Connection not found")
+        raise ConnectionSyncValidationError("Connection not found")
     if not connection.credentials:
-        raise ValueError("Credentials not found")
+        raise ConnectionSyncValidationError("Credentials not found")
 
     sync_start_status = connection.status
     sync_start_version = connection.sync_state_version
@@ -3311,6 +3413,8 @@ async def sync_connection(
             "enables this provider."
         ) from exc
 
+    sync_savepoint = await session.begin_nested()
+    refresh_requires_user_action = False
     try:
         # Refresh credentials if needed
         credentials = await provider.refresh_credentials(connection.credentials)
@@ -3346,6 +3450,8 @@ async def sync_connection(
                 connection.last_sync_error_account_id = None
                 connection.sync_state_version += 1
                 await session.commit()
+                # This early exit commits only refresh metadata under the lock.
+                refresh_requires_user_action = True
                 raise ProviderUserActionRequired(
                     "Provider needs the user to reconnect before fetching fresh data",
                     code="credentials_invalid",
@@ -3406,6 +3512,7 @@ async def sync_connection(
             )
 
             if account is not None:
+                syncing_account_id = account.id
                 account.user_id = user_id
                 account.workspace_id = connection.workspace_id
                 await session.execute(
@@ -3591,17 +3698,17 @@ async def sync_connection(
                 if existing_tx:
                     # User-flagged rows are frozen: skip status/bill drift so
                     # a re-sync can't revive a transaction the user hid.
-                    if existing_tx.is_ignored or (existing_tx.sync_metadata or {}).get("pending_manual_override"):
+                    if _sync_row_is_frozen(existing_tx, connection.provider):
                         continue
                     if existing_tx.status == "posted" and txn_data.status == "pending":
                         continue
-                    if connection.provider == "simplefin" and existing_tx.status == "pending":
-                        if not pending_matches_bank_evidence(existing_tx):
+                    if connection.provider in {"simplefin", "enable_banking"} and existing_tx.status == "pending":
+                        if connection.provider == "simplefin" and not pending_matches_bank_evidence(existing_tx):
                             continue  # A legacy financial edit must not be overwritten.
                         if txn_data.status == "pending":
                             # Keep the original authorization snapshot until it
                             # posts. Replacing only raw evidence on an adjusted
-                            # hold would make the stored amount look user-edited.
+                            # hold would make its amount/date look user-edited.
                             continue
                     if (
                         connection.provider == "simplefin"
@@ -3664,6 +3771,8 @@ async def sync_connection(
                     session, account.id, txn_data, incoming_txn_external_ids
                 )
                 if synced_dup:
+                    if _sync_row_is_frozen(synced_dup, connection.provider):
+                        continue
                     if synced_dup.status == "posted" and txn_data.status == "pending":
                         continue
                     if synced_dup.original_description is None:
@@ -3975,72 +4084,74 @@ async def sync_connection(
     except SessionExpiredError:
         # Provider consent expired — distinct from a generic error so the UI
         # can show a clearer "reauthorize" prompt.
-        await session.rollback()
-        async with session.begin():
-            await _set_sync_status_if_current(
-                session, connection_id, sync_start_version, "expired"
-            )
+        await _rollback_sync_attempt(session, sync_savepoint)
+        await _set_sync_status_if_current(
+            session, connection_id, sync_start_version, "expired"
+        )
+        await session.commit()
         raise
     except ProviderUserActionRequired:
         # Stale/revoked provider credentials require a non-destructive
         # reconnect path. Mark the connection unhealthy so the accounts page
         # shows the reconnect banner, then let the API return a typed 409
         # instead of a generic 500.
-        await session.rollback()
-        async with session.begin():
-            await _set_sync_status_if_current(
-                session, connection_id, sync_start_version, "error"
-            )
+        if refresh_requires_user_action:
+            raise
+        await _rollback_sync_attempt(session, sync_savepoint)
+        await _set_sync_status_if_current(
+            session, connection_id, sync_start_version, "error"
+        )
+        await session.commit()
         raise
     except ProviderRateLimited:
         # The bank/aggregator is throttling data requests (PSD2 caps unattended
         # access, commonly ~4/day). This run learned nothing about connection
         # health, so preserve its prior status and diagnostic for the next retry.
-        await session.rollback()
-        async with session.begin():
-            await _set_sync_status_if_current(
-                session,
-                connection_id,
-                sync_start_version,
-                sync_start_status,
-                sync_start_error_account_id,
-            )
+        await _rollback_sync_attempt(session, sync_savepoint)
+        await _set_sync_status_if_current(
+            session,
+            connection_id,
+            sync_start_version,
+            sync_start_status,
+            sync_start_error_account_id,
+        )
+        await session.commit()
         # The row can vanish if the connection was deleted mid-sync. Fall back
-        # to the one we already hold rather than raising: re-raising here would
-        # escape as a 500, which is exactly what this handler exists to avoid.
+        # to the one we already hold rather than raising.
         refreshed = await session.get(BankConnection, connection_id)
         # Report "rate_limited" so the caller (manual sync endpoint, UI) knows
         # no fresh data was pulled and can say so instead of a success toast.
         return refreshed or connection, 0, "rate_limited"
     except Exception:
         # Generic sync failures do not imply invalid credentials. Preserve the
-        # local account being processed so the accounts page can identify it.
-        await session.rollback()
-        async with session.begin():
-            error_account_id = None
-            if syncing_account_id is not None:
-                error_account_id = await session.scalar(
-                    select(Account.id).where(
-                        Account.id == syncing_account_id,
-                        Account.connection_id == connection_id,
-                    )
+        # local account being processed, and do not erase known credential
+        # problems until a sync or reconnect actually succeeds.
+        await _rollback_sync_attempt(session, sync_savepoint)
+        error_account_id = None
+        if syncing_account_id is not None:
+            error_account_id = await session.scalar(
+                select(Account.id).where(
+                    Account.id == syncing_account_id,
+                    Account.connection_id == connection_id,
                 )
-            await _set_sync_status_if_current(
-                session,
-                connection_id,
-                sync_start_version,
-                "sync_error",
-                error_account_id,
             )
+        await _set_sync_status_if_current(
+            session,
+            connection_id,
+            sync_start_version,
+            sync_start_status if sync_start_status in {"error", "expired"} else "sync_error",
+            sync_start_error_account_id
+            if sync_start_status in {"error", "expired"}
+            else error_account_id,
+        )
+        await session.commit()
         raise
 
 
 async def delete_connection(
     session: AsyncSession, connection_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
-    connection = await get_connection(
-        session, connection_id, workspace_id, for_update=True
-    )
+    connection = await _get_connection_for_mutation(session, connection_id, workspace_id)
     if not connection:
         return False
     from app.services.owned_transfer_service import guard_scope_mutation

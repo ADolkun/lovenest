@@ -187,6 +187,70 @@ def _txn_fingerprint(account_uid: str, raw: dict, *, legacy: bool = False) -> st
     return digest[:32]
 
 
+def _legacy_fallback_id(account_uid: str, raw: dict) -> Optional[str]:
+    entry_ref = str(raw.get("entry_reference") or "").strip()
+    if entry_ref and entry_ref != "0":
+        return None
+    return "0" if entry_ref == "0" else _txn_fingerprint(account_uid, raw, legacy=True)
+
+
+def legacy_fallback_candidates(account_uid: str, incoming: TransactionData) -> set[str]:
+    """Old keys for a current fallback row, including its unbooked version.
+
+    A pending row used the value/transaction date before booking arrived.
+    Looking up its old key must not require that date to equal the later
+    booking date. Nonempty references use a separate compatibility path.
+    """
+    raw = incoming.raw_data
+    if not isinstance(raw, dict) or _txn_fingerprint(account_uid, raw) != incoming.external_id:
+        return set()
+    old_id = _legacy_fallback_id(account_uid, raw)
+    if old_id is None:
+        return set()
+    keys = {old_id}
+    if incoming.status == "posted":
+        unbooked = dict(raw)
+        unbooked.pop("booking_date", None)
+        pending_id = _legacy_fallback_id(account_uid, unbooked)
+        if pending_id is not None:
+            keys.add(pending_id)
+    return keys
+
+
+def is_legacy_fallback(
+    account_uid: str, stored_external_id: Optional[str], stored_raw: object,
+) -> bool:
+    """Whether a held row still carries its pre-v0.16.3 fallback key."""
+    if not isinstance(stored_raw, dict):
+        return False
+    old_id = _legacy_fallback_id(account_uid, stored_raw)
+    return old_id is not None and old_id == stored_external_id
+
+
+def matches_legacy_fallback(
+    account_uid: str,
+    stored_external_id: Optional[str],
+    stored_raw: object,
+    incoming: TransactionData,
+    *,
+    pending_to_posted: bool,
+) -> bool:
+    """Check the stored bank identity before claiming a legacy-keyed row."""
+    if not isinstance(stored_raw, dict) or not is_legacy_fallback(
+        account_uid, stored_external_id, stored_raw,
+    ):
+        return False
+    aligned = dict(stored_raw)
+    if pending_to_posted and isinstance(incoming.raw_data, dict):
+        aligned["booking_date"] = incoming.raw_data.get("booking_date")
+        # Some banks only supply the transaction date when booking arrives.
+        # Fill that missing identity field, but never overwrite a known date:
+        # conflicting dates still identify distinct operations.
+        if aligned.get("transaction_date") in (None, ""):
+            aligned["transaction_date"] = incoming.raw_data.get("transaction_date")
+    return _txn_fingerprint(account_uid, aligned) == incoming.external_id
+
+
 def _extract_payee(raw: dict, indicator: str, source: str) -> Optional[str]:
     """Pick a payee name from EB transaction payload.
 

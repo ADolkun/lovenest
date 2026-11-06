@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.bank_connection import BankConnection
 from app.models.user import User
 from app.providers.base import (
+    ProviderNotConfiguredError,
     ProviderRateLimited,
     ProviderUserActionRequired,
     SessionExpiredError,
@@ -445,3 +446,67 @@ async def test_update_settings_success(
     )
     assert resp.status_code == 200
     assert resp.json()["settings"]["payee_source"] == "merchant"
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_missing_credentials(
+    client: AsyncClient, auth_headers, session: AsyncSession,
+    test_connection: BankConnection,
+):
+    test_connection.credentials = None
+    await session.commit()
+    with patch("app.services.connection_service.get_provider") as get_provider:
+        resp = await client.post(
+            f"/api/connections/{test_connection.id}/sync", headers=auth_headers,
+        )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Credentials not found"
+    get_provider.assert_not_called()
+
+
+
+@pytest.mark.asyncio
+async def test_sync_connection_unconfigured_provider_returns_unavailable(
+    client: AsyncClient, auth_headers,
+):
+    with patch("app.services.connection_service.sync_connection") as mock_sync:
+        mock_sync.side_effect = ProviderNotConfiguredError("Provider is not configured")
+        resp = await client.post(
+            f"/api/connections/{uuid.uuid4()}/sync", headers=auth_headers,
+        )
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "Provider is not configured"
+
+
+
+@pytest.mark.parametrize("operation", ["reconnect", "delete"])
+async def test_connection_mutation_reports_sync_in_progress(
+    client: AsyncClient, auth_headers, test_connection, operation,
+):
+    from app.services.connection_service import ConnectionSyncInProgressError
+
+    service = "handle_oauth_callback" if operation == "reconnect" else "delete_connection"
+    with patch(
+        f"app.services.connection_service.{service}",
+        side_effect=ConnectionSyncInProgressError(),
+    ):
+        if operation == "reconnect":
+            response = await client.post(
+                "/api/connections/oauth/callback",
+                json={
+                    "code": "test-token", "provider": "simplefin",
+                    "reconnect_connection_id": str(test_connection.id),
+                },
+                headers=auth_headers,
+            )
+        else:
+            response = await client.delete(
+                f"/api/connections/{test_connection.id}", headers=auth_headers,
+            )
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "sync_in_progress",
+        "message": "Connection sync in progress. Please try again shortly.",
+    }

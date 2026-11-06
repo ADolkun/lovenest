@@ -220,6 +220,9 @@ export default function AccountsPage() {
       setDisconnectingConnection(null)
       toast.success(t('accounts.disconnected'))
     },
+    onError: (error) => {
+      toast.error(syncErrorMessage(error, t('common.error')))
+    },
   })
 
   const createMutation = useMutation({

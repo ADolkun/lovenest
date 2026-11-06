@@ -57,7 +57,11 @@ async def lock_workspace(session, workspace_id):
                                   .order_by(model.id).with_for_update(nowait=True)
                                   .execution_options(populate_existing=True))
     except DBAPIError as exc:
-        await session.rollback()
+        # A sync owns an outer connection lock and a savepoint for its import.
+        # Its error handler must roll back that savepoint and stamp the failure
+        # before releasing the connection. Never roll back its outer transaction.
+        if not session.in_nested_transaction():
+            await session.rollback()
         if getattr(exc.orig, "sqlstate", None) == "55P03":
             raise _error(409, "investment_busy", "Another operation is changing investment inventory; retry") from exc
         raise
