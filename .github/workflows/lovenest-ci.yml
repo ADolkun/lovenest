@@ -6,10 +6,6 @@ on:
   push:
     branches: [lovenest]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -18,12 +14,29 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
     outputs:
       backend: ${{ steps.select.outputs.run_backend }}
       frontend: ${{ steps.select.outputs.run_frontend }}
       helm: ${{ steps.select.outputs.run_helm }}
 
     steps:
+      # Not a concurrency group: GitHub holds a PR's next run until the previous
+      # one has finished cancelling, which took up to 77 s and delayed every update.
+      - name: Cancel the runs this one supersedes
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow lovenest-ci.yml --event pull_request --branch "$HEAD_REF" \
+            --json databaseId,status \
+            --jq ".[] | select(.databaseId < $GITHUB_RUN_ID and .status != \"completed\") | .databaseId" \
+            | while read -r id; do gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true; done
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
@@ -346,8 +359,7 @@ jobs:
 
   # The one required check. A job skipped because its area did not change counts
   # as passing; a failed, cancelled or never-run job does not.
-  # !cancelled() rather than always(): a superseded run then finishes cancelling
-  # at once, and the PR's next run starts only after it has.
+  # !cancelled() rather than always(): a superseded run ends without a red gate.
   ci-gate:
     name: CI gate
     if: ${{ !cancelled() }}
