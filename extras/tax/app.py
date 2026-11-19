@@ -6,6 +6,7 @@ endpoints and read-only Postgres reporting for the write-off tab.
 """
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -18,6 +19,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import tax_engine
+
+logger = logging.getLogger(__name__)
 
 PORT = int(os.environ.get("PORT", "8088"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -405,8 +408,9 @@ def writeoffs(auth=Depends(require_auth)):
                 "ded_total": round(sum(r["total"] for r in deduction_tags), 2),
             },
         }
-    except Exception as exc:  # DB down / driver missing — stay up, report it.
-        empty["error"] = f"database unavailable: {exc}"
+    except Exception:  # DB down / driver missing — stay up, report it.
+        logger.exception("Tax summary query failed")
+        empty["error"] = "database unavailable"
         return empty
 
 
@@ -574,11 +578,13 @@ def prefill(auth=Depends(require_auth)):
             result["interest_income"] = round(cur.fetchone()[0], 2)
 
         return result
-    except Exception as exc:
-        result["error"] = f"database unavailable: {exc}"
+    except Exception:
+        logger.exception("Projection feed query failed")
+        result["error"] = "database unavailable"
         return result
 
 
 @app.exception_handler(Exception)
 def unhandled(_request, exc):
-    return JSONResponse(status_code=500, content={"error": str(exc)})
+    logger.error("Unhandled error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"error": "internal error"})
