@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
+from app.core.csv_cells import csv_safe
 from app.core.database import get_async_session
 from app.core.workspace_context import (
     WorkspaceContext,
@@ -30,19 +31,6 @@ from app.services.transaction_calendar_service import get_transaction_calendar
 from app.services._query_filters import reporting_date_value
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
-
-# A spreadsheet evaluates any cell that starts with one of these as a formula,
-# so a description like "=HYPERLINK(...)" runs as live content when the export
-# is opened in Excel or Sheets (CSV injection, CWE-1236). Text columns go
-# through _csv_safe(); the amounts, dates and codes below are written by this
-# endpoint and cannot carry a payload.
-_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _csv_safe(value: object) -> str:
-    """`value` as text that a spreadsheet reads literally, never as a formula."""
-    text = "" if value is None else str(value)
-    return f"'{text}" if text[:1] in _FORMULA_LEADERS else text
 
 
 async def _attach_invoice_links(session, ctx, items: list) -> None:
@@ -359,6 +347,8 @@ async def export_transactions(
     output = io.StringIO()
     output.write("﻿")  # UTF-8 BOM for Excel
     writer = csv.writer(output)
+    # Free text goes through csv_safe; the amounts, dates and codes are written
+    # by this endpoint and cannot carry a formula.
     writer.writerow(["date", "description", "amount", "type", "currency", "category", "account", "payee", "payee_name", "notes", "status", "source", "amount_primary", "fx_rate_used", "split_group", "split_index", "reporting_date", "reporting_date_override"])
     for tx in transactions:
         # A transaction split across categories leaves one row per part, so
@@ -368,15 +358,15 @@ async def export_transactions(
         for amount, amount_primary, category, split_group, split_index in csv_export_parts(tx):
             writer.writerow([
                 tx.date.isoformat(),
-                _csv_safe(tx.description),
+                csv_safe(tx.description),
                 str(amount),
                 tx.type,
                 tx.currency,
-                _csv_safe(category.name if category else ""),
-                _csv_safe(tx.account.name if tx.account else ""),
-                _csv_safe(tx.payee),
-                _csv_safe(getattr(tx, "payee_name", "")),
-                _csv_safe(tx.notes),
+                csv_safe(category.name if category else ""),
+                csv_safe(tx.account.name if tx.account else ""),
+                csv_safe(tx.payee),
+                csv_safe(getattr(tx, "payee_name", "")),
+                csv_safe(tx.notes),
                 tx.status,
                 tx.source,
                 str(amount_primary) if amount_primary is not None else "",

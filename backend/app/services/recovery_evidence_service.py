@@ -8,6 +8,7 @@ from decimal import Decimal, localcontext
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.core.csv_cells import csv_safe
 from app.models.investment_evidence import InvestmentLeg
 from app.models.recovery_evidence import InvestmentRecoveryEntry, InvestmentRecoveryReview
 from app.schemas.investment_evidence import EvidenceLegInput
@@ -630,5 +631,5 @@ def export_recovery(package, format, filters):
         for row in records:
             # JSON is the lossless transport; readable columns never execute as spreadsheet formulas.
             cells = [kind, row['id'], row.get('case_key', ''), row.get('round_key') or '', row.get('role', row.get('kind')), row.get('reported_state', row.get('relation_state') or row.get('assertion_status'))]
-            writer.writerow(["'" + value if isinstance(value, str) and value.startswith(('=', '+', '-', '@', '\t', '\r')) else value for value in cells] + [json.dumps(row, ensure_ascii=False)])
+            writer.writerow([csv_safe(value) for value in cells] + [json.dumps(row, ensure_ascii=False)])
     return output.getvalue()

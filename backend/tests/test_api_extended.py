@@ -96,13 +96,13 @@ async def test_export_uncategorized(
 
 def test_csv_safe_neutralises_formula_leaders():
     """Free text keeps its own characters but never becomes a live formula."""
-    from app.api.transactions import _csv_safe
+    from app.core.csv_cells import csv_safe
 
     for payload in ("=1+1", "+SUM(A1)", "-2+3", "@SUM(A1)", "\tcmd", "\rcmd"):
-        assert _csv_safe(payload) == "'" + payload
-    assert _csv_safe("Coffee") == "Coffee"
-    assert _csv_safe("") == ""
-    assert _csv_safe(None) == ""
+        assert csv_safe(payload) == "'" + payload
+    assert csv_safe("Coffee") == "Coffee"
+    assert csv_safe("") == ""
+    assert csv_safe(None) == ""
 
 
 @pytest.mark.asyncio
