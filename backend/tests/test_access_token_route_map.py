@@ -4,6 +4,7 @@
 mapped prefix is open to tokens the moment it exists — as the fork's tax and
 evidence routes under /api/assets were. This test fails on any route whose
 scope is not in `access_token_routes.txt` until someone classifies it.
+`tests/conftest.py` turns on the flag-mounted routers, so theirs are listed.
 
 After a deliberate change, regenerate the list and review its diff:
 
@@ -12,21 +13,48 @@ After a deliberate change, regenerate the list and review its diff:
 import os
 from pathlib import Path
 
+from fastapi.routing import iter_route_contexts
+from starlette.routing import Mount, WebSocketRoute
+
 from app.core.access_token_scopes import required_scope
 from app.main import app
 
 ROUTES = Path(__file__).with_name("access_token_routes.txt")
 
 
+def _routes(routes, prefix: str = ""):
+    """(method, path) for every route the app serves, walking included
+    routers and mounts.
+
+    The route table, not the OpenAPI schema: a route left out of the schema
+    (`include_in_schema=False`) is served all the same. A mount without a
+    route table of its own (a sub-application) is listed as `MOUNT`.
+    """
+    for context in iter_route_contexts(routes):
+        route = context.original_route
+        path = prefix + (context.path or "")
+        if isinstance(route, Mount):
+            sub_routes = getattr(route.app, "routes", None)
+            if sub_routes is None:
+                yield "MOUNT", path
+            else:
+                yield from _routes(sub_routes, path)
+        elif isinstance(route, WebSocketRoute):
+            yield "WEBSOCKET", path
+        else:
+            # Starlette adds HEAD to every GET route; it is read like GET.
+            for method in sorted((context.methods or set()) - {"HEAD"}):
+                yield method, path
+
+
 def _current() -> list[str]:
-    lines = []
-    for path, operations in app.openapi()["paths"].items():
+    lines = set()
+    for method, path in _routes(app.routes):
         if not path.startswith("/api/"):
             continue
-        for method in operations:
-            scope = required_scope(method.upper(), path)
-            label = "closed" if scope is None else scope or "any-token"
-            lines.append(f"{label} {method.upper()} {path}")
+        scope = required_scope("GET" if method in ("MOUNT", "WEBSOCKET") else method, path)
+        label = "closed" if scope is None else scope or "any-token"
+        lines.add(f"{label} {method} {path}")
     return sorted(lines)
 
 

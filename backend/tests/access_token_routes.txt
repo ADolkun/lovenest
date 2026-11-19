@@ -129,6 +129,7 @@ closed GET /api/auth/passkeys
 closed GET /api/collections
 closed GET /api/contributions
 closed GET /api/contributions/summary
+closed GET /api/docs
 closed GET /api/export/backup
 closed GET /api/fiscal/jurisdictions
 closed GET /api/fiscal/product-fields
@@ -152,9 +153,12 @@ closed GET /api/onchain/history/{collection_id}
 closed GET /api/onchain/history/{collection_id}/export
 closed GET /api/onchain/investigation/bridge-candidates
 closed GET /api/onchain/trace/checkpoint
+closed GET /api/openapi.json
 closed GET /api/plugins
 closed GET /api/plugins/catalog
 closed GET /api/plugins/connections
+closed GET /api/plugins/icons/{name}
+closed GET /api/plugins/logos/{sha256}
 closed GET /api/plugins/{owner}/{name}
 closed GET /api/plugins/{owner}/{name}/plan
 closed GET /api/products
