@@ -25,6 +25,7 @@ from app.models.asset import Asset
 from app.models.asset_contribution import AssetContribution
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
+from app.models.investment_evidence import InvestmentLeg
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.account import Account
@@ -1733,11 +1734,17 @@ async def _sync_holding_trades(
     await session.flush()
     for holding in reported:
         asset = synced_assets[holding.external_id]
+        # Only the trades this path writes. The fork's own providers share the
+        # source name for evidence-applied trades and transfer or fee
+        # movements, which this overlay must never rewrite or delete.
         rows = (
             await session.execute(
                 select(AssetTransaction).where(
                     AssetTransaction.asset_id == asset.id,
                     AssetTransaction.source == source,
+                    AssetTransaction.kind.in_(("buy", "sell")),
+                    AssetTransaction.external_id.is_not(None),
+                    ~exists().where(InvestmentLeg.asset_transaction_id == AssetTransaction.id),
                 )
             )
         ).scalars().all()

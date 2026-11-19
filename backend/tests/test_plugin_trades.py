@@ -112,6 +112,29 @@ async def test_trades_entered_by_hand_are_never_touched(session: AsyncSession, b
 
 
 @pytest.mark.asyncio
+async def test_same_source_rows_this_overlay_did_not_write_are_never_touched(
+    session: AsyncSession, bank_connection, test_user,
+):
+    """A provider's own movements and unkeyed rows share its source name, but
+    only keyed buys and sells belong to the reported-trades overlay."""
+    await _pipeline(session, bank_connection, holding("10", [_trade("b1", "buy", 2, "10")]), test_user)
+    asset = await _asset(session, bank_connection)
+    session.add_all([
+        AssetTransaction(asset_id=asset.id, workspace_id=asset.workspace_id, kind="fee",
+                         quantity=Decimal("0.5"), price=None, fee=Decimal("0"),
+                         date=date(2026, 11, 3), source=SOURCE, external_id="fee-1"),
+        AssetTransaction(asset_id=asset.id, workspace_id=asset.workspace_id, kind="buy",
+                         quantity=Decimal("1"), price=Decimal("90"), fee=Decimal("0"),
+                         date=date(2026, 11, 1), source=SOURCE),
+    ])
+    await session.commit()
+    await _pipeline(session, bank_connection, holding("10", [_trade("b2", "buy", 4, "10")]), test_user)
+    asset = await _asset(session, bank_connection)
+    rows = await _rows(session, AssetTransaction, asset_id=asset.id)
+    assert {(tx.kind, tx.external_id) for tx in rows} == {("fee", "fee-1"), ("buy", None), ("buy", "b2")}
+
+
+@pytest.mark.asyncio
 async def test_trades_not_reported_leave_the_ledger(session: AsyncSession, bank_connection, test_user):
     await _pipeline(session, bank_connection, holding("10", [_trade("b1", "buy", 2, "10")]), test_user)
     await _pipeline(session, bank_connection, holding("10", None), test_user)
