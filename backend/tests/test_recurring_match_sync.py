@@ -970,6 +970,69 @@ async def test_sync_tolerated_placeholder_rescales_splits_and_unlinks_its_pair(
 
 
 @pytest.mark.asyncio
+async def test_sync_tolerated_placeholder_resizes_its_category_lines(
+    session, test_user, test_workspace, conn_account, test_categories
+):
+    """A placeholder split across categories that takes a larger charge under
+    the tolerance stays split, with parts adding up to what was charged."""
+    from app.models.transaction_category_line import TransactionCategoryLine
+    from app.schemas.transaction_category_line import (
+        TransactionCategoryLineInput,
+        TransactionCategoryLinesInput,
+    )
+    from app.services import category_line_service
+
+    food, transport = test_categories[0], test_categories[1]
+    conn, account = conn_account
+    conn_id, account_id = conn.id, account.id
+    await reconciliation_rule_service.upsert_override(
+        session, test_workspace.id, test_user.id,
+        reconciliation_policy.MATCH_RECURRING["node"], "same_account_exact",
+        {"when": {"amount": {"match": "tolerance", "percent": "5"},
+                  "unique_candidate": True}},
+    )
+    bill = await _make_bill(session, test_workspace, test_user, account,
+                            amount=Decimal("100.00"), start_date=date(2025, 1, 10))
+    bill.next_occurrence = date(2025, 2, 10)
+    placeholder = Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=account_id, description="Netflix Subscription",
+        amount=Decimal("100.00"), currency="BRL", date=date(2025, 1, 10),
+        type="debit", source="recurring", status="posted",
+        recurring_transaction_id=bill.id,
+    )
+    session.add(placeholder)
+    await session.flush()
+    await category_line_service.replace_lines(
+        session, placeholder,
+        TransactionCategoryLinesInput(
+            share_type="exact",
+            lines=[
+                TransactionCategoryLineInput(category_id=food.id, amount=Decimal("60.00")),
+                TransactionCategoryLineInput(category_id=transport.id, amount=Decimal("40.00")),
+            ],
+        ),
+    )
+    await session.commit()
+    placeholder_id = placeholder.id
+    provider = _provider([_tx(external_id="s1", description="NETFLIX SUBSCRIPTION",
+                              amount=Decimal("104.00"), date=date(2025, 1, 11))])
+
+    await _run_sync(session, conn_id, test_workspace, test_user, provider)
+
+    txs = await _all_txs(session, account_id)
+    assert [tx.id for tx in txs] == [placeholder_id]
+    assert txs[0].amount == Decimal("104.00")
+    assert txs[0].has_category_lines is True
+    lines = (await session.execute(
+        select(TransactionCategoryLine.amount)
+        .where(TransactionCategoryLine.transaction_id == placeholder_id)
+        .order_by(TransactionCategoryLine.position)
+    )).scalars().all()
+    assert lines == [Decimal("62.40"), Decimal("41.60")]
+
+
+@pytest.mark.asyncio
 async def test_sync_tolerated_placeholder_keeps_a_pair_with_typed_amounts(
     session, test_user, test_workspace, conn_account
 ):

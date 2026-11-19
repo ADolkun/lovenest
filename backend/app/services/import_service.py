@@ -1298,15 +1298,12 @@ async def import_transactions(
                 # Matched under a tolerance, or the file says what the charge
                 # cost in the primary currency: the row now stands for what was
                 # actually charged, not for what the bill expected.
-                expected_amount = placeholder.amount
                 await take_incoming_amount(session, placeholder, txn_data.amount)
                 if txn_data.fx_rate:
                     placeholder.fx_rate_used = txn_data.fx_rate
                     placeholder.amount_primary = txn_data.amount * txn_data.fx_rate
                 else:
                     await stamp_primary_amount(session, user_id, placeholder)
-                # A split placeholder keeps its split, resized.
-                await category_line_service.rescale_lines(session, placeholder, expected_amount)
             placeholder_split = (
                 _import_split_payload(txn_data, category_map, ambiguous_names)
                 if placeholder.category_id is None and not placeholder.has_category_lines

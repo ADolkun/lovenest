@@ -3122,7 +3122,6 @@ async def _promote_synced_transaction(
         transaction.date = txn_data.date
     transaction.status = "posted"
     apply_effective_date(transaction, account)
-    previous_amount = transaction.amount
     await take_incoming_amount(session, transaction, txn_data.amount)
 
     await _stamp_synced_primary_amount(
@@ -3130,7 +3129,6 @@ async def _promote_synced_transaction(
         _bank_converted_amount(txn_data, account_currency, user_currency),
         fetched_rates=fetched_rates,
     )
-    await category_line_service.rescale_lines(session, transaction, previous_amount)
 
 
 #: How many days an Enable Banking card hold can precede the booked entry that
@@ -4999,17 +4997,12 @@ async def sync_connection(
                         # charge cost in the primary currency: the row now
                         # stands for what was actually charged, not for what
                         # the bill expected.
-                        expected_amount = placeholder.amount
                         await take_incoming_amount(
                             session, placeholder, txn_data.amount
                         )
                         await _stamp_synced_primary_amount(
                             session, user_id, placeholder, converted,
                             fetched_rates=fetched_rates,
-                        )
-                        # A split placeholder keeps its split, resized.
-                        await category_line_service.rescale_lines(
-                            session, placeholder, expected_amount
                         )
                     if placeholder.category_id is None and not placeholder.has_category_lines:
                         placeholder.category_id = preview.category_id or category_id

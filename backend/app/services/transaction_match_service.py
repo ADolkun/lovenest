@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from collections.abc import Collection
@@ -10,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.transaction import Transaction
 from app.models.transaction_split import TransactionSplit
-from app.services import reimbursement_service
+from app.services import category_line_service, mortgage_service, reimbursement_service
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_description(value: str | None) -> str:
@@ -110,16 +113,31 @@ async def take_incoming_amount(
 ) -> None:
     """Give a matched row the amount its bank or file reported.
 
-    What was sized to the old amount follows it: group-split shares are
-    rescaled to the new total, reimbursement links shrink to fit (ADR 0012),
-    and a transfer pair is unlinked, since its other leg still carries the
-    old amount. A pair whose amounts the user typed on both legs stays
-    linked: neither leg was derived from the other, so the other leg's
-    amount is still what landed there.
+    What was sized to the old amount follows it: category lines and
+    group-split shares are rescaled to the new total, reimbursement links
+    shrink to fit (ADR 0012), and a transfer pair is unlinked, since its
+    other leg still carries the old amount. A pair whose amounts the user
+    typed on both legs stays linked: neither leg was derived from the other,
+    so the other leg's amount is still what landed there.
+
+    A mortgage breakdown is removed, with the principal it posted to the
+    loan. Its principal and interest are the lender's figures for the old
+    amount and must add up to the payment; scaling them would invent an
+    interest figure, which is why a manual amount edit is refused instead.
+    The user enters the new breakdown from the lender's statement.
     """
-    if Decimal(transaction.amount) == amount:
+    previous_amount = Decimal(transaction.amount)
+    if previous_amount == amount:
         return
     transaction.amount = amount
+    await category_line_service.rescale_lines(session, transaction, previous_amount)
+    if await mortgage_service.delete_breakdown(
+        session, transaction.id, transaction.workspace_id
+    ):
+        logger.warning(
+            "Removed the mortgage breakdown of transaction %s: its amount changed",
+            transaction.id,
+        )
 
     splits = (await session.execute(
         select(TransactionSplit)
