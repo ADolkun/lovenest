@@ -161,6 +161,17 @@ async def test_a_payload_syncs_like_a_connected_bank(session: AsyncSession, bank
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reported", ["wallet", "cash"])
+async def test_a_wallet_account_is_stored_as_cash(session: AsyncSession, bank_connection, test_user, reported):
+    """Upstream's contract calls the cash account type "wallet"; this fork calls it "cash"."""
+    data = payload_data(holdings=[])
+    data["accounts"][0].update(type=reported, transactions=[])
+    await _pipeline(session, bank_connection, data, test_user)
+    (account,) = await _rows(session, Account, connection_id=bank_connection.id)
+    assert account.type == "cash"
+
+
+@pytest.mark.asyncio
 async def test_the_same_payload_twice_adds_nothing(session: AsyncSession, bank_connection, test_user):
     await _pipeline(session, bank_connection, payload_data(), test_user)
     await _pipeline(session, bank_connection, payload_data(), test_user)

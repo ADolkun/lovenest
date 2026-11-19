@@ -57,7 +57,12 @@ _OVER_CAP_NOTES = {
     ),
 }
 
-AccountType = Literal["checking", "savings", "credit_card", "loan", "investment", "wallet"]
+# Plugins are written against upstream's contract, which names the cash account
+# type "wallet"; this fork calls it "cash" (a wallet here is an asset group).
+AccountType = Annotated[
+    Literal["checking", "savings", "credit_card", "loan", "investment", "wallet", "cash"],
+    AfterValidator(lambda value: "cash" if value == "wallet" else value),
+]
 #: The asset types a holding may name; they pick its icon on the Assets page.
 HoldingType = Literal["stock", "etf", "fund", "crypto", "investment"]
 Currency = Annotated[str, Field(pattern=r"^[A-Z]{3}$")]
