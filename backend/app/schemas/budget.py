@@ -67,7 +67,7 @@ class BudgetSuggestionResponse(BaseModel):
 
 class BudgetBatchItem(BaseModel):
     category_id: uuid.UUID
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=Decimal(0))
 
 
 class BudgetBatchCreate(BaseModel):

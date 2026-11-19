@@ -64,7 +64,7 @@ def materialize(
         raise ValueError("Each category can appear only once in a split")
 
     if payload.share_type == "exact":
-        out = []
+        out: list[tuple[uuid.UUID, Decimal, Decimal | None, str | None]] = []
         for line in lines:
             if line.amount is None:
                 raise ValueError("Each line needs an amount")
