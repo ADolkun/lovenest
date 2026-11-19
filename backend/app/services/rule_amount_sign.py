@@ -25,6 +25,12 @@ copied once per side when the top level has the needed join:
 A leaf and its partner mean the same under either reading, so the pair is
 the converted form, recognised on a later run and left alone. Collapsing it
 back (dropping the partner, or the copied group) is the inverse.
+
+A zero bound is written with `=` and `!=` only, which mean the same under
+both readings: `|x| <= 0` is `x = 0`, `|x| > 0` is `x != 0`, `|x| < 0` is
+`x = 0 and x != 0`, `|x| >= 0` is `x = 0 or x != 0`. The two-sided form would
+add a partner whose value is 0 too, which reads as one more magnitude leaf
+needing a partner of its own, and the rewrite would never settle.
 """
 import copy
 from dataclasses import dataclass
@@ -50,6 +56,8 @@ _JOIN = {
     "lt": "and",
     "lte": "and",
 }
+# `|x| op 0` as one fixed-point leaf, where one says it.
+_ZERO_BOUND_OP = {"lte": "equals", "gt": "not_equals"}
 _UPWARD_OPS = frozenset({"gt", "gte"})
 _DOWNWARD_OPS = frozenset({"lt", "lte"})
 
@@ -263,10 +271,8 @@ def _pairs(conditions_op: str, conditions: list, unscoped: list[dict]) -> list[_
     return pairs
 
 
-def _expand(conditions_op: str, conditions: list, leaf: dict, bound: Decimal) -> None:
-    """Add `leaf`'s partner so the pair says what `leaf` said of a magnitude."""
-    partner = {**leaf, "op": _FLIPPED_OP[leaf["op"]], "value": _negated(leaf["value"], bound)}
-    join = _JOIN[leaf["op"]]
+def _expand(conditions_op: str, conditions: list, leaf: dict, partner: dict, join: str) -> None:
+    """Place `partner` beside `leaf`, joined to it by `join`."""
     top_join = _join_of(conditions_op)
     group = next(
         (node for node in conditions if _is_group(node) and any(c is leaf for c in node["conditions"])),
@@ -286,14 +292,32 @@ def _expand(conditions_op: str, conditions: list, leaf: dict, bound: Decimal) ->
         members.insert(_index(members, leaf) + 1, partner)
     elif group_join == top_join:
         conditions[g:g + 1] = members
-        _expand(conditions_op, conditions, leaf, bound)
+        _expand(conditions_op, conditions, leaf, partner, join)
     else:
         sibling = copy.deepcopy(group)
         sibling["conditions"][_index(members, leaf)] = partner
         conditions.insert(g + 1, sibling)
 
 
+def _fix_zero_bounds(conditions_op: str, conditions: list, result: AmountSignRewrite) -> None:
+    while True:
+        _, unscoped = _classify(conditions_op, conditions)
+        zero = [leaf for leaf in unscoped if _magnitude(leaf) == 0 and leaf["op"] in _JOIN
+                and not _is_fixed_point(leaf, Decimal(0))]
+        if not zero:
+            return
+        result.changed = True
+        leaf = zero[0]
+        if leaf["op"] in _ZERO_BOUND_OP:
+            leaf["op"] = _ZERO_BOUND_OP[leaf["op"]]
+            continue
+        join = _JOIN[leaf["op"]]
+        leaf["op"] = "equals"
+        _expand(conditions_op, conditions, leaf, {**leaf, "op": "not_equals"}, join)
+
+
 def _sign_unscoped(conditions_op: str, conditions: list, result: AmountSignRewrite) -> None:
+    _fix_zero_bounds(conditions_op, conditions, result)
     while True:
         _, unscoped = _classify(conditions_op, conditions)
         settled = {id(node) for pair in _pairs(conditions_op, conditions, unscoped)
@@ -319,7 +343,8 @@ def _sign_unscoped(conditions_op: str, conditions: list, result: AmountSignRewri
         leaf, bound = next(
             (item for item in pending if _JOIN[item[0]["op"]] == joins[id(item[0])]), pending[0]
         )
-        _expand(conditions_op, conditions, leaf, bound)
+        partner = {**leaf, "op": _FLIPPED_OP[leaf["op"]], "value": _negated(leaf["value"], bound)}
+        _expand(conditions_op, conditions, leaf, partner, _JOIN[leaf["op"]])
         result.changed = True
 
 

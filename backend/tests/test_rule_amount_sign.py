@@ -176,7 +176,8 @@ def test_unscoped_amounts_match_what_the_magnitude_rule_matched(shape, op, value
     back = to_magnitude_amounts(conditions_op, result.conditions)
     assert not back.unresolved
     assert mixed_matches(conditions_op, back.conditions, magnitude=True, monkeypatch=monkeypatch) == before
-    if not flattened:
+    # A zero bound stays in its `=`/`!=` form, which reads the same either way.
+    if not flattened and not (value == 0 and op in ("gt", "gte", "lt", "lte")):
         assert back.conditions == conditions
 
 
@@ -217,3 +218,34 @@ def test_unscoped_partners_keep_value_types():
         {"op": "and", "conditions": [amount("lte", 2.5), amount("gte", -2.5)]},
         amount("equals", "+3"), amount("equals", "-3"),
     ]
+
+
+@pytest.mark.parametrize(("op", "expected"), [
+    ("lte", [amount("equals", "0.00")]),
+    ("gt", [amount("not_equals", "0.00")]),
+    ("lt", [amount("equals", "0.00"), amount("not_equals", "0.00")]),
+    ("gte", [{"op": "or", "conditions": [amount("equals", "0.00"), amount("not_equals", "0.00")]}]),
+])
+def test_a_zero_bound_is_written_with_equality_only(op, expected):
+    result = to_signed_amounts("and", [amount(op, "0.00")])
+
+    assert result.changed and not result.unresolved
+    assert result.conditions == expected
+
+
+@pytest.mark.parametrize(("conditions_op", "conditions"), [
+    ("and", [{"op": "or", "conditions": [DEBIT, CAFE]},
+             {"op": "or", "conditions": [amount("lt", "0"), amount("lt", "0"), amount("gt", "0")]}]),
+    ("and", [{"op": "or", "conditions": [amount("lt", "50"), amount("lt", "10"), CAFE, amount("lte", "0")]},
+             amount("equals", "0")]),
+    ("or", [{"op": "and", "conditions": [CAFE, amount("gte", "0")]},
+            {"op": "and", "conditions": [amount("not_equals", "0"), amount("gt", "0"), amount("gt", "0")]}]),
+])
+def test_zero_bounds_beside_other_amounts_settle_and_keep_their_meaning(conditions_op, conditions, monkeypatch):
+    before = mixed_matches(conditions_op, conditions, magnitude=True, monkeypatch=monkeypatch)
+
+    result = to_signed_amounts(conditions_op, conditions)
+
+    assert not result.unresolved
+    assert mixed_matches(conditions_op, result.conditions, magnitude=False, monkeypatch=monkeypatch) == before
+    assert not to_signed_amounts(conditions_op, result.conditions).changed
