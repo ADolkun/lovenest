@@ -192,7 +192,8 @@ async def test_full_sync_advances_checkpoint_and_clears_backoff(
     assert outcome == "refreshed"
     assert before is not None and result_conn.last_sync_at is not None
     assert result_conn.last_sync_at > before
-    assert result_conn.settings == {"payee_source": "auto"}
+    assert SYNC_BACKOFF_KEY not in result_conn.settings
+    assert result_conn.settings["payee_source"] == "auto"
 
 
 @pytest.mark.asyncio
@@ -376,7 +377,8 @@ async def test_transient_failure_after_throttle_keeps_retry_floor(
     session: AsyncSession, test_user, test_workspace, retry_after, low, high
 ):
     """One account 429s, another fails with a network error and none sync:
-    the error still decides the status, but the throttle sets the floor on
+    the error still decides the status (sync_error: a failed fetch says
+    nothing about the credentials), but the throttle sets the floor on
     the next scheduled try (the bank's Retry-After, or 6 hours without one)."""
     conn = await _make_connection(session, test_user.id, test_workspace.id)
     provider = _mock_provider_two_accounts()
@@ -388,7 +390,7 @@ async def test_transient_failure_after_throttle_keeps_retry_floor(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     stored = await session.get(BankConnection, conn.id, populate_existing=True)
-    assert stored is not None and stored.status == "error"
+    assert stored is not None and stored.status == "sync_error"
     assert low < _retry_floor_seconds(stored) <= high
 
 
@@ -419,7 +421,7 @@ async def test_failure_after_transaction_throttle_keeps_retry_floor(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     stored = await session.get(BankConnection, conn.id, populate_existing=True)
-    assert stored is not None and stored.status == "error"
+    assert stored is not None and stored.status == "sync_error"
     assert low < _retry_floor_seconds(stored) <= high
 
 
@@ -460,7 +462,7 @@ async def test_mixed_throttles_without_header_keep_six_hour_floor(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     stored = await session.get(BankConnection, conn.id, populate_existing=True)
-    assert stored is not None and stored.status == "error"
+    assert stored is not None and stored.status == "sync_error"
     assert 6 * 3600 - 100 < _retry_floor_seconds(stored) <= 6 * 3600
 
 
@@ -481,7 +483,7 @@ async def test_mixed_provider_throttles_without_header_keep_six_hour_floor(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     stored = await session.get(BankConnection, conn.id, populate_existing=True)
-    assert stored is not None and stored.status == "error"
+    assert stored is not None and stored.status == "sync_error"
     assert 6 * 3600 - 100 < _retry_floor_seconds(stored) <= 6 * 3600
 
 
@@ -498,7 +500,7 @@ async def test_failure_without_throttle_notes_no_floor(
         await sync_connection(session, conn.id, test_workspace.id, test_user.id)
 
     stored = await session.get(BankConnection, conn.id, populate_existing=True)
-    assert stored is not None and stored.status == "error"
+    assert stored is not None and stored.status == "sync_error"
     assert SYNC_BACKOFF_KEY not in (stored.settings or {})
 
 
