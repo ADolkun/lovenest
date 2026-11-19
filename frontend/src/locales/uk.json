@@ -1574,6 +1574,10 @@
     "suggestSpent": "Потрачено за період: {{amount}}",
     "suggestCreate": "Створити бюджети",
     "suggestCreated": "Створено бюджетів: {{count}}",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Немає історії витрат за обраний період.",
     "suggestError": "Не вдалося завантажити пропозиції. Спробуйте ще раз трохи згодом.",
     "hiddenCategory": "Прихована",
@@ -3427,6 +3431,9 @@
       "setMax": "Не більше стількох рахунків",
       "setFee": "Допустити комісію",
       "setFeeHint": "Частка від суми рахунків, для платежу, що проходить за вирахуванням комісії. Нуль означає, що сума має збігатися точно."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "Чекає на вас",

@@ -1574,6 +1574,10 @@
     "suggestSpent": "Потрачено за период: {{amount}}",
     "suggestCreate": "Создать бюджеты",
     "suggestCreated": "Создано бюджетов: {{count}}",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Нет истории расходов за выбранный период.",
     "suggestError": "Не удалось загрузить предложения. Попробуйте ещё раз чуть позже.",
     "hiddenCategory": "Скрытая",
@@ -3427,6 +3431,9 @@
       "setMax": "Не больше стольких счетов",
       "setFee": "Допустить комиссию",
       "setFeeHint": "Доля от суммы счетов, для платежа, который проходит за вычетом комиссии. Ноль означает, что сумма должна совпадать точно."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "Ждёт вас",

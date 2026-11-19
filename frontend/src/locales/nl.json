@@ -1557,6 +1557,10 @@
     "suggestSpent": "Besteed in de periode: {{amount}}",
     "suggestCreate": "Budgetten aanmaken",
     "suggestCreated": "{{count}} budgetten aangemaakt",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Geen uitgavenhistoriek in de geselecteerde periode.",
     "suggestError": "Suggesties konden niet worden geladen. Probeer het zo opnieuw.",
     "hiddenCategory": "Verborgen",
@@ -3396,6 +3400,9 @@
       "setMax": "Hoogstens zoveel facturen",
       "setFee": "Sta een kosten toe van",
       "setFeeHint": "Een deel van de factuurwaarde, voor een betaling die netto na aftrek loopt. Nul betekent dat het totaal exact moet zijn."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "Wacht op jou",

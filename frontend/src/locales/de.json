@@ -1556,6 +1556,10 @@
     "suggestSpent": "Ausgegeben im Zeitraum: {{amount}}",
     "suggestCreate": "Budgets erstellen",
     "suggestCreated": "{{count}} Budgets erstellt",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Keine Ausgaben im gewählten Zeitraum, aus denen vorgeschlagen werden kann.",
     "suggestError": "Vorschläge konnten nicht geladen werden. Versuche es gleich noch einmal.",
     "hiddenCategory": "Ausgeblendet",
@@ -3395,6 +3399,9 @@
       "setMax": "Höchstens so viele Rechnungen",
       "setFee": "Gebühr zulassen von",
       "setFeeHint": "Ein Anteil am Rechnungswert, für eine Zahlung, die netto nach Abzug fließt. Null bedeutet, die Summe muss exakt sein."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "Wartet auf Sie",

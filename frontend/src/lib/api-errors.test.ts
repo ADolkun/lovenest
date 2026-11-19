@@ -92,4 +92,15 @@ describe('localized API errors', () => {
 
     expect(extractApiError(apiError('Enter a valid http or https endpoint URL'))).toBe(expected)
   })
+
+  it.each([
+    ['en', { code: 'mortgage_linked', message: 'A mortgage payment with a breakdown cannot also be a transfer' }, 'A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first.'],
+    ['pt-BR', { code: 'mortgage_linked', message: 'A mortgage payment with a breakdown cannot also be a transfer' }, 'Um pagamento de financiamento com divisão não pode ser também uma transferência. Remova primeiro a divisão do financiamento.'],
+    ['pt-BR', { message: 'A budget for this category already exists for this month' }, 'Esta categoria já tem um orçamento neste mês.'],
+    ['pt-BR', { message: 'A budget for one of these categories already exists for this month' }, 'Uma destas categorias já tem um orçamento neste mês.'],
+  ])('translates reconciliation and budget refusals in %s', async (language, detail, expected) => {
+    await i18n.changeLanguage(language)
+
+    expect(extractApiError(apiError(detail))).toBe(expected)
+  })
 })

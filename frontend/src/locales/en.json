@@ -1555,6 +1555,10 @@
     "suggestSpent": "Spent {{amount}} in the period",
     "suggestCreate": "Create budgets",
     "suggestCreated": "Created {{count}} budgets",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "No spending history in the selected period to suggest from.",
     "suggestError": "Could not load suggestions. Try again in a moment.",
     "hiddenCategory": "Hidden",
@@ -3571,6 +3575,9 @@
       "setFee": "Allow for a fee of",
       "setFeeHint": "A share of what the invoices are worth, for a payment that moves net of a cut. Zero means the total must be exact."
     },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
+    },
     "queue": {
       "title": "Waiting for you",
       "hint": "Matches that need your confirmation.",
@@ -4626,6 +4633,7 @@
     },
     "reasons": {
       "unsupported_movement_classification": "unsupported movement classification",
+      "split_in_ledger": "This holding has a stock split in its ledger, so movement replay, lots and transfer preview are unavailable for it.",
       "canonical_application_owned": "canonical application owned",
       "superseded_source": "superseded source",
       "not_primary_movement": "not primary movement",
@@ -4803,6 +4811,8 @@
       "coverage_unknown": "The source has not established whether all contributors were included.",
       "partial_refresh": "The latest refresh has incomplete coverage. Earlier successful values retain their original age.",
       "refresh_failed": "The latest refresh failed. Review the connection before relying on retained values.",
+      "refresh_disconnected": "The bank connection was disconnected. These values are from the last sync and will not refresh until it is reconnected.",
+      "unconverted_rows": "Some foreign-currency transactions have no exchange rate, so they are not counted in this balance. It is partial until rates are available.",
       "observation_time_unknown": "A source observation time is missing; a recent page load does not make the value fresh.",
       "observation_time_mismatch": "Account and holding observations refer to different times.",
       "currency_unknown": "The source currency is unavailable. This amount cannot be displayed or added in another currency.",

@@ -42,6 +42,9 @@ const KNOWN_MESSAGES: Record<string, string> = {
     'categoryLines.errors.categoryInUse',
   'Transactions split across categories cannot move into an ignored or hidden category.':
     'categoryLines.errors.destinationInvalid',
+  'A mortgage payment with a breakdown cannot also be a transfer': 'reconciliation.errors.mortgageLinked',
+  'A budget for this category already exists for this month': 'budgets.errors.categoryHasBudget',
+  'A budget for one of these categories already exists for this month': 'budgets.errors.categoriesHaveBudget',
 }
 
 export function translateApiMessage(message: string): string {

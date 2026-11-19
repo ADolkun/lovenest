@@ -1559,6 +1559,10 @@
     "suggestSpent": "Gasto de {{amount}} no período",
     "suggestCreate": "Criar orçamentos",
     "suggestCreated": "{{count}} orçamentos criados",
+    "errors": {
+      "categoryHasBudget": "Esta categoria já tem um orçamento neste mês.",
+      "categoriesHaveBudget": "Uma destas categorias já tem um orçamento neste mês."
+    },
     "suggestEmpty": "Sem histórico de gastos no período selecionado para sugerir.",
     "suggestError": "Não foi possível carregar as sugestões. Tente novamente em instantes.",
     "hiddenCategory": "Oculta",
@@ -3400,6 +3404,9 @@
       "setFee": "Admitir taxa de",
       "setFeeHint": "Uma parcela do valor das faturas, para pagamento que se move líquido de taxa. Zero significa que o total tem de ser exato."
     },
+    "errors": {
+      "mortgageLinked": "Um pagamento de financiamento com divisão não pode ser também uma transferência. Remova primeiro a divisão do financiamento."
+    },
     "queue": {
       "title": "Esperando você",
       "hint": "Vínculos que precisam da sua confirmação.",
@@ -4630,6 +4637,7 @@
     },
     "reasons": {
       "unsupported_movement_classification": "A classificação da movimentação não é compatível.",
+      "split_in_ledger": "Esta posição tem um desdobramento de ações no histórico, então a reprodução de movimentações, os lotes e a prévia de transferência não estão disponíveis para ela.",
       "canonical_application_owned": "Esta movimentação já está vinculada a outra aplicação.",
       "superseded_source": "Uma observação mais recente substitui esta fonte.",
       "not_primary_movement": "Esta fonte não é uma evidência primária da movimentação.",
@@ -4807,6 +4815,8 @@
       "coverage_unknown": "A fonte não estabeleceu se todos os componentes foram incluídos.",
       "partial_refresh": "A última atualização tem cobertura incompleta. Os valores anteriores preservam suas datas originais.",
       "refresh_failed": "A última atualização falhou. Revise a conexão antes de confiar nos valores preservados.",
+      "refresh_disconnected": "A conexão bancária foi desconectada. Estes valores vêm da última sincronização e não serão atualizados até que ela seja reconectada.",
+      "unconverted_rows": "Algumas transações em moeda estrangeira não têm taxa de câmbio e não entram neste saldo. Ele fica parcial até que as taxas estejam disponíveis.",
       "observation_time_unknown": "Falta uma data de observação da fonte; carregar a página recentemente não torna o valor atual.",
       "observation_time_mismatch": "As observações da conta e das posições se referem a momentos diferentes.",
       "currency_unknown": "A moeda da fonte está indisponível. Este valor não pode ser exibido nem somado em outra moeda.",

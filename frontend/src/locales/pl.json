@@ -1610,6 +1610,10 @@
     "suggestSpent": "Wydatki w okresie: {{amount}}",
     "suggestCreate": "Utwórz budżety",
     "suggestCreated": "Utworzono {{count}} budżetów",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Brak historii wydatków w wybranym okresie.",
     "suggestError": "Nie udało się wczytać sugestii. Spróbuj ponownie za chwilę.",
     "hiddenCategory": "Ukryta",
@@ -3538,6 +3542,9 @@
       "setMax": "Najwyżej tyle faktur",
       "setFee": "Dopuść prowizję",
       "setFeeHint": "Część wartości faktur, dla płatności, która przepływa po potrąceniu prowizji. Zero oznacza, że suma musi być dokładna."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "Czeka na Ciebie",

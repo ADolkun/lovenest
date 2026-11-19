@@ -1559,6 +1559,10 @@
     "suggestSpent": "Speso {{amount}} nel periodo",
     "suggestCreate": "Crea budget",
     "suggestCreated": "Creati {{count}} budget",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Nessuna cronologia di spesa nel periodo selezionato.",
     "suggestError": "Impossibile caricare i suggerimenti. Riprova tra poco.",
     "hiddenCategory": "Nascosta",
@@ -3398,6 +3402,9 @@
       "setMax": "Al massimo queste fatture",
       "setFee": "Ammetti una commissione del",
       "setFeeHint": "Una quota del valore delle fatture, per un pagamento che si muove al netto di una commissione. Zero significa che il totale deve essere esatto."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "In attesa di te",

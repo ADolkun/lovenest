@@ -1559,6 +1559,10 @@
     "suggestSpent": "Gasto de {{amount}} no período",
     "suggestCreate": "Criar orçamentos",
     "suggestCreated": "{{count}} orçamentos criados",
+    "errors": {
+      "categoryHasBudget": "This category already has a budget for this month.",
+      "categoriesHaveBudget": "One of these categories already has a budget for this month."
+    },
     "suggestEmpty": "Sem histórico de gastos no período selecionado para sugerir.",
     "suggestError": "Não foi possível carregar as sugestões. Tente novamente dentro de momentos.",
     "hiddenCategory": "Oculta",
@@ -3398,6 +3402,9 @@
       "setMax": "No máximo estas faturas",
       "setFee": "Admitir taxa de",
       "setFeeHint": "Uma parcela do valor das faturas, para pagamento que se move líquido de comissão. Zero significa que o total tem de ser exato."
+    },
+    "errors": {
+      "mortgageLinked": "A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first."
     },
     "queue": {
       "title": "À sua espera",
