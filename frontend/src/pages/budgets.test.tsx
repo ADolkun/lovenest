@@ -294,7 +294,7 @@ describe('Budget spending in the inline editor', () => {
     expect(await screen.findByText('October rent payment')).toBeInTheDocument()
     expect(screen.getByRole('complementary')).toHaveFocus()
     expect(api.transactions.list).toHaveBeenCalledWith(expect.objectContaining({
-      category_id: 'rent', type: 'debit', ...monthRange('2026-10'),
+      category_id: 'rent', pnl_group: 'expenses', ...monthRange('2026-10'),
       account_ids: undefined, user_pnl_only: true,
     }))
     expect(budgetInput()).toHaveValue('1200')
@@ -421,6 +421,20 @@ describe('Budget spending in the inline editor', () => {
     await panel.findByText('Shared rent')
     expect(panel.getByText(accountIds ? '-€120.00' : '-€30.00')).toBeInTheDocument()
     expect(panel.getAllByText(accountIds ? '$240.00' : '$60.00').length).toBeGreaterThan(0)
+  })
+
+  it('lists the offsets and projections the bar nets in, not just the debits', async () => {
+    mockSpending()
+    const { user } = renderWithProviders(<BudgetsPage />)
+    await screen.findByText('$450.00')
+    await user.click(categoryTrigger())
+    await screen.findByText(t('dashboard.drillDownEmpty'))
+
+    const params = api.transactions.list.mock.calls[0][0]
+    expect(params).toMatchObject({ category_id: 'rent', pnl_group: 'expenses', ...monthRange('2026-10') })
+    expect(params.type).toBeUndefined()
+    expect(params.status).toBeUndefined()
+    expect(api.dashboard.projectedTransactions).toHaveBeenLastCalledWith({ month: '2026-10-01' })
   })
 
   it('masks spending, progress descriptions, and panel transaction amounts', async () => {

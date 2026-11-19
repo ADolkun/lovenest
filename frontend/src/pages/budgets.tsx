@@ -504,7 +504,9 @@ export default function BudgetsPage() {
               month: monthLabel(selectedMonth, uiLocale),
             }),
             category_id: drillDownCategoryId,
-            type: 'debit',
+            // The bar is spending net of refunds and reimbursements, plus the
+            // forecast, so the panel lists the offsets and the projections too.
+            pnl_group: 'expenses',
             ...monthRange(selectedMonth),
             account_ids: activeAccountIds ?? undefined,
           }}
