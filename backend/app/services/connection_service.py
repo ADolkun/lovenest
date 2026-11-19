@@ -4852,14 +4852,25 @@ async def sync_connection(
                         new_tx_ids.append(synced_dup.id)
                         _relink_bill(synced_dup, txn_data, account, bills_by_external_id)
                     elif synced_dup.external_id != txn_data.external_id:
-                        # Same logical posted row re-keyed by a provider such
-                        # as SimpleFIN. Keep the user's row and move its
-                        # idempotency key forward instead of inserting a twin.
-                        _merge_sync_metadata(
-                            synced_dup,
-                            txn_data,
-                            replace_external_id=synced_dup.source == "sync",
-                        )
+                        if (
+                            connection.provider in {"simplefin", "enable_banking"}
+                            and synced_dup.status == "pending"
+                            and txn_data.status == "pending"
+                        ):
+                            # As for an exact-id match: keep the authorization
+                            # snapshot until it posts, or the adjusted hold
+                            # would look user-edited (`_sync_row_is_frozen`).
+                            if synced_dup.source == "sync":
+                                synced_dup.external_id = txn_data.external_id
+                        else:
+                            # Same logical posted row re-keyed by a provider such
+                            # as SimpleFIN. Keep the user's row and move its
+                            # idempotency key forward instead of inserting a twin.
+                            _merge_sync_metadata(
+                                synced_dup,
+                                txn_data,
+                                replace_external_id=synced_dup.source == "sync",
+                            )
                     continue
 
                 incoming_currency = (

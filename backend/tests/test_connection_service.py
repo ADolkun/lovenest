@@ -9397,10 +9397,12 @@ async def test_enable_banking_legacy_rekey_preserves_frozen_pending_row(
     assert {field: getattr(row, field) for field in fields} == before
 
 
-@pytest.mark.parametrize("adjustment", ["amount", "date"])
-async def test_enable_banking_pending_adjustment_can_post_with_stable_id(
-    session, test_user, test_workspace, adjustment,
+async def test_enable_banking_pending_with_moved_date_posts_onto_the_held_row(
+    session, test_user, test_workspace,
 ):
+    """A pending entry whose date moved before booking re-keys onto the held row
+    and still posts there. An amount change does not: see
+    test_sync_connection_enable_banking_pending_settled_at_other_amount_is_new_row."""
     from app.providers.enable_banking import EnableBankingProvider
 
     connection, account = await _eb_account(session, test_user.id, test_workspace.id)
@@ -9419,18 +9421,15 @@ async def test_enable_banking_pending_adjustment_can_post_with_stable_id(
     )
     session.add(row)
     await session.commit()
-    changed = deepcopy(raw)
-    if adjustment == "amount":
-        changed["transaction_amount"]["amount"] = "13.00"
-    else:
-        changed["value_date"] = "2026-08-21"
+    changed = {**raw, "value_date": "2026-08-21"}
     parser = EnableBankingProvider()
     pending = parser._build_transaction("eb-account", changed, "pending", "auto")
     posted = parser._build_transaction(
         "eb-account", {**changed, "booking_date": "2026-08-23"}, "posted", "auto",
     )
     assert pending is not None and posted is not None
-    assert pending.external_id == posted.external_id == row.external_id
+    # The reference is folded into a payload hash (#1071), so the ids differ.
+    assert len({row.external_id, pending.external_id, posted.external_id}) == 3
     provider = AsyncMock()
     provider.refresh_credentials.return_value = {"token": "synthetic"}
     provider.get_institution_logo.return_value = None
@@ -9448,6 +9447,7 @@ async def test_enable_banking_pending_adjustment_can_post_with_stable_id(
         Transaction.account_id == account.id, Transaction.source == "sync",
     )))
     assert rows == [row]
+    assert row.external_id == posted.external_id
     assert row.status == "posted"
     assert row.amount == posted.amount
     assert row.date == posted.date
