@@ -324,6 +324,41 @@ async def test_a_repurchase_in_the_selling_wallet_warns_too(
 
 
 @pytest.mark.asyncio
+async def test_buys_either_side_of_a_split_are_reported_in_todays_units(
+    session: AsyncSession, test_workspace, test_user: User
+):
+    """A buy before a 1 -> 2 split and one after it are counted in the units
+    the holdings hold now, so the two can be compared with each other and with
+    the shares being sold. A split is neither a sale nor an acquisition."""
+    taxable = await _wallet(session, test_user, test_workspace, "Individual", "taxable")
+    ira = await _wallet(session, test_user, test_workspace, "ROTH IRA", "roth")
+    selling = await _holding(
+        session, test_user, test_workspace, taxable.id, ticker="VOO",
+        buys=[("10", date(2025, 1, 5)), ("3", date(2026, 6, 1))],
+    )
+    replacement = await _holding(
+        session, test_user, test_workspace, ira.id, ticker="VOO",
+        buys=[("4", date(2026, 6, 25))],
+    )
+    for holding in (selling, replacement):
+        session.add(AssetTransaction(
+            id=uuid.uuid4(), asset_id=holding.id, workspace_id=test_workspace.id,
+            kind="split", quantity=Decimal("0"), price=Decimal("0"), fee=Decimal("0"),
+            date=date(2026, 6, 10), old_units=1, new_units=2, source="manual",
+        ))
+    await session.commit()
+
+    result = await wash_sale_exposure(session, selling.id, test_workspace.id, sell_date=SELL)
+
+    assert result is not None
+    assert result["warning"] is True
+    assert [(a["wallet"], a["date"], a["quantity"]) for a in result["acquisitions"]] == [
+        ("Individual", "2026-06-01", 6.0),
+        ("ROTH IRA", "2026-06-25", 4.0),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_a_synced_holding_in_the_generic_bucket_is_covered(
     session: AsyncSession, test_workspace, test_user: User
 ):

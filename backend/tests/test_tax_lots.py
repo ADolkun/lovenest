@@ -334,6 +334,85 @@ def test_a_bought_contract_held_over_a_year_is_long_term():
 
 
 # ---------------------------------------------------------------------------
+# Stock splits (no DB)
+# ---------------------------------------------------------------------------
+
+def _split(old: int, new: int, d: date) -> AssetTransaction:
+    return AssetTransaction(
+        id=uuid.uuid4(), asset_id=uuid.uuid4(), workspace_id=uuid.uuid4(), kind="split",
+        quantity=Decimal(0), price=Decimal(0), fee=Decimal(0), date=d, old_units=old, new_units=new,
+    )
+
+
+def test_a_split_with_no_later_sale_keeps_each_lots_date_and_cost():
+    ledger = [
+        _tx("buy", "10", "100", date(2024, 1, 2)),
+        _tx("buy", "5", "120", date(2025, 6, 1)),
+        _split(1, 4, date(2025, 9, 1)),
+    ]
+    pos = build_lots(ledger, as_of=date(2025, 10, 1))
+    assert [(lot["acquired"], lot["quantity"], lot["cost"]) for lot in pos["lots"]] == [
+        (date(2024, 1, 2), Decimal("40"), Decimal("1000")),
+        (date(2025, 6, 1), Decimal("20"), Decimal("600")),
+    ]
+    assert pos["lots"][0]["unit_price"] == Decimal("25.000000")
+    assert pos["sales"] == []
+    assert sum(lot["quantity"] for lot in pos["lots"]) == _recompute(ledger)["units"]
+
+
+def test_a_sale_after_a_split_consumes_the_oldest_lot_in_new_units():
+    ledger = [
+        _tx("buy", "10", "100", date(2024, 1, 2)),
+        _tx("buy", "10", "200", date(2025, 6, 1)),
+        _split(1, 2, date(2025, 7, 1)),
+        # The whole first lot (20 new units) and 5 units of the second.
+        _tx("sell", "25", "90", date(2025, 8, 1)),
+    ]
+    pos = build_lots(ledger, as_of=date(2025, 8, 1))
+    sale = pos["sales"][0]
+    gain = _recompute(ledger)["realized_gain"]
+    assert sale["gain"] == gain
+    # Average cost 3000 / 40 = 75 per new unit: (90 - 75) * 25.
+    assert gain == Decimal("375")
+    assert (sale["long_quantity"], sale["short_quantity"]) == (Decimal("20"), Decimal("5"))
+    assert sale["long_gain"] + sale["short_gain"] == gain
+    assert [(lot["acquired"], lot["quantity"], lot["cost"]) for lot in pos["lots"]] == [
+        (date(2025, 6, 1), Decimal("15"), Decimal("1500")),
+    ]
+
+
+def test_a_split_on_the_day_of_a_trade_comes_before_it():
+    ledger = [
+        _tx("buy", "10", "100", date(2025, 1, 2)),
+        _tx("sell", "20", "60", date(2025, 3, 1)),
+        _split(1, 2, date(2025, 3, 1)),
+    ]
+    pos = build_lots(ledger, as_of=date(2025, 3, 1))
+    assert pos["lots"] == []
+    assert pos["sales"][0]["quantity"] == Decimal("20")
+    assert pos["sales"][0]["gain"] == Decimal("200")
+
+
+def test_a_reverse_split_that_rounds_neither_creates_nor_loses_units():
+    """Each lot rounded down on its own would leave the lots short of the
+    ledger's own rounding of the whole position, and a later sale of
+    everything would find units FIFO cannot reach."""
+    ledger = [
+        _tx("buy", "5", "30", date(2025, 1, 2)),
+        _tx("buy", "5", "30", date(2025, 1, 3)),
+        _split(3, 1, date(2025, 2, 1)),
+    ]
+    held = _recompute(ledger)["units"]
+    pos = build_lots(ledger, as_of=date(2025, 3, 1))
+    assert sum(lot["quantity"] for lot in pos["lots"]) == held
+    assert sum(lot["cost"] for lot in pos["lots"]) == Decimal("300")
+
+    sold = build_lots([*ledger, _tx("sell", str(held), "100", date(2025, 3, 1))], as_of=date(2025, 3, 1))
+    assert sold["lots"] == []
+    assert sold["sales"][0]["quantity"] == held
+
+
+# ---------------------------------------------------------------------------
 # Service: tax character gate
 # ---------------------------------------------------------------------------
 

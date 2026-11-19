@@ -18,7 +18,7 @@ proportion of the quantity FIFO consumed from each. The parts always sum back to
 the Realised Gain the ledger reports. See ADR 0003.
 """
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Optional
 
@@ -32,10 +32,11 @@ from app.models.asset_transaction import AssetTransaction
 from app.models.bank_connection import BankConnection
 from app.models.investment_evidence import InvestmentLeg, InvestmentObservation
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
-from app.services.asset_transaction_service import _d, _detect_oversell, _recompute, _split_trade
+from app.services.asset_service import split_units
+from app.services.asset_transaction_service import (
+    _d, _detect_oversell, _recompute, _replay_order, _split_trade, _units_after_split,
+)
 from app.services.option_contract import is_option, multiplier_for
-
-_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
 # Per-unit prices are carried at the scale `Asset.average_price` is stored at,
 # so a lot price divided out of a fee is not reported to 28 digits.
@@ -89,6 +90,35 @@ def _lot_view(
     }
 
 
+def _split_lots(open_lots: list[dict], tx: AssetTransaction) -> list[dict]:
+    """The open lots after a stock split: a split is not a disposal, so each
+    lot keeps its date and its cost and only its units change.
+
+    Each lot takes the difference between the split running totals before and
+    after it, so the lots still add up to exactly the units the ledger's own
+    split of the whole position leaves, however the ratio rounds. A lot of
+    dust rounded to nothing hands its cost to the lot after it rather than
+    letting the cost leave the holding.
+    """
+    assert tx.old_units is not None and tx.new_units is not None
+    split: list[dict] = []
+    before = after = carried = Decimal("0")
+    for lot in open_lots:
+        cost = lot["quantity"] * lot["unit_price"] + carried
+        before += lot["quantity"]
+        units = split_units(before, tx.old_units, tx.new_units) - after
+        after += units
+        if not units:
+            carried = cost
+            continue
+        carried = Decimal("0")
+        split.append({**lot, "quantity": units, "unit_price": cost / units})
+    if carried and split:
+        last = split[-1]
+        last["unit_price"] += carried / last["quantity"]
+    return split
+
+
 def build_lots(
     transactions: list[AssetTransaction], *, as_of: date, asset_type: Optional[str] = None
 ) -> dict:
@@ -112,9 +142,9 @@ def build_lots(
             return _movement_lots(transactions, as_of)
     multiplier = multiplier_for(asset_type)
     allow_short = is_option(asset_type)
-    txs = sorted(transactions, key=lambda t: (t.date, t.created_at or _EPOCH))
+    txs = sorted(transactions, key=_replay_order)
     # The ledger owns what a trade gained; this replay only decides which units
-    # it took. Both sort on (date, created_at) and split each trade the same
+    # it took. Both sort on `_replay_order` and split each trade the same
     # way, so the nth closing trade reached here is the nth realised event —
     # asserted below rather than assumed.
     realised = _recompute(transactions, asset_type=asset_type)["realized_events"]
@@ -123,6 +153,10 @@ def build_lots(
     position = Decimal("0")
 
     for tx in txs:
+        if tx.kind == "split":
+            open_lots = _split_lots(open_lots, tx)
+            position = _units_after_split(position, tx)
+            continue
         q = _d(tx.quantity)
         fee = _d(tx.fee)
         signed = q if tx.kind == "buy" else -q

@@ -26,6 +26,7 @@ from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
 from app.models.asset_transaction import AssetTransaction
 from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
+from app.services.asset_service import split_units
 from app.services.asset_transaction_service import _d
 from app.services.option_contract import OPTION_TYPE, multiplier_for
 
@@ -68,6 +69,18 @@ def in_window(acquired: date, sell_date: date) -> bool:
 
 def is_unrecoverable(tax_treatment: Optional[str]) -> bool:
     return (tax_treatment or "") in UNRECOVERABLE_TAX_TREATMENTS
+
+
+def _in_todays_units(buy: AssetTransaction, splits: list[AssetTransaction]) -> Decimal:
+    """A buy's quantity in the units its Holding counts today: scaled through
+    every split of that Holding after it. A split applies before the trades on
+    its own date, so a buy that day is already in the new units."""
+    quantity = _d(buy.quantity)
+    for split in splits:
+        if split.asset_id == buy.asset_id and split.date > buy.date:
+            assert split.old_units is not None and split.new_units is not None
+            quantity = split_units(quantity, split.old_units, split.new_units)
+    return quantity
 
 
 def assess(
@@ -198,18 +211,20 @@ async def wash_sale_exposure(
         sibling.id: (name, _identity(sibling), tax) for sibling, name, tax in siblings
     }
 
-    buys = (
+    ledger = (
         (
             await session.execute(
                 select(AssetTransaction).where(
                     AssetTransaction.asset_id.in_(list(wallets)),
-                    AssetTransaction.kind == "buy",
+                    AssetTransaction.kind.in_(("buy", "split")),
                 )
             )
         )
         .scalars()
         .all()
     )
+    buys = [tx for tx in ledger if tx.kind == "buy"]
+    splits = sorted((tx for tx in ledger if tx.kind == "split"), key=lambda tx: tx.date)
 
     sell_date = sell_date or app_today()
     price = price if price is not None else asset.last_price
@@ -232,7 +247,9 @@ async def wash_sale_exposure(
         acquisitions=[
             {
                 "date": buy.date,
-                "quantity": _d(buy.quantity),
+                # One unit across buys either side of a split, the one the
+                # Holdings and their Lots are counted in now.
+                "quantity": _in_todays_units(buy, splits),
                 "wallet": wallets[buy.asset_id][0],
                 "wallet_id": wallets[buy.asset_id][1],
                 "tax_treatment": wallets[buy.asset_id][2],
