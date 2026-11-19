@@ -1536,7 +1536,6 @@ async def get_cash_flow_report(
         pnl_ratio = pnl_ratio_by_id[tx.id]
         if tx.status != "pending" or not pnl_ratio:
             continue
-            continue
         balance_date = tx.effective_bill_date or (tx.effective_date if accrual else tx.date)
         report_date = tx.reporting_date_override or balance_date
         if tx.amount_primary is not None:
