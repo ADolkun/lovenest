@@ -9859,3 +9859,34 @@ async def test_reserved_balance_in_another_currency_is_stored_but_not_summed(
     payload = serialize_account(account, None, None)
     assert [r["currency"] for r in payload["reserved_balances"]] == ["USD"]
     assert payload["reserved_total"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_reserved_balances_follow_an_account_into_the_connection_workspace(
+    session: AsyncSession, test_user, test_workspace
+):
+    """A sync that moves an account into its connection's workspace moves its
+    reservations too, even when the provider is silent about them: otherwise
+    the old workspace keeps listing them (its export, for one)."""
+    from app.models.workspace import Workspace
+
+    conn = await _import_mp(session, test_user, test_workspace, _mp_account(MP_POCKETS))
+    account = await _mp_account_row(session, conn)
+    elsewhere = Workspace(
+        id=uuid.uuid4(), name="Elsewhere", kind="personal",
+        created_by_user_id=test_user.id, default_currency="BRL", locale="pt-BR",
+    )
+    session.add(elsewhere)
+    await session.flush()
+    account.workspace_id = elsewhere.id
+    for row in await _reserved_rows(session, account.id):
+        row.workspace_id = elsewhere.id
+    await session.commit()
+
+    await _sync_mp_account(session, conn, test_user, test_workspace, _mp_account(None))
+
+    rows = await _reserved_rows(session, account.id)
+    assert len(rows) == 3
+    for row in rows:
+        await session.refresh(row)
+    assert {row.workspace_id for row in rows} == {test_workspace.id}

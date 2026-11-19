@@ -4549,6 +4549,11 @@ async def sync_connection(
                     .where(CreditCardBill.account_id == account.id)
                     .values(user_id=user_id, workspace_id=connection.workspace_id)
                 )
+                await session.execute(
+                    update(AccountReservedBalance)
+                    .where(AccountReservedBalance.account_id == account.id)
+                    .values(workspace_id=connection.workspace_id)
+                )
 
             # Honor user intent: a closed connected account stays closed and is
             # not touched by sync. The row is left alone (no balance/name
