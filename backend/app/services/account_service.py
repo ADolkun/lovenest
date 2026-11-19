@@ -110,6 +110,10 @@ def _balance_subqueries(today: _Date):
         select(
             Transaction.account_id,
             func.coalesce(func.sum(signed_amount), 0).label("current_balance"),
+            func.count(Transaction.id).filter(
+                func.upper(Transaction.currency) != func.upper(Account.currency),
+                Transaction.amount_primary.is_(None),
+            ).label("unconverted_count"),
         )
         .join(Account, Transaction.account_id == Account.id)
         .outerjoin(Category, Transaction.category_id == Category.id)
@@ -208,6 +212,7 @@ def _accounts_with_balances_query(
             Account,
             BankConnection,
             func.coalesce(balance_sq.c.current_balance, 0).label("current_balance"),
+            func.coalesce(balance_sq.c.unconverted_count, 0).label("unconverted_count"),
             func.coalesce(prev_balance_sq.c.previous_balance, 0).label("previous_balance"),
             func.coalesce(future_charges_sq.c.future_charges, 0).label("future_charges"),
             open_bill_sq.c.total_amount.label("open_bill_total"),
@@ -256,6 +261,7 @@ async def get_accounts(
         acc,
         connection,
         current_balance,
+        unconverted_count,
         previous_balance,
         future_charges,
         open_bill_total,
@@ -272,7 +278,7 @@ async def get_accounts(
         )
         payload["balance_explanation"] = await explain_balance(
             session, workspace_id, account=acc, connection=connection,
-            current_balance=current_balance,
+            current_balance=current_balance, unconverted_count=unconverted_count,
         )
         reads.append(payload)
     return reads
