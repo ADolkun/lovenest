@@ -284,6 +284,18 @@ async def get_accounts(
     return reads
 
 
+async def get_cash_balance(
+    session: AsyncSession, workspace_id: uuid.UUID, account_id: uuid.UUID
+) -> Optional[tuple[Decimal, int]]:
+    """The account's current balance as `get_accounts` reports it, with the
+    count of foreign rows it took as zero for want of a converted amount."""
+    query = _accounts_with_balances_query(workspace_id, *_balance_subqueries(app_today()))
+    row = (await session.execute(query.where(Account.id == account_id))).first()
+    if row is None:
+        return None
+    return Decimal(str(row.current_balance)), int(row.unconverted_count)
+
+
 async def get_account_with_balances(
     session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[dict]:
