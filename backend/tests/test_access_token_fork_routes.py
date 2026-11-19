@@ -57,3 +57,39 @@ async def test_undoing_an_import_needs_the_scope_of_what_it_removes(
     else:
         assert resp.status_code == 403, resp.text
         assert await session.get(ImportLog, log.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_an_assets_token_neither_sets_nor_reads_a_wallets_tax_treatment(
+    client: AsyncClient, auth_headers: dict,
+):
+    """The treatment decides what the tax planner counts, and the tax routes
+    are closed to tokens; managing wallets otherwise stays open."""
+    group = (await client.post(
+        "/api/asset-groups", headers=auth_headers, json={"name": "Retirement", "tax_treatment": "roth"},
+    )).json()
+    bearer = await _token(client, auth_headers, ["assets:write"])
+
+    flip = await client.patch(
+        f"/api/asset-groups/{group['id']}", headers=bearer, json={"tax_treatment": "taxable"},
+    )
+    assert flip.status_code == 403
+    created = await client.post(
+        "/api/asset-groups", headers=bearer, json={"name": "Shelter", "tax_treatment": "hsa"},
+    )
+    assert created.status_code == 403
+
+    renamed = await client.patch(
+        f"/api/asset-groups/{group['id']}", headers=bearer, json={"name": "Long term"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Long term"
+    assert "tax_treatment" not in renamed.json()
+    plain = await client.post("/api/asset-groups", headers=bearer, json={"name": "Brokerage"})
+    assert plain.status_code == 201
+    assert "tax_treatment" not in plain.json()
+    listed = (await client.get("/api/asset-groups", headers=bearer, params={"include_empty": True})).json()
+    assert listed and all("tax_treatment" not in wallet for wallet in listed)
+
+    own = (await client.get("/api/asset-groups", headers=auth_headers, params={"include_empty": True})).json()
+    assert {w["name"]: w["tax_treatment"] for w in own} == {"Long term": "roth", "Brokerage": "taxable"}
