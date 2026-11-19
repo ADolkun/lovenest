@@ -1,19 +1,23 @@
 """Income & expense statement: net amounts per category, month by month.
 
 Each category group (or ungrouped category) becomes one row holding its net
-amount (credits minus debits) for the selected month and the months before
-it, so a refund lowers the spending of the category it belongs to instead of
-showing up as income. A row lands in the income or the expense section by the
-sign of its all-time net, which keeps it in the same place as the user steps
-through months. Uncategorized money has no such history to lean on, so it is
-split by transaction type into one row per section.
+amount (income minus expense) for the selected month and the months before
+it. Income and expense are the user-P&L amounts the dashboard and reports
+total (`user_pnl_income_amount` / `user_pnl_expense_amount`), so a refund
+lowers the spending of the category it is filed under, a reimbursement link
+takes its amount out of both rows it joins (fork ADR 0012), and the
+statement adds up to the same income minus expense. A row lands in the
+income or the expense section by the sign of its all-time net, which keeps
+it in the same place as the user steps through months. Uncategorized money
+has no such history to lean on, so it is split into one row per section by
+how P&L classifies it.
 """
 
 import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -31,6 +35,10 @@ from app.services._query_filters import (
     line_category_id,
     line_primary_or_amount,
     reporting_date_col,
+    user_pnl_expense_amount,
+    user_pnl_income_amount,
+    user_pnl_share_expense,
+    user_pnl_share_income,
     viewer_shared_spending_by_category,
     with_category_lines,
 )
@@ -38,7 +46,8 @@ from app.services.admin_service import get_credit_card_accounting_mode
 
 UNCATEGORIZED_KEY = "uncategorized"
 
-# {category_id or None: (credits, debits)} as positive magnitudes.
+# {category_id or None: (income, expense)}; an expense goes negative when
+# spending offsets outweigh the spending.
 _MonthTotals = dict[Optional[uuid.UUID], tuple[float, float]]
 
 
@@ -51,14 +60,45 @@ def _sum_values(rows: list[CategoryStatementRow], width: int) -> list[float]:
     return [round(sum(row.values[i] for row in rows), 2) for i in range(width)]
 
 
+def _pnl_sums(amount_expr, category_id=None):
+    return (
+        func.sum(user_pnl_income_amount(amount_expr, category_id)),
+        func.sum(user_pnl_expense_amount(amount_expr, category_id)),
+    )
+
+
+def _share_sums(share_expr):
+    """Group-split shares judge the whole row: it cannot also be split by
+    category."""
+    return (
+        func.sum(user_pnl_share_income(share_expr, Transaction.category_id)),
+        func.sum(user_pnl_share_expense(share_expr, Transaction.category_id)),
+    )
+
+
+def _totals(rows) -> _MonthTotals:
+    return {
+        cat_id: (float(income or 0), float(expense or 0))
+        for cat_id, income, expense in rows
+    }
+
+
+def _subtract(totals: _MonthTotals, offsets: _MonthTotals) -> None:
+    for cat_id, (income_off, expense_off) in offsets.items():
+        income, expense = totals.get(cat_id, (0.0, 0.0))
+        totals[cat_id] = (income - income_off, expense - expense_off)
+
+
 async def _owner_split_offset_by_category(
     session: AsyncSession,
     user_id: uuid.UUID,
     amount_expr,
     filters: list,
-) -> dict[Optional[uuid.UUID], float]:
-    """Per category, the other members' shares of the viewer's own split
-    expenses in this workspace, for the viewer to subtract.
+) -> _MonthTotals:
+    """Per category, the (income, expense) of the other members' shares of
+    the viewer's own split rows in this workspace, for the viewer to
+    subtract. A share is classified as its row is, so the others' part of a
+    refund is a negative expense offset, as in `owner_split_offset_pnl`.
 
     Shares are scaled into the primary amount by the transaction's own
     ratio, so they use the rate stored at import like the totals they come
@@ -81,19 +121,18 @@ async def _owner_split_offset_by_category(
         TransactionSplit.share_amount * amount_expr / func.nullif(func.abs(Transaction.amount), 0)
     )
     result = await session.execute(
-        select(Transaction.category_id, func.sum(share_primary))
+        select(Transaction.category_id, *_share_sums(share_primary))
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .join(Account, Transaction.account_id == Account.id)
         .where(
             *filters,
-            Transaction.type == "debit",
             Transaction.user_id == user_id,
             TransactionSplit.group_member_id.notin_(viewer_member_ids),
         )
         .group_by(Transaction.category_id)
     )
-    return {cat_id: float(total or 0) for cat_id, total in result.all()}
+    return _totals(result.all())
 
 
 async def _member_split_offset_by_category(
@@ -101,9 +140,10 @@ async def _member_split_offset_by_category(
     user_id: uuid.UUID,
     amount_expr,
     filters: list,
-) -> dict[Optional[uuid.UUID], float]:
-    """Per category, the part of other members' split expenses in this
-    workspace that is not the viewer's share, for the viewer to subtract.
+) -> _MonthTotals:
+    """Per category, the (income, expense) of the part of other members'
+    split rows in this workspace that is not the viewer's share, for the
+    viewer to subtract.
 
     The share is in the transaction's own currency, so it is scaled into the
     primary amount by the same ratio as the transaction.
@@ -119,19 +159,21 @@ async def _member_split_offset_by_category(
         TransactionSplit.share_amount * amount_expr / func.nullif(func.abs(Transaction.amount), 0)
     )
     result = await session.execute(
-        select(Transaction.category_id, func.sum(amount_expr - func.coalesce(share_primary, 0)))
+        select(
+            Transaction.category_id,
+            *_share_sums(amount_expr - func.coalesce(share_primary, 0)),
+        )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
         .join(Account, Transaction.account_id == Account.id)
         .where(
             *filters,
-            Transaction.type == "debit",
             Transaction.user_id != user_id,
             TransactionSplit.group_member_id.in_(viewer_member_ids),
         )
         .group_by(Transaction.category_id)
     )
-    return {cat_id: float(total or 0) for cat_id, total in result.all()}
+    return _totals(result.all())
 
 
 async def get_category_statement(
@@ -171,7 +213,7 @@ async def get_category_statement(
     ]
     # The statement's own sums go part by part, so a row split across
     # categories lands in each of them; group-split offsets stay whole rows.
-    line_amount_expr = func.abs(line_primary_or_amount())
+    line_sums = _pnl_sums(line_primary_or_amount(), line_category_id())
     line_filters = [*base_filters, counts_as_user_pnl(line_category_id())]
     base_filters.append(counts_as_user_pnl(Transaction.category_id))
 
@@ -192,37 +234,26 @@ async def get_category_statement(
         m_end = _shift_month(m_start, 1)
         result = await session.execute(
             with_category_lines(
-                select(
-                    line_category_id(),
-                    func.sum(case((Transaction.type == "credit", line_amount_expr), else_=0)),
-                    func.sum(case((Transaction.type == "debit", line_amount_expr), else_=0)),
-                ).select_from(Transaction)
+                select(line_category_id(), *line_sums).select_from(Transaction)
             )
             .join(Account, Transaction.account_id == Account.id)
             .where(*line_filters, report_date >= m_start, report_date < m_end)
             .group_by(line_category_id())
         )
-        for cat_id, credits, debits in result.all():
-            totals[cat_id] = (float(credits or 0), float(debits or 0))
+        totals.update(_totals(result.all()))
 
         if not filtered:
             use_effective_date = accounting_mode == "accrual"
-            own_offset = await _owner_split_offset_by_category(
+            _subtract(totals, await _owner_split_offset_by_category(
                 session, user_id, amount_expr,
                 [*base_filters, report_date >= m_start, report_date < m_end],
-            )
-            for cat_id, offset in own_offset.items():
-                credits, debits = totals.get(cat_id, (0.0, 0.0))
-                totals[cat_id] = (credits, max(0.0, debits - offset))
-            # Another member's split expense in this workspace is already in
-            # the totals at its full amount; keep only the viewer's share.
-            member_offset = await _member_split_offset_by_category(
+            ))
+            # Another member's split row in this workspace is already in the
+            # totals at its full amount; keep only the viewer's share.
+            _subtract(totals, await _member_split_offset_by_category(
                 session, user_id, amount_expr,
                 [*base_filters, report_date >= m_start, report_date < m_end],
-            )
-            for cat_id, offset in member_offset.items():
-                credits, debits = totals.get(cat_id, (0.0, 0.0))
-                totals[cat_id] = (credits, max(0.0, debits - offset))
+            ))
             shared = await viewer_shared_spending_by_category(
                 session, user_id, m_start, m_end,
                 use_effective_date=use_effective_date,
@@ -233,8 +264,8 @@ async def get_category_statement(
                 # Shares of someone else's transaction carry that person's
                 # category, which this workspace can't show.
                 key = cat_id if cat_id in known_ids else None
-                credits, debits = totals.get(key, (0.0, 0.0))
-                totals[key] = (credits, debits + float(share))
+                income, expense = totals.get(key, (0.0, 0.0))
+                totals[key] = (income, expense + float(share))
         per_month.append(totals)
 
     # All-time net per category, up to the end of the selected month, decides
@@ -243,12 +274,7 @@ async def get_category_statement(
     lifetime_end = _shift_month(selected, 1)
     lifetime_result = await session.execute(
         with_category_lines(
-            select(
-                line_category_id(),
-                func.sum(
-                    case((Transaction.type == "credit", line_amount_expr), else_=-line_amount_expr)
-                ),
-            ).select_from(Transaction)
+            select(line_category_id(), *line_sums).select_from(Transaction)
         )
         .join(Account, Transaction.account_id == Account.id)
         .where(
@@ -258,7 +284,10 @@ async def get_category_statement(
         )
         .group_by(line_category_id())
     )
-    lifetime_net = {cat_id: float(net or 0) for cat_id, net in lifetime_result.all()}
+    lifetime_net = {
+        cat_id: income - expense
+        for cat_id, (income, expense) in _totals(lifetime_result.all()).items()
+    }
     if not filtered:
         use_effective_date = accounting_mode == "accrual"
         own_offset = await _owner_split_offset_by_category(
@@ -268,9 +297,11 @@ async def get_category_statement(
             session, user_id, amount_expr, [*base_filters, report_date < lifetime_end],
         )
         for offsets in (own_offset, member_offset):
-            for cat_id, offset in offsets.items():
+            for cat_id, (income_off, expense_off) in offsets.items():
                 if cat_id is not None:
-                    lifetime_net[cat_id] = lifetime_net.get(cat_id, 0.0) + float(offset)
+                    lifetime_net[cat_id] = (
+                        lifetime_net.get(cat_id, 0.0) - income_off + expense_off
+                    )
         shared = await viewer_shared_spending_by_category(
             session, user_id, date.min, lifetime_end,
             use_effective_date=use_effective_date,
@@ -284,8 +315,8 @@ async def get_category_statement(
     def category_values(cat_id: uuid.UUID) -> list[float]:
         values = []
         for totals in per_month:
-            credits, debits = totals.get(cat_id, (0.0, 0.0))
-            values.append(round(credits - debits, 2))
+            income, expense = totals.get(cat_id, (0.0, 0.0))
+            values.append(round(income - expense, 2))
         return values
 
     # Group categories into rows: one per group, one per ungrouped category.
@@ -343,21 +374,21 @@ async def get_category_statement(
                 [cat.id],
             )
 
-    uncategorized_credits = [round(t.get(None, (0.0, 0.0))[0], 2) for t in per_month]
+    uncategorized_income = [round(t.get(None, (0.0, 0.0))[0], 2) for t in per_month]
     # `or 0.0` turns the -0.0 of an empty month back into a plain zero.
-    uncategorized_debits = [-round(t.get(None, (0.0, 0.0))[1], 2) or 0.0 for t in per_month]
-    if any(uncategorized_credits):
+    uncategorized_expense = [-round(t.get(None, (0.0, 0.0))[1], 2) or 0.0 for t in per_month]
+    if any(uncategorized_income):
         income_rows.append(
             CategoryStatementRow(
                 key=UNCATEGORIZED_KEY, kind="uncategorized", label=None,
-                txn_type="credit", values=uncategorized_credits,
+                txn_type="credit", values=uncategorized_income,
             )
         )
-    if any(uncategorized_debits):
+    if any(uncategorized_expense):
         expense_rows.append(
             CategoryStatementRow(
                 key=UNCATEGORIZED_KEY, kind="uncategorized", label=None,
-                txn_type="debit", values=uncategorized_debits,
+                txn_type="debit", values=uncategorized_expense,
             )
         )
 

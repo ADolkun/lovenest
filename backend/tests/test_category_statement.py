@@ -218,12 +218,13 @@ async def test_statement_leaves_out_ignored_and_transfers(
 ):
     food, _, _ = statement_data["categories"]
     account = statement_data["account"]
+    savings = await _account(session, test_user.id, name="Savings")
+    pair_id = uuid.uuid4()
     session.add_all([
         _txn(test_user.id, account, "500", date(2025, 2, 22), "debit", food.id, is_ignored=True),
-        _txn(
-            test_user.id, account, "800", date(2025, 2, 23), "debit", food.id,
-            transfer_pair_id=uuid.uuid4(),
-        ),
+        # Both legs: a one-legged pair is not a transfer and stays in P&L.
+        _txn(test_user.id, account, "800", date(2025, 2, 23), "debit", food.id, transfer_pair_id=pair_id),
+        _txn(test_user.id, savings, "800", date(2025, 2, 23), "credit", transfer_pair_id=pair_id),
         _txn(test_user.id, account, "60", date(2025, 2, 24), "debit", food.id, status="pending"),
     ])
     await session.commit()

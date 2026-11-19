@@ -15,6 +15,7 @@ from sqlalchemy import (
     case,
     exists,
     func,
+    literal,
     literal_column,
     not_,
     or_,
@@ -184,6 +185,19 @@ def user_pnl_expense_amount(amount_expr, category_id=None):
         ),
         else_=0,
     )
+
+
+def user_pnl_share_income(share_expr, category_id=None):
+    """`user_pnl_income_amount` for a group-split share of the row, keeping
+    the share's sign: an exact split may give a member a negative share, and
+    taking its magnitude would move the owner's part the wrong way."""
+    return share_expr * user_pnl_income_amount(literal(1), category_id)
+
+
+def user_pnl_share_expense(share_expr, category_id=None):
+    """`user_pnl_expense_amount` for a group-split share, signed as in
+    `user_pnl_share_income`."""
+    return share_expr * user_pnl_expense_amount(literal(1), category_id)
 
 
 def user_pnl_group(category_id=None):
@@ -714,8 +728,8 @@ async def owner_split_offset_pnl(
     result = await session.execute(
         select(
             Transaction.currency,
-            func.sum(user_pnl_income_amount(TransactionSplit.share_amount, Transaction.category_id)),
-            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_income(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
@@ -798,7 +812,7 @@ async def owner_split_offset_by_category(
         select(
             Transaction.category_id,
             Transaction.currency,
-            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
@@ -930,8 +944,8 @@ async def viewer_shared_pnl(
     result = await session.execute(
         select(
             Transaction.currency,
-            func.sum(user_pnl_income_amount(TransactionSplit.share_amount, Transaction.category_id)),
-            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_income(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
@@ -1014,7 +1028,7 @@ async def viewer_shared_spending_by_category(
         select(
             Transaction.category_id,
             Transaction.currency,
-            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount, Transaction.category_id)),
+            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)

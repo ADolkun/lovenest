@@ -922,12 +922,12 @@ async def test_summary_projection_keeps_the_sign_of_exact_shares(
 
 
 @pytest.mark.asyncio
-async def test_negative_owner_forecast_reduces_but_never_inverts_a_category(
+async def test_negative_owner_forecast_reduces_a_category_but_never_inverts_its_budget(
     session: AsyncSession, test_user, test_workspace, test_categories
 ):
     """A pending row where the owner's share is -$20 lowers a category with
     $50 posted to $30 projected. A category with only that row projects
-    nothing instead of a negative amount, as posted spending would."""
+    -$20 on the dashboard and nothing on its budget bar."""
     await _force_user_currency(session, test_user, "USD")
     today = date.today()
     food, transport = test_categories[0], test_categories[1]
@@ -977,7 +977,10 @@ async def test_negative_owner_forecast_reduces_but_never_inverts_a_category(
     by_name = {s.category_name: s for s in spending}
     assert by_name["Alimentação"].total == pytest.approx(50.0, abs=0.01)
     assert by_name["Alimentação"].projected_total == pytest.approx(30.0, abs=0.01)
-    assert "Transporte" not in by_name
+    # The dashboard keeps a category's signed net, so the breakdown keeps
+    # adding up to the projected expenses card; only the budget bar clamps.
+    assert by_name["Transporte"].total == pytest.approx(0.0, abs=0.01)
+    assert by_name["Transporte"].projected_total == pytest.approx(-20.0, abs=0.01)
 
     rows = await budget_service.get_budget_vs_actual(
         session, test_workspace.id, test_user.id, today.replace(day=1)
