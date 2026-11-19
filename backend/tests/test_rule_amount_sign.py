@@ -39,7 +39,6 @@ SAME_MEANING_RULES = [
     ("and", [DEBIT, amount("gt", 49.99), amount("lt", 250)]),
     ("and", [DEBIT, amount("equals", "50.00")]),
     ("and", [DEBIT, amount("not_equals", 50)]),
-    ("and", [DEBIT, amount("gt", 0)]),
     ("and", [{"op": "or", "conditions": [amount("lt", "10"), amount("gt", "200")]}, DEBIT]),
     ("or", [{"op": "and", "conditions": [DEBIT, amount("gte", "100")]},
             {"field": "description", "op": "contains", "value": "NOPE"}]),
@@ -74,7 +73,6 @@ def test_rewrite_keeps_value_types_and_does_not_mutate_input():
 
 @pytest.mark.parametrize(("conditions_op", "conditions"), [
     ("and", [DEBIT, amount("lte", "-50")]),
-    ("and", [DEBIT, amount("lt", 0)]),
     ("and", [CREDIT, amount("gte", "50")]),
     ("and", [DEBIT, amount("equals", 0)]),
     ("and", [DEBIT, {"field": "description", "op": "contains", "value": "50"}]),
@@ -231,6 +229,25 @@ def test_a_zero_bound_is_written_with_equality_only(op, expected):
 
     assert result.changed and not result.unresolved
     assert result.conditions == expected
+
+
+@pytest.mark.parametrize(("op", "expected"), [
+    ("lte", [DEBIT, amount("equals", 0)]),
+    ("gt", [DEBIT, amount("not_equals", 0)]),
+    ("lt", [DEBIT, amount("equals", 0), amount("not_equals", 0)]),
+    ("gte", [DEBIT, {"op": "or", "conditions": [amount("equals", 0), amount("not_equals", 0)]}]),
+])
+def test_a_debit_zero_bound_is_written_with_equality(op, expected, monkeypatch):
+    conditions = [DEBIT, amount(op, 0)]
+    before = mixed_matches("and", conditions, magnitude=True, monkeypatch=monkeypatch)
+
+    result = to_signed_amounts("and", conditions)
+
+    assert result.changed and not result.unresolved
+    assert result.conditions == expected
+    assert mixed_matches("and", result.conditions, magnitude=False, monkeypatch=monkeypatch) == before
+    assert not to_signed_amounts("and", result.conditions).changed
+    assert to_magnitude_amounts("and", result.conditions).conditions == expected
 
 
 @pytest.mark.parametrize(("conditions_op", "conditions"), [

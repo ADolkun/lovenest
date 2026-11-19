@@ -28,9 +28,11 @@ back (dropping the partner, or the copied group) is the inverse.
 
 A zero bound is written with `=` and `!=` only, which mean the same under
 both readings: `|x| <= 0` is `x = 0`, `|x| > 0` is `x != 0`, `|x| < 0` is
-`x = 0 and x != 0`, `|x| >= 0` is `x = 0 or x != 0`. The two-sided form would
-add a partner whose value is 0 too, which reads as one more magnitude leaf
-needing a partner of its own, and the rewrite would never settle.
+`x = 0 and x != 0`, `|x| >= 0` is `x = 0 or x != 0`. A value of 0 tells
+neither form apart, so any other form is misread later: a direction-free
+partner of 0 reads as one more magnitude leaf needing a partner, and the
+rewrite never settles; a debit-only `x < 0` reads back as the magnitude
+`|x| < 0`.
 """
 import copy
 from dataclasses import dataclass
@@ -301,9 +303,9 @@ def _expand(conditions_op: str, conditions: list, leaf: dict, partner: dict, joi
 
 def _fix_zero_bounds(conditions_op: str, conditions: list, result: AmountSignRewrite) -> None:
     while True:
-        _, unscoped = _classify(conditions_op, conditions)
-        zero = [leaf for leaf in unscoped if _magnitude(leaf) == 0 and leaf["op"] in _JOIN
-                and not _is_fixed_point(leaf, Decimal(0))]
+        debit_leaves, unscoped = _classify(conditions_op, conditions)
+        zero = [leaf for leaf in debit_leaves + unscoped
+                if _magnitude(leaf) == 0 and not _is_fixed_point(leaf, Decimal(0))]
         if not zero:
             return
         result.changed = True
@@ -317,7 +319,6 @@ def _fix_zero_bounds(conditions_op: str, conditions: list, result: AmountSignRew
 
 
 def _sign_unscoped(conditions_op: str, conditions: list, result: AmountSignRewrite) -> None:
-    _fix_zero_bounds(conditions_op, conditions, result)
     while True:
         _, unscoped = _classify(conditions_op, conditions)
         settled = {id(node) for pair in _pairs(conditions_op, conditions, unscoped)
@@ -377,6 +378,7 @@ def to_signed_amounts(conditions_op: str, conditions: list) -> AmountSignRewrite
     """Rewrite magnitude-form amount conditions as signed ones."""
     rewritten = copy.deepcopy(conditions or [])
     result = AmountSignRewrite(conditions=rewritten)
+    _fix_zero_bounds(conditions_op, rewritten, result)
     debit_leaves, _ = _classify(conditions_op, rewritten)
     _flip_debit_leaves(debit_leaves, "magnitude", result)
     _sign_unscoped(conditions_op, rewritten, result)
