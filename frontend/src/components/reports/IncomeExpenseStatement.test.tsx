@@ -210,9 +210,30 @@ describe('IncomeExpenseStatement', () => {
     expect(JSON.parse(screen.getByTestId('drill-down').textContent!)).toMatchObject({
       uncategorized: true,
       sharedAsUncategorized: true,
-      type: 'debit',
+      pnl_group: 'expenses',
       ownShare: true,
     })
+    expect(JSON.parse(screen.getByTestId('drill-down').textContent!)).not.toHaveProperty('type')
+  })
+
+  it('lists the uncategorized income row by P&L class, not by credit type', async () => {
+    api.reports.categoryStatement.mockResolvedValue({
+      ...statement,
+      income: {
+        totals: [80, 0, 0, 0],
+        rows: [row({ key: 'uncategorized', kind: 'uncategorized', label: null, txn_type: 'credit', values: [80, 0, 0, 0] })],
+      },
+    })
+    const { user } = renderWithProviders(<Statement />)
+    const uncategorized = (await screen.findByText(t('reports.statementUncategorizedIncome'))).closest('tr')!
+
+    await user.click(within(uncategorized).getByRole('button', { name: t('reports.statementViewTransactions') }))
+
+    // A credit that offsets spending is in the expense row, so asking for
+    // every credit would list more than the income cell adds up.
+    const filter = JSON.parse(screen.getByTestId('drill-down').textContent!)
+    expect(filter).toMatchObject({ uncategorized: true, pnl_group: 'income' })
+    expect(filter).not.toHaveProperty('type')
   })
 
   it('counts full amounts in the drill-down when the statement is scoped to accounts', async () => {

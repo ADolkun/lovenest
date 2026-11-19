@@ -210,7 +210,13 @@ export function IncomeExpenseStatement({ accountIds, month, settings }: IncomeEx
     setDrillDown({
       title: `${rowLabel(row)} · ${capitalize(monthLabel(ym, dateLocale))}`,
       ...(row.kind === 'uncategorized'
-        ? { uncategorized: true, sharedAsUncategorized: true, type: row.txn_type ?? undefined }
+        ? {
+            uncategorized: true,
+            sharedAsUncategorized: true,
+            // The row is a P&L class, not a transaction type: an uncategorized
+            // card refund sits in the expense row, so `type` would miss it.
+            pnl_group: row.txn_type === 'credit' ? 'income' : 'expenses',
+          }
         : { category_ids: row.category_ids }),
       account_ids: accountIds,
       from,

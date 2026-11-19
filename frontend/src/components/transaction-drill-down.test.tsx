@@ -378,6 +378,34 @@ describe('TransactionDrillDown', () => {
     expect(api.transactions.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'posted', to: '2026-09-12' }))
   })
 
+  it('counts only the owner share of a split refund in the expense group', async () => {
+    api.transactions.list.mockResolvedValue({
+      items: [
+        {
+          id: 'purchase', description: 'Groceries', date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null,
+          type: 'debit', amount: 100, amount_primary: 100, currency: 'USD', status: 'posted', category: null,
+          attachment_count: 0, reimbursement_links: [], splits: [], viewer_share: null, is_shared: false, user_id: 'me',
+        },
+        {
+          id: 'refund', description: 'Card refund', date: '2026-09-06', effective_date: '2026-09-06', effective_bill_date: null,
+          type: 'credit', amount: 40, amount_primary: 40, currency: 'USD', status: 'posted', category: null,
+          attachment_count: 0, reimbursement_links: [], splits: [{ share_amount: 20 }, { share_amount: 20 }], viewer_share: 20,
+          is_shared: false, user_id: 'me',
+        },
+      ],
+      total: 2,
+    })
+
+    renderWithProviders(
+      <TransactionDrillDown
+        filter={{ title: 'Uncategorized', uncategorized: true, pnl_group: 'expenses', from: '2026-09-01', to: '2026-09-30', realizedOnly: true, ownShare: true, netTotal: true }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect((await screen.findAllByText('-$80.00')).length).toBeGreaterThan(0)
+  })
+
   it('shows and orders a row by its reporting date override', async () => {
     const tx = (overrides: Record<string, unknown>) => ({
       date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null, reporting_date_override: null,

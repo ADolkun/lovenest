@@ -168,12 +168,12 @@ export function TransactionDrillDown({
       const parentPrimary = tx.amount_primary != null ? Number(tx.amount_primary) : null
       // Budgets (useViewerShare): the viewer's group share as the API tags it.
       const viewerShare = useViewerShare && tx.viewer_share != null ? Number(tx.viewer_share) : null
-      // The statement (ownShare): only the viewer's part of a split expense,
-      // the way the backend counts it: a member in the split keeps their own
-      // share, the owner the amount less everyone else's shares, and anyone
-      // else the full amount.
+      // The statement (ownShare): only the viewer's part of a split row, the
+      // way the backend counts it (a split refund divides like a split
+      // expense): a member in the split keeps their own share, the owner the
+      // amount less everyone else's shares, and anyone else the full amount.
       const splits = tx.splits ?? []
-      const ownShare = viewerShare != null || !filter?.ownShare || tx.type !== 'debit'
+      const ownShare = viewerShare != null || !filter?.ownShare
         ? null
         : tx.is_shared
           ? Number(tx.viewer_share ?? 0)
