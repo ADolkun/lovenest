@@ -583,6 +583,7 @@ async def test_viewer_share_of_row_helper(
     fraction = await session.scalar(
         select(viewer_share_of_row(test_user.id)).where(Transaction.id == tx.id)
     )
+    assert fraction is not None
     assert float(fraction) == pytest.approx(0.25)
 
 
