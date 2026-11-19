@@ -197,7 +197,7 @@ def _is_whole_row(arg) -> bool:
     return (
         isinstance(arg, ast.Attribute)
         and arg.attr == "category_id"
-        and getattr(arg.value, "id", None) == "Transaction"
+        and getattr(arg.value, "id", None) in {"Transaction", "entity"}
     )
 
 

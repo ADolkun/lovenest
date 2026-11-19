@@ -26,7 +26,7 @@ from app.models.transaction_attachment import TransactionAttachment
 from app.models.transaction_reimbursement import TransactionReimbursement
 from app.models.transaction_split import TransactionSplit
 from app.services._query_filters import (
-    counts_as_user_pnl,
+    counts_as_user_pnl_row,
     has_valid_transfer_pair,
     reimbursement_link_side_counts,
 )
@@ -64,7 +64,7 @@ def _eligible_row():
         ~has_valid_transfer_pair(),
         ~credit_card_payment_filter(),
         ~_has_group_splits(),
-        counts_as_user_pnl(),
+        counts_as_user_pnl_row(),
     )
 
 
@@ -77,7 +77,7 @@ async def _eligibility_flags(
             has_valid_transfer_pair().label("paired"),
             credit_card_payment_filter().label("card_payment"),
             _has_group_splits().label("split"),
-            counts_as_user_pnl().label("counts"),
+            counts_as_user_pnl_row().label("counts"),
         ).where(Transaction.id.in_(transaction_ids))
     )
     return {row.id: row for row in result.all()}
