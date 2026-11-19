@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
@@ -60,6 +60,40 @@ def principal_entry(
     )
     apply_effective_date(entry, loan)
     return entry
+
+
+async def delete_breakdown(
+    session: AsyncSession, payment_id: uuid.UUID, workspace_id: uuid.UUID
+) -> bool:
+    """Remove a payment's breakdown and the principal entries it posted.
+
+    Returns whether there was one. Does not commit.
+    """
+    existing = await session.execute(
+        select(MortgagePaymentAllocation.id, MortgagePaymentAllocation.loan_transaction_id).where(
+            MortgagePaymentAllocation.payment_transaction_id == payment_id,
+            MortgagePaymentAllocation.workspace_id == workspace_id,
+        )
+    )
+    rows = existing.all()
+    if not rows:
+        return False
+    loan_transaction_ids = [entry_id for _, entry_id in rows if entry_id is not None]
+    await session.execute(
+        delete(MortgagePaymentAllocation).where(
+            MortgagePaymentAllocation.payment_transaction_id == payment_id,
+            MortgagePaymentAllocation.workspace_id == workspace_id,
+        )
+    )
+    if loan_transaction_ids:
+        await session.execute(
+            delete(Transaction).where(
+                Transaction.id.in_(loan_transaction_ids),
+                Transaction.source == MORTGAGE_PRINCIPAL_SOURCE,
+            )
+        )
+    await session.flush()
+    return True
 
 
 async def resync_principal_entries(session: AsyncSession, loan: Account) -> None:

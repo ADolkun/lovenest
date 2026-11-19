@@ -593,6 +593,37 @@ async def test_deleting_payment_removes_its_principal_entry(
 
 
 @pytest.mark.asyncio
+async def test_a_bank_amount_change_removes_the_breakdown_and_its_principal(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+    test_workspace: Workspace,
+):
+    """Sync and import give a matched row the amount the bank reported. The
+    breakdown no longer adds up to it, and scaling it would invent the
+    lender's interest figure, so it goes, with the principal it posted."""
+    from app.services.transaction_match_service import take_incoming_amount
+
+    payment, loan = await _make_payment_and_loan(
+        session, test_user, test_workspace, snapshot_date=date(2026, 5, 31)
+    )
+    await _post_breakdown(client, auth_headers, payment, loan)
+    entry = await _principal_entry(session, payment)
+
+    await take_incoming_amount(session, payment, Decimal("240.00"))
+    await session.commit()
+
+    assert payment.amount == Decimal("240.00")
+    assert await session.scalar(
+        select(MortgagePaymentAllocation.id).where(
+            MortgagePaymentAllocation.payment_transaction_id == payment.id
+        )
+    ) is None
+    assert await session.scalar(select(Transaction.id).where(Transaction.id == entry.id)) is None
+
+
+@pytest.mark.asyncio
 async def test_payment_on_snapshot_date_is_already_in_the_balance(
     client: AsyncClient,
     auth_headers,

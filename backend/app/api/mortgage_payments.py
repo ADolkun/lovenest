@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -15,7 +15,6 @@ from app.core.workspace_context import (
 from app.models.account import Account
 from app.models.category import Category
 from app.models.mortgage_payment_allocation import (
-    MORTGAGE_PRINCIPAL_SOURCE,
     MortgagePaymentAllocation,
 )
 from app.models.transaction import Transaction
@@ -105,32 +104,6 @@ async def _get_payment(
     return result.one_or_none()
 
 
-async def _delete_allocations(
-    session: AsyncSession, payment_id: uuid.UUID, workspace_id: uuid.UUID
-) -> None:
-    existing = await session.execute(
-        select(MortgagePaymentAllocation.loan_transaction_id).where(
-            MortgagePaymentAllocation.payment_transaction_id == payment_id,
-            MortgagePaymentAllocation.workspace_id == workspace_id,
-        )
-    )
-    loan_transaction_ids = [row[0] for row in existing.all() if row[0] is not None]
-    await session.execute(
-        delete(MortgagePaymentAllocation).where(
-            MortgagePaymentAllocation.payment_transaction_id == payment_id,
-            MortgagePaymentAllocation.workspace_id == workspace_id,
-        )
-    )
-    if loan_transaction_ids:
-        await session.execute(
-            delete(Transaction).where(
-                Transaction.id.in_(loan_transaction_ids),
-                Transaction.source == MORTGAGE_PRINCIPAL_SOURCE,
-            )
-        )
-    await session.flush()
-
-
 @router.get("/{payment_id}")
 async def get_mortgage_payment_allocations(
     payment_id: uuid.UUID,
@@ -204,7 +177,7 @@ async def replace_mortgage_payment_allocations(
     if any(account.currency != payment.currency for account in loans.values()):
         raise HTTPException(400, "Payment and loan parts must use the same currency")
 
-    await _delete_allocations(session, payment_id, ctx.workspace.id)
+    await mortgage_service.delete_breakdown(session, payment_id, ctx.workspace.id)
 
     allocation_rows: list[tuple[MortgagePaymentAllocation, Account]] = []
     for item in data.allocations:
@@ -243,5 +216,5 @@ async def delete_mortgage_payment_allocations(
 ):
     if await _get_payment(session, payment_id, ctx.workspace.id, lock=True) is None:
         raise HTTPException(404, "Payment transaction not found")
-    await _delete_allocations(session, payment_id, ctx.workspace.id)
+    await mortgage_service.delete_breakdown(session, payment_id, ctx.workspace.id)
     await session.commit()
