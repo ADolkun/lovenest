@@ -2178,25 +2178,30 @@ async def _get_connection_for_mutation(
     SET LOCAL is transaction-scoped, so pooled connections cannot retain the
     timeout. Restore the previous value after acquisition too: later import or
     cleanup queries must not inherit this short user-facing lock budget.
+
+    The wait runs in a savepoint: a lock timeout aborts only the savepoint
+    (undoing its SET LOCAL as well), so a caller that disconnects inside a
+    larger transaction, such as a plugin removal, keeps its own writes and
+    locks and decides what the conflict means.
     """
     if session.get_bind().dialect.name != "postgresql":
         return await get_connection(session, connection_id, workspace_id, for_update=True)
 
     previous_timeout = await session.scalar(text("SHOW lock_timeout"))
-    await session.execute(text("SET LOCAL lock_timeout = '1s'"))
+    savepoint = await session.begin_nested()
     try:
+        await session.execute(text("SET LOCAL lock_timeout = '1s'"))
         connection = await get_connection(session, connection_id, workspace_id, for_update=True)
     except DBAPIError as exc:
+        await savepoint.rollback()
         if getattr(exc.orig, "sqlstate", None) != "55P03":
             raise
-        # A lock timeout aborts PostgreSQL's transaction. No provider calls or
-        # mutation writes have happened yet, and rollback also resets SET LOCAL.
-        await session.rollback()
         raise ConnectionSyncInProgressError() from exc
     await session.execute(
         text("SELECT set_config('lock_timeout', :timeout, true)"),
         {"timeout": previous_timeout},
     )
+    await savepoint.commit()
     return connection
 
 

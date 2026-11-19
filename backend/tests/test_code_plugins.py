@@ -593,6 +593,17 @@ async def test_api_connections(client: AsyncClient, auth_headers: dict, catalog,
         "/api/plugins/connections", json={"plugin_id": PLUGIN, "integration": "keys", "values": {}}, headers=auth_headers
     )
     assert bad.status_code == 422
+
+    from app.services.connection_service import ConnectionSyncInProgressError
+
+    async def bank_is_syncing(*args, **kwargs):
+        raise ConnectionSyncInProgressError()
+
+    with monkeypatch.context() as syncing:
+        syncing.setattr("app.plugins.connections._drop_bank", bank_is_syncing)
+        busy = await client.delete(f"/api/plugins/connections/{connection['id']}", headers=auth_headers)
+    assert busy.status_code == 409 and busy.json()["detail"]["code"] == "sync_in_progress"
+    assert [c["name"] for c in (await client.get("/api/plugins/connections", headers=auth_headers)).json()] == ["Main"]
     assert (await client.delete(f"/api/plugins/connections/{connection['id']}", headers=auth_headers)).status_code == 204
     assert (await client.get("/api/plugins/connections", headers=auth_headers)).json() == []
 

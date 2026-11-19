@@ -488,6 +488,36 @@ async def test_bounded_connection_lock_restores_previous_timeout(
             ), timeout=3)
 
 
+@pytest.mark.parametrize("keep_accounts", [True, False])
+async def test_lock_timeout_inside_a_callers_transaction_keeps_its_writes(
+    session, postgres_sessions, test_user, test_workspace, keep_accounts,
+):
+    """A plugin removal disconnects its banks inside its own transaction. A
+    sync holding one of them fails only that disconnect: the caller's earlier
+    writes and its transaction survive, so it can decide what to do."""
+    held = await _connection(session, test_user, test_workspace)
+    other = await _connection(session, test_user, test_workspace)
+    held_id, other_id, workspace_id = held.id, other.id, test_workspace.id
+    async with postgres_sessions() as syncing, postgres_sessions() as remover:
+        await connection_service._get_connection_for_mutation(syncing, held_id, workspace_id)
+        earlier = await remover.get(BankConnection, other_id)
+        earlier.institution_name = "Renamed before the disconnect"
+        await remover.flush()
+        with pytest.raises(connection_service.ConnectionSyncInProgressError):
+            await asyncio.wait_for(connection_service.delete_connection(
+                remover, held_id, workspace_id, keep_accounts=keep_accounts, commit=False,
+            ), timeout=3)
+        assert await remover.scalar(text("SHOW lock_timeout")) == "0"
+        await remover.commit()
+        await syncing.rollback()
+    async with postgres_sessions() as reader:
+        names = dict((await reader.execute(
+            select(BankConnection.id, BankConnection.institution_name)
+        )).all())
+        assert (await reader.get(BankConnection, held_id)).status == "active"
+    assert names[other_id] == "Renamed before the disconnect"
+
+
 async def test_delete_waits_for_sync_and_archives_its_new_holdings(
     session, postgres_sessions, test_user, test_workspace,
 ):

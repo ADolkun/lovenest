@@ -364,11 +364,11 @@ async def delete_connection(
     syncs goes with the plugin's connection, which keeps the accounts.
     """
     plugin_connection = await _plugin_connection(session, connection_id, ctx.workspace.id)
-    if plugin_connection is not None:
-        # The plugin's connection goes with it: nothing would sync into it anymore.
-        await plugin_connections.delete(session, plugin_connection)
-        return
     try:
+        if plugin_connection is not None:
+            # The plugin's connection goes with it: nothing would sync into it anymore.
+            await plugin_connections.delete(session, plugin_connection)
+            return
         deleted = await connection_service.delete_connection(
             session, connection_id, ctx.workspace.id, keep_accounts=keep_accounts
         )

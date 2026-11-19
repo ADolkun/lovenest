@@ -19,6 +19,7 @@ from app.plugins import connections, index, logos, runner, service
 from app.plugins.index import PluginIndexError
 from app.plugins.manifest import parse_manifest
 from app.services.access_token_service import AccessTokenError
+from app.services.connection_service import ConnectionSyncInProgressError
 from app.plugins.sync import SyncPlanChanged
 from app.schemas.plugin import (
     InstalledPluginRead,
@@ -108,6 +109,12 @@ async def _guarded(call):
         )
     except PluginIndexError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Plugin catalog unavailable: {exc}")
+    except ConnectionSyncInProgressError as exc:
+        # A sync holds one of the plugin's bank connections; the change rolled back.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "code": "sync_in_progress"},
+        )
 
 
 @router.get("", response_model=list[InstalledPluginRead])
@@ -160,6 +167,12 @@ async def _connection_guarded(call):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"The plugin failed: {exc.message}")
     except (runner.RunnerUnavailable, runner.RunnerRefused) as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Plugin runner: {exc}")
+    except ConnectionSyncInProgressError as exc:
+        # A sync holds one of the plugin's bank connections; the change rolled back.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "code": "sync_in_progress"},
+        )
 
 
 @router.get("/connections", response_model=list[PluginConnectionRead])
@@ -257,7 +270,7 @@ async def delete_connection(
 ):
     """Remove the connection, its secrets and its access token."""
     connection = await _connection_guarded(connections.get_connection(session, ctx.workspace.id, connection_id))
-    await connections.delete(session, connection)
+    await _connection_guarded(connections.delete(session, connection))
 
 
 def _queue_sync(connection_id: uuid.UUID) -> None:
