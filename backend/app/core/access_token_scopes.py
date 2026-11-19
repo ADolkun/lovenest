@@ -41,6 +41,24 @@ _ROUTE_RESOURCES: dict[str, tuple[str, ...]] = {
     "invoices": ("/api/invoices", "/api/invoice-schedules"),
 }
 
+# Paths inside a mapped prefix that stay closed to every token, whatever its
+# scopes; `{name}` matches any one path segment, and a pattern covers the
+# paths below it. Lovenest's investment-evidence and tax routes sit under
+# /api/assets, but a plugin's token carries the scopes its manifest asks for
+# and the consent screen only says "Assets": that must not hand tax lots,
+# evidence, income or the tax planner feed to a third-party plugin.
+_CLOSED_TO_TOKENS: tuple[str, ...] = (
+    "/api/assets/evidence",
+    "/api/assets/recovery",
+    "/api/assets/timeline",
+    "/api/assets/income",
+    "/api/assets/reportable-gain",
+    "/api/assets/reportable-income",
+    "/api/assets/projection-feed",
+    "/api/assets/{asset_id}/tax-lots",
+    "/api/assets/{asset_id}/wash-sale",
+)
+
 # Resources whose routes only ever read: a `:write` scope is meaningless.
 _READ_ONLY_RESOURCES = frozenset({"reports"})
 
@@ -66,6 +84,18 @@ def _matches(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
 
 
+def _closed_to_tokens(path: str) -> bool:
+    parts = path.rstrip("/").split("/")
+    for pattern in _CLOSED_TO_TOKENS:
+        wanted = pattern.split("/")
+        if len(parts) >= len(wanted) and all(
+            want == part or (want.startswith("{") and want.endswith("}") and part != "")
+            for want, part in zip(wanted, parts)
+        ):
+            return True
+    return False
+
+
 def _resource_for(path: str) -> Optional[str]:
     best: Optional[tuple[int, str]] = None
     for resource, prefixes in _ROUTE_RESOURCES.items():
@@ -83,12 +113,33 @@ def required_scope(method: str, path: str) -> Optional[str]:
     is_read = method.upper() in _READ_METHODS
     if is_read and any(_matches(path, p) for p in _OPEN_TO_ANY_TOKEN):
         return ""
+    if _closed_to_tokens(path):
+        return None
     resource = _resource_for(path)
     if resource is None:
         return None
     if resource in _READ_ONLY_RESOURCES and not is_read:
         return None
     return f"{resource}:{READ if is_read else WRITE}"
+
+
+# Undoing an import (`DELETE /api/import-logs/{id}`) is routed as a
+# transactions write, but an order import's undo removes ledger rows, and an
+# evidence or contribution import's removes what only routes closed to tokens
+# write. The undo needs the scope of what it removes as well; None means no
+# token may.
+_IMPORT_UNDO_SCOPES: dict[str, Optional[str]] = {
+    "asset_orders": f"assets:{WRITE}",
+    "asset_evidence": None,
+    "asset_contributions": None,
+}
+
+
+def import_undo_allowed(scopes: list[str], entity: str) -> bool:
+    if entity not in _IMPORT_UNDO_SCOPES:
+        return True
+    needed = _IMPORT_UNDO_SCOPES[entity]
+    return needed is not None and grants(scopes, needed)
 
 
 def grants(scopes: list[str], needed: str) -> bool:

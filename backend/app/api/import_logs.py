@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.access_token_scopes import import_undo_allowed
 from app.core.database import get_async_session
 from app.core.workspace_context import (
     WorkspaceContext,
@@ -64,6 +65,7 @@ async def list_import_logs(
 @router.delete("/{import_log_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_import_log(
     import_log_id: str,
+    request: Request,
     ctx: WorkspaceContext = Depends(current_writable_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -78,6 +80,13 @@ async def delete_import_log(
     log = result.scalar_one_or_none()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Import log not found")
+
+    token = getattr(request.state, "access_token", None)
+    if token is not None and not import_undo_allowed(token.scopes, log.entity):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This access token's scopes don't cover undoing this import.",
+        )
 
     if log.entity == "asset_evidence":
         from app.services.investment_evidence_service import undo_evidence_import
