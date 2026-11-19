@@ -1911,7 +1911,7 @@ async def test_sync_connection_enable_banking_reclaims_row_with_merged_payload(
     session: AsyncSession, test_user, test_workspace,
 ):
     """Before the fix, a charge sharing the fee's reference merged its payload
-    into the fee row, and migration 102 leaves that row on its legacy id.
+    into the fee row, and migration 123 leaves that row on its legacy id.
     The next sync re-claims it for the fee and lands the charge."""
     conn, account = await _eb_account(session, test_user.id, test_workspace.id)
     account_id = account.id

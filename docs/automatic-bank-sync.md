@@ -61,8 +61,10 @@ writes prevent a concurrent user ownership change from being overwritten, and
 manual claims merge the latest retirement audit at flush time. The row remains
 available in ledger views and no longer counts in monetary totals. An exact-ID
 posted return or a newer complete feed containing the hold restores only an
-ignore owned by sync. A manual financial edit, ignore toggle or ignore rule takes
-ownership away from automatic reconciliation. Legacy rows whose bank evidence
+ignore owned by sync. A manual financial edit (status, type, currency,
+account, FX override, bill cycle, P&L exclusion or splits; amounts and dates are
+provider-owned, see below), ignore toggle or ignore rule takes ownership away from automatic
+reconciliation. Legacy rows whose bank evidence
 disagrees with their stored financial fields are left for review. Downgrading
 restores sync-owned ignores before removing audit storage; user ignores remain.
 Legitimate long holds that remain in the feed are never retired merely because of age.
