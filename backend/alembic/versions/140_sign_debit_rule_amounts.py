@@ -1,19 +1,28 @@
-"""sign debit-only rule amount conditions
+"""sign rule amount conditions
 
 Rule amount conditions now compare a signed amount (credits positive, debits
 negative) instead of the stored positive magnitude. A user rule that requires
 `type equals debit` and compares `amount >= 50` could therefore never match
-again. This rewrites such rules to the signed form with the same meaning
-(`amount <= -50`); see `app.services.rule_amount_sign` for which rules qualify.
-Rules from packs and plugins (`source` set) already ship signed and are skipped.
-Rules whose amount conditions see both directions cannot keep their old
-meaning in one signed condition; they are left alone and their ids logged.
+again; it becomes `amount <= -50`. A rule with no direction, such as
+`description contains NETFLIX and amount equals 15.99`, would only match the
+credit; its amount condition gains the mirrored one (`amount equals 15.99 or
+amount equals -15.99`). See `app.services.rule_amount_sign` for the rewrites.
+Rules from packs and plugins (`source` set) already ship signed and are
+skipped. Amount conditions that cannot keep their meaning (mixed signs in a
+debit rule, a negative or non-numeric bound in a rule with no direction) are
+left alone and their rule ids logged.
+
+Every rule present at this revision was written for the magnitude engine, so
+a direction-free amount condition is read as a magnitude unless it already has
+its mirrored partner, which is what a second run finds.
 
 Downgrade applies the inverse rewrite to every debit-only rule in signed
 form, not only those this upgrade touched. That is what the older engine
 needs: a signed rule saved after the upgrade means the same there only once
-it is back in magnitude form. Both directions skip rules already in the
-target form, so either can run twice.
+it is back in magnitude form. It also drops each mirrored partner the upgrade
+added. A direction-free signed condition saved after the upgrade, such as
+`amount < 0`, has no magnitude equivalent and is logged. Both directions skip
+rules already in the target form, so either can run twice.
 
 Revision ID: 140
 Revises: 139

@@ -1,4 +1,4 @@
-"""Migration 140 on real PostgreSQL: debit rules keep matching what they did."""
+"""Migration 140 on real PostgreSQL: amount rules keep matching what they did."""
 import importlib.util
 import uuid
 from decimal import Decimal
@@ -97,21 +97,33 @@ async def test_upgrade_signs_debit_rules_and_downgrade_restores_them(
         ]},
     ]
     already_signed = [DEBIT, {"field": "amount", "op": "lte", "value": "-50"}]
-    both_directions = [{"field": "amount", "op": "gte", "value": "50"}]
+    unscoped = [
+        {"field": "description", "op": "contains", "value": "SHOP"},
+        {"field": "amount", "op": "equals", "value": "50.00"},
+    ]
+    unscoped_signed = [
+        {"field": "description", "op": "contains", "value": "SHOP"},
+        {"op": "or", "conditions": [
+            {"field": "amount", "op": "equals", "value": "50.00"},
+            {"field": "amount", "op": "equals", "value": "-50.00"},
+        ]},
+    ]
+    negative_bound = [{"field": "amount", "op": "gte", "value": "-50"}]
     from_pack = [DEBIT, {"field": "amount", "op": "gte", "value": "20"}]
 
     rules = {
         "band": _rule(test_user.id, test_workspace.id, band),
         "grouped": _rule(test_user.id, test_workspace.id, grouped),
         "already_signed": _rule(test_user.id, test_workspace.id, already_signed),
-        "both_directions": _rule(test_user.id, test_workspace.id, both_directions),
+        "unscoped": _rule(test_user.id, test_workspace.id, unscoped),
+        "negative_bound": _rule(test_user.id, test_workspace.id, negative_bound),
         "from_pack": _rule(test_user.id, test_workspace.id, from_pack, source="pack:test"),
     }
     session.add_all(rules.values())
     await session.flush()
     ids = {name: rule.id for name, rule in rules.items()}
 
-    for original in (band, grouped):
+    for original in (band, grouped, unscoped):
         before = _matches("and", original, magnitude=True, monkeypatch=monkeypatch)
         assert before
         assert _matches("and", original, magnitude=False, monkeypatch=monkeypatch) != before
@@ -124,15 +136,17 @@ async def test_upgrade_signs_debit_rules_and_downgrade_restores_them(
         {"field": "amount", "op": "lte", "value": "-20"},
         {"field": "amount", "op": "gte", "value": -75},
     ]
-    for name, original in (("band", band), ("grouped", grouped)):
+    for name, original in (("band", band), ("grouped", grouped), ("unscoped", unscoped)):
         signed = await _conditions(session, ids[name])
         assert _matches("and", signed, magnitude=False, monkeypatch=monkeypatch) == _matches(
             "and", original, magnitude=True, monkeypatch=monkeypatch
         )
     assert await _conditions(session, ids["already_signed"]) == already_signed
-    assert await _conditions(session, ids["both_directions"]) == both_directions
+    assert await _conditions(session, ids["unscoped"]) == unscoped_signed
+    assert await _conditions(session, ids["negative_bound"]) == negative_bound
     assert await _conditions(session, ids["from_pack"]) == from_pack
-    assert str(ids["both_directions"]) in caplog.text
+    assert str(ids["negative_bound"]) in caplog.text
+    assert str(ids["unscoped"]) not in caplog.text
 
     await _run(session, monkeypatch, "upgrade")
     assert await _conditions(session, ids["band"]) == [
@@ -140,11 +154,13 @@ async def test_upgrade_signs_debit_rules_and_downgrade_restores_them(
         {"field": "amount", "op": "lte", "value": "-20"},
         {"field": "amount", "op": "gte", "value": -75},
     ]
+    assert await _conditions(session, ids["unscoped"]) == unscoped_signed
 
     await _run(session, monkeypatch, "downgrade")
 
     assert await _conditions(session, ids["band"]) == band
     assert await _conditions(session, ids["grouped"]) == grouped
+    assert await _conditions(session, ids["unscoped"]) == unscoped
     # Saved signed under the new engine, so the old one needs it in magnitudes.
     assert await _conditions(session, ids["already_signed"]) == [
         DEBIT, {"field": "amount", "op": "gte", "value": "50"},

@@ -485,6 +485,36 @@ async def test_import_rules_signs_debit_amounts_from_older_files(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("version", [1, 2])
+async def test_import_rules_mirrors_direction_free_amounts_from_older_files(
+    session: AsyncSession, test_user, test_workspace, version
+):
+    """A version 1 `amount equals 15.99` compared the magnitude, so it arrives
+    matching the debit too; a current file is taken as written."""
+    payload = RuleExportPayload(
+        version=version,
+        rules=[
+            RuleExportItem(
+                name="Streaming",
+                conditions=[
+                    RuleCondition(field="description", op="contains", value="NETFLIX"),
+                    RuleCondition(field="amount", op="equals", value="15.99"),
+                ],
+                actions=[RuleAction(op="append_notes", value="#streaming")],
+            ),
+        ],
+    )
+
+    await import_rules(session, test_workspace.id, test_user.id, payload, overwrite=True)
+
+    (rule,) = await get_rules(session, test_workspace.id)
+    amount = {"field": "amount", "op": "equals", "value": "15.99"}
+    assert rule.conditions[1] == (
+        {"op": "or", "conditions": [amount, {**amount, "value": "-15.99"}]} if version == 1 else amount
+    )
+
+
+@pytest.mark.asyncio
 async def test_import_rules_skips_unsafe_and_malformed_regexes(
     session: AsyncSession, test_user, test_workspace
 ):

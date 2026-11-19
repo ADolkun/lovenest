@@ -89,8 +89,8 @@ def test_rules_already_meaning_the_same_are_left_alone(conditions_op, conditions
 
 
 @pytest.mark.parametrize(("conditions_op", "conditions"), [
-    ("and", [amount("gte", "50")]),
-    ("or", [DEBIT, amount("gte", "50")]),
+    ("and", [amount("gte", "-5")]),
+    ("and", [{"field": "description", "op": "contains", "value": "SHOP"}, amount("lt", -1)]),
     ("and", [DEBIT, amount("gte", "50"), amount("lte", "-10")]),
     ("and", [DEBIT, amount("gte", "fifty")]),
 ])
@@ -101,7 +101,7 @@ def test_rules_that_cannot_keep_their_meaning_are_reported_not_rewritten(conditi
     assert result.conditions == conditions
 
 
-def test_debit_group_is_rewritten_while_an_unscoped_leaf_is_reported():
+def test_debit_group_is_rewritten_and_an_unscoped_leaf_gets_its_partner():
     conditions = [
         {"op": "and", "conditions": [DEBIT, amount("gte", "100")]},
         amount("gt", "1000"),
@@ -109,8 +109,111 @@ def test_debit_group_is_rewritten_while_an_unscoped_leaf_is_reported():
 
     result = to_signed_amounts("or", conditions)
 
-    assert result.changed and result.unresolved
+    assert result.changed and not result.unresolved
     assert result.conditions == [
         {"op": "and", "conditions": [DEBIT, amount("lte", "-100")]},
         amount("gt", "1000"),
+        amount("lt", "-1000"),
+    ]
+
+
+SHOP = {"field": "description", "op": "contains", "value": "SHOP"}
+CAFE = {"field": "description", "op": "contains", "value": "CAFE"}
+
+MIXED_TRANSACTIONS = [
+    Transaction(type=kind, amount=Decimal(value), description=description)
+    for kind in ("debit", "credit")
+    for description in ("SHOP", "CAFE")
+    for value in ("0.00", "10.00", "49.99", "50.00", "50.01", "100.00")
+]
+
+
+def mixed_matches(conditions_op, conditions, *, magnitude: bool, monkeypatch) -> list:
+    with monkeypatch.context() as patch:
+        if magnitude:
+            patch.setattr(rule_engine, "_signed_amount", lambda tx, raw: rule_engine._to_decimal(raw))
+        return [
+            i for i, tx in enumerate(MIXED_TRANSACTIONS)
+            if evaluate_conditions(conditions_op, conditions, tx)
+        ]
+
+
+# Every place an amount leaf can sit, by the operator of its container and of
+# the rule. `flattened` shapes come back from the round trip without their group.
+UNSCOPED_SHAPES = {
+    "alone": (lambda leaf: ("and", [leaf]), False),
+    "and_rule": (lambda leaf: ("and", [SHOP, leaf]), False),
+    "or_rule": (lambda leaf: ("or", [CAFE, leaf]), False),
+    "and_group_in_or_rule": (lambda leaf: ("or", [{"op": "and", "conditions": [SHOP, leaf]}, CAFE]), False),
+    "or_group_in_and_rule": (lambda leaf: ("and", [{"op": "or", "conditions": [CAFE, leaf]}, SHOP]), False),
+    "and_group_in_and_rule": (lambda leaf: ("and", [{"op": "and", "conditions": [SHOP, leaf]}]), True),
+    "or_group_in_or_rule": (lambda leaf: ("or", [{"op": "or", "conditions": [CAFE, leaf]}]), True),
+}
+
+
+@pytest.mark.parametrize("shape", list(UNSCOPED_SHAPES))
+@pytest.mark.parametrize("op", ["equals", "not_equals", "gt", "gte", "lt", "lte"])
+@pytest.mark.parametrize("value", [0, "50", 50.0, "49.99", "+10"])
+def test_unscoped_amounts_match_what_the_magnitude_rule_matched(shape, op, value, monkeypatch):
+    build, flattened = UNSCOPED_SHAPES[shape]
+    conditions_op, conditions = build(amount(op, value))
+    before = mixed_matches(conditions_op, conditions, magnitude=True, monkeypatch=monkeypatch)
+
+    result = to_signed_amounts(conditions_op, conditions)
+
+    assert not result.unresolved
+    assert result.changed == (op in ("gt", "gte", "lt", "lte") or value != 0)
+    assert mixed_matches(conditions_op, result.conditions, magnitude=False, monkeypatch=monkeypatch) == before
+    assert all(
+        not isinstance(node.get("conditions"), list)
+        or not any(isinstance(c.get("conditions"), list) for c in node["conditions"])
+        for node in result.conditions
+    ), "groups must not nest"
+
+    again = to_signed_amounts(conditions_op, result.conditions)
+    assert not again.changed and not again.unresolved and again.conditions == result.conditions
+
+    back = to_magnitude_amounts(conditions_op, result.conditions)
+    assert not back.unresolved
+    assert mixed_matches(conditions_op, back.conditions, magnitude=True, monkeypatch=monkeypatch) == before
+    if not flattened:
+        assert back.conditions == conditions
+
+
+def test_unscoped_amount_from_a_netflix_style_rule_matches_the_debit_again(monkeypatch):
+    conditions = [SHOP, amount("equals", "50.00")]
+
+    result = to_signed_amounts("and", conditions)
+
+    assert result.conditions == [
+        SHOP, {"op": "or", "conditions": [amount("equals", "50.00"), amount("equals", "-50.00")]},
+    ]
+    debits = [i for i in mixed_matches("and", result.conditions, magnitude=False, monkeypatch=monkeypatch)
+              if MIXED_TRANSACTIONS[i].type == "debit"]
+    assert debits
+
+
+def test_several_leaves_in_one_group_are_copied_once_per_side(monkeypatch):
+    conditions = [{"op": "and", "conditions": [SHOP, amount("gt", 5), amount("lt", "60"), amount("equals", 50)]}]
+    before = mixed_matches("or", conditions, magnitude=True, monkeypatch=monkeypatch)
+
+    result = to_signed_amounts("or", conditions)
+
+    assert result.changed and not result.unresolved
+    assert len(result.conditions) == 4
+    assert mixed_matches("or", result.conditions, magnitude=False, monkeypatch=monkeypatch) == before
+    assert not to_signed_amounts("or", result.conditions).changed
+    assert to_magnitude_amounts("or", result.conditions).conditions == conditions
+
+
+def test_unscoped_partners_keep_value_types():
+    conditions = [amount("gte", "50.00"), amount("gt", 7), amount("lte", 2.5), amount("equals", "+3")]
+
+    result = to_signed_amounts("or", conditions)
+
+    assert result.conditions == [
+        amount("gte", "50.00"), amount("lte", "-50.00"),
+        amount("gt", 7), amount("lt", -7),
+        {"op": "and", "conditions": [amount("lte", 2.5), amount("gte", -2.5)]},
+        amount("equals", "+3"), amount("equals", "-3"),
     ]
