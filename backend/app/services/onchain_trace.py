@@ -4,7 +4,7 @@ The question this answers is "where did this money go" (or "where did it come
 from"), which is not the same as "draw the transaction graph". A wallet's full
 neighbourhood is unbounded and mostly noise — dust spam, airdrops, unrelated
 history — so the walk is narrowed three ways: a time window inherited per hop,
-the largest branches only, and a stop at pooled addresses. ADR 0010 argues
+the largest branches only, and a stop at pooled addresses. Lovenest ADR 0010 argues
 each one and why it is load-bearing.
 
 The property that governs everything here: a trace may return less than the

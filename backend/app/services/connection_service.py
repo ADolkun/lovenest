@@ -1846,7 +1846,7 @@ async def _upsert_asset_from_holding(
             # that reports nothing but crypto has its holdings typed as such
             # rather than landing in the generic bucket: asset class is what
             # decides whether the Wash Sale rule reaches a holding at all
-            # (docs/adr/0004), and the rule does not reach crypto. A type the
+            # (Lovenest ADR 0004), and the rule does not reach crypto. A type the
             # provider names itself wins.
             type=holding.asset_type or (
                 CASH_EQUIVALENT_TYPE

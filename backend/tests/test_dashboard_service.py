@@ -929,7 +929,7 @@ async def test_spending_by_category_excludes_opening_balance(session: AsyncSessi
 @pytest.mark.asyncio
 async def test_spending_excludes_credits(session: AsyncSession, test_user, test_workspace):
     """An income category's credits stay out of spending by category. An
-    unflagged category's credits net against it instead (ADR 0011)."""
+    unflagged category's credits net against it instead (Lovenest ADR 0011)."""
     cat = await _make_category(session, test_user.id, "Income Cat")
     cat.is_income = True
     await session.commit()

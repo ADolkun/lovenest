@@ -5,7 +5,7 @@ amount (income minus expense) for the selected month and the months before
 it. Income and expense are the user-P&L amounts the dashboard and reports
 total (`user_pnl_income_amount` / `user_pnl_expense_amount`), so a refund
 lowers the spending of the category it is filed under, a reimbursement link
-takes its amount out of both rows it joins (fork ADR 0012), and the
+takes its amount out of both rows it joins (Lovenest ADR 0012), and the
 statement adds up to the same income minus expense. A row lands in the
 income or the expense section by the sign of its all-time net, which keeps
 it in the same place as the user steps through months. Uncategorized money

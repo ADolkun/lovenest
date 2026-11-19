@@ -149,8 +149,8 @@ def pnl_transaction_amounts(workspace_id: uuid.UUID):
     in the row's own currency.
 
     Parts are judged by their own category, a credit filed under a spending
-    category is a negative expense rather than income (fork ADR 0011), a
-    reimbursement link takes its amount out of both rows (fork ADR 0012),
+    category is a negative expense rather than income (Lovenest ADR 0011), a
+    reimbursement link takes its amount out of both rows (Lovenest ADR 0012),
     settlements stay out, and a group-split row counts only its owner's
     share. Rows that count for nothing are absent.
     """

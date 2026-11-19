@@ -1,4 +1,4 @@
-"""Money back on spending — ADR 0011's spending offsets and reimbursement
+"""Money back on spending — Lovenest ADR 0011's spending offsets and reimbursement
 links — stays out of income and comes off write-offs. Income counts what user
 P&L counts; write-offs keep their own inclusion rules.
 
@@ -178,7 +178,7 @@ class LedgerQueryTest(unittest.TestCase):
         self.assertEqual([i["amount"] for i in writeoffs["schedule_c"][0]["items"]], [80, 260])
 
     def test_a_link_counts_only_while_both_rows_are_in_user_pnl(self):
-        """ADR 0012: a link whose other row left user P&L, or sits on a closed
+        """Lovenest ADR 0012: a link whose other row left user P&L, or sits on a closed
         account, moves nothing, so the credit is income in full again."""
         moves = self._row("categories", name="Moves", treat_as_transfer=True)
         hidden = self._row("categories", name="Hidden", is_ignored=True)

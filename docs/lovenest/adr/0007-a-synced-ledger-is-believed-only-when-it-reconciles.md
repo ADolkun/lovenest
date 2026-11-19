@@ -1,6 +1,6 @@
 # A synced ledger is believed only when it reconciles
 
-> Amended by [ADR 0008](0008-an-exchange-transaction-is-classified-before-it-is-believed.md):
+> Amended by [Lovenest ADR 0008](0008-an-exchange-transaction-is-classified-before-it-is-believed.md):
 > the passages below saying the other transaction types "wait for #70" are
 > history. The reconciliation rule itself is not — transfers still reach no
 > ledger by design, so a wallet fed by one still replays to a quantity the
@@ -46,7 +46,7 @@ The importer next door keys differently, and on purpose. `import_orders` also
 fingerprints on content — `(date, kind, quantity, price)` — and counts repeats,
 because a CSV row may carry no id at all, and two genuinely distinct buys of
 the same size on the same day at the same price are a thing a crypto history
-does several times a page (ADR 0005). Neither problem exists here: the API
+does several times a page (Lovenest ADR 0005). Neither problem exists here: the API
 states an id for every transaction, and it is stable across walks. Adding the
 content fingerprint would import strictly less — two real trades that happen to
 match would collapse into one — for a robustness this source does not need.

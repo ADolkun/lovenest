@@ -1,6 +1,6 @@
 """Tax Lots, Holding Period and Realised Gain split by holding period (#65).
 
-Lots are derived by replaying the trade ledger and never stored (ADR 0002), so
+Lots are derived by replaying the trade ledger and never stored (Lovenest ADR 0002), so
 a Holding with no Trades — a Snapshot Holding — has no Lots at all, which is a
 different answer from "one Lot of unknown date".
 
@@ -15,7 +15,7 @@ Two conventions meet here and neither wins outright:
 
 So a sale's gain is the average-cost gain, attributed to long and short in the
 proportion of the quantity FIFO consumed from each. The parts always sum back to
-the Realised Gain the ledger reports. See ADR 0003.
+the Realised Gain the ledger reports. See Lovenest ADR 0003.
 """
 import uuid
 from datetime import date
@@ -239,7 +239,7 @@ def _split_to_cents(total: Decimal, long_part: Decimal) -> tuple[float, float]:
     """Round a gain and its long half to cents, then take the short half as
     what is left — so the two parts still add up to the whole after rounding.
     Rounding each half on its own loses a cent on any 50/50 split of an odd
-    number of them, which is the invariant ADR 0003 rests on."""
+    number of them, which is the invariant Lovenest ADR 0003 rests on."""
     whole = _money(total)
     long_cents = _money(long_part)
     return long_cents, round(whole - long_cents, 2)
@@ -436,10 +436,10 @@ async def asset_tax_lots(
     A Holding in a wallet that is not Taxable reports `tax_character: false` and
     no lots: its gains are never Reportable, so a long-versus-short answer there
     is noise dressed as advice. The Lots themselves stay derivable — the Wash
-    Sale rule reaches into an IRA (ADR 0002) — they just do not surface here.
+    Sale rule reaches into an IRA (Lovenest ADR 0002) — they just do not surface here.
 
     `snapshot` marks a Holding whose quantity came from a provider with no
-    Trades behind it: Holding Period is *unknown*, not short (ADR 0002).
+    Trades behind it: Holding Period is *unknown*, not short (Lovenest ADR 0002).
 
     `no_wallet` separates the third empty case: a Holding in no wallet has no
     treatment to gate on, so it falls into the same silent branch as a

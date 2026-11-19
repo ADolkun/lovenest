@@ -1,6 +1,6 @@
 # A reimbursement is booked against the expense it repays
 
-ADR 0011 nets a reimbursement against its category, but only in the month it
+Lovenest ADR 0011 nets a reimbursement against its category, but only in the month it
 posts. Trip meals in September repaid by an employer in October overstate
 September and understate October; a $100 Zelle covering four months of a
 family-plan subscription distorts the one month it lands in. The category was
@@ -9,7 +9,7 @@ right and the month was wrong.
 So the user can link a reimbursement credit to the expense debits it repays,
 with an amount per expense (`transaction_reimbursements`). A link takes its
 amount out of both rows: the expense counts for less in its own month and
-category, and the credit counts for less wherever ADR 0011 put it. Each row
+category, and the credit counts for less wherever Lovenest ADR 0011 put it. Each row
 keeps `1 - linked / |amount|` of itself (`reimbursement_unlinked_share`), and
 the shared P&L helpers apply that share, so the dashboard, category breakdown,
 reports, budgets and the transaction list footer all move together. The
@@ -45,7 +45,7 @@ effect and its rows can still be linked. Until v0.16.5 closed accounts were
 left out of the dashboard but not of budgets, and links on them were switched
 off so the two views agreed.
 
-## The unlinked remainder follows ADR 0011
+## The unlinked remainder follows Lovenest ADR 0011
 
 A $259 credit with $117.09 linked contributes its remaining $141.91 exactly as
 an unlinked credit would: income if its category is an income category, money

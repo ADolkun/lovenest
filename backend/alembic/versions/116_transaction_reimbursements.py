@@ -1,7 +1,7 @@
 """a reimbursement is booked against the expense it repays
 
 Adds `transaction_reimbursements`: a reimbursement credit linked to the
-expense debits it repays, with an amount per expense (ADR 0012). The link
+expense debits it repays, with an amount per expense (Lovenest ADR 0012). The link
 lives in its own table so `transactions` is not touched, and both foreign
 keys cascade in the database because bulk delete removes transactions with
 a SQL DELETE that never loads them.

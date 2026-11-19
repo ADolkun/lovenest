@@ -104,7 +104,7 @@ async def test_sync_types_a_crypto_exchange_holding_as_crypto(
     session: AsyncSession, test_user, test_workspace
 ):
     """A crypto exchange reports nothing but crypto, and asset class is what
-    decides whether the Wash Sale rule reaches a holding at all (ADR 0004)."""
+    decides whether the Wash Sale rule reaches a holding at all (Lovenest ADR 0004)."""
     asset = await _upsert_asset_from_holding(
         session, None, _holding("BTC"), test_user.id, uuid.uuid4(), "coinbase", test_workspace.id
     )

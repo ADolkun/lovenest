@@ -5,10 +5,10 @@ the cash-flow forecast's spending burn are built by different queries. On a
 month holding every case the fork classifies on its own terms they must
 still give the same income and the same expenses:
 
-- a credit in an income category is income (fork ADR 0011),
+- a credit in an income category is income (Lovenest ADR 0011),
 - a credit in a spending category, and an uncategorized card refund, lower
-  spending instead (fork ADR 0011),
-- a reimbursement linked to the expense it repays leaves both (fork ADR 0012),
+  spending instead (Lovenest ADR 0011),
+- a reimbursement linked to the expense it repays leaves both (Lovenest ADR 0012),
 - a row split across categories counts part by part,
 - a valid transfer pair counts for nothing,
 - a group-split expense counts only its owner's share.

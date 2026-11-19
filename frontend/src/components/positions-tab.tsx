@@ -252,7 +252,7 @@ function TaxLotsPanel({
             <div className="text-right">{t('assets.lotsColUnitPrice')}</div>
             {/* Not "Cost Basis": a lot is carried at what it actually cost,
                 while the position's Cost Basis is the blended average, so the
-                two legitimately differ after a partial sale (ADR 0003). */}
+                two legitimately differ after a partial sale (Lovenest ADR 0003). */}
             <div className="text-right">{t('assets.lotsColCost')}</div>
             <div className="text-right">{t('assets.lotsColHoldingPeriod')}</div>
           </div>

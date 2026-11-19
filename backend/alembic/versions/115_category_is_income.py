@@ -2,7 +2,7 @@
 
 Adds `categories.is_income`. A credit filed under a category with the flag is
 income; a credit filed under any other category is money back on that
-category's spending and nets against it (ADR 0011).
+category's spending and nets against it (Lovenest ADR 0011).
 
 Defaulting the column to false would turn every existing income category into
 a spending offset overnight, so the backfill flags the categories that are

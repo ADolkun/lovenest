@@ -528,7 +528,7 @@ async def get_budget_suggestions(
     all_categories = cats_result.all()
 
     # The window's spending is the budget bar's own figure (share-only
-    # splits, shared shares, ADR 0011/0012 offsets), clamped after every
+    # splits, shared shares, Lovenest ADR 0011/0012 offsets), clamped after every
     # layer like the bar.
     total_by_cat, _ = await _category_spending(
         session, workspace_id, user_id, window_start, window_end,

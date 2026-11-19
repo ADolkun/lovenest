@@ -1,6 +1,6 @@
 """Group split shares follow the same income-or-offset rule as their parent.
 
-ADR 0011. A refund on a shared expense nets against spending, and only the
+Lovenest ADR 0011. A refund on a shared expense nets against spending, and only the
 user's part of it: the owner's figures subtract the others' shares of the
 refund from the netting, and a linked member's figures net only their own.
 Also pins that a category whose money back outweighs its spending stays in

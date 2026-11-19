@@ -21,7 +21,7 @@ Issue #133 adds reviewed movement application to the same asset ledger. A
 confirmed owned transfer uses retained, settled movement legs, explicit common
 beneficial ownership and recorded acquisition-fragment selections. Principal
 leaves once and arrives once without a buy or sale gain. Original acquisition
-lineage and weighted-average performance cost remain separate (ADR 0003), and
+lineage and weighted-average performance cost remain separate (Lovenest ADR 0003), and
 unknown cost/date is never filled from transfer-time market value. Fee units
 have their own payer, asset and application identity; tax treatment remains
 unresolved.
@@ -31,7 +31,7 @@ Reviewed quantity-only movements and reported-scam annotations do not infer
 income, a disposal, common ownership or loss deductibility. Reversal is atomic
 and refuses dependent activity rather than silently reallocating it. Provider
 snapshots retain their independent authority when replay or basis is incomplete.
-See [the reviewed-transfer contract](../owned-transfers.md).
+See [the reviewed-transfer contract](../../owned-transfers.md).
 
 Ticket #69 mapped `buy`, `sell` and `advanced_trade_fill` and left every other
 type Coinbase reports on the floor, which is why a wallet fed by a transfer or
@@ -77,7 +77,7 @@ a new one has to arrive as a question rather than as a number.
 
 A convert needs no entry of its own beyond the class. Coinbase files a `trade`
 once in each wallet it touched, and direction is the sign of the quantity
-(ADR 0007), so the two sides land on two ledgers with two different bases
+(Lovenest ADR 0007), so the two sides land on two ledgers with two different bases
 without the mapping ever having to know they were one order.
 
 ## Unrecorded is a decision, not a gap
@@ -176,7 +176,7 @@ units which arrived free make the whole disposal gain. That is right for the
 importer, where the file is an authoritative reconciled history the user
 chose, and wrong here, for a reason specific to sync: a zero-priced row keeps
 the replay's *quantity* exact, and quantity is the whole of what
-`_ledger_reconciles` can check (ADR 0007). It is the one shape of error that
+`_ledger_reconciles` can check (Lovenest ADR 0007). It is the one shape of error that
 passes the safety net — the basis cached short by the reward's entire value,
 with nothing anywhere saying so. So the rule the rest of this file follows: a
 row that cannot be stated in USD reaches no ledger, and a missing basis the

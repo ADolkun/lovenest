@@ -222,7 +222,7 @@ export default function AssetsPage() {
     staleTime: Infinity,
   })
 
-  // The URL is the tab state (ADR 0001) — a shared link opens where the sender was.
+  // The URL is the tab state (Lovenest ADR 0001) — a shared link opens where the sender was.
   const [searchParams, setSearchParams] = useSearchParams()
   const { tab: activeTab, view: portfolioView, activity } = readAssetView(searchParams)
   const selectedWalletId = searchParams.get('wallet')

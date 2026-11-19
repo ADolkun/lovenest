@@ -72,7 +72,7 @@ def reimbursement_link_side_counts(entity: TransactionEntity = Transaction):
     """SQL predicate: a reimbursement link may count on this side of it.
 
     A link is in effect only while both rows it joins are in user P&L
-    (ADR 0012). Otherwise one side would drop the linked amount while the
+    (Lovenest ADR 0012). Otherwise one side would drop the linked amount while the
     other, no longer reported, could not give it back, and income minus
     expenses would move. A closed account's rows stay in period reports, so
     closing one does not switch its links off. A row split across categories
@@ -86,7 +86,7 @@ def reimbursement_unlinked_share():
     """The fraction of a row that reimbursement links leave in user P&L.
 
     A link takes its amount out of both rows it joins, each in its own month
-    and category (ADR 0012), so a row keeps `1 - linked / |amount|`, never
+    and category (Lovenest ADR 0012), so a row keeps `1 - linked / |amount|`, never
     below zero. Unitless, so it scales `amount`, `amount_primary`, a category
     line's share or any primary-currency expression alike: a row split across
     categories gives up the linked amount from every part in proportion.

@@ -1,6 +1,6 @@
 """Reimbursement links: a credit booked against the expenses it repays.
 
-ADR 0012. A link moves P&L between months and categories without changing
+Lovenest ADR 0012. A link moves P&L between months and categories without changing
 any total; reporting reads it through `reimbursement_unlinked_share` in
 `_query_filters.py`. Everything here keeps one invariant that reporting
 relies on: for every row, the links touching it add up to no more than its

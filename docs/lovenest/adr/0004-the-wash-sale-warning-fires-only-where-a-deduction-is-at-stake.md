@@ -37,7 +37,7 @@ into, so the deduction is forfeited rather than deferred — those accounts are
 flagged `unrecoverable`.
 
 A candidate sale counts as a loss when the price lands below Average Price, the
-same basis the ledger books a Realised Gain against (ADR 0003), so the warning
+same basis the ledger books a Realised Gain against (Lovenest ADR 0003), so the warning
 and the figure the sale would actually produce cannot disagree.
 
 ## Consequences
@@ -53,7 +53,7 @@ The check spans every wallet in the workspace, matching the instrument by
 ticker. "Substantially identical" is not attempted — no data here could support
 that judgement — so a warning is evidence of exposure, never proof of its
 absence. The Workspace boundary is the outer limit: investments live in one
-Workspace (ADR 0001), and a check that crossed it would be the leak the boundary
+Workspace (Lovenest ADR 0001), and a check that crossed it would be the leak the boundary
 exists to prevent.
 
 An acquisition is matched from the ledger, which means a wallet that holds the
@@ -65,5 +65,5 @@ Exposure is reported and nothing more: no disallowed amount is rolled into a
 replacement's basis and no adjusted basis is computed anywhere. A test asserts
 the check leaves every basis untouched. Doing the accounting would need the
 replacement Lots to carry an adjustment that the derived-not-stored Lot model
-(ADR 0002) has nowhere to put — that is the decision to revisit first if full
+(Lovenest ADR 0002) has nowhere to put — that is the decision to revisit first if full
 wash-sale accounting is ever wanted.

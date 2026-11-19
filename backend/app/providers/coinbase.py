@@ -838,14 +838,14 @@ class CoinbaseProvider(BankProvider):
         wallet the order moved, and both rows carry the *order's* side: buying
         HBAR with USDC writes +1867.7 to one wallet and -485.602 to the other,
         and both say ``order_side: buy``. Reading the side would book the
-        funding leg as a purchase of the stablecoin it was paid in (ADR 0007).
+        funding leg as a purchase of the stablecoin it was paid in (Lovenest ADR 0007).
         The same rule is what makes a convert two sides with no special case.
 
         None is the ordinary answer for much of a history, and it is always
         the safe one: a row that cannot be stated in USD reaches no ledger,
         which leaves the replay short and the whole Holding a Snapshot — a
         missing basis, which the user can see, rather than a wrong one that
-        reconciles (ADR 0008).
+        reconciles (Lovenest ADR 0008).
         """
         # Anything unsettled is not yet a fact about the position — a pending
         # buy can still fail, and a canceled one never happened.

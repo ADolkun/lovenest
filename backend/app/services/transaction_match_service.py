@@ -115,7 +115,7 @@ async def take_incoming_amount(
 
     What was sized to the old amount follows it: category lines and
     group-split shares are rescaled to the new total, reimbursement links
-    shrink to fit (ADR 0012), and a transfer pair is unlinked, since its
+    shrink to fit (Lovenest ADR 0012), and a transfer pair is unlinked, since its
     other leg still carries the old amount. A pair whose amounts the user
     typed on both legs stays linked: neither leg was derived from the other,
     so the other leg's amount is still what landed there.

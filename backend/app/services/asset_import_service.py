@@ -927,7 +927,7 @@ async def import_orders(
     await ensure_group_in_workspace(session, group_id, workspace_id)
 
     # A wallet carries the tax treatment, and `tax_lots.asset_tax_lots` reports
-    # nothing for a holding without one (ADR 0002). A wallet-less import would
+    # nothing for a holding without one (Lovenest ADR 0002). A wallet-less import would
     # therefore write a complete ledger and an empty Lots view, with no error to
     # explain the gap — so it is refused here, at the one function both the
     # preview and the commit endpoints route through.

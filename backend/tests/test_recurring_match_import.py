@@ -732,7 +732,7 @@ async def test_import_tolerated_placeholder_takes_the_files_fx_rate(
 async def test_import_tolerated_placeholder_shrinks_its_reimbursement_links(
     session, test_user, test_workspace
 ):
-    """ADR 0012: no row's links exceed its own amount. A placeholder already
+    """Lovenest ADR 0012: no row's links exceed its own amount. A placeholder already
     repaid in full takes a smaller charge under the tolerance, so the link
     shrinks with it rather than outgrowing the expense it is booked against."""
     account = Account(

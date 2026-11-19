@@ -2,7 +2,7 @@
 
 Pending and future-dated rows are classified by the SQL helpers that classify
 actuals, so a credit filed under a spending category nets against it
-(ADR 0011) and a linked row counts only its unlinked share (ADR 0012) in
+(Lovenest ADR 0011) and a linked row counts only its unlinked share (Lovenest ADR 0012) in
 every projected figure, not just in the posted ones.
 """
 

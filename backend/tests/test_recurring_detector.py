@@ -339,7 +339,7 @@ async def test_a_subscription_others_repay_costs_its_owners_share(session):
 @pytest.mark.asyncio
 async def test_refunds_are_not_recurring_income(session):
     """A credit filed under a spending category gives money back on that
-    spending (fork ADR 0011); a monthly one is not a paycheck."""
+    spending (Lovenest ADR 0011); a monthly one is not a paycheck."""
     from app.models.category import Category
 
     user_id, ws, account = await _detector_workspace(session, "Monthly Refund WS")

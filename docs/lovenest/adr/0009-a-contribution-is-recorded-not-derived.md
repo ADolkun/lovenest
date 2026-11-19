@@ -1,6 +1,6 @@
 # A Contribution is recorded, not derived
 
-ADR 0002 settled that Tax Lots are derived by replaying Trades and never stored.
+Lovenest ADR 0002 settled that Tax Lots are derived by replaying Trades and never stored.
 Ticket #71 adds Contributions and Distributions, and the obvious question is
 whether they follow the same rule — derived from something already in the
 database rather than written down. They do not, and four decisions follow.
@@ -37,7 +37,7 @@ Nothing sums them today, and nothing should start.
 
 `classify_flow` reads a broker's action text only to decide whether the row
 crosses the boundary at all. Which way it crossed comes from the sign of the
-amount — the same call ADR 0007 makes for trade direction, for the same reason.
+amount — the same call Lovenest ADR 0007 makes for trade direction, for the same reason.
 
 A single real transfer between two of the user's own accounts is filed twice,
 once in each account, and on a Fidelity export both rows carry the word
@@ -56,7 +56,7 @@ accounts they cancel, which is what they should do.
 
 ## Declining to classify a row is the safe direction here, unlike the ledger
 
-ADR 0008 argued the opposite for the trade ledger: leaving a Coinbase type
+Lovenest ADR 0008 argued the opposite for the trade ledger: leaving a Coinbase type
 unknown costs the whole holding's basis, because the replay then disagrees with
 the reported balance and every derived figure is withheld. Nothing of the kind
 happens here. Contributions are not reconciled against anything, so a missed row

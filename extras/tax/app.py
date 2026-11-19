@@ -122,7 +122,7 @@ def _counts_as_user_pnl_sql(t, a, c):
 
 _CARD_PAYMENT_SQL = _card_payment_sql("t", "a")
 
-# ADR 0011: a credit filed under a non-income category, or an uncategorized
+# Lovenest ADR 0011: a credit filed under a non-income category, or an uncategorized
 # card refund, is money back on spending rather than income.
 _SPENDING_OFFSET_SQL = f"""(
     t.type = 'credit' AND NOT {_CARD_PAYMENT_SQL} AND (
@@ -132,7 +132,7 @@ _SPENDING_OFFSET_SQL = f"""(
 )"""
 
 
-# ADR 0012: a link is in effect only while both of its rows are in user P&L on
+# Lovenest ADR 0012: a link is in effect only while both of its rows are in user P&L on
 # open accounts. The backend checks only the row's own account, since every
 # report there already drops a row outside user P&L; write-offs keep such
 # rows, so here both sides are checked in full.

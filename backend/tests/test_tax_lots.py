@@ -141,7 +141,7 @@ def test_position_splits_its_open_quantity_and_cost_by_holding_period():
 
 def test_a_holding_with_no_trades_has_no_lots():
     # A Snapshot Holding: the provider reported a position, not the trades
-    # behind it, so Holding Period is unknown rather than short (ADR 0002).
+    # behind it, so Holding Period is unknown rather than short (Lovenest ADR 0002).
     assert build_lots([], as_of=date(2026, 3, 1))["lots"] == []
 
 

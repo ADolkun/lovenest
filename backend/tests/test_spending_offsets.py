@@ -1,6 +1,6 @@
 """A credit's category decides whether it is income or money back on spending.
 
-ADR 0011. Every figure here goes through the shared user P&L helpers, so the
+Lovenest ADR 0011. Every figure here goes through the shared user P&L helpers, so the
 dashboard card, the category breakdown, the transaction list and the budget
 bar are checked against one another as well as against the rule.
 """

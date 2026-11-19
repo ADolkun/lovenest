@@ -213,7 +213,7 @@ def _recurring_credit_offsets_spending(
     """`spending_offset_filter` for a recurring credit (or one part of a split
     one) that has no row yet.
 
-    A projection has no transaction for the SQL helpers to read, so ADR 0011
+    A projection has no transaction for the SQL helpers to read, so Lovenest ADR 0011
     is applied to the rule itself: the part's category decides, and without
     one only a card refund gives money back on spending.
     """
@@ -297,7 +297,7 @@ class ForecastPnlRow:
 
     Classified by the same SQL helpers as posted actuals, so a credit filed
     under a spending category reduces that category instead of adding income
-    (ADR 0011), and a linked row counts only its unlinked share (ADR 0012) —
+    (Lovenest ADR 0011), and a linked row counts only its unlinked share (Lovenest ADR 0012) —
     a card charge whose accrual bill date is still ahead included.
 
     A row split across categories yields one entry per counted category
