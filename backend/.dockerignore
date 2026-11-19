@@ -11,10 +11,21 @@ venv/
 .coverage*
 htmlcov/
 **/.ruff_cache/
-.env
 *.egg-info/
 /build/
 /dist/
 /tests/
 /conftest.py
 secrets/
+
+# Secrets and data dumps never ship, wherever in the context they land: the
+# plugin images build from this directory of the live checkout.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.sql
+**/*.sql.gz
+**/*.dump
+**/*.bak
+**/backups/
+**/.hub-credentials.json
