@@ -61,7 +61,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { resolveDateFnsLocale } from '@/lib/date-fns-locale'
 import { transactionOrderDate } from '@/lib/transaction-order-date'
-import type { Rule, Transaction } from '@/types'
+import type { BalanceHistory, Rule, Transaction } from '@/types'
 import { formatCompactCurrency, formatCurrency, ltrAmount } from '@/lib/format'
 import { shouldShowPendingBadge } from '@/lib/transaction-status'
 import { readCalendarDateBasis } from '@/lib/transaction-calendar'
@@ -131,6 +131,39 @@ function defaultComparisonMonths(availableMonths: string[], viewedMonth: string)
     .sort()
 }
 
+
+function cumulativeBalanceData(balanceHistory: BalanceHistory, selectedMonth: string) {
+  const daysInMonth = monthLastDay(selectedMonth)
+  const opening = balanceHistory.opening_balance
+  const result: {
+    day: number
+    current: number | null
+    comparison: number | null
+    median: number | null
+    band: [number, number] | null
+  }[] = []
+  let lastComparison: number | null = null
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cur = balanceHistory.current.find(d => d.day === day)
+    const comparisonPoint = balanceHistory.comparison?.find(d => d.day === day)
+    if (comparisonPoint?.balance != null && balanceHistory.comparison_opening_balance != null) {
+      lastComparison = comparisonPoint.balance - balanceHistory.comparison_opening_balance
+    } else if (comparisonPoint) {
+      // A null balance is a day after today; only carry over days the comparison month lacks.
+      lastComparison = null
+    }
+    const base = balanceHistory.baseline.find(d => d.day === day)
+    const hasBand = base?.lower_quartile != null && base?.upper_quartile != null
+    result.push({
+      day,
+      current: cur?.balance != null ? cur.balance - opening : null,
+      comparison: lastComparison,
+      median: base?.median ?? null,
+      band: hasBand ? [base!.lower_quartile!, base!.upper_quartile!] : null,
+    })
+  }
+  return result
+}
 
 export default function DashboardPage() {
   const { t, i18n } = useTranslation()
@@ -493,39 +526,10 @@ export default function DashboardPage() {
   }
 
 
-  const cumulativeData = useMemo(() => {
-    if (!balanceHistory) return []
-    const daysInMonth = monthLastDay(selectedMonth)
-    const opening = balanceHistory.opening_balance
-    const result: {
-      day: number
-      current: number | null
-      comparison: number | null
-      median: number | null
-      band: [number, number] | null
-    }[] = []
-    let lastComparison: number | null = null
-    for (let day = 1; day <= daysInMonth; day++) {
-      const cur = balanceHistory.current.find(d => d.day === day)
-      const comparisonPoint = balanceHistory.comparison?.find(d => d.day === day)
-      if (comparisonPoint?.balance != null && balanceHistory.comparison_opening_balance != null) {
-        lastComparison = comparisonPoint.balance - balanceHistory.comparison_opening_balance
-      } else if (comparisonPoint) {
-        // A null balance is a day after today; only carry over days the comparison month lacks.
-        lastComparison = null
-      }
-      const base = balanceHistory.baseline.find(d => d.day === day)
-      const hasBand = base?.lower_quartile != null && base?.upper_quartile != null
-      result.push({
-        day,
-        current: cur?.balance != null ? cur.balance - opening : null,
-        comparison: lastComparison,
-        median: base?.median ?? null,
-        band: hasBand ? [base!.lower_quartile!, base!.upper_quartile!] : null,
-      })
-    }
-    return result
-  }, [balanceHistory, selectedMonth])
+  const cumulativeData = useMemo(
+    () => (balanceHistory ? cumulativeBalanceData(balanceHistory, selectedMonth) : []),
+    [balanceHistory, selectedMonth],
+  )
 
   const lastCurrentPoint = [...cumulativeData].reverse().find(d => d.current !== null)
   const lastDay = lastCurrentPoint?.day ?? 0

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useState } from 'react'
 import { loadReportsRange, saveReportsRange, type ReportsRange } from '@/lib/remembered-range'
 import { useTranslation } from 'react-i18next'
 import { useDateLocale, useDisplayLocale } from '@/hooks/use-display-locale'
@@ -396,18 +396,11 @@ export default function ReportsPage() {
   // hands over to the first one left.
   const firstShown = shownTabs[0].key
   const activeShown = shownTabs.some((tab) => tab.key === activeTab)
-  const openedOnLayout = useRef(false)
-  useEffect(() => {
-    if (!reportsLayout.ready) return
-    if (!openedOnLayout.current) {
-      openedOnLayout.current = true
-      if (activeTab !== firstShown) handleSelectTab(firstShown)
-      return
-    }
-    if (!activeShown) handleSelectTab(firstShown)
-    // handleSelectTab and activeTab change each render; what matters is the list and whether the active tab is on it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportsLayout.ready, activeShown, firstShown])
+  const [layoutApplied, setLayoutApplied] = useState(false)
+  if (reportsLayout.ready && (!layoutApplied || !activeShown)) {
+    if (!layoutApplied) setLayoutApplied(true)
+    if (activeTab !== firstShown) handleSelectTab(firstShown)
+  }
 
   // Year picker (issue #765): one entry per year the workspace's data
   // covers, from this year back to the oldest transaction. Hidden until the
@@ -918,7 +911,7 @@ export default function ReportsPage() {
         {shownTabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => { if (tab.enabled) { openedOnLayout.current = true; handleSelectTab(tab.key) } }}
+            onClick={() => { if (tab.enabled) { setLayoutApplied(true); handleSelectTab(tab.key) } }}
             disabled={!tab.enabled}
             className={`relative shrink-0 whitespace-nowrap px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === tab.key
