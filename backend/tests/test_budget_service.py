@@ -40,6 +40,54 @@ async def test_create_budget(session: AsyncSession, test_user, test_workspace, t
 
 
 @pytest.mark.asyncio
+async def test_a_category_has_one_budget_per_month_in_a_shared_workspace(
+    session: AsyncSession, test_user, test_workspace, test_categories
+):
+    """The budget screen resolves one amount per category and month for the
+    whole workspace, so a second member cannot add another one beside it."""
+    from app.models.user import User
+    from app.models.workspace import WorkspaceMember
+    from app.schemas.budget import BudgetBatchCreate, BudgetBatchItem
+    from app.services.budget_service import create_budgets_batch
+
+    partner = User(
+        id=uuid.uuid4(), email="partner@example.com", hashed_password="x",
+        is_active=True, is_superuser=False, is_verified=True,
+    )
+    session.add(partner)
+    await session.flush()
+    session.add(WorkspaceMember(workspace_id=test_workspace.id, user_id=partner.id, role="editor"))
+    await session.commit()
+    food, transport = test_categories[0], test_categories[1]
+    month = date(2025, 3, 1)
+    await create_budget(
+        session, test_workspace.id, test_user.id,
+        BudgetCreate(category_id=food.id, amount=Decimal("500.00"), month=month),
+    )
+
+    with pytest.raises(ValueError, match="already exists"):
+        await create_budget(
+            session, test_workspace.id, partner.id,
+            BudgetCreate(category_id=food.id, amount=Decimal("700.00"), month=month),
+        )
+    with pytest.raises(ValueError, match="already exists"):
+        await create_budgets_batch(
+            session, test_workspace.id, partner.id,
+            BudgetBatchCreate(month=month, items=[
+                BudgetBatchItem(category_id=transport.id, amount=Decimal("100")),
+                BudgetBatchItem(category_id=food.id, amount=Decimal("700")),
+            ]),
+        )
+    # A recurring default is a different kind of budget and still fits.
+    await create_budget(
+        session, test_workspace.id, partner.id,
+        BudgetCreate(category_id=food.id, amount=Decimal("700.00"), month=month, is_recurring=True),
+    )
+    budgets = await get_budgets(session, test_workspace.id, month)
+    assert [(b.category_id, b.amount) for b in budgets] == [(food.id, Decimal("500.00"))]
+
+
+@pytest.mark.asyncio
 async def test_create_recurring_budget(session: AsyncSession, test_user, test_workspace, test_categories):
     data = BudgetCreate(
         category_id=test_categories[0].id,

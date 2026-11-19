@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
@@ -166,18 +167,49 @@ async def get_budget(
     return result.scalar_one_or_none()
 
 
+async def _categories_with_budget(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    category_ids: Collection[uuid.UUID],
+    month: date,
+    is_recurring: bool,
+) -> set[uuid.UUID]:
+    """The categories that already have a budget of this kind for `month`,
+    set by anyone in the workspace.
+
+    A budget belongs to the workspace: the readers resolve one amount per
+    category per month (`_build_budget_map`), so a second member's row for
+    the same category and month would silently hide one of the two. The
+    table's unique constraint is per user, so the check lives here.
+    """
+    result = await session.execute(
+        select(Budget.category_id).where(
+            Budget.workspace_id == workspace_id,
+            Budget.category_id.in_(list(category_ids)),
+            Budget.month == month,
+            Budget.is_recurring == is_recurring,
+        )
+    )
+    return set(result.scalars())
+
+
 async def create_budget(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     data: BudgetCreate,
 ) -> Budget:
+    month = data.month.replace(day=1)
+    if await _categories_with_budget(
+        session, workspace_id, [data.category_id], month, data.is_recurring
+    ):
+        raise ValueError("A budget for this category already exists for this month")
     budget = Budget(
         user_id=user_id,
         workspace_id=workspace_id,
         category_id=data.category_id,
         amount=data.amount,
-        month=data.month.replace(day=1),
+        month=month,
         is_recurring=data.is_recurring,
     )
     session.add(budget)
@@ -580,9 +612,8 @@ async def create_budgets_batch(
 ) -> list[Budget]:
     """Create several budgets in one transaction.
 
-    Fails atomically: if any item conflicts with the
-    (user, category, month, is_recurring) unique constraint nothing is
-    written.
+    Fails atomically: if any category already has a budget of this kind
+    for the month, set by anyone in the workspace, nothing is written.
     """
     month = data.month.replace(day=1)
     seen: set[uuid.UUID] = set()
@@ -616,6 +647,10 @@ async def create_budgets_batch(
     )
     if known != seen:
         raise ValueError("Category not found")
+    if await _categories_with_budget(session, workspace_id, seen, month, data.is_recurring):
+        raise ValueError(
+            "A budget for one of these categories already exists for this month"
+        )
 
     session.add_all(budgets)
     try:
