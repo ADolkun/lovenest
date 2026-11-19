@@ -14,6 +14,7 @@ from app.schemas.investment_evidence import EvidenceDecision
 from app.schemas.owned_transfer import LotSelection
 from app.services import investment_evidence_service as evidence
 from app.services.asset_transaction_service import _recompute, _tx_to_read
+from app.services.owned_transfer_service import replay_holding
 from app.services.tax_lots import build_lots
 from tests.test_owned_transfers_integration import (
     PREFIX, add_acquisition, assert_ownership, checked, confirm_transfer, effect,
@@ -379,6 +380,43 @@ async def test_a_transfer_into_a_holding_with_a_split_is_refused(transfers):
     await _split(v, v.b)
     preview = await transfer_preview(v, await select_lots(v, await pair(v, v.a, v.b)))
     assert not preview["can_confirm"] and "split_in_ledger" in preview["reason_codes"]
+
+
+async def test_a_fee_paid_from_a_holding_with_a_split_is_refused_not_replayed(transfers):
+    v = transfers
+    await _split(v, v.c)
+    request = await select_lots(v, await pair(v, v.a, v.b))
+    fee = await retain_movement(v.session, v.c, direction="out", reference="synthetic-transfer",
+                                source=v.addresses[v.c.id], destination=None, quantity="0.02", leg_key="meta.fee",
+                                classification="fee", quantity_role="network_fee", fee_payer=v.addresses[v.c.id],
+                                fee_semantics="separate")
+    request["fees"] = [{"leg_id": str(fee.id), "asset_id": str(v.c.id), "ownership_id": v.ownership[v.c.id],
+                        "allocations": [], "reason": "Reviewed fee from a split holding"}]
+    preview = await transfer_preview(v, request)
+    assert not preview["can_confirm"] and "split_in_ledger" in preview["reason_codes"]
+    result = await v.client.post(f"{PREFIX}/transfers", headers=v.headers,
+                                 json={**request, "expected_revision": preview["revision"]})
+    assert result.status_code == 422, result.text
+    assert list(await v.session.scalars(select(InvestmentMovementApplication))) == []
+
+
+def test_replaying_a_holding_with_a_split_is_a_422_not_a_500():
+    """Every replay of a holding, including the recovery sale-lot check, goes
+    through `replay_holding`; `movement_replay` itself has no split rule."""
+    asset_id = uuid.uuid4()
+    buy, sell = transaction("buy", "4", "10"), transaction("sell", "4", "12", day=3)
+    split = transaction("split", "0", day=2)
+    for tx in (buy, split, sell):
+        tx.asset_id = asset_id
+    state = {"transactions": {tx.id: tx for tx in (buy, split, sell)}}
+
+    with pytest.raises(HTTPException) as caught:
+        replay_holding(state, asset_id)
+
+    assert caught.value.status_code == 422
+    assert isinstance(caught.value.detail, dict) and caught.value.detail["code"] == "split_in_ledger"
+    del state["transactions"][split.id]
+    assert replay_holding(state, asset_id)["sales"][0]["transaction_id"] == str(sell.id)
 
 
 async def test_a_split_after_a_recorded_movement_is_refused(transfers):

@@ -557,7 +557,7 @@ def _validate_review(state, group_id, data, seen=None):
             if len(sales) != 1:
                 raise HTTPException(422, 'Disposition has no unique canonical sale; retain a candidate')
             sale = sales[0]
-            replay = movements.movement_replay.replay([tx for tx in state['transactions'].values() if tx.asset_id == sale.asset_id])
+            replay = movements.replay_holding(state, sale.asset_id)
             consumed = next((sale_row['lots'] for sale_row in replay['sales'] if sale_row['transaction_id'] == str(sale.id)), [])
             if not replay['settlement_complete'] or not consumed or any(lot.get('source_leg_id') != str(receipt.leg_id)
                     or data.owned_transfer_id and str(data.owned_transfer_id) not in lot.get('lineage', []) for lot in consumed):

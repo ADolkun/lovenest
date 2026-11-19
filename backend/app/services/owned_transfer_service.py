@@ -392,9 +392,17 @@ def _lot_read(asset_id, lot):
                    basis_complete=lot.get("acquisition_cost") is not None)
 
 
+def replay_holding(state, asset_id):
+    """`movement_replay` of one holding, refused with `split_in_ledger` (422)
+    rather than replayed through a split it has no rule for."""
+    if _has_split(state, asset_id):
+        raise _error(422, "split_in_ledger", "Reviewed movements cannot be replayed through a stock split",
+                     asset_id=str(asset_id))
+    return movement_replay.replay([tx for tx in state["transactions"].values() if tx.asset_id == asset_id])
+
+
 def _effect(state, asset_id):
-    txs = [tx for tx in state["transactions"].values() if tx.asset_id == asset_id]
-    pos = movement_replay.replay(txs)
+    pos = replay_holding(state, asset_id)
     return HoldingEffect(asset_id=asset_id, quantity=pos["units"],
                          known_basis_quantity=pos["known_basis_quantity"], unknown_basis_quantity=pos["unknown_basis_quantity"],
                          known_acquisition_cost=pos["known_acquisition_cost"], performance_basis=pos["cost_basis"],
