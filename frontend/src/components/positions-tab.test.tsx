@@ -98,6 +98,18 @@ it('shows nullable transferred lot dates and costs beside a supported zero in th
   expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument()
 })
 
+it('explains why a holding with a stock split has no lots instead of showing the raw code', async () => {
+  vi.mocked(assets.taxLots).mockResolvedValue({
+    asset_id: 'known', ticker: 'KNOWN', tax_character: true, snapshot: false, no_wallet: false, as_of: '2026-01-01',
+    lots: [], long_quantity: '0', short_quantity: '0', long_cost: '0', short_cost: '0', sales: [], realised_long: null, realised_short: null,
+    basis_complete: false, settlement_complete: true, known_acquisition_cost: '0', unknown_basis_quantity: '0', unknown_disposition_quantity: '0', missing_links: ['split_in_ledger'],
+  })
+  const { user } = renderWithProviders(positions([known]))
+  await user.click(screen.getByRole('button', { name: /^KNOWN/ }))
+  expect(await screen.findByText(/stock split in its ledger/)).toBeInTheDocument()
+  expect(screen.queryByText('split in ledger')).not.toBeInTheDocument()
+})
+
 it('keeps compact value and gain readable, with the remaining position details on expansion', async () => {
   const { user } = renderWithProviders(positions([known]))
   const row = screen.getByRole('button', { name: /^KNOWN/ })
