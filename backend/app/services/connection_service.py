@@ -1695,8 +1695,8 @@ async def _sale_recorded_by_hand(session: AsyncSession, asset: Asset) -> bool:
     rows = (
         await session.execute(select(AssetTransaction).where(AssetTransaction.asset_id == asset.id))
     ).scalars().all()
-    position = _recompute(list(rows))
-    return not (rows and position["units"] <= 0 and position["last_sell"] == asset.sell_date)
+    position = _recompute(list(rows), asset_type=asset.type)
+    return not (rows and not position["units"] and position["last_close"] == asset.sell_date)
 
 
 async def _sync_holding_trades(

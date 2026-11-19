@@ -56,7 +56,8 @@ async def test_trades_that_add_up_fill_the_ledger(session: AsyncSession, bank_co
     asset = await _asset(session, bank_connection)
     assert await _ledger(session, asset) == {"b1": ("buy", Decimal("10"), Decimal("98.5"), SOURCE)}
     assert asset.units == Decimal("10")
-    assert Decimal(str(asset.average_price)) == Decimal("98.6")
+    # SQLite keeps Numeric(38, 18) as a float; compare at the stored price precision.
+    assert Decimal(str(asset.average_price)).quantize(Decimal("1e-6")) == Decimal("98.6")
     assert asset.purchase_date == date(2026, 11, 2)
 
 
