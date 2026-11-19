@@ -143,8 +143,14 @@ async def generate_cashflow_forecast(
     horizon_days: int = 90,
     include_discretionary_burn: bool = True,
     reference_date: Optional[date] = None,
+    user_id: Optional[uuid.UUID] = None,
 ) -> CashflowForecastResponse:
-    """Generate day-by-day predictive cashflow simulation and liquidity runway metrics."""
+    """Generate day-by-day predictive cashflow simulation and liquidity runway metrics.
+
+    With `user_id` the discretionary burn is that user's spending, as their
+    dashboard counts it (`pnl_transaction_amounts`); without it a split row
+    counts its owner's share.
+    """
     # The workspace's own calendar, like the account balances and dashboard,
     # so the starting balance and the simulation agree on which day is today.
     today = reference_date or app_today()
@@ -293,13 +299,12 @@ async def generate_cashflow_forecast(
     daily_discretionary_burn = Decimal("0.00")
     if include_discretionary_burn:
         hist_start = today - timedelta(days=_BURN_WINDOW_DAYS)
-        reportable = recurring_detector_service.pnl_transaction_amounts(workspace_id)
+        reportable = recurring_detector_service.pnl_transaction_amounts(workspace_id, user_id)
         hist_query = (
             select(Transaction, reportable.c.expense)
             .join(reportable, reportable.c.transaction_id == Transaction.id)
             .where(
                 and_(
-                    Transaction.workspace_id == workspace_id,
                     Transaction.source != "opening_balance",
                     Transaction.date >= hist_start,
                     Transaction.date < today,

@@ -55,6 +55,14 @@ the others' part of a refund on a shared expense comes back out of the owner's
 netting, and a linked member nets only their part of it. A share of an income
 credit still adjusts income.
 
+Every reader applies one rule per row and viewer (`viewer_share_of_row`): the
+owner counts the row less the others' shares, a linked member counts only
+their share — whether the row sits in their own workspace or reaches them
+from another one as a Split Projection — and anyone else in the row's
+workspace counts the whole row. A linked member who shares the workspace
+therefore never sees the row in full as well as their share of it. Readers
+scoped to some accounts follow cash and count whole rows.
+
 ## Consequences
 
 A category is not born knowing it is income. The default salary category is

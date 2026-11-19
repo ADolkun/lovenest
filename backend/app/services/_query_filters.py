@@ -6,8 +6,7 @@ signal) only need to be made here.
 """
 import uuid
 from datetime import date
-from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Optional
 
 from sqlalchemy import (
     Numeric,
@@ -715,264 +714,96 @@ def in_user_pnl_group_row(pnl_group: str):
     )
 
 
-async def owner_split_offset_pnl(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    month_start: date,
-    month_end: date,
-    use_effective_date: bool = False,
-    primary_currency: Optional[str] = None,
-    workspace_id: Optional[uuid.UUID] = None,
-    posted_only: bool = True,
-) -> tuple[float, float]:
-    """Return (income_offset, expense_offset) — the totals to *subtract*
-    from the owner's full-amount aggregations so only their own share
-    remains. We sum every split share that belongs to a non-owner
-    member; subtracting that from the parent's full amount leaves the
-    owner's share.
+def viewer_share_of_row(viewer_id: Optional[uuid.UUID] = None):
+    """SQL expression: the fraction of a row that is the viewer's own cost.
 
-    A share is classified exactly as its parent is, so the others' part
-    of a refund on a shared expense is a *negative* expense offset: the
-    parent nets the whole refund against spending, and subtracting this
-    leaves the owner netting only their own part of it."""
-    from app.models.group import Group, GroupMember
-    from app.models.transaction_split import TransactionSplit
+    The one rule every user-P&L reader (dashboard, reports, category
+    statement, budgets, cash-flow burn, transaction list footer) applies to
+    a group-split row of the workspace being viewed:
 
-    # The user's own member entries: linked_user_id matches OR is_self=true
-    # in a group they own. The first form covers groups they're invited to;
-    # the second covers their own groups (where is_self=true marks the owner).
-    viewer_member_ids = (
-        select(GroupMember.id)
-        .outerjoin(Group, Group.id == GroupMember.group_id)
-        .where(
-            or_(
-                GroupMember.linked_user_id == user_id,
-                and_(GroupMember.is_self == True, Group.user_id == user_id),
-            )
-        )
-    )
-    date_col = reporting_date_col("accrual" if use_effective_date else "cash")
+    - the viewer owns the row: the row less every other member's share. The
+      viewer's own members are those linked to them and the self-member of
+      a group they created, so a payer in someone else's group keeps their
+      own share, not the creator's;
+    - someone else owns the row and the viewer holds a share in it as an
+      invited (linked, non-self) member: that share alone;
+    - anyone else, including every row without group splits: the whole row.
 
-    result = await session.execute(
-        select(
-            Transaction.currency,
-            func.sum(user_pnl_share_income(TransactionSplit.share_amount, Transaction.category_id)),
-            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
-        )
-        .select_from(TransactionSplit)
-        .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
-        .where(
-            Transaction.user_id == user_id,
-            *(
-                [Transaction.workspace_id == workspace_id]
-                if workspace_id is not None
-                else []
-            ),
-            TransactionSplit.group_member_id.notin_(viewer_member_ids),
-            Transaction.source != "opening_balance",
-            *(
-                [Transaction.status == "posted", date_col <= app_today()]
-                if posted_only
-                else []
-            ),
-            date_col >= month_start,
-            date_col < month_end,
-            counts_as_user_pnl(Transaction.category_id),
-        )
-        .group_by(Transaction.currency)
-    )
+    A row of another workspace reaches a reader only as a Split Projection
+    (`viewer_shared_pnl`, `viewer_shared_spending_by_category`), which is the
+    second case; those helpers leave the viewed workspace out, so each row
+    counts once per viewer, at their part of it. Readers scoped to some
+    accounts drop the rule and count whole rows, since they follow cash.
 
-    if primary_currency is None:
-        income_total = 0.0
-        expense_total = 0.0
-        for row in result.all():
-            income_total += float(row[1] or 0)
-            expense_total += float(row[2] or 0)
-        return income_total, expense_total
+    Without `viewer_id` the row's owner is the viewer, for workspace-level
+    figures nobody in particular is looking at (recurring detection).
 
-    from decimal import Decimal as _Decimal
-
-    from app.services.fx_rate_service import convert as _convert
-
-    income_total = 0.0
-    expense_total = 0.0
-    for row in result.all():
-        cur, inc_raw, exp_raw = row[0], row[1] or 0, row[2] or 0
-        if inc_raw:
-            inc_pri, _ = await _convert(session, _Decimal(str(inc_raw)), cur, primary_currency)
-            income_total += float(inc_pri)
-        if exp_raw:
-            exp_pri, _ = await _convert(session, _Decimal(str(exp_raw)), cur, primary_currency)
-            expense_total += float(exp_pri)
-    return income_total, expense_total
-
-
-async def owner_split_offset_by_category(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    month_start: date,
-    month_end: date,
-    use_effective_date: bool = False,
-    primary_currency: Optional[str] = None,
-    workspace_id: Optional[uuid.UUID] = None,
-    posted_only: bool = True,
-) -> dict:
-    """Per-category expense offset from non-owner shares, signed like
-    `owner_split_offset_pnl`'s: debits add, spending-offset credits
-    subtract. Subtract it from the category's net spending to get the
-    owner's share."""
-    from app.models.group import Group, GroupMember
-    from app.models.transaction_split import TransactionSplit
-
-    viewer_member_ids = (
-        select(GroupMember.id)
-        .outerjoin(Group, Group.id == GroupMember.group_id)
-        .where(
-            or_(
-                GroupMember.linked_user_id == user_id,
-                and_(GroupMember.is_self == True, Group.user_id == user_id),
-            )
-        )
-    )
-    date_col = reporting_date_col("accrual" if use_effective_date else "cash")
-
-    result = await session.execute(
-        select(
-            Transaction.category_id,
-            Transaction.currency,
-            func.sum(user_pnl_share_expense(TransactionSplit.share_amount, Transaction.category_id)),
-        )
-        .select_from(TransactionSplit)
-        .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
-        .where(
-            Transaction.user_id == user_id,
-            *(
-                [Transaction.workspace_id == workspace_id]
-                if workspace_id is not None
-                else []
-            ),
-            user_pnl_group(Transaction.category_id) == "expenses",
-            TransactionSplit.group_member_id.notin_(viewer_member_ids),
-            Transaction.source != "opening_balance",
-            *(
-                [Transaction.status == "posted", date_col <= app_today()]
-                if posted_only
-                else []
-            ),
-            date_col >= month_start,
-            date_col < month_end,
-            counts_as_user_pnl(Transaction.category_id),
-        )
-        .group_by(Transaction.category_id, Transaction.currency)
-    )
-
-    out: dict = {}
-    if primary_currency is None:
-        for cat_id, _cur, total in result.all():
-            out[cat_id] = out.get(cat_id, 0.0) + float(total or 0)
-        return out
-
-    from decimal import Decimal as _Decimal
-
-    from app.services.fx_rate_service import convert as _convert
-
-    for cat_id, cur, total in result.all():
-        if not total:
-            continue
-        converted, _ = await _convert(session, _Decimal(str(total)), cur, primary_currency)
-        out[cat_id] = out.get(cat_id, 0.0) + float(converted)
-    return out
-
-
-def owner_share_of_row():
-    """SQL expression: the fraction of a row that is its owner's own cost.
-
-    `1 - others' shares / |amount|`, the posted owner offset expressed per
-    row and judged from the row owner's side, for workspace-level figures
-    that have no viewer. Signed and unclamped like
-    `forecast_owner_share_fractions`; 1 for a row without group splits.
+    Signed and unclamped: an exact split may give a member a negative share,
+    and the owner's part then exceeds the row.
     """
     from app.models.group import Group, GroupMember
     from app.models.transaction_split import TransactionSplit
 
-    owner_member_ids = (
+    viewer = Transaction.user_id if viewer_id is None else viewer_id
+    viewer_member_ids = (
         select(GroupMember.id)
         .outerjoin(Group, Group.id == GroupMember.group_id)
         .where(
             or_(
-                GroupMember.linked_user_id == Transaction.user_id,
-                and_(GroupMember.is_self.is_(True), Group.user_id == Transaction.user_id),
+                GroupMember.linked_user_id == viewer,
+                and_(GroupMember.is_self.is_(True), Group.user_id == viewer),
             )
         )
         .correlate(Transaction)
     )
+    magnitude = func.nullif(func.abs(Transaction.amount), 0)
     others = (
         select(func.sum(TransactionSplit.share_amount))
         .where(
             TransactionSplit.transaction_id == Transaction.id,
-            TransactionSplit.group_member_id.not_in(owner_member_ids),
+            TransactionSplit.group_member_id.not_in(viewer_member_ids),
+        )
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    owned = 1 - func.coalesce(others / magnitude, 0)
+    if viewer_id is None:
+        return type_coerce(owned, Numeric())
+    invited_share = (
+        select(func.sum(TransactionSplit.share_amount))
+        .where(
+            TransactionSplit.transaction_id == Transaction.id,
+            TransactionSplit.group_member_id.in_(invited_group_member_ids(viewer_id)),
         )
         .correlate(Transaction)
         .scalar_subquery()
     )
     return type_coerce(
-        1 - func.coalesce(others / func.nullif(func.abs(Transaction.amount), 0), 0),
+        case(
+            (Transaction.user_id == viewer_id, owned),
+            else_=func.coalesce(invited_share / magnitude, 1),
+        ),
         Numeric(),
     )
 
 
-async def forecast_owner_share_fractions(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    transactions: Iterable[Transaction],
-) -> dict[uuid.UUID, Decimal]:
-    """Map the user's own split forecast rows to the fraction that is their cost.
-
-    The per-row alternative to calling the `owner_split_offset_*` helpers
-    with `posted_only=False` over a forecast window. A projection uses one of
-    the two, never both, or the others' shares are taken out twice. The fraction comes from the split amounts in the row's own
-    currency, so multiplying it into `amount_primary` keeps the conversion
-    already stored on the row and needs no FX lookup.
-
-    Rows without non-owner shares are left out; callers treat a missing id
-    as 1.
-    """
-    from app.models.group import Group, GroupMember
+def split_projection_ids(user_id: uuid.UUID, workspace_id: uuid.UUID):
+    """Ids of the rows behind `viewer_shared_pnl`: rows of workspaces other
+    than `workspace_id`, owned by someone else, that the user holds an
+    invited share of. Their `viewer_share_of_row` is that share."""
     from app.models.transaction_split import TransactionSplit
 
-    own_rows = {tx.id: tx for tx in transactions if tx.user_id == user_id}
-    if not own_rows:
-        return {}
-
-    viewer_member_ids = (
-        select(GroupMember.id)
-        .outerjoin(Group, Group.id == GroupMember.group_id)
+    parent = aliased(Transaction)
+    return (
+        select(TransactionSplit.transaction_id)
+        .join(parent, parent.id == TransactionSplit.transaction_id)
         .where(
-            or_(
-                GroupMember.linked_user_id == user_id,
-                and_(GroupMember.is_self == True, Group.user_id == user_id),
-            )
+            TransactionSplit.group_member_id.in_(invited_group_member_ids(user_id)),
+            parent.workspace_id != workspace_id,
+            parent.user_id != user_id,
+            in_bound_workspace(parent.workspace_id),
         )
     )
-    result = await session.execute(
-        select(TransactionSplit.transaction_id, func.sum(TransactionSplit.share_amount))
-        .where(
-            TransactionSplit.transaction_id.in_(list(own_rows)),
-            TransactionSplit.group_member_id.notin_(viewer_member_ids),
-        )
-        .group_by(TransactionSplit.transaction_id)
-    )
-
-    fractions: dict[uuid.UUID, Decimal] = {}
-    for tx_id, others in result.all():
-        full = abs(Decimal(str(own_rows[tx_id].amount)))
-        if not full:
-            continue
-        # Signed and unclamped, like the posted offset: an exact split may
-        # give a member a negative share, and the owner's share then exceeds
-        # the row.
-        fractions[tx_id] = 1 - Decimal(str(others or 0)) / full
-    return fractions
 
 
 async def viewer_shared_pnl(
@@ -983,9 +814,14 @@ async def viewer_shared_pnl(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     posted_only: bool = True,
+    *,
+    workspace_id: uuid.UUID,
 ) -> tuple[float, float]:
-    """Return (income, expense) totals contributed by transactions the
-    viewer doesn't own but participates in via a group split.
+    """Return (income, expense) totals contributed by transactions of other
+    workspaces that the viewer doesn't own but participates in via a group
+    split: the Split Projection. Rows of `workspace_id`, the workspace being
+    viewed, are left out; its readers count them through
+    `viewer_share_of_row`.
 
     Concert tickets paid by a friend show up as the viewer's share in
     their own spending picture — without inflating account balances.
@@ -1017,6 +853,7 @@ async def viewer_shared_pnl(
         .where(
             TransactionSplit.group_member_id.in_(member_ids),
             in_bound_workspace(Transaction.workspace_id),
+            Transaction.workspace_id != workspace_id,
             # Avoid double-counting if the viewer also owns the parent.
             Transaction.user_id != user_id,
             Transaction.source != "opening_balance",
@@ -1069,14 +906,13 @@ async def viewer_shared_spending_by_category(
     use_effective_date: bool = False,
     primary_currency: Optional[str] = None,
     posted_only: bool = True,
-    exclude_workspace_id: Optional[uuid.UUID] = None,
+    *,
+    workspace_id: uuid.UUID,
 ) -> dict:
     """Return {category_id (uuid|None): total_share_expense_float} for
-    transactions where the viewer participates via a group split. A share
-    of a spending-offset credit counts negative, as in `viewer_shared_pnl`.
-
-    `exclude_workspace_id` leaves out transactions of that workspace, for
-    callers that already count them there.
+    transactions of other workspaces where the viewer participates via a
+    group split, leaving out `workspace_id` as `viewer_shared_pnl` does. A
+    share of a spending-offset credit counts negative, as there.
 
     With `primary_currency`, totals are FX-converted; otherwise raw
     nominal sums (single-currency only)."""
@@ -1110,12 +946,8 @@ async def viewer_shared_spending_by_category(
             ),
             date_col >= month_start,
             date_col < month_end,
+            Transaction.workspace_id != workspace_id,
             counts_as_user_pnl(Transaction.category_id),
-            *(
-                [Transaction.workspace_id != exclude_workspace_id]
-                if exclude_workspace_id is not None
-                else []
-            ),
         )
         .group_by(Transaction.category_id, Transaction.currency)
     )

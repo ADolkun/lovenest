@@ -57,6 +57,7 @@ from app.services._query_filters import (
     user_pnl_expense_amount,
     user_pnl_group,
     user_pnl_income_amount,
+    viewer_share_of_row,
     with_category_lines,
 )
 from app.services.recurring_transaction_service import _advance_date
@@ -547,15 +548,21 @@ async def get_transactions(
         # transfers, `treat_as_transfer` categories (transfers, investments,
         # custom) and ignored items are kept OUT of income/expense. It reads
         # category parts, so a split row counts part by part and, under a
-        # category or P/L group filter, only its parts that match count.
+        # category or P/L group filter, only its parts that match count. A
+        # group-split row counts the viewer's part of it, as the reports do,
+        # unless the list is one account's (or bill's) cash.
         part_category = line_category_id()
         pnl_filter = counts_as_user_pnl(part_category)
         amount_norm = line_primary_or_amount()
+        account_scoped = bool(account_ids) or account_id is not None or bill_id is not None
+        split_share = 1 if account_scoped else viewer_share_of_row(user_id)
         parts_query = with_category_lines(
             select(
                 pnl_filter.label("counts"),
-                user_pnl_income_amount(amount_norm, part_category).label("pnl_income"),
-                user_pnl_expense_amount(amount_norm, part_category).label("pnl_expense"),
+                (user_pnl_income_amount(amount_norm, part_category) * split_share)
+                .label("pnl_income"),
+                (user_pnl_expense_amount(amount_norm, part_category) * split_share)
+                .label("pnl_expense"),
                 func.abs(amount_norm).label("amount"),
             ).select_from(Transaction)
         ).where(Transaction.id.in_(select(base_query.subquery().c.id)))

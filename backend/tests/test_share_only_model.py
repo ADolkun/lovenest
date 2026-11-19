@@ -552,13 +552,13 @@ async def test_balance_line_default_currency_passthrough(
 
 
 @pytest.mark.asyncio
-async def test_owner_split_offset_pnl_helper(
+async def test_viewer_share_of_row_helper(
     session: AsyncSession, test_user, test_workspace
 ):
-    """The income/expenses report uses Postgres `to_char`, so we can't
-    exercise it under SQLite. Instead pin its underlying helper — the
-    same one the dashboard uses — directly."""
-    from app.services._query_filters import owner_split_offset_pnl
+    """Pin the per-row fraction every P&L reader multiplies in."""
+    from sqlalchemy import select
+
+    from app.services._query_filters import viewer_share_of_row
 
     await _force_user_currency(session, test_user, "USD")
     today = date.today()
@@ -579,14 +579,11 @@ async def test_owner_split_offset_pnl_helper(
     )
     await session.commit()
 
-    month_start, month_end = _month_window(today)
-    income_offset, expense_offset = await owner_split_offset_pnl(
-        session, test_user.id, month_start, month_end, primary_currency="USD"
+    # Three friends each owe $30; the owner's $30 share is a quarter of it.
+    fraction = await session.scalar(
+        select(viewer_share_of_row(test_user.id)).where(Transaction.id == tx.id)
     )
-    # Three friends each owe $30 → offset is $90; the owner's $30 share
-    # is what survives in the dashboard math.
-    assert income_offset == 0.0
-    assert expense_offset == pytest.approx(90.0, abs=0.01)
+    assert float(fraction) == pytest.approx(0.25)
 
 
 @pytest.mark.asyncio

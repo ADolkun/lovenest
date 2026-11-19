@@ -38,4 +38,5 @@ async def get_cashflow_forecast(
         workspace_id=ctx.workspace.id,
         horizon_days=horizon_days,
         include_discretionary_burn=include_discretionary,
+        user_id=ctx.user_id,
     )

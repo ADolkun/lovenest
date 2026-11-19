@@ -28,10 +28,6 @@ WHOLE_ROW: dict[tuple[str, str], str] = {
         "row flag; a split row is a transfer when all its lines are",
     ("app/services/_query_filters.py", "counts_as_user_pnl_row"):
         "list filter; split rows are matched through their lines",
-    ("app/services/_query_filters.py", "owner_split_offset_pnl"):
-        "group-split shares; a group-split row cannot be split by category",
-    ("app/services/_query_filters.py", "owner_split_offset_by_category"):
-        "group-split shares; a group-split row cannot be split by category",
     ("app/services/_query_filters.py", "viewer_shared_pnl"):
         "group-split shares; a group-split row cannot be split by category",
     ("app/services/_query_filters.py", "viewer_shared_spending_by_category"):
@@ -39,9 +35,7 @@ WHOLE_ROW: dict[tuple[str, str], str] = {
     ("app/services/dashboard_service.py", "get_summary"):
         "pending-categorization count (split rows excluded) and viewer shares",
     ("app/services/report_service.py", "get_income_expenses_report"):
-        "owner and viewer group-split offsets",
-    ("app/services/category_statement_service.py", "get_category_statement"):
-        "owner and member group-split offsets",
+        "the viewer's group-split shares of other workspaces' rows",
 }
 
 

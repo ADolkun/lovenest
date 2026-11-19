@@ -17,7 +17,7 @@ import uuid
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -37,8 +37,7 @@ from app.services._query_filters import (
     reporting_date_col,
     user_pnl_expense_amount,
     user_pnl_income_amount,
-    user_pnl_share_expense,
-    user_pnl_share_income,
+    viewer_share_of_row,
     viewer_shared_spending_by_category,
     with_category_lines,
 )
@@ -67,113 +66,11 @@ def _pnl_sums(amount_expr, category_id=None):
     )
 
 
-def _share_sums(share_expr):
-    """Group-split shares judge the whole row: it cannot also be split by
-    category."""
-    return (
-        func.sum(user_pnl_share_income(share_expr, Transaction.category_id)),
-        func.sum(user_pnl_share_expense(share_expr, Transaction.category_id)),
-    )
-
-
 def _totals(rows) -> _MonthTotals:
     return {
         cat_id: (float(income or 0), float(expense or 0))
         for cat_id, income, expense in rows
     }
-
-
-def _subtract(totals: _MonthTotals, offsets: _MonthTotals) -> None:
-    for cat_id, (income_off, expense_off) in offsets.items():
-        income, expense = totals.get(cat_id, (0.0, 0.0))
-        totals[cat_id] = (income - income_off, expense - expense_off)
-
-
-async def _owner_split_offset_by_category(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    amount_expr,
-    filters: list,
-) -> _MonthTotals:
-    """Per category, the (income, expense) of the other members' shares of
-    the viewer's own split rows in this workspace, for the viewer to
-    subtract. A share is classified as its row is, so the others' part of a
-    refund is a negative expense offset, as in `owner_split_offset_pnl`.
-
-    Shares are scaled into the primary amount by the transaction's own
-    ratio, so they use the rate stored at import like the totals they come
-    off, not today's rate.
-    """
-    from app.models.group import Group, GroupMember
-    from app.models.transaction_split import TransactionSplit
-
-    viewer_member_ids = (
-        select(GroupMember.id)
-        .outerjoin(Group, Group.id == GroupMember.group_id)
-        .where(
-            or_(
-                GroupMember.linked_user_id == user_id,
-                and_(GroupMember.is_self.is_(True), Group.user_id == user_id),
-            )
-        )
-    )
-    share_primary = (
-        TransactionSplit.share_amount * amount_expr / func.nullif(func.abs(Transaction.amount), 0)
-    )
-    result = await session.execute(
-        select(Transaction.category_id, *_share_sums(share_primary))
-        .select_from(TransactionSplit)
-        .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
-        .join(Account, Transaction.account_id == Account.id)
-        .where(
-            *filters,
-            Transaction.user_id == user_id,
-            TransactionSplit.group_member_id.notin_(viewer_member_ids),
-        )
-        .group_by(Transaction.category_id)
-    )
-    return _totals(result.all())
-
-
-async def _member_split_offset_by_category(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    amount_expr,
-    filters: list,
-) -> _MonthTotals:
-    """Per category, the (income, expense) of the part of other members'
-    split rows in this workspace that is not the viewer's share, for the
-    viewer to subtract.
-
-    The share is in the transaction's own currency, so it is scaled into the
-    primary amount by the same ratio as the transaction.
-    """
-    from app.models.group import GroupMember
-    from app.models.transaction_split import TransactionSplit
-
-    viewer_member_ids = select(GroupMember.id).where(
-        GroupMember.linked_user_id == user_id,
-        GroupMember.is_self.is_(False),
-    )
-    share_primary = (
-        TransactionSplit.share_amount * amount_expr / func.nullif(func.abs(Transaction.amount), 0)
-    )
-    result = await session.execute(
-        select(
-            Transaction.category_id,
-            *_share_sums(amount_expr - func.coalesce(share_primary, 0)),
-        )
-        .select_from(TransactionSplit)
-        .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
-        .join(Account, Transaction.account_id == Account.id)
-        .where(
-            *filters,
-            Transaction.user_id != user_id,
-            TransactionSplit.group_member_id.in_(viewer_member_ids),
-        )
-        .group_by(Transaction.category_id)
-    )
-    return _totals(result.all())
 
 
 async def get_category_statement(
@@ -189,17 +86,15 @@ async def get_category_statement(
 
     Posted transactions only, bucketed by the same reporting date as the other
     reports, and never past today. Closed accounts keep their history here,
-    as in the other period reports. A split expense counts only the viewer's
-    share: the owner keeps the amount less the other members' shares, a
-    workspace member in the split keeps their own share, and someone else's
-    split from outside the workspace adds the viewer's share. All of that is
-    skipped when the report is scoped to some accounts.
+    as in the other period reports. A group-split row counts only the
+    viewer's part of it (`viewer_share_of_row`), and someone else's split
+    from outside the workspace adds the viewer's share. Both are skipped when
+    the report is scoped to some accounts.
     """
     filtered = account_ids is not None
     acct_filter = [Transaction.account_id.in_(account_ids)] if filtered else []
     accounting_mode = await get_credit_card_accounting_mode(session)
     report_date = reporting_date_col(accounting_mode)
-    amount_expr = func.abs(func.coalesce(Transaction.amount_primary, Transaction.amount))
     today = app_today()
 
     selected = month.replace(day=1)
@@ -211,11 +106,13 @@ async def get_category_statement(
         report_date <= today,
         *acct_filter,
     ]
-    # The statement's own sums go part by part, so a row split across
-    # categories lands in each of them; group-split offsets stay whole rows.
-    line_sums = _pnl_sums(line_primary_or_amount(), line_category_id())
+    # The statement's sums go part by part, so a row split across
+    # categories lands in each of them.
+    line_sums = _pnl_sums(
+        line_primary_or_amount() * (1 if filtered else viewer_share_of_row(user_id)),
+        line_category_id(),
+    )
     line_filters = [*base_filters, counts_as_user_pnl(line_category_id())]
-    base_filters.append(counts_as_user_pnl(Transaction.category_id))
 
     cats_result = await session.execute(
         select(Category, CategoryGroup)
@@ -243,22 +140,11 @@ async def get_category_statement(
         totals.update(_totals(result.all()))
 
         if not filtered:
-            use_effective_date = accounting_mode == "accrual"
-            _subtract(totals, await _owner_split_offset_by_category(
-                session, user_id, amount_expr,
-                [*base_filters, report_date >= m_start, report_date < m_end],
-            ))
-            # Another member's split row in this workspace is already in the
-            # totals at its full amount; keep only the viewer's share.
-            _subtract(totals, await _member_split_offset_by_category(
-                session, user_id, amount_expr,
-                [*base_filters, report_date >= m_start, report_date < m_end],
-            ))
             shared = await viewer_shared_spending_by_category(
                 session, user_id, m_start, m_end,
-                use_effective_date=use_effective_date,
+                use_effective_date=accounting_mode == "accrual",
                 primary_currency=primary_currency,
-                exclude_workspace_id=workspace_id,
+                workspace_id=workspace_id,
             )
             for cat_id, share in shared.items():
                 # Shares of someone else's transaction carry that person's
@@ -289,24 +175,11 @@ async def get_category_statement(
         for cat_id, (income, expense) in _totals(lifetime_result.all()).items()
     }
     if not filtered:
-        use_effective_date = accounting_mode == "accrual"
-        own_offset = await _owner_split_offset_by_category(
-            session, user_id, amount_expr, [*base_filters, report_date < lifetime_end],
-        )
-        member_offset = await _member_split_offset_by_category(
-            session, user_id, amount_expr, [*base_filters, report_date < lifetime_end],
-        )
-        for offsets in (own_offset, member_offset):
-            for cat_id, (income_off, expense_off) in offsets.items():
-                if cat_id is not None:
-                    lifetime_net[cat_id] = (
-                        lifetime_net.get(cat_id, 0.0) - income_off + expense_off
-                    )
         shared = await viewer_shared_spending_by_category(
             session, user_id, date.min, lifetime_end,
-            use_effective_date=use_effective_date,
+            use_effective_date=accounting_mode == "accrual",
             primary_currency=primary_currency,
-            exclude_workspace_id=workspace_id,
+            workspace_id=workspace_id,
         )
         for cat_id, share in shared.items():
             if cat_id in known_ids:

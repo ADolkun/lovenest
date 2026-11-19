@@ -25,14 +25,13 @@ from app.services._query_filters import (
     line_category_id,
     line_primary_or_amount,
     with_category_lines,
-    owner_split_offset_by_category,
-    owner_split_offset_pnl,
     reporting_date_col,
     reporting_date_value,
     signed_amount_expr,
     user_pnl_expense_amount,
     user_pnl_group,
     user_pnl_income_amount,
+    viewer_share_of_row,
     viewer_shared_pnl,
     viewer_shared_spending_by_category,
 )
@@ -350,11 +349,18 @@ async def _get_forecast_pnl_rows(
     range_end: date,
     account_ids: Optional[list[uuid.UUID]] = None,
     range_date_col=None,
+    viewer_id: Optional[uuid.UUID] = None,
 ) -> list[ForecastPnlRow]:
-    """The counted parts of forecast rows in user P&L, with their shares."""
+    """The counted parts of forecast rows in user P&L, with their shares.
+
+    With `viewer_id` the income and expense shares are that user's part of a
+    group-split row (`viewer_share_of_row`); without it they cover the whole
+    row, for readers that follow cash through some accounts.
+    """
     if account_ids is not None and len(account_ids) == 0:
         return []
     part_category = line_category_id()
+    split_share = 1 if viewer_id is None else viewer_share_of_row(viewer_id)
     stmt = (
         with_category_lines(
             _forecast_statement(workspace_id, range_start, range_end, account_ids, range_date_col)
@@ -362,8 +368,8 @@ async def _get_forecast_pnl_rows(
         .add_columns(
             part_category,
             func.abs(line_amount()),
-            user_pnl_income_amount(line_amount(), part_category),
-            user_pnl_expense_amount(line_amount(), part_category),
+            user_pnl_income_amount(line_amount(), part_category) * split_share,
+            user_pnl_expense_amount(line_amount(), part_category) * split_share,
             user_pnl_group(part_category),
         )
         .where(counts_as_user_pnl(part_category))
@@ -539,11 +545,14 @@ async def get_summary(
     # (whose offset is already in the owner's share, see share-only model).
     # Only posted (settled) transactions count in the actual period totals;
     # pending and future rows are layered into the forecast fields below.
+    # A group-split row counts only the viewer's part of it, unless the
+    # collection filter asks for the raw figures of its accounts.
+    split_share = 1 if filtered else viewer_share_of_row(user_id)
     monthly_result = await session.execute(
         with_category_lines(
             select(
-                func.sum(user_pnl_income_amount(line_amount(), line_category_id())),
-                func.sum(user_pnl_expense_amount(line_amount(), line_category_id())),
+                func.sum(user_pnl_income_amount(line_amount(), line_category_id()) * split_share),
+                func.sum(user_pnl_expense_amount(line_amount(), line_category_id()) * split_share),
             ).select_from(Transaction)
         )
         .where(
@@ -563,25 +572,10 @@ async def get_summary(
     base_monthly_income = monthly_income
     base_monthly_expenses = monthly_expenses
 
-    own_offset_inc = own_offset_exp = shared_income = shared_expenses = 0.0
+    shared_income = shared_expenses = 0.0
     if not filtered:
-        # Subtract non-owner shares of the user's own split txs — they paid
-        # for the others, so those amounts aren't their actual cost.
-        own_offset_inc, own_offset_exp = await owner_split_offset_pnl(
-            session,
-            user_id,
-            month_start,
-            month_end,
-            use_effective_date=accounting_mode == "accrual",
-            workspace_id=workspace_id,
-            posted_only=True,
-        )
-        monthly_income -= own_offset_inc
-        monthly_expenses -= own_offset_exp
-
-        # Add the viewer's share from group splits where they're a linked
-        # member but not the owner. Their concert ticket paid by a friend
-        # is a real expense in their P/L picture.
+        # Add the viewer's share of group splits in other workspaces. Their
+        # concert ticket paid by a friend is a real expense in their P/L.
         shared_income, shared_expenses = await viewer_shared_pnl(
             session,
             user_id,
@@ -589,6 +583,7 @@ async def get_summary(
             month_end,
             use_effective_date=accounting_mode == "accrual",
             posted_only=True,
+            workspace_id=workspace_id,
         )
         monthly_income += shared_income
         monthly_expenses += shared_expenses
@@ -607,6 +602,7 @@ async def get_summary(
     forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, month_start, month_end, account_ids,
         range_date_col=report_date,
+        viewer_id=None if filtered else user_id,
     )
     for proj in projections:
         projected_monthly_income += proj["amount"] * proj["income_share"]
@@ -617,12 +613,6 @@ async def get_summary(
         projected_monthly_expenses += float(magnitude * row.expense_share)
 
     if not filtered:
-        all_own_inc, all_own_exp = await owner_split_offset_pnl(
-            session, user_id, month_start, month_end,
-            use_effective_date=accounting_mode == "accrual",
-            workspace_id=workspace_id,
-            posted_only=False,
-        )
         all_shared_inc, all_shared_exp = await viewer_shared_pnl(
             session,
             user_id,
@@ -630,13 +620,10 @@ async def get_summary(
             month_end,
             use_effective_date=accounting_mode == "accrual",
             posted_only=False,
+            workspace_id=workspace_id,
         )
-        projected_monthly_income += (
-            own_offset_inc - all_own_inc + all_shared_inc - shared_income
-        )
-        projected_monthly_expenses += (
-            own_offset_exp - all_own_exp + all_shared_exp - shared_expenses
-        )
+        projected_monthly_income += all_shared_inc - shared_income
+        projected_monthly_expenses += all_shared_exp - shared_expenses
 
     # Account count — the active collection's accounts when filtered, else all
     # accounts in this workspace (manual + bank-connected).
@@ -723,8 +710,14 @@ async def get_summary(
     primary_result = await session.execute(
         with_category_lines(
             select(
-                func.sum(user_pnl_income_amount(line_amount_primary(), line_category_id())),
-                func.sum(user_pnl_expense_amount(line_amount_primary(), line_category_id())),
+                func.sum(
+                    user_pnl_income_amount(line_amount_primary(), line_category_id())
+                    * split_share
+                ),
+                func.sum(
+                    user_pnl_expense_amount(line_amount_primary(), line_category_id())
+                    * split_share
+                ),
             ).select_from(Transaction)
         )
         .where(
@@ -744,22 +737,8 @@ async def get_summary(
         monthly_income_primary = float(primary_row[0] or 0)
         monthly_expenses_primary = float(primary_row[1] or 0)
 
-    own_offset_inc_pri = own_offset_exp_pri = 0.0
     shared_income_pri = shared_expenses_pri = 0.0
     if not filtered:
-        # Apply share-only offset in primary currency (FX-converted).
-        own_offset_inc_pri, own_offset_exp_pri = await owner_split_offset_pnl(
-            session,
-            user_id,
-            month_start,
-            month_end,
-            use_effective_date=accounting_mode == "accrual",
-            primary_currency=primary_currency,
-            workspace_id=workspace_id,
-            posted_only=True,
-        )
-        monthly_income_primary -= own_offset_inc_pri
-        monthly_expenses_primary -= own_offset_exp_pri
         shared_income_pri, shared_expenses_pri = await viewer_shared_pnl(
             session,
             user_id,
@@ -768,6 +747,7 @@ async def get_summary(
             use_effective_date=accounting_mode == "accrual",
             primary_currency=primary_currency,
             posted_only=True,
+            workspace_id=workspace_id,
         )
         monthly_income_primary += shared_income_pri
         monthly_expenses_primary += shared_expenses_pri
@@ -789,27 +769,15 @@ async def get_summary(
         projected_expenses_primary += float(magnitude * row.expense_share)
 
     if not filtered:
-        all_own_inc_pri, all_own_exp_pri = await owner_split_offset_pnl(
-            session, user_id, month_start, month_end,
-            use_effective_date=accounting_mode == "accrual",
-            primary_currency=primary_currency,
-            workspace_id=workspace_id,
-            posted_only=False,
-        )
         all_shared_inc_pri, all_shared_exp_pri = await viewer_shared_pnl(
             session, user_id, month_start, month_end,
             use_effective_date=accounting_mode == "accrual",
             primary_currency=primary_currency,
             posted_only=False,
+            workspace_id=workspace_id,
         )
-        projected_income_primary += (
-            own_offset_inc_pri - all_own_inc_pri
-            + all_shared_inc_pri - shared_income_pri
-        )
-        projected_expenses_primary += (
-            own_offset_exp_pri - all_own_exp_pri
-            + all_shared_exp_pri - shared_expenses_pri
-        )
+        projected_income_primary += all_shared_inc_pri - shared_income_pri
+        projected_expenses_primary += all_shared_exp_pri - shared_expenses_pri
 
     # Aggregate the user's net pending balance across all groups they
     # participate in. We reuse the group balance computation so partial
@@ -941,8 +909,11 @@ async def get_spending_by_category(
 
     # Real transactions grouped by category (exclude transfer-like movements).
     # Closed accounts stay in: their history belongs to the period it happened
-    # in. Use amount_primary for multi-currency support.
-    expense_amount = user_pnl_expense_amount(line_primary_or_amount(), line_category_id())
+    # in. Use amount_primary for multi-currency support. A group-split row
+    # counts the viewer's part, as on the summary card.
+    expense_amount = user_pnl_expense_amount(line_primary_or_amount(), line_category_id()) * (
+        1 if filtered else viewer_share_of_row(user_id)
+    )
     result = await session.execute(
         with_category_lines(
             select(
@@ -982,31 +953,15 @@ async def get_spending_by_category(
             "projected": 0.0,
         }
 
-    # Subtract non-owner shares per category — owner-side splits should
-    # contribute only the owner's share, not the full amount.
-    owner_offset = {} if filtered else await owner_split_offset_by_category(
-        session,
-        user_id,
-        month_start,
-        month_end,
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-        workspace_id=workspace_id,
-        posted_only=True,
-    )
-    for cat_uuid, offset_total in owner_offset.items():
-        cat_id = str(cat_uuid) if cat_uuid else None
-        if cat_id in spending_map:
-            spending_map[cat_id]["total"] -= offset_total
-
     # Add shared shares — the viewer's portion of group-split spending
-    # (net of refunds) they participate in but don't own. The category
-    # comes from the parent transaction.
+    # (net of refunds) in other workspaces. The category comes from the
+    # parent transaction.
     shared_by_cat = {} if filtered else await viewer_shared_spending_by_category(
         session, user_id, month_start, month_end,
         use_effective_date=accounting_mode == "accrual",
         primary_currency=primary_currency,
         posted_only=True,
+        workspace_id=workspace_id,
     )
     if shared_by_cat:
         cat_meta_cache: dict[str | None, dict] = {}
@@ -1086,6 +1041,7 @@ async def get_spending_by_category(
     forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, month_start, month_end, account_ids,
         range_date_col=report_date,
+        viewer_id=None if filtered else user_id,
     )
     for row in forecast_rows:
         if not row.expense_share:
@@ -1111,22 +1067,6 @@ async def get_spending_by_category(
             spending_map[cat_id] = {**info, "total": 0.0, "projected": projected_amount}
 
     if not filtered:
-        all_owner_offset = await owner_split_offset_by_category(
-            session,
-            user_id,
-            month_start,
-            month_end,
-            use_effective_date=accounting_mode == "accrual",
-            primary_currency=primary_currency,
-            workspace_id=workspace_id,
-            posted_only=False,
-        )
-        for cat_uuid, all_offset in all_owner_offset.items():
-            cat_id = str(cat_uuid) if cat_uuid else None
-            forecast_offset = all_offset - owner_offset.get(cat_uuid, 0.0)
-            if cat_id in spending_map:
-                spending_map[cat_id]["projected"] -= forecast_offset
-
         all_shared_by_cat = await viewer_shared_spending_by_category(
             session,
             user_id,
@@ -1135,6 +1075,7 @@ async def get_spending_by_category(
             use_effective_date=accounting_mode == "accrual",
             primary_currency=primary_currency,
             posted_only=False,
+            workspace_id=workspace_id,
         )
         for cat_uuid, all_share in all_shared_by_cat.items():
             forecast_share = all_share - shared_by_cat.get(cat_uuid, 0.0)
@@ -1205,12 +1146,13 @@ async def get_monthly_trend(
     report_date = reporting_date_col(accounting_mode)
     month_label = func.to_char(report_date, 'YYYY-MM').label('month')
     primary_amt = line_primary_or_amount()
+    split_share = 1 if filtered else viewer_share_of_row(user_id)
     result = await session.execute(
         with_category_lines(
             select(
                 month_label,
-                func.sum(user_pnl_income_amount(primary_amt, line_category_id())),
-                func.sum(user_pnl_expense_amount(primary_amt, line_category_id())),
+                func.sum(user_pnl_income_amount(primary_amt, line_category_id()) * split_share),
+                func.sum(user_pnl_expense_amount(primary_amt, line_category_id()) * split_share),
             ).select_from(Transaction)
         )
         .where(
@@ -1247,6 +1189,7 @@ async def get_monthly_trend(
     forecast_rows = await _get_forecast_pnl_rows(
         session, workspace_id, forecast_start, forecast_end, account_ids,
         range_date_col=report_date,
+        viewer_id=None if filtered else user_id,
     )
     for row in forecast_rows:
         tx = row.transaction
@@ -1263,8 +1206,7 @@ async def get_monthly_trend(
         reverse=True,
     )[:months]
 
-    # Subtract owner non-owner-share offsets per month, and add the
-    # viewer's shares of others' splits.
+    # Add the viewer's shares of splits in other workspaces.
     adjusted: list[MonthlyTrend] = []
     for month_str, income, expenses in trends_raw:
         year, mnum = month_str.split("-")
@@ -1275,28 +1217,22 @@ async def get_monthly_trend(
             else date(int(year) + 1, 1, 1)
         )
         if filtered:
-            own_inc, own_exp, shared_inc, shared_exp = 0.0, 0.0, 0.0, 0.0
+            shared_inc, shared_exp = 0.0, 0.0
         else:
-            own_inc, own_exp = await owner_split_offset_pnl(
-                session, user_id, m_start, m_end,
-                use_effective_date=accounting_mode == "accrual",
-                primary_currency=primary_currency,
-                workspace_id=workspace_id,
-                posted_only=False,
-            )
             shared_inc, shared_exp = await viewer_shared_pnl(
                 session, user_id, m_start, m_end,
                 use_effective_date=accounting_mode == "accrual",
                 primary_currency=primary_currency,
                 posted_only=False,
+                workspace_id=workspace_id,
             )
         # Expenses stay signed, like the summary card's: a month where money
         # back outweighs spending is legitimately negative.
         adjusted.append(
             MonthlyTrend(
                 month=month_str,
-                income=max(0.0, income - own_inc + shared_inc),
-                expenses=expenses - own_exp + shared_exp,
+                income=max(0.0, income + shared_inc),
+                expenses=expenses + shared_exp,
             )
         )
 

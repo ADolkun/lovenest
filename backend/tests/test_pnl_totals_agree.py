@@ -12,6 +12,10 @@ still give the same income and the same expenses:
 - a row split across categories counts part by part,
 - a valid transfer pair counts for nothing,
 - a group-split expense counts only its owner's share.
+
+A group-split row is then read from every seat (the payer, a linked member
+and a bystander in its workspace, and a linked member in another workspace),
+and every reader must give each of them the same figure.
 """
 
 import uuid
@@ -22,14 +26,19 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.budget import Budget
+from app.models.category import Category
 from app.models.group import Group, GroupMember
 from app.models.transaction import Transaction
 from app.models.transaction_category_line import TransactionCategoryLine
 from app.models.transaction_reimbursement import TransactionReimbursement
 from app.models.transaction_split import TransactionSplit
-from app.services import dashboard_service, report_service
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services import budget_service, dashboard_service, report_service
 from app.services.cashflow_forecast_service import generate_cashflow_forecast
 from app.services.category_statement_service import get_category_statement
+from app.services.transaction_service import get_transactions
 
 MONTH = date(2025, 2, 1)
 INCOME = 5000.0
@@ -159,3 +168,167 @@ async def test_the_statement_and_burn_queries_run_on_postgresql(postgres_session
             session, uuid.uuid4(), uuid.uuid4(), MONTH, months=1, primary_currency="BRL",
         )
     assert statement.income.rows == [] and statement.expenses.rows == []
+
+
+# The payer pays 120 on Dining, split 60 / 40 / 20 between payer, member and
+# outsider, then gets a 30 refund split 15 / 10 / 5. Each seat's expenses:
+SPLIT_EXPENSES = {"payer": 45.0, "member": 30.0, "bystander": 90.0, "outsider": 15.0}
+
+
+async def _shared_workspace_split(session: AsyncSession) -> dict:
+    """Seed the split; return {seat: (user_id, workspace_id)} and the shared
+    workspace's Dining category under "dining"."""
+
+    def user(name):
+        return User(
+            id=uuid.uuid4(), email=f"{name}@example.com", hashed_password="x",
+            is_active=True, is_superuser=False, is_verified=True,
+            preferences={"currency_display": "BRL"},
+        )
+
+    payer, member, bystander, outsider = (
+        user(name) for name in ("payer", "member", "bystander", "outsider")
+    )
+    session.add_all([payer, member, bystander, outsider])
+    await session.flush()
+    shared = Workspace(id=uuid.uuid4(), name="Home", created_by_user_id=payer.id, default_currency="BRL")
+    elsewhere = Workspace(
+        id=uuid.uuid4(), name="Outsider's", created_by_user_id=outsider.id, default_currency="BRL",
+    )
+    session.add_all([shared, elsewhere])
+    await session.flush()
+    session.add_all([
+        WorkspaceMember(id=uuid.uuid4(), workspace_id=shared.id, user_id=payer.id, role="owner"),
+        WorkspaceMember(id=uuid.uuid4(), workspace_id=shared.id, user_id=member.id, role="editor"),
+        WorkspaceMember(id=uuid.uuid4(), workspace_id=shared.id, user_id=bystander.id, role="editor"),
+        WorkspaceMember(id=uuid.uuid4(), workspace_id=elsewhere.id, user_id=outsider.id, role="owner"),
+    ])
+    dining = Category(id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, name="Dining")
+    checking = Account(
+        id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, name="Payer's",
+        type="checking", balance=Decimal("0"), currency="BRL",
+    )
+    group = Group(id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, name="Dinners")
+    session.add_all([dining, checking, group])
+    await session.flush()
+    members = [
+        GroupMember(
+            id=uuid.uuid4(), group_id=group.id, workspace_id=shared.id, name=name,
+            is_self=is_self, linked_user_id=linked.id,
+        )
+        for name, is_self, linked in (
+            ("Payer", True, payer), ("Member", False, member), ("Outsider", False, outsider),
+        )
+    ]
+    session.add_all(members)
+    rows = [
+        (
+            Transaction(
+                id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, account_id=checking.id,
+                category_id=dining.id, description=f"Dinner {type_}", amount=Decimal(amount),
+                amount_primary=Decimal(amount), currency="BRL", date=date(2025, 2, day),
+                type=type_, source="manual", status="posted", created_at=datetime.now(timezone.utc),
+            ),
+            shares,
+        )
+        for amount, type_, day, shares in (
+            ("120", "debit", 8, ("60", "40", "20")),
+            ("30", "credit", 18, ("15", "10", "5")),
+        )
+    ]
+    session.add_all([row for row, _ in rows])
+    await session.flush()
+    session.add_all([
+        TransactionSplit(
+            transaction_id=row.id, workspace_id=shared.id, group_member_id=split_member.id,
+            share_amount=Decimal(share),
+        )
+        for row, shares in rows
+        for split_member, share in zip(members, shares)
+    ])
+    await session.commit()
+    return {
+        "payer": (payer.id, shared.id),
+        "member": (member.id, shared.id),
+        "bystander": (bystander.id, shared.id),
+        "outsider": (outsider.id, elsewhere.id),
+        "dining": dining.id,
+    }
+
+
+async def _expenses_by_reader(session: AsyncSession, user_id, workspace_id, dining_id) -> dict:
+    summary = await dashboard_service.get_summary(session, workspace_id, user_id, MONTH)
+    spending = await dashboard_service.get_spending_by_category(
+        session, workspace_id, user_id, month=MONTH,
+    )
+    report = await report_service.get_income_expenses_report(
+        session, workspace_id, user_id, currency="BRL",
+        start_date=MONTH, end_date=date(2025, 2, 28),
+    )
+    statement = await get_category_statement(
+        session, workspace_id, user_id, MONTH, months=1, primary_currency="BRL",
+    )
+    forecast = await generate_cashflow_forecast(
+        session, workspace_id, horizon_days=1, reference_date=date(2025, 3, 15), user_id=user_id,
+    )
+    _, _, footer = await get_transactions(
+        session, workspace_id, user_id, from_date=MONTH, to_date=date(2025, 2, 28),
+        include_summary=True, user_pnl_only=True,
+    )
+    assert footer is not None
+    readers = {
+        "dashboard card": summary.monthly_expenses_primary,
+        "dashboard card (native)": summary.monthly_expenses,
+        "spending by category": sum(row.total for row in spending),
+        "income/expense report": {b.key: b.value for b in report.summary.breakdowns}["expenses"],
+        "category statement": -(statement.income.totals[0] + statement.expenses.totals[0]),
+        "cash-flow burn": float(forecast.daily_trajectory[1].discretionary_burn),
+        "transactions footer": float(footer["expense"]),
+    }
+    # Another workspace's category has no budget row in the viewer's own.
+    dining = await session.get(Category, dining_id)
+    if dining is not None and dining.workspace_id == workspace_id:
+        session.add(Budget(
+            user_id=user_id, workspace_id=workspace_id, category_id=dining_id,
+            amount=Decimal("500"), month=MONTH,
+        ))
+        await session.flush()
+        rows = await budget_service.get_budget_vs_actual(session, workspace_id, user_id, month=MONTH)
+        readers["budget actual"] = float(
+            next(row for row in rows if row.category_id == dining_id).actual_amount
+        )
+        await session.rollback()
+    return readers
+
+
+def _expected(readers: dict, expenses: float) -> dict:
+    """The burn is the 90-day window's spending a day, to the cent."""
+    burn = float((Decimal(str(expenses)) / 90).quantize(Decimal("0.01")))
+    return {
+        name: pytest.approx(burn if name == "cash-flow burn" else expenses)
+        for name in readers
+    }
+
+
+@pytest.mark.parametrize("seat", list(SPLIT_EXPENSES))
+async def test_a_split_reads_the_viewers_part_in_every_reader(session, clean_db, seat):
+    connection = await session.connection()
+    await connection.run_sync(
+        lambda conn: conn.connection.dbapi_connection.create_function(
+            "to_char", 2, lambda value, _fmt: None if value is None else str(value)[:7]
+        )
+    )
+    seats = await _shared_workspace_split(session)
+    user_id, workspace_id = seats[seat]
+    readers = await _expenses_by_reader(session, user_id, workspace_id, seats["dining"])
+    assert readers == _expected(readers, SPLIT_EXPENSES[seat])
+
+
+async def test_a_split_reads_the_viewers_part_in_every_reader_on_postgresql(postgres_sessions):
+    async with postgres_sessions() as session:
+        seats = await _shared_workspace_split(session)
+    for seat, expenses in SPLIT_EXPENSES.items():
+        user_id, workspace_id = seats[seat]
+        async with postgres_sessions() as session:
+            readers = await _expenses_by_reader(session, user_id, workspace_id, seats["dining"])
+        assert readers == _expected(readers, expenses), seat

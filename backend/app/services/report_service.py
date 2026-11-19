@@ -19,13 +19,11 @@ from app.models.user import User
 from app.services._query_filters import (
     counts_as_pnl,
     counts_as_user_pnl,
-    forecast_owner_share_fractions,
     holding_inside_account_balance,
     line_amount,
     line_amount_primary,
     line_category_id,
     line_primary_or_amount,
-    owner_split_offset_by_category,
     reporting_date_col,
     reporting_date_value,
     user_pnl_expense_amount,
@@ -33,6 +31,7 @@ from app.services._query_filters import (
     user_pnl_income_amount,
     user_pnl_share_expense,
     user_pnl_share_income,
+    viewer_share_of_row,
     with_category_lines,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
@@ -536,8 +535,9 @@ async def get_income_expenses_report(
 
     # Use amount_primary when available, fall back to amount. Every query
     # summing it joins the category lines, so a split transaction counts part
-    # by part (and its transfer-like parts drop out alone).
-    amount_expr = line_primary_or_amount()
+    # by part (and its transfer-like parts drop out alone). A group-split row
+    # counts the viewer's part of it unless the report is scoped to accounts.
+    amount_expr = line_primary_or_amount() * (1 if filtered else viewer_share_of_row(user_id))
 
     result = await session.execute(
         with_category_lines(
@@ -569,70 +569,12 @@ async def get_income_expenses_report(
         expenses = float(row[2] or 0)
         data_map[row[0]] = (income, expenses)
 
-    # Subtract non-owner shares of the user's own splits per period — the
-    # user shouldn't be charged for the parts they're owed back.
-    from sqlalchemy import or_ as _or_, and_ as _and_
-    from app.models.group import Group as _Group_, GroupMember as _GroupMember_
-    from app.models.transaction_split import TransactionSplit as _TS_
     from app.services.fx_rate_service import convert as fx_convert
 
-    own_member_ids_sq = (
-        select(_GroupMember_.id)
-        .outerjoin(_Group_, _Group_.id == _GroupMember_.group_id)
-        .where(
-            _or_(
-                _GroupMember_.linked_user_id == user_id,
-                _and_(_GroupMember_.is_self == True, _Group_.user_id == user_id),
-            )
-        )
-    )
-    owner_offset_result = await session.execute(
-        select(
-            label_expr,
-            Transaction.currency,
-            func.sum(user_pnl_share_income(_TS_.share_amount)),
-            func.sum(user_pnl_share_expense(_TS_.share_amount)),
-        )
-        .select_from(_TS_)
-        .join(Transaction, _TS_.transaction_id == Transaction.id)
-        .where(
-            Transaction.user_id == user_id,
-            Transaction.workspace_id == workspace_id,
-            _TS_.group_member_id.notin_(own_member_ids_sq),
-            report_date >= start,
-            report_date <= axis_end,
-            Transaction.source != "opening_balance",
-            Transaction.status == "posted",
-            counts_as_user_pnl(Transaction.category_id),
-        )
-        .group_by(label_expr, Transaction.currency)
-    )
-    for row in (owner_offset_result.all() if not filtered else []):
-        period, currency, raw_income, raw_expense = row
-        sub_inc = 0.0
-        sub_exp = 0.0
-        if raw_income:
-            inc_pri, _ = await fx_convert(
-                session, Decimal(str(raw_income)), currency, primary_currency
-            )
-            sub_inc = float(inc_pri)
-        if raw_expense:
-            exp_pri, _ = await fx_convert(
-                session, Decimal(str(raw_expense)), currency, primary_currency
-            )
-            sub_exp = float(exp_pri)
-        existing_income, existing_expenses = data_map.get(period, (0.0, 0.0))
-        # Expenses are not clamped: a period where money back outweighs
-        # spending is legitimately negative, as on the dashboard card.
-        data_map[period] = (
-            max(0.0, existing_income - sub_inc),
-            existing_expenses - sub_exp,
-        )
-
-    # Layer in the viewer's share from group splits — concert tickets
-    # paid by a friend show up as the viewer's expense in their P/L
-    # picture, just like in /transactions and the dashboard. Group by
-    # currency so we can FX-convert each bucket to primary correctly.
+    # Layer in the viewer's share from group splits in other workspaces —
+    # concert tickets paid by a friend show up as the viewer's expense in
+    # their P/L picture, just like in /transactions and the dashboard. Group
+    # by currency so we can FX-convert each bucket to primary correctly.
     from app.models.transaction_split import TransactionSplit
 
     # Exclude is_self memberships — the owner's own self-member must
@@ -660,7 +602,6 @@ async def get_income_expenses_report(
         )
         .group_by(label_expr, Transaction.currency)
     )
-    from app.services.fx_rate_service import convert as fx_convert
     for row in (shared_result.all() if not filtered else []):
         period, currency, raw_income, raw_expense = row
         share_income_pri = 0.0
@@ -712,17 +653,11 @@ async def get_income_expenses_report(
         forecast_rows = await _get_forecast_pnl_rows(
             session, workspace_id, max(m_start, start), m_end, account_ids,
             range_date_col=report_date,
-        )
-        forecast_fractions = (
-            {} if filtered
-            else await forecast_owner_share_fractions(
-                session, user_id, [row.transaction for row in forecast_rows]
-            )
+            viewer_id=None if filtered else user_id,
         )
         for forecast_row in forecast_rows:
             tx = forecast_row.transaction
             magnitude = await forecast_row.magnitude_primary(session, primary_currency)
-            magnitude *= forecast_fractions.get(tx.id, Decimal(1))
             tx_report_date = reporting_date_value(tx, accounting_mode)
             label = _format_date_label(tx_report_date, interval)
             existing_income, existing_expenses = forecast_map.get(label, (0.0, 0.0))
@@ -888,21 +823,6 @@ async def get_income_expenses_report(
             "value": float(total_amount or 0),
         }
 
-    # Subtract non-owner shares of own splits from the expense side. Applied
-    # to the signed net before anything is dropped: the others' part of a
-    # shared refund can turn a category that netted to zero into real spend.
-    full_range_offset = {} if filtered else await owner_split_offset_by_category(
-        session, user_id, start, axis_end + timedelta(days=1),
-        use_effective_date=accounting_mode == "accrual",
-        primary_currency=primary_currency,
-        workspace_id=workspace_id,
-    )
-    for cat_uuid, offset_total in full_range_offset.items():
-        cat_key = str(cat_uuid) if cat_uuid else "uncategorized"
-        comp_key = (cat_key, "expenses")
-        if comp_key in comp_map:
-            comp_map[comp_key]["value"] -= offset_total
-
     # Investment-style outflows: transactions in `treat_as_transfer` categories
     # are excluded from P&L by counts_as_user_pnl (an investment application's
     # counterpart is an Asset/Holding, not spending). But for the cashflow Sankey
@@ -917,7 +837,7 @@ async def get_income_expenses_report(
                 Category.id,
                 Category.name,
                 Category.color,
-                func.sum(amount_expr),
+                func.sum(line_primary_or_amount()),
             ).select_from(Transaction)
         )
         .join(Category, line_category_id() == Category.id)
@@ -991,45 +911,6 @@ async def get_income_expenses_report(
             + float(total_amount or 0)
         )
 
-    # Subtract non-owner shares of own splits per (period, category) — keeps
-    # the per-category trend consistent with the share-only summary. Same
-    # signed offset as the composition, applied before clamping.
-    cat_offset_result = await session.execute(
-        select(
-            label_expr,
-            Transaction.category_id,
-            Transaction.currency,
-            func.sum(user_pnl_share_expense(_TS_.share_amount)),
-        )
-        .select_from(_TS_)
-        .join(Transaction, _TS_.transaction_id == Transaction.id)
-        .where(
-            Transaction.user_id == user_id,
-            Transaction.workspace_id == workspace_id,
-            user_pnl_group() == "expenses",
-            _TS_.group_member_id.notin_(own_member_ids_sq),
-            report_date >= start,
-            report_date <= axis_end,
-            Transaction.source != "opening_balance",
-            Transaction.status == "posted",
-            counts_as_user_pnl(Transaction.category_id),
-        )
-        .group_by(label_expr, Transaction.category_id, Transaction.currency)
-    )
-    for period_label, cat_id, currency, raw_total in (cat_offset_result.all() if not filtered else []):
-        if not raw_total:
-            continue
-        cat_key = str(cat_id) if cat_id else "uncategorized"
-        offset_pri, _ = await fx_convert(
-            session, Decimal(str(raw_total)), currency, primary_currency
-        )
-        offset = float(offset_pri)
-        map_key = (cat_key, "expenses")
-        if map_key not in cat_trend_map:
-            continue
-        cur_period = cat_trend_map[map_key]["periods"].get(period_label, 0.0)
-        cat_trend_map[map_key]["periods"][period_label] = cur_period - offset
-
     # Add recurring projections to composition and category trend
     cat_cache: dict[str, dict] = {}
     cursor2 = start
@@ -1087,12 +968,7 @@ async def get_income_expenses_report(
         forecast_rows = await _get_forecast_pnl_rows(
             session, workspace_id, m_start, m_end, account_ids,
             range_date_col=report_date,
-        )
-        forecast_fractions = (
-            {} if filtered
-            else await forecast_owner_share_fractions(
-                session, user_id, [row.transaction for row in forecast_rows]
-            )
+            viewer_id=None if filtered else user_id,
         )
         for forecast_row in forecast_rows:
             tx = forecast_row.transaction
@@ -1114,7 +990,6 @@ async def get_income_expenses_report(
                 cat_id_str, {"label": "Uncategorized", "color": "#6B7280"}
             )
             magnitude = await forecast_row.magnitude_primary(session, primary_currency)
-            magnitude *= forecast_fractions.get(tx.id, Decimal(1))
             forecast_amount = float(
                 magnitude * (forecast_row.income_share + forecast_row.expense_share)
             )

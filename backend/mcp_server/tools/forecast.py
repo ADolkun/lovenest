@@ -42,6 +42,7 @@ async def get_cashflow_forecast(
         workspace_id=ws_id,
         horizon_days=int(horizon_days),
         include_discretionary_burn=include_discretionary,
+        user_id=ctx.user_id,
     )
     return _serialize_forecast(forecast)
 

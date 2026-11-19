@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.app_clock import app_today
@@ -24,9 +24,10 @@ from app.services._query_filters import (
     counts_as_user_pnl,
     line_amount,
     line_category_id,
-    owner_share_of_row,
+    split_projection_ids,
     user_pnl_expense_amount,
     user_pnl_income_amount,
+    viewer_share_of_row,
     with_category_lines,
 )
 from app.services.fx_rate_service import convert_or_none
@@ -144,7 +145,7 @@ def compute_next_occurrence(
     return last_date + timedelta(days=max(1, int(round(avg_interval))))
 
 
-def pnl_transaction_amounts(workspace_id: uuid.UUID):
+def pnl_transaction_amounts(workspace_id: uuid.UUID, viewer_id: Optional[uuid.UUID] = None):
     """Per transaction, the user-P&L `income` and `expense` the reports count,
     in the row's own currency.
 
@@ -152,21 +153,27 @@ def pnl_transaction_amounts(workspace_id: uuid.UUID):
     category is a negative expense rather than income (Lovenest ADR 0011), a
     reimbursement link takes its amount out of both rows (Lovenest ADR 0012),
     settlements stay out, and a group-split row counts only its owner's
-    share. Rows that count for nothing are absent.
+    share. With `viewer_id` a group-split row counts that user's part
+    instead, and the user's shares of rows in other workspaces join in, as
+    on the dashboard (`viewer_share_of_row`). Rows that count for nothing
+    are absent.
     """
     category = line_category_id()
-    owner_share = owner_share_of_row()
+    split_share = viewer_share_of_row(viewer_id)
+    in_scope = Transaction.workspace_id == workspace_id
+    if viewer_id is not None:
+        in_scope = or_(in_scope, Transaction.id.in_(split_projection_ids(viewer_id, workspace_id)))
     return (
         with_category_lines(
             select(
                 Transaction.id.label("transaction_id"),
-                func.sum(user_pnl_income_amount(line_amount(), category) * owner_share)
+                func.sum(user_pnl_income_amount(line_amount(), category) * split_share)
                 .label("income"),
-                func.sum(user_pnl_expense_amount(line_amount(), category) * owner_share)
+                func.sum(user_pnl_expense_amount(line_amount(), category) * split_share)
                 .label("expense"),
             ).select_from(Transaction)
         )
-        .where(Transaction.workspace_id == workspace_id, counts_as_user_pnl(category))
+        .where(in_scope, counts_as_user_pnl(category))
         .group_by(Transaction.id)
         .subquery()
     )

@@ -24,12 +24,11 @@ from app.schemas.budget import (
 )
 from app.services._query_filters import (
     counts_as_user_pnl,
-    forecast_owner_share_fractions,
     line_category_id,
     line_primary_or_amount,
-    owner_split_offset_by_category,
     reporting_date_col,
     user_pnl_expense_amount,
+    viewer_share_of_row,
     viewer_shared_spending_by_category,
     with_category_lines,
 )
@@ -291,13 +290,16 @@ async def _category_spending(
     use_effective_date = accounting_mode == "accrual"
 
     # Same spending definition as the dashboard, so a budget bar and the
-    # category's spending figure never disagree about a credit.
+    # category's spending figure never disagree about a credit or a split.
     part_category = line_category_id()
     result = await session.execute(
         with_category_lines(
             select(
                 part_category,
-                func.sum(user_pnl_expense_amount(line_primary_or_amount(), part_category)),
+                func.sum(
+                    user_pnl_expense_amount(line_primary_or_amount(), part_category)
+                    * viewer_share_of_row(user_id)
+                ),
             ).select_from(Transaction)
         )
         .where(
@@ -315,26 +317,13 @@ async def _category_spending(
         str(cat_uuid): net or Decimal("0") for cat_uuid, net in result.all()
     }
 
-    # Only the user's share of their own splits counts.
-    own_offset = await owner_split_offset_by_category(
-        session, user_id, start, end,
-        use_effective_date=use_effective_date,
-        primary_currency=primary_currency,
-        workspace_id=workspace_id,
-    )
-    for cat_uuid, total in own_offset.items():
-        if cat_uuid is None:
-            continue
-        cat_id = str(cat_uuid)
-        if cat_id in actual:
-            actual[cat_id] -= Decimal(str(total))
-
-    # Concert tickets paid by a friend are still the user's expense in the
-    # matching category.
+    # Concert tickets a friend paid in their own workspace are still the
+    # user's expense in the matching category.
     shared_by_cat = await viewer_shared_spending_by_category(
         session, user_id, start, end,
         use_effective_date=use_effective_date,
         primary_currency=primary_currency,
+        workspace_id=workspace_id,
     )
     for cat_uuid, total in shared_by_cat.items():
         if cat_uuid is None:
@@ -357,19 +346,13 @@ async def _category_spending(
         )
 
     forecast_rows = await _get_forecast_pnl_rows(
-        session, workspace_id, start, end, range_date_col=report_date,
-    )
-    # Only the user's share of their own split forecast rows, like the
-    # posted offset above.
-    forecast_fractions = await forecast_owner_share_fractions(
-        session, user_id, [row.transaction for row in forecast_rows]
+        session, workspace_id, start, end, range_date_col=report_date, viewer_id=user_id,
     )
     for row in forecast_rows:
         if not row.category_id or not row.expense_share:
             continue
         cat_id = str(row.category_id)
         magnitude = await row.magnitude_primary(session, primary_currency)
-        magnitude *= forecast_fractions.get(row.transaction.id, Decimal(1))
         projected[cat_id] = (
             projected.get(cat_id, Decimal("0")) + magnitude * row.expense_share
         )
