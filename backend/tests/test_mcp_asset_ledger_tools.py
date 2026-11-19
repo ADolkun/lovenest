@@ -17,6 +17,7 @@ import mcp_server.tools  # noqa: F401
 from app.core.app_clock import app_today
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
+from app.models.asset_transaction import AssetTransaction
 from app.models.fx_rate import FxRate
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
@@ -318,8 +319,26 @@ async def test_ledger_rejects_a_kind_outside_buy_and_sell(
     handler = REGISTRY["list_asset_transactions"].handler
 
     for kind in ("dividend", "Staking", "transfer", ""):
-        with pytest.raises(ValueError, match="'buy', 'sell' or 'split'"):
+        with pytest.raises(ValueError, match="kind must be one of buy, fee, move_in, move_out, sell, split"):
             await handler(session=session, ctx=ctx, kind=kind)
+
+
+async def test_ledger_filters_a_reviewed_movement_and_keeps_its_exact_quantity(
+    session: AsyncSession, ctx: CallContext, test_workspace, holding: Asset
+):
+    """Reviewed transfers and fee units are ledger rows too; their quantity
+    can run to 18 decimals, which a float would round."""
+    await _buy(session, test_workspace, holding, "10", "20", date(2026, 1, 1))
+    session.add(AssetTransaction(
+        asset_id=holding.id, workspace_id=test_workspace.id, kind="move_out",
+        quantity=Decimal("2.5"), price=None, fee=Decimal("0"),
+        date=date(2026, 2, 1), source="evidence",
+    ))
+    await session.commit()
+    handler = REGISTRY["list_asset_transactions"].handler
+
+    r = await handler(session=session, ctx=ctx, kind="MOVE_OUT")
+    assert [(t["kind"], Decimal(t["quantity_exact"])) for t in r["items"]] == [("move_out", Decimal("2.5"))]
 
 
 async def test_ledger_filters_by_asset_id(

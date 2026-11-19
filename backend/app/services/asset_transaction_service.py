@@ -38,6 +38,7 @@ from app.schemas.asset_group import REPORTABLE_TAX_TREATMENTS
 from app.services import asset_service
 from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.cash_equivalent import CASH_EQUIVALENT_TYPE, is_cash_equivalent_ticker
+from app.services.movement_replay import KINDS as MOVEMENT_KINDS
 from app.services.option_contract import (
     OPTION_TYPE,
     describe,
@@ -50,6 +51,9 @@ from app.services.option_contract import (
 logger = logging.getLogger(__name__)
 
 _VALID_KINDS = {"buy", "sell", "split"}
+# Every kind the ledger holds: the ones entered here, and the reviewed
+# transfers and fee movements `owned_transfer_service` records.
+LEDGER_KINDS = frozenset(_VALID_KINDS | MOVEMENT_KINDS)
 
 # Whole units on each side of a split. Real splits stay in the hundreds, so a
 # side past this is a typo.
@@ -396,7 +400,7 @@ def _tx_to_read(tx: AssetTransaction, asset: Optional[Asset] = None) -> AssetTra
         asset_id=tx.asset_id,
         kind=tx.kind,
         quantity=float(tx.quantity),
-        quantity_exact=str(tx.quantity) if tx.kind in {"move_in", "move_out", "fee"} else None,
+        quantity_exact=str(tx.quantity) if tx.kind in MOVEMENT_KINDS else None,
         price=float(tx.price) if tx.price is not None else None,
         fee=float(tx.fee or 0),
         date=tx.date,
@@ -463,7 +467,7 @@ async def list_workspace_transactions(
         query = query.where(AssetTransaction.asset_id == asset_id)
     if ticker:
         query = query.where(Asset.ticker == ticker.upper())
-    if kind in _VALID_KINDS:
+    if kind in LEDGER_KINDS:
         query = query.where(AssetTransaction.kind == kind)
     if from_date is not None:
         query = query.where(AssetTransaction.date >= from_date)

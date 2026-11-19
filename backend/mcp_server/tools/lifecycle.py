@@ -24,9 +24,7 @@ from mcp_server.auth import CallContext
 from mcp_server.registry import tool
 from mcp_server.tools._helpers import num, parse_date, parse_uuid, resolve_workspace_id
 
-
-# Mirrors asset_transaction_service._VALID_KINDS, which is private.
-_LEDGER_KINDS = frozenset({"buy", "sell", "split"})
+_LEDGER_KINDS = sorted(asset_transaction_service.LEDGER_KINDS)
 
 
 async def _group_names(session: AsyncSession, workspace_id) -> dict[str, str]:
@@ -175,23 +173,26 @@ async def list_assets(
 @tool(
     name="list_asset_transactions",
     description=(
-        "List the buy, sell and split entries of the user's investment "
-        "ledger, newest first. Use for 'when did I buy X?', 'what did I pay "
-        "for X?' or 'show my orders'. Filter by asset_id, ticker, kind "
-        "(buy/sell/split) and "
+        "List the entries of the user's investment ledger, newest first: "
+        "buys, sells, splits, and reviewed transfers between the user's own "
+        "wallets (move_in/move_out) and the fee units they cost (fee). Use "
+        "for 'when did I buy X?', 'what did I pay for X?' or 'show my "
+        "orders'. Filter by asset_id, ticker, kind and "
         "date range; every filter is applied before the limit, so narrowing "
         "a range returns the newest rows inside it. Each row carries "
         "quantity, price per unit (in the asset's currency), fee, date, "
         "source and the asset's name and ticker. A split row has no "
         "quantity, price or fee: `old_units` became `new_units` on its date "
-        "(a 100-for-1 split is 1 -> 100). `total` counts the rows "
+        "(a 100-for-1 split is 1 -> 100). A move_in, move_out or fee row has "
+        "no price; its `quantity_exact` is the exact decimal quantity, which "
+        "`quantity` may round. `total` counts the rows "
         "returned; `has_more` is true when more rows match than the limit "
         "let through, so narrow the range or raise the limit (up to 500) "
         "before treating the list as complete. There is no offset: if a "
         "single day alone holds more than 500 matching rows, the rest of "
         "that day cannot be listed. Dividends and staking rewards are "
-        "NOT here: the ledger only records buys, sells and splits, and any other "
-        "`kind` is rejected. For the resulting position and cost basis use "
+        "NOT here as a kind of their own, and any other `kind` is rejected. "
+        "For the resulting position and cost basis use "
         "list_assets."
     ),
     parameters={
@@ -199,7 +200,7 @@ async def list_assets(
         "properties": {
             "asset_id": {"type": "string", "format": "uuid", "description": "Restrict to one holding (id from list_assets)"},
             "ticker": {"type": "string", "description": "Restrict by ticker, e.g. 'MSFT' or 'BTC-EUR'. Case-insensitive."},
-            "kind": {"type": "string", "enum": ["buy", "sell", "split"], "description": "Only purchases, sales or stock splits"},
+            "kind": {"type": "string", "enum": _LEDGER_KINDS, "description": "Only purchases, sales, stock splits, transfers in or out, or fee movements"},
             "from_date": {"type": "string", "format": "date", "description": "Inclusive lower bound (YYYY-MM-DD)"},
             "to_date": {"type": "string", "format": "date", "description": "Inclusive upper bound (YYYY-MM-DD)"},
             "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100, "description": "Max rows (default 100, capped at 500)"},
@@ -227,8 +228,8 @@ async def list_asset_transactions(
         kind = kind.lower()
         if kind not in _LEDGER_KINDS:
             raise ValueError(
-                f"kind must be 'buy', 'sell' or 'split', got {kind!r}: the ledger "
-                "does not record dividends or staking rewards"
+                f"kind must be one of {', '.join(_LEDGER_KINDS)}, got {kind!r}: "
+                "the ledger does not record dividends or staking rewards"
             )
     capped = max(1, min(int(limit if limit is not None else 100), 500))
     ws_id = await resolve_workspace_id(session, ctx)
@@ -253,6 +254,7 @@ async def list_asset_transactions(
             "ticker": t.ticker,
             "kind": t.kind,
             "quantity": num(t.quantity),
+            "quantity_exact": t.quantity_exact,
             "price": num(t.price),
             "fee": num(t.fee),
             "currency": t.currency,
