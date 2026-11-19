@@ -24,7 +24,7 @@ forecast. Any future inclusion rule needs evidence about the institution's
 balance contract and a separate decision; #1512 tracks that discussion.
 
 - **Storage**: `app/models/account_reserved_balance.py`, migration
-  `alembic/versions/118_account_reserved_balances.py`. One row per
+  `alembic/versions/139_account_reserved_balances.py`. One row per
   `(account_id, external_id, currency)`, carrying the account's `workspace_id`.
   The provider's identification is the identity; a rename only updates `name`.
 - **Provider contract**: `ReservedBalanceData` and

@@ -2,7 +2,7 @@
 
 Each covers what the user can change in the item's editor. When a row no
 longer matches the fingerprint recorded at install, the user edited it and
-it is theirs. Rules' fingerprint must stay as it is: migration 107 stored
+it is theirs. Rules' fingerprint must stay as it is: migration 128 stored
 fingerprints computed with it.
 """
 import hashlib
