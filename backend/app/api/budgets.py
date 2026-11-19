@@ -83,7 +83,10 @@ async def update_budget(
     ctx: WorkspaceContext = Depends(current_writable_workspace),
     session: AsyncSession = Depends(get_async_session),
 ):
-    budget = await budget_service.update_budget(session, budget_id, ctx.workspace.id, data)
+    try:
+        budget = await budget_service.update_budget(session, budget_id, ctx.workspace.id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     if not budget:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Budget not found")
     return budget

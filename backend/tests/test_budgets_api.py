@@ -256,6 +256,21 @@ async def test_update_recurring_creates_new_record(client, auth_headers, test_ca
     assert len(cat_budgets2) == 1
     assert float(cat_budgets2[0]["amount"]) == 600.0
 
+    # Moving the original to next month too would leave two recurring
+    # budgets for the category starting that month.
+    clash = await client.patch(
+        f"/api/budgets/{original_id}",
+        json={"amount": 700, "effective_month": next_month},
+        headers=auth_headers,
+    )
+    assert clash.status_code == 400
+    list_resp3 = await client.get(
+        "/api/budgets", params={"month": next_month}, headers=auth_headers,
+    )
+    assert [
+        float(b["amount"]) for b in list_resp3.json() if b["category_id"] == str(cat.id)
+    ] == [600.0]
+
 
 @pytest.mark.asyncio
 async def test_delete_recurring_previous_takes_effect(client, auth_headers, test_categories):

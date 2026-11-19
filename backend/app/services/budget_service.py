@@ -227,6 +227,10 @@ async def update_budget(
     if budget.is_recurring and data.effective_month:
         effective = data.effective_month.replace(day=1)
         if effective != budget.month:
+            if await _categories_with_budget(
+                session, workspace_id, [budget.category_id], effective, True
+            ):
+                raise ValueError("A budget for this category already exists for this month")
             # Create a new recurring record with new effective-from month
             new_budget = Budget(
                 user_id=budget.user_id,
