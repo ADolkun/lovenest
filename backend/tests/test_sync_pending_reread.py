@@ -200,7 +200,8 @@ async def test_row_posted_on_an_earlier_date_than_it_was_stored_still_posts(
 
     await session.refresh(pending)
     assert pending.status == "posted"
-    assert pending.date == app_today() - timedelta(days=20)
+    # Posted truth wins, as when the regular listing promotes a pending row.
+    assert pending.date == app_today() - timedelta(days=56)
 
 
 @pytest.mark.asyncio

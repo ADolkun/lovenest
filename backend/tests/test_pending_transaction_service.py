@@ -148,14 +148,15 @@ async def test_manual_toggle_takes_ownership_from_sync(session, pending_case, te
     assert row.is_ignored
 
 
-async def test_financial_edit_preserves_manual_intent(session, pending_case, test_user, test_workspace):
-    _, account, row = pending_case
-    await update_transaction(session, row.id, test_workspace.id, test_user.id,
-                             TransactionUpdate(date=DAY + timedelta(days=1)))
-    assert row.sync_metadata["pending_manual_override"]
-    await reconcile_pending(session, account.id, [], coverage())
-    await reconcile_pending(session, account.id, [], coverage(NOW + timedelta(days=3)))
-    assert not row.is_ignored
+@pytest.mark.parametrize("edit", [{"date": DAY + timedelta(days=1)}, {"amount": Decimal("80")}])
+async def test_provider_owned_edit_is_rejected_without_taking_ownership(
+    session, pending_case, test_user, test_workspace, edit,
+):
+    _, _, row = pending_case
+    with pytest.raises(ValueError, match="synchronized transaction"):
+        await update_transaction(session, row.id, test_workspace.id, test_user.id, TransactionUpdate(**edit))
+    assert row.date == DAY and row.amount == Decimal("100")
+    assert not (row.sync_metadata or {}).get("pending_manual_override")
 
 
 async def test_recheck_rewinds_to_bank_date_with_bounded_history(session, pending_case):
@@ -267,7 +268,7 @@ async def test_legacy_financial_changes_are_not_retired(session, pending_case, f
     assert not row.is_ignored and not row.sync_metadata
 
 
-async def test_cascaded_transfer_edit_protects_pending_partner(session, pending_case, test_user, test_workspace):
+async def test_cascaded_transfer_edit_leaves_pending_partner_to_the_provider(session, pending_case, test_user, test_workspace):
     _, _, row = pending_case
     row.transfer_pair_id = uuid.uuid4()
     other = Account(id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
@@ -281,8 +282,9 @@ async def test_cascaded_transfer_edit_protects_pending_partner(session, pending_
     await session.commit()
     await update_transaction(session, partner.id, test_workspace.id, test_user.id,
                              TransactionUpdate(amount=Decimal("120")))
-    assert row.amount == Decimal("120")
-    assert row.sync_metadata["pending_manual_override"]
+    # The synced leg's amount stays the provider's, so the hold keeps its lifecycle.
+    assert partner.amount == Decimal("120") and row.amount == Decimal("100")
+    assert not (row.sync_metadata or {}).get("pending_manual_override")
 
 
 async def test_complete_but_stale_snapshot_advances_cursor_without_cleanup(session, pending_case, test_user, test_workspace):
