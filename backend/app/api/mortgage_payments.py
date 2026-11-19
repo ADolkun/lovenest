@@ -25,8 +25,8 @@ router = APIRouter(prefix="/api/mortgage-payments", tags=["mortgage payments"])
 
 class AllocationInput(BaseModel):
     loan_account_id: uuid.UUID
-    principal_amount: Decimal = Field(ge=0, decimal_places=2)
-    interest_amount: Decimal = Field(ge=0, decimal_places=2)
+    principal_amount: Decimal = Field(ge=Decimal(0), decimal_places=2)
+    interest_amount: Decimal = Field(ge=Decimal(0), decimal_places=2)
 
 
 class AllocationReplace(BaseModel):

@@ -36,8 +36,8 @@ class AccountCreate(BaseModel):
     card_level: Optional[str] = None
     # Loan accounts only: contract terms, all optional (see loan_schedule.py).
     loan_kind: Optional[LoanKind] = None
-    loan_original_amount: Optional[Decimal] = Field(default=None, gt=0)
-    loan_interest_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    loan_original_amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
+    loan_interest_rate: Optional[Decimal] = Field(default=None, ge=Decimal(0), le=Decimal(100))
     loan_rate_period: Optional[LoanRatePeriod] = None
     loan_term_months: Optional[int] = Field(default=None, ge=1, le=600)
     loan_first_payment_date: Optional[date] = None
@@ -59,8 +59,8 @@ class AccountUpdate(BaseModel):
     card_level: Optional[str] = None
     # Loan accounts only: contract terms, all optional (see loan_schedule.py).
     loan_kind: Optional[LoanKind] = None
-    loan_original_amount: Optional[Decimal] = Field(default=None, gt=0)
-    loan_interest_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
+    loan_original_amount: Optional[Decimal] = Field(default=None, gt=Decimal(0))
+    loan_interest_rate: Optional[Decimal] = Field(default=None, ge=Decimal(0), le=Decimal(100))
     loan_rate_period: Optional[LoanRatePeriod] = None
     loan_term_months: Optional[int] = Field(default=None, ge=1, le=600)
     loan_first_payment_date: Optional[date] = None
@@ -221,7 +221,7 @@ class LoanScheduleRead(BaseModel):
 class LoanBalanceUpdate(BaseModel):
     """What the lender says is owed on a date, to bring the ledger in line."""
 
-    balance: Decimal = Field(ge=0)
+    balance: Decimal = Field(ge=Decimal(0))
     date: date
     description: str = Field(min_length=1, max_length=500)
     # Category of the adjustment when the debt grew (interest, indexation).

@@ -69,6 +69,7 @@ def build_schedule(
 ) -> list[Installment]:
     rate = monthly_rate(rate_percent, rate_period)
     principal = Decimal(principal)
+    fixed_payment = fixed_principal = Decimal(0)
     if method == "price":
         if rate == 0:
             fixed_payment = _cents(principal / term_months)

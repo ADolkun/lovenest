@@ -243,7 +243,7 @@ class Trade(_Model):
     external_id: ExternalId
     kind: Literal["buy", "sell"]
     date: _date
-    quantity: Annotated[TradeNumber, Field(gt=0)]
+    quantity: Annotated[TradeNumber, Field(gt=Decimal(0))]
     price: TradeNumber
     """Per unit, in the asset's currency."""
     fee: PositiveMoney = Decimal(0)

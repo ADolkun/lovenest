@@ -30,6 +30,7 @@ import secrets
 import threading
 import time
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from typing import Any
 
 from cryptography.fernet import Fernet
 from sqlalchemy import text
@@ -74,14 +75,14 @@ def is_public_or_missing(value: str | None) -> bool:
     return not value or any(marker in value for marker in PLACEHOLDER_SECRET_MARKERS)
 
 
-def _run(coro_factory: Callable[[], Coroutine]):
+def _run[T](coro_factory: Callable[[], Coroutine[Any, Any, T]]) -> T:
     """Run a coroutine to completion from synchronous code.
 
     Settings are first read while modules import, sometimes inside a running
     event loop (uvicorn imports the app from within one), so the coroutine
     always gets a loop of its own on a separate thread.
     """
-    result: dict = {}
+    result: dict[str, Any] = {}
 
     def target() -> None:
         try:
@@ -94,7 +95,7 @@ def _run(coro_factory: Callable[[], Coroutine]):
     thread.join()
     if "error" in result:
         raise result["error"]
-    return result.get("value")
+    return result["value"]
 
 
 async def _ensure_table(conn: AsyncConnection) -> None:
