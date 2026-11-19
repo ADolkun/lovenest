@@ -457,6 +457,34 @@ async def test_import_rules_skips_invalid_rules(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("version", "expected"), [(1, ("lte", "-50")), (2, ("gte", "50"))])
+async def test_import_rules_signs_debit_amounts_from_older_files(
+    session: AsyncSession, test_user, test_workspace, version, expected
+):
+    """Files before version 2 compared magnitudes, so a debit rule's `>= 50`
+    arrives as `<= -50`; a current file is taken as written."""
+    payload = RuleExportPayload(
+        version=version,
+        rules=[
+            RuleExportItem(
+                name="Big spend",
+                conditions=[
+                    RuleCondition(field="type", op="equals", value="debit"),
+                    RuleCondition(field="amount", op="gte", value="50"),
+                ],
+                actions=[RuleAction(op="append_notes", value="#big")],
+            ),
+        ],
+    )
+
+    await import_rules(session, test_workspace.id, test_user.id, payload, overwrite=True)
+
+    (rule,) = await get_rules(session, test_workspace.id)
+    amount = rule.conditions[1]
+    assert (amount["op"], amount["value"]) == expected
+
+
+@pytest.mark.asyncio
 async def test_import_rules_skips_unsafe_and_malformed_regexes(
     session: AsyncSession, test_user, test_workspace
 ):
@@ -543,7 +571,7 @@ async def test_set_description_validation_and_export_compatibility(
         ),
     )
     payload = await export_rules(session, test_workspace.id)
-    assert payload.version == 1
+    assert payload.version == 2
     exported = next(item for item in payload.rules if item.name == rule.name)
     # The list can hold groups now, so narrow before reading a leaf's field.
     exported_condition = exported.conditions[0]

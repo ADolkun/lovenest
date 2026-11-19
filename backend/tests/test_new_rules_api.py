@@ -818,7 +818,7 @@ async def test_export_rules_serializes_category_actions_by_name(client: AsyncCli
     assert response.headers["content-disposition"].startswith("attachment;")
     payload = response.json()
     assert payload["format"] == "securo-categorization-rules"
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     exported = {rule["name"]: rule for rule in payload["rules"]}
     assert set(exported) == {"UBER rule", "IFOOD rule", "SALARIO rule"}
     uber_action = exported["UBER rule"]["actions"][0]

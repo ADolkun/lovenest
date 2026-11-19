@@ -28,6 +28,7 @@ from app.services.category_defaults import (
     name_variants,
 )
 from app.services.category_service import get_assignable_category_ids
+from app.services.rule_amount_sign import to_signed_amounts
 from app.services.rule_engine import (
     apply_rule_actions,
     compile_rule_regex,
@@ -39,6 +40,10 @@ class DuplicateRuleError(Exception):
     """Raised when a rule with the same name already exists for a user."""
     pass
 
+
+# Exports from this version on write amount conditions signed (credits
+# positive, debits negative); older files compared magnitudes.
+SIGNED_AMOUNT_EXPORT_VERSION = 2
 
 _ALLOWED_CONDITION_FIELDS = {
     "description", "payee", "notes", "amount", "type", "account_id", "payee_id", "date",
@@ -438,7 +443,7 @@ async def export_rules(session: AsyncSession, workspace_id: uuid.UUID) -> RuleEx
             "priority": rule.priority,
             "is_active": rule.is_active,
         })
-    return RuleExportPayload(rules=exported_rules)
+    return RuleExportPayload(version=SIGNED_AMOUNT_EXPORT_VERSION, rules=exported_rules)
 
 
 async def import_rules(
@@ -452,7 +457,8 @@ async def import_rules(
 
     Existing rules are only replaced when the caller explicitly passes
     `overwrite=True`. Rules whose `set_category` target cannot be matched by
-    category name are skipped.
+    category name are skipped. Files older than `SIGNED_AMOUNT_EXPORT_VERSION`
+    get the same amount-sign rewrite fork migration 140 gave stored rules.
     """
     existing = await get_rules(session, workspace_id)
     if existing and not overwrite:
@@ -487,13 +493,11 @@ async def import_rules(
         if missing_required_reference:
             skipped += 1
             continue
+        conditions = [condition.model_dump() for condition in incoming.conditions]
+        if payload.version < SIGNED_AMOUNT_EXPORT_VERSION:
+            conditions = to_signed_amounts(incoming.conditions_op, conditions).conditions
         try:
-            await validate_rule_definition(
-                session,
-                workspace_id,
-                [condition.model_dump() for condition in incoming.conditions],
-                resolved_actions,
-            )
+            await validate_rule_definition(session, workspace_id, conditions, resolved_actions)
         except ValueError:
             skipped += 1
             continue
@@ -502,7 +506,7 @@ async def import_rules(
             workspace_id=workspace_id,
             name=incoming.name,
             conditions_op=incoming.conditions_op,
-            conditions=[condition.model_dump() for condition in incoming.conditions],
+            conditions=conditions,
             actions=resolved_actions,
             priority=incoming.priority,
             is_active=incoming.is_active,
