@@ -838,7 +838,7 @@ async def test_fiscal_ref_clears_on_term_writes_and_invoice_conversion(
             f"/api/invoice-schedules/{schedule_id}/generate", headers=biz_headers,
         )
         assert response.status_code == 201, response.text
-        [invoice] = response.json()
+    [invoice] = response.json()
     assert invoice["lines"][0]["fiscal_refs"] == (
         later_refs if save_path == "make_recurring" else None
     )

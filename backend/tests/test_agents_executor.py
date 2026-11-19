@@ -672,6 +672,7 @@ async def test_disabled_tool_is_not_called_even_if_the_model_names_it(
 
     assert mcp.calls == []
     result = next(e for e in events if e.type == "tool_result")
+    assert result.tool_result is not None
     assert result.tool_result["ok"] is False
 
 

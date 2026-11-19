@@ -3,9 +3,10 @@
 import asyncio
 import json
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 from pathlib import Path
+from typing import Self
 
 import pytest
 from sqlalchemy import select
@@ -27,8 +28,8 @@ GAP_FIXTURE = (
 def frozen_app_clock(monkeypatch):
     class FixedDatetime(datetime):
         @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 11, 7, 1, tzinfo=timezone.utc).astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return cls(2026, 11, 7, 1, tzinfo=timezone.utc).astimezone(tz)
 
     monkeypatch.setattr(app_clock, "datetime", FixedDatetime)
 

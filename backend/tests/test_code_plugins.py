@@ -117,7 +117,7 @@ class Catalog:
     def __init__(self) -> None:
         self.manifests = {V1: copy.deepcopy(MANIFEST)}
         self.archives = {V1: _tarball(SOURCE)}
-        self.commit = V1
+        self.commit: str = V1
         self.archive_tampered = False
 
     def _manifest(self, commit: str) -> bytes:
@@ -231,7 +231,7 @@ def ids(test_user, test_workspace) -> tuple[uuid.UUID, uuid.UUID]:
     return test_workspace.id, test_user.id
 
 
-async def _apply(session, workspace_id, user_id, action="install", *, is_owner=True):
+async def _apply(session, workspace_id, user_id, action: service.Action = "install", *, is_owner=True):
     plan = await service.plan(session, workspace_id, PLUGIN, action, lang="en")
     return await service.apply(
         session, workspace_id, user_id, PLUGIN, action,

@@ -163,7 +163,7 @@ async def test_a_package_without_its_logo_cant_be_installed(session: AsyncSessio
 
 @pytest.mark.asyncio
 async def test_logos_go_with_the_last_workspace_that_runs_the_commit(
-    session: AsyncSession, ids, logo_catalog, plugin_runner
+    session: AsyncSession, ids: tuple[uuid.UUID, uuid.UUID], logo_catalog, plugin_runner
 ):
     await _apply(session, *ids)
     logo_catalog.manifests[V2] = dict(copy.deepcopy(logo_catalog.manifests[V1]), version="1.1.0")

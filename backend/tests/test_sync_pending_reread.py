@@ -554,9 +554,15 @@ async def test_rekeyed_twin_the_reread_also_returns_is_still_a_phantom(
     assert payments == 1
 
 
+def _rereads_by_date(provider_class: type[BankProvider]) -> bool:
+    getter = provider_class.rereads_by_date.fget
+    assert getter is not None
+    return getter(cast(BankProvider, None))
+
+
 def test_only_pluggy_rereads_by_date():
-    assert PluggyProvider.rereads_by_date.fget(cast(PluggyProvider, None)) is True
-    assert BankProvider.rereads_by_date.fget(cast(BankProvider, None)) is False
+    assert _rereads_by_date(PluggyProvider) is True
+    assert _rereads_by_date(BankProvider) is False
 
 
 def _provider_without_reread():

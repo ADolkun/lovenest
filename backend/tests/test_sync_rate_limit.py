@@ -192,6 +192,7 @@ async def test_full_sync_advances_checkpoint_and_clears_backoff(
     assert outcome == "refreshed"
     assert before is not None and result_conn.last_sync_at is not None
     assert result_conn.last_sync_at > before
+    assert result_conn.settings is not None
     assert SYNC_BACKOFF_KEY not in result_conn.settings
     assert result_conn.settings["payee_source"] == "auto"
 

@@ -2,6 +2,7 @@ import uuid
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9455,7 +9456,7 @@ async def test_enable_banking_pending_with_moved_date_posts_onto_the_held_row(
     assert row.notes == "Keep my note"
 
 
-def _simplefin_brokerage_payload(balance="1057.20"):
+def _simplefin_brokerage_payload(balance="1057.20") -> dict[str, Any]:
     return {
         "accounts": [
             {

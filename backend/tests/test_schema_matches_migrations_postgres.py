@@ -73,11 +73,12 @@ def _baseline() -> set[str]:
 @pytest.fixture
 def migrated_database_url():
     """An empty database, upgraded to head by the real migrations, dropped afterwards."""
-    url = os.environ.get("POSTGRES_TEST_URL")
-    if not url:
+    configured_url = os.environ.get("POSTGRES_TEST_URL")
+    if not configured_url:
         if os.environ.get("CI"):
             pytest.fail("CI must supply POSTGRES_TEST_URL for PostgreSQL tests")
         pytest.skip("isolated PostgreSQL not configured")
+    url: str = configured_url
     name = f"schema_check_{uuid.uuid4().hex}"
     target = make_url(url).set(database=name).render_as_string(hide_password=False)
 

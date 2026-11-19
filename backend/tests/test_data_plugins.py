@@ -68,7 +68,7 @@ class Catalog:
 
     def __init__(self) -> None:
         self.manifests: dict[str, dict] = {V1: copy.deepcopy(MANIFEST)}
-        self.commit = V1
+        self.commit: str = V1
         self.extra: dict = {}
         """Fields to override on the index entry (revoked, manifest path...)."""
         self.tampered = False
@@ -131,7 +131,7 @@ def ids(test_user, test_workspace) -> tuple[uuid.UUID, uuid.UUID]:
     return test_workspace.id, test_user.id
 
 
-async def _install(session, workspace_id, user_id, action="install", lang="en"):
+async def _install(session, workspace_id, user_id, action: service.Action = "install", lang="en"):
     plan = await service.plan(session, workspace_id, PLUGIN, action, lang=lang)
     return await service.apply(
         session, workspace_id, user_id, PLUGIN, action, commit=plan.commit, token=plan.sync.token, lang=lang

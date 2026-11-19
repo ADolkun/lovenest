@@ -152,7 +152,10 @@ async def test_failed_read_closes_body_and_client(s3):
 async def test_missing_object_matches_local_provider(s3):
     provider, client, _, context = s3
     client.get_object.side_effect = ClientError(
-        {"Error": {"Code": "NoSuchKey"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+        {"Error": {"Code": "NoSuchKey"},
+         "ResponseMetadata": {
+             "HTTPStatusCode": 404, "RequestId": "", "HostId": "", "HTTPHeaders": {}, "RetryAttempts": 0,
+         }},
         "GetObject",
     )
     with pytest.raises(FileNotFoundError, match="workspace/missing.pdf"):
