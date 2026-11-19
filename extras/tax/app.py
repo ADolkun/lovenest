@@ -444,7 +444,8 @@ def _reportable_gain(auth):
     except (OSError, ValueError) as exc:
         # OSError covers URLError and the bare TimeoutError a read timeout
         # raises: a slow backend must degrade to a hint, not 500 the whole form.
-        return {"gain_error": f"capital gains unavailable: {exc}"}
+        logger.warning("Capital gains feed failed", exc_info=exc)
+        return {"gain_error": "capital gains unavailable"}
 
 
 def _reportable_income(auth):
@@ -471,7 +472,8 @@ def _reportable_income(auth):
             "non_reportable_income": float(data.get("non_reportable_income") or 0.0),
         }
     except (OSError, ValueError) as exc:
-        return {"income_error": f"investment income unavailable: {exc}"}
+        logger.warning("Investment income feed failed", exc_info=exc)
+        return {"income_error": "investment income unavailable"}
 
 
 def _projection_feed(auth):
@@ -493,7 +495,8 @@ def _projection_feed(auth):
     except (OSError, ValueError) as exc:
         # A zero balance is a real answer the engine would act on, so degrade to
         # a hint and let every value key stay absent.
-        return {"projection_error": f"live balances unavailable: {exc}"}
+        logger.warning("Projection feed failed", exc_info=exc)
+        return {"projection_error": "live balances unavailable"}
 
 
 @app.get("/api/projection-prefill")
