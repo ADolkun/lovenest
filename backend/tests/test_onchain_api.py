@@ -13,9 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
 from app.models.user import User
-from app.providers import register_provider
 from app.providers.base import ProviderNotConfiguredError, ProviderRateLimited
-from app.providers.onchain import CHAINS, OnChainProvider
+from app.providers.onchain import CHAINS
 from app.services import onchain_trace
 
 A = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -33,20 +32,22 @@ def _traces(result_or_error):
 
 @pytest.mark.asyncio
 async def test_the_onchain_provider_is_offered_as_a_paste_a_token_connection(
-    client: AsyncClient, auth_headers
+    client: AsyncClient, auth_headers, monkeypatch
 ):
+    from app.core.config import get_settings
+    from app.services import provider_settings
+
     response = await client.get("/api/connections/providers", headers=auth_headers)
     by_name = {p["name"]: p for p in response.json()["providers"]}
     assert by_name["onchain"]["flow_type"] == "token"
-    # The suite empties the provider registry, so nothing is configured until
-    # it is registered — which is the wiring worth asserting, rather than the
-    # static entry three lines away in KNOWN_PROVIDERS.
-    assert by_name["onchain"]["configured"] is False
+    assert by_name["onchain"]["configured"] is True
 
-    register_provider("onchain", OnChainProvider)
+    # Availability follows the deployment flag, not process-wide registration.
+    disabled = get_settings().model_copy(update={"onchain_enabled": False})
+    monkeypatch.setattr(provider_settings, "get_settings", lambda: disabled)
     response = await client.get("/api/connections/providers", headers=auth_headers)
     configured = {p["name"]: p["configured"] for p in response.json()["providers"]}
-    assert configured["onchain"] is True
+    assert configured["onchain"] is False
 
 
 @pytest.mark.asyncio

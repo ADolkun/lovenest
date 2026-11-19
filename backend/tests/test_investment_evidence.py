@@ -236,7 +236,7 @@ async def test_full_holdings_and_api_sync_is_safe_in_either_order(session, test_
         get_holdings=AsyncMock(return_value=[holding]),
         get_investment_activity=AsyncMock(return_value=InvestmentActivity(trades=[trade], observations=[api])),
     )
-    monkeypatch.setattr("app.services.connection_service.get_provider", lambda _: provider)
+    monkeypatch.setattr("app.services.connection_service.get_provider", lambda *_, **__: provider)
     if csv_first:
         saved = await save(session, test_workspace, test_user, wallet, [observation()])
         await apply(session, test_workspace, test_user, wallet, saved.evidence)

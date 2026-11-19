@@ -181,7 +181,7 @@ async def test_sync_clock_enrichment_uses_actual_writer_readiness(
             return_value=InvestmentActivity(trades=[trade], observations=batch)
         ),
     )
-    monkeypatch.setattr("app.services.connection_service.get_provider", lambda _: provider)
+    monkeypatch.setattr("app.services.connection_service.get_provider", lambda *_, **__: provider)
     await _sync_holdings(session, test_user.id, connection, {}, {"portfolio-A"})
     saved = await save(session, test_workspace, test_user, wallet, batch)
     if kind == "unknown_fee_reward":
