@@ -209,7 +209,7 @@ services:
       backend: { condition: service_healthy }
       db: { condition: service_healthy }
     ports:
-      - "${TAX_PLANNER_PORT:-8088}:8088"
+      - "127.0.0.1:${TAX_PLANNER_PORT:-8088}:8088"
     restart: unless-stopped
 
   frontend:

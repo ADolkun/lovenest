@@ -243,15 +243,16 @@ def require_auth(
         "Authorization": authorization,
         **({"X-Workspace-Id": workspace_id} if workspace_id else {}),
     }
-    request = urllib.request.Request(
-        f"{BACKEND_URL}/api/workspaces/current" if allowed else f"{BACKEND_URL}/api/users/me",
-        headers=headers,
-    )
+    # The ledger queries trust X-Workspace-Id, so the backend must confirm the
+    # caller belongs to it whether or not an allowlist is configured.
+    request = urllib.request.Request(f"{BACKEND_URL}/api/workspaces/current", headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             if response.status != 200:
                 raise HTTPException(status_code=401, detail="Invalid Lovenest session")
     except urllib.error.HTTPError as exc:
+        if exc.code in (400, 403, 404):
+            raise HTTPException(status_code=403, detail="Select a workspace you belong to") from exc
         raise HTTPException(status_code=401, detail="Invalid Lovenest session") from exc
     except urllib.error.URLError as exc:
         raise HTTPException(status_code=503, detail="Lovenest authentication unavailable") from exc
