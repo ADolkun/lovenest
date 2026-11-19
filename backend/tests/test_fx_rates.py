@@ -1724,7 +1724,7 @@ class TestFxFallbackFlag:
 
 @pytest.mark.parametrize("missing_response", [{}, RuntimeError("offline")])
 async def test_import_fx_cache_retains_closest_fallback_without_persisting(
-    session, clean_db, missing_response,
+    session, clean_db, missing_response, mock_fx_provider,
 ):
     from app.services import fx_rate_service
     from sqlalchemy import func, select
@@ -1732,7 +1732,7 @@ async def test_import_fx_cache_retains_closest_fallback_without_persisting(
     earlier, missing = date(2025, 6, 15), date(2025, 6, 16)
     cache = {}
     with patch.object(
-        fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
+        mock_fx_provider, "fetch_historical",
         new=AsyncMock(side_effect=[{"EUR": Decimal("2")}, missing_response]),
     ) as fetch:
         for target in (earlier, missing, missing):
@@ -1768,12 +1768,12 @@ async def test_import_fx_cache_merges_closest_stored_and_local_rates(
     assert rate == expected
 
 
-async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(session, clean_db):
+async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(session, clean_db, mock_fx_provider):
     from app.services import fx_rate_service
 
     cache = {}
     with patch.object(
-        fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_latest",
+        mock_fx_provider, "fetch_latest",
         new=AsyncMock(return_value={"EUR": Decimal("2"), "ZZZ": Decimal("9")}),
     ) as fetch:
         assert await fx_rate_service._resolve_rate(
@@ -1791,12 +1791,12 @@ async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(se
     assert cache == {date.today(): {"EUR": Decimal("2")}}
 
 
-async def test_import_fx_cache_does_not_leak_to_next_import(session, clean_db):
+async def test_import_fx_cache_does_not_leak_to_next_import(session, clean_db, mock_fx_provider):
     from app.services import fx_rate_service
 
     target = date(2025, 6, 15)
     with patch.object(
-        fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
+        mock_fx_provider, "fetch_historical",
         new=AsyncMock(side_effect=[RuntimeError("offline"), {"EUR": Decimal("4")}]),
     ) as fetch:
         assert await fx_rate_service._resolve_rate(

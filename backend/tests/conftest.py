@@ -725,14 +725,14 @@ def _mock_redis():
 
 
 @pytest.fixture(autouse=True)
-def _no_external_fx_sync():
+def mock_fx_provider():
     """Prevent tests from hitting the real OpenExchangeRates API."""
     with patch("app.services.fx_rate_service.OpenExchangeRatesProvider") as provider_class:
         mock_provider = provider_class.return_value
         mock_provider.name = "test"
         mock_provider.fetch_latest = AsyncMock(return_value={})
         mock_provider.fetch_historical = AsyncMock(return_value={})
-        yield
+        yield mock_provider
 
 
 @pytest.fixture(autouse=True)
