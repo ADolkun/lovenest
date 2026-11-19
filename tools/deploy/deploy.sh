@@ -29,11 +29,12 @@ cleanup() {
     printf 'Deployment failed after %ss.\n' "$SECONDS" >&4
     if [[ -f "${log:-}" ]]; then
       printf 'Failure details:\n' >&4
+      # LC_ALL=C: BSD sed rejects the escape-sequence ranges in a UTF-8 locale.
       if declare -F failure_excerpt >/dev/null; then
         failure_excerpt "$log"
       else
         tail -n 12 "$log"
-      fi | sed -E $'s/\033\[[0-?]*[ -/]*[@-~]//g' | tr -d '\r' >&4
+      fi | LC_ALL=C sed -E $'s/\033\[[0-?]*[ -/]*[@-~]//g' | tr -d '\r' >&4
       printf 'Full log: %s\n' "$log" >&4
     fi
   fi

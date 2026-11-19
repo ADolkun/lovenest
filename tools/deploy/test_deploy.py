@@ -71,12 +71,15 @@ if args and args[0] == 'inspect':
     container = args[-1]
     if container.startswith('oneoff-'):
         service = container[len('oneoff-'):]
-        print('True|' + service + '|' + state['oneoffs'][service] + '|none')
+        print('True|' + service + '|' + state['oneoffs'][service] + '|none|0|no')
     else:
         service = container[len('container-'):].rsplit('-', 1)[0]
+        if service == 'migrate':
+            print('False|migrate|exited|none|' + ('1' if state.get('migrate_failed') else '0') + '|no')
+            sys.exit(0)
         status = 'exited' if state.get('stopped') and service == 'backend' else 'running'
         health = 'unhealthy' if state.get('unhealthy') else 'healthy'
-        print('False|' + service + '|' + status + '|' + health)
+        print('False|' + service + '|' + status + '|' + health + '|' + ('1' if status == 'exited' else '0') + '|unless-stopped')
     sys.exit(0)
 if args[:2] == ['compose', 'version']:
     print('Docker Compose version test')
@@ -86,7 +89,7 @@ args = args[1:]
 while args and args[0] in ('--project-directory', '--env-file', '-f'):
     args = args[2:]
 command, rest = args[0], args[1:]
-services = ['backend', 'frontend', 'tax-planner', 'celery-worker', 'celery-beat', 'db', 'redis']
+services = ['backend', 'frontend', 'tax-planner', 'celery-worker', 'celery-beat', 'migrate', 'db', 'redis']
 if 'agents' in values.get('COMPOSE_PROFILES', '').split(','): services.append('mcp-server')
 if command == 'build':
     for i in range(state.get('noisy_build', 0)):
@@ -132,6 +135,7 @@ elif command == 'up':
     state.pop('missing_services', None)
     state.pop('stopped', None)
     state.pop('unhealthy', None)
+    state.pop('migrate_failed', None)
     state_path.write_text(json.dumps(state))
     print('fixture stack started')
 elif command == 'exec':
@@ -862,9 +866,12 @@ class DeployTests(unittest.TestCase):
     def test_startup_polling_does_not_relax_health_guarantees(self):
         compose = (ROOT / "docker-compose.prod.yml").read_text()
         backend = compose.split("  backend:\n", 1)[1].split("  tax-planner:\n", 1)[0]
-        for expected in ("alembic upgrade head && exec uvicorn", "interval: 5s", "timeout: 6s", "start_period: 30s", "start_interval: 1s", "retries: 12"):
+        for expected in ("uvicorn app.main:app", "interval: 5s", "timeout: 6s", "start_period: 30s", "start_interval: 1s", "retries: 12"):
             self.assertIn(expected, backend)
         self.assertNotIn("stop_grace_period:", backend)
+        migrate = compose.split("  migrate:\n", 1)[1].split("  backend:\n", 1)[0]
+        self.assertIn("command: upgrade head", migrate)
+        self.assertIn('restart: "no"', migrate)
 
     def test_builds_three_unique_images_then_starts_without_building(self):
         self.env_file()
@@ -958,7 +965,7 @@ class DeployTests(unittest.TestCase):
 
     def test_stopped_unhealthy_or_unready_stack_cannot_skip(self):
         self.baseline_for_skip()
-        for key in ("stopped", "unhealthy", "exec_fail_once"):
+        for key in ("stopped", "unhealthy", "exec_fail_once", "migrate_failed"):
             with self.subTest(key=key):
                 self.state = json.loads(self.state_file.read_text())
                 self.state[key] = True
