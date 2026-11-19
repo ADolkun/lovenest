@@ -39,7 +39,6 @@ export function lineFromProduct(
     tax_rate: price ? price.tax_rate : current.tax_rate,
     product_id: product.id,
     price_id: price?.id ?? null,
-    fiscal_refs: product.fiscal_refs ? { ...product.fiscal_refs } : null,
   }
   // Omitted, not copied or nulled: the server fills an omitted field from
   // the product, and an agreement term keeps inheriting whatever refs the
