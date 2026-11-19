@@ -309,7 +309,7 @@ async def test_fx_fetch_retains_sync_lock_and_failed_import_rolls_back(
             connection_service, "sync_opening_balance_for_connected_account",
             side_effect=fail_after_conversion,
         ), patch.object(
-            fx_rate_service._provider, "fetch_historical",
+            fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
             new=AsyncMock(return_value={"EUR": Decimal("2")}),
         ) as fetch_rates:
             sync_task = asyncio.create_task(connection_service.sync_connection(
@@ -346,7 +346,7 @@ async def test_fx_fetch_retains_sync_lock_and_failed_import_rolls_back(
 async def test_standalone_fx_fetch_still_commits_by_default(session, postgres_sessions):
     target = date(2025, 6, 15)
     with patch.object(
-        fx_rate_service._provider, "fetch_historical",
+        fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
         new=AsyncMock(return_value={"EUR": Decimal("2")}),
     ):
         assert await fx_rate_service.sync_rates(session, target) == 1
@@ -387,7 +387,7 @@ async def test_oauth_fx_import_rolls_back_on_later_database_error(
             connection_service, "sync_opening_balance_for_connected_account",
             side_effect=fail_after_conversion,
         ), patch.object(
-            fx_rate_service._provider, "fetch_historical",
+            fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
             new=AsyncMock(return_value={"EUR": Decimal("2")}),
         ) as fetch_rates:
             with pytest.raises(DBAPIError):
@@ -701,7 +701,7 @@ async def test_parallel_imports_with_opposite_fx_dates_both_complete(
         with patch.object(connection_service, "get_provider", return_value=provider), patch.object(
             connection_service, "_stamp_synced_primary_amount", side_effect=pause_after_first,
         ), patch.object(
-            fx_rate_service._provider, "fetch_historical",
+            fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
             new=AsyncMock(side_effect=[
                 {"EUR": Decimal("2"), "BRL": Decimal("5")},
                 {"BRL": Decimal("5"), "EUR": Decimal("2")},
@@ -778,7 +778,7 @@ async def test_fx_refresh_does_not_wait_for_import_and_import_reuses_fetched_dat
         with patch.object(connection_service, "get_provider", return_value=provider), patch.object(
             connection_service, "sync_opening_balance_for_connected_account", side_effect=pause_import,
         ), patch.object(
-            fx_rate_service._provider, "fetch_historical",
+            fx_rate_service.OpenExchangeRatesProvider.return_value, "fetch_historical",
             new=AsyncMock(return_value={"EUR": Decimal("2")}),
         ) as fetch:
             task = asyncio.create_task(connection_service.sync_connection(
