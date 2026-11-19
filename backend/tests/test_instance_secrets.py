@@ -189,6 +189,7 @@ def seed_credentials(url: str, old_key: str) -> dict:
         "plugin": plugins_old.encrypt(json.dumps({"token": "plugin-token"}).encode()).decode(),
         "simplefin": agents_old.encrypt(b"https://user:pass@bridge.example/simplefin").decode(),
         "enable_banking": agents_old.encrypt(b"eb-session-id").decode(),
+        "coinbase": agents_old.encrypt(b"coinbase-private-key").decode(),
         "setting": agents_old.encrypt(b"pluggy-client-secret").decode(),
         "unreadable": unrelated.encrypt(b"lost-already").decode(),
     }
@@ -201,11 +202,12 @@ def seed_credentials(url: str, old_key: str) -> dict:
         ("INSERT INTO agent_llm_connections VALUES (1, :v), (2, NULL), (3, :u)",
          {"v": values["llm"], "u": values["unreadable"]}),
         ("INSERT INTO plugin_connections VALUES (1, :v)", {"v": values["plugin"]}),
-        ("INSERT INTO bank_connections VALUES (1, :a), (2, :b), (3, :c), (4, NULL)", {
+        ("INSERT INTO bank_connections VALUES (1, :a), (2, :b), (3, :c), (4, NULL), (5, :d)", {
             "a": json.dumps({"access_url_enc": values["simplefin"], "other": "kept"}),
             "b": json.dumps({"session_id_enc": values["enable_banking"], "valid_until": "2027-01-01"}),
             # Pluggy keeps only an item id, which isn't encrypted.
             "c": json.dumps({"item_id": "item-123"}),
+            "d": json.dumps({"key_name": "organizations/x/apiKeys/y", "private_key_enc": values["coinbase"]}),
         }),
         ("INSERT INTO app_settings VALUES ('pluggy_client_secret', :v), ('simplefin_enabled', 'true'),"
          " ('timezone', 'Europe/Paris')", {"v": values["setting"]}),
@@ -243,6 +245,7 @@ def test_credentials_under_a_public_default_move_to_the_new_key(db_url, monkeypa
     assert after["bank"][2]["valid_until"] == "2027-01-01"
     assert after["bank"][3] == {"item_id": "item-123"}
     assert after["bank"][4] is None
+    assert agents_new.decrypt(after["bank"][5]["private_key_enc"].encode()) == b"coinbase-private-key"
     assert agents_new.decrypt(after["settings"]["pluggy_client_secret"].encode()) == b"pluggy-client-secret"
     assert after["settings"]["simplefin_enabled"] == "true"
     assert after["settings"]["timezone"] == "Europe/Paris"

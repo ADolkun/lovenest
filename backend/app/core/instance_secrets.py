@@ -267,7 +267,7 @@ def reencrypt_with(old_keys: Iterable[str]) -> OnCreated:
             if not isinstance(data, dict):
                 return None
             changed = False
-            for field in ("access_url_enc", "session_id_enc"):
+            for field in ("access_url_enc", "session_id_enc", "private_key_enc"):
                 token = data.get(field)
                 if isinstance(token, str) and token:
                     moved = agents_value(token)
