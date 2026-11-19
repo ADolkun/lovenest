@@ -16,7 +16,7 @@ from app.services import investment_evidence_service as evidence
 from app.services.asset_transaction_service import _recompute, _tx_to_read
 from app.services.tax_lots import build_lots
 from tests.test_owned_transfers_integration import (
-    PREFIX, assert_ownership, checked, confirm_transfer, effect,
+    PREFIX, add_acquisition, assert_ownership, checked, confirm_transfer, effect,
     pair, retain_movement, select_lots, transfer_preview, transfers as transfers,
 )
 
@@ -345,3 +345,47 @@ async def test_movement_or_tombstone_blocks_economic_alias_in_another_group(tran
     assert list(await v.session.scalars(select(AssetTransaction.id))) == before_rows
     await v.session.refresh(alias)
     assert alias.asset_transaction_id is None and alias.applied_at is None
+
+
+async def _split(v, asset, on=date(2025, 1, 20)):
+    v.session.add(AssetTransaction(id=uuid.uuid4(), asset_id=asset.id, workspace_id=asset.workspace_id, kind="split",
+                                   quantity=Decimal(0), price=Decimal(0), fee=Decimal(0), date=on,
+                                   old_units=1, new_units=2, source="manual"))
+    await v.session.commit()
+
+
+async def test_a_movement_on_a_holding_with_a_split_is_refused_not_replayed(transfers):
+    """`movement_replay` has no split rule, so a movement after a split is
+    refused with a reason rather than replayed through a ledger it cannot read."""
+    v = transfers
+    await _split(v, v.a)
+    outgoing = await retain_movement(v.session, v.a, direction="out", reference="synthetic-after-split", quantity="3",
+                                     source=v.addresses[v.a.id], destination="E" * 44)
+    lots = checked(await v.client.get(f"{PREFIX}/transfers/lots", headers=v.headers, params={"asset_id": str(v.a.id)}))
+    assert lots["lots"] == [] and lots["missing_links"] == ["split_in_ledger"]
+    request = {"leg_id": str(outgoing.id), "asset_id": str(v.a.id), "ownership_id": v.ownership[v.a.id],
+               "allocations": [{"lot_id": str(v.acquisition.id), "quantity": "3"}], "reason": "Reviewed synthetic payment"}
+    preview = checked(await v.client.post(f"{PREFIX}/movements/preview", headers=v.headers, json=request))
+    assert not preview["can_confirm"] and "split_in_ledger" in preview["reason_codes"]
+    result = await v.client.post(f"{PREFIX}/movements", headers=v.headers,
+                                 json={**request, "expected_revision": preview["revision"]})
+    assert result.status_code == 422
+    assert list(await v.session.scalars(select(InvestmentMovementApplication))) == []
+
+
+async def test_a_transfer_into_a_holding_with_a_split_is_refused(transfers):
+    v = transfers
+    await add_acquisition(v.session, v.b, when=date(2025, 1, 2))
+    await _split(v, v.b)
+    preview = await transfer_preview(v, await select_lots(v, await pair(v, v.a, v.b)))
+    assert not preview["can_confirm"] and "split_in_ledger" in preview["reason_codes"]
+
+
+async def test_a_split_after_a_recorded_movement_is_refused(transfers):
+    v = transfers
+    await confirm_transfer(v, await select_lots(v, await pair(v, v.a, v.b)))
+    response = await v.client.post(f"/api/assets/{v.b.id}/transactions", headers=v.headers, json={
+        "kind": "split", "date": "2025-03-01", "old_units": 1, "new_units": 2,
+    })
+    assert response.status_code == 422, response.text
+    assert "reviewed transfers" in response.json()["detail"]

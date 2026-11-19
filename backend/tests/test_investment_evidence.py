@@ -176,6 +176,41 @@ async def test_group_and_asset_scope_and_stale_review_fail_closed(session, test_
 
 
 @pytest.mark.asyncio
+async def test_a_stock_split_is_not_evidence_of_an_outflow(session, test_workspace, test_user, wallet):
+    """A split row carries no quantity and moves no units, so it must neither
+    stand in the pool as an "out" leg a sale could match nor be linkable."""
+    asset = Asset(workspace_id=test_workspace.id, user_id=test_user.id, group_id=wallet.id, name="Synthetic",
+                  type="stock", currency="USD", ticker="SYN", valuation_method="market_price", units=Decimal("24"))
+    session.add(asset)
+    await session.flush()
+    buy = AssetTransaction(asset_id=asset.id, workspace_id=test_workspace.id, kind="buy", quantity=Decimal("12"),
+                           price=Decimal("7"), fee=Decimal("0"), date=date(2025, 1, 2), source="manual")
+    split = AssetTransaction(asset_id=asset.id, workspace_id=test_workspace.id, kind="split", quantity=Decimal("0"),
+                             price=Decimal("0"), fee=Decimal("0"), date=date(2025, 2, 3), source="manual",
+                             old_units=1, new_units=2)
+    session.add_all([buy, split])
+    await session.commit()
+
+    # A workpaper asserts inventory, so it matches any same-asset leg running
+    # the same way whatever its quantity — the split's zero included.
+    sale = observation("sale-after-split", execution="execution-S", quantity="5", source_kind="tax_workpaper")
+    sale.legs[0].classification, sale.legs[0].direction, sale.legs[0].asset_id = "sell", "out", asset.id
+    result = await save(session, test_workspace, test_user, wallet, [sale])
+    pooled = {leg.leg_id for record in result.evidence.records for leg in record.candidate_legs}
+    assert split.id not in pooled
+    assert all(observation.reference != f"ledger:{split.id}" for observation in result.evidence.observations)
+
+    decision = EvidenceDecision(
+        observation_ref=result.evidence.observations[0].reference, leg_key="amount", action="link",
+        allocations=[EvidenceAllocation(leg_id=split.id, quantity="5")], reason="Synthetic link to a split",
+    )
+    with pytest.raises(HTTPException) as refused:
+        await service.confirm_evidence(session, test_workspace.id, test_user.id, wallet.id, [decision], result.evidence.revision)
+    assert refused.value.status_code == 422
+    assert "split" in refused.value.detail
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("csv_first", [False, True])
 async def test_full_holdings_and_api_sync_is_safe_in_either_order(session, test_workspace, test_user, wallet, monkeypatch, csv_first):
     connection = BankConnection(
