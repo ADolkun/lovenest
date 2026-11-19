@@ -60,6 +60,7 @@ from app.schemas.reconciliation import (
 )
 from app.services import (
     invoice_service,
+    mortgage_service,
     reimbursement_service,
     reconciliation_history_service as history,
     reconciliation_portability as portability,
@@ -554,6 +555,12 @@ async def _settle(
                 "One of these is linked as a reimbursement. Remove its reimbursement "
                 "links before marking it as a transfer.",
             )
+        for leg in legs:
+            if await mortgage_service.is_mortgage_linked(session, ctx.workspace.id, leg):
+                raise invoice_service.InvoiceError(
+                    "mortgage_linked",
+                    "A mortgage payment with a breakdown cannot also be a transfer",
+                )
         if not _transfer_still_holds(moved, counterpart, row):
             # **The rows are not the ones the question was about.** A
             # transaction stays editable while its suggestion waits, so

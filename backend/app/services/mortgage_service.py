@@ -62,6 +62,30 @@ def principal_entry(
     return entry
 
 
+async def has_breakdown(
+    session: AsyncSession, workspace_id: uuid.UUID, payment_id: uuid.UUID
+) -> bool:
+    linked = await session.scalar(
+        select(MortgagePaymentAllocation.id)
+        .where(
+            MortgagePaymentAllocation.payment_transaction_id == payment_id,
+            MortgagePaymentAllocation.workspace_id == workspace_id,
+        )
+        .limit(1)
+    )
+    return linked is not None
+
+
+async def is_mortgage_linked(
+    session: AsyncSession, workspace_id: uuid.UUID, tx: Transaction
+) -> bool:
+    """A payment with a breakdown already moves its principal to the loan,
+    and the principal entry is that movement; neither can be a transfer too."""
+    return tx.source == MORTGAGE_PRINCIPAL_SOURCE or await has_breakdown(
+        session, workspace_id, tx.id
+    )
+
+
 async def delete_breakdown(
     session: AsyncSession, payment_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:

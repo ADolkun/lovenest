@@ -32,6 +32,7 @@ from app.schemas.transaction import (
 from app.schemas.transaction_split import TransactionSplitInput, TransactionSplitsInput
 from app.services import (
     category_line_service,
+    mortgage_service,
     reconciliation_service,
     reimbursement_service,
     split_service,
@@ -1826,18 +1827,7 @@ async def _apply_update_to_row(
 _LEDGER_FIELDS = ("account_id", "amount", "currency", "date", "type", "status", "is_ignored")
 
 
-async def _has_mortgage_breakdown(
-    session: AsyncSession, workspace_id: uuid.UUID, payment_id: uuid.UUID
-) -> bool:
-    linked = await session.scalar(
-        select(MortgagePaymentAllocation.id)
-        .where(
-            MortgagePaymentAllocation.payment_transaction_id == payment_id,
-            MortgagePaymentAllocation.workspace_id == workspace_id,
-        )
-        .limit(1)
-    )
-    return linked is not None
+_has_mortgage_breakdown = mortgage_service.has_breakdown
 
 
 async def _category_is_ignored(session: AsyncSession, category_id: Optional[uuid.UUID]) -> bool:
@@ -1856,11 +1846,7 @@ def _ensure_not_split_by_category(tx: Transaction) -> None:
 async def _ensure_not_mortgage_linked(
     session: AsyncSession, workspace_id: uuid.UUID, tx: Transaction
 ) -> None:
-    """A payment with a breakdown already moves its principal to the loan, and
-    the principal entry is that movement; neither can become a transfer too."""
-    if tx.source == MORTGAGE_PRINCIPAL_SOURCE or await _has_mortgage_breakdown(
-        session, workspace_id, tx.id
-    ):
+    if await mortgage_service.is_mortgage_linked(session, workspace_id, tx):
         raise ValueError("A mortgage payment with a breakdown cannot also be a transfer")
 
 
