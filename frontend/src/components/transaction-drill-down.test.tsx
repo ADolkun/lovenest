@@ -377,4 +377,28 @@ describe('TransactionDrillDown', () => {
     expect((await screen.findAllByText('-$90.00')).length).toBeGreaterThan(0)
     expect(api.transactions.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'posted', to: '2026-09-12' }))
   })
+
+  it('shows and orders a row by its reporting date override', async () => {
+    const tx = (overrides: Record<string, unknown>) => ({
+      date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null, reporting_date_override: null,
+      type: 'debit', amount: 10, amount_primary: 10, currency: 'USD', status: 'posted', category: null,
+      attachment_count: 0, reimbursement_links: [], splits: [], ...overrides,
+    })
+    api.transactions.list.mockResolvedValue({
+      items: [
+        tx({ id: 'late', description: 'Late purchase', date: '2026-09-20' }),
+        tx({ id: 'moved', description: 'Moved purchase', date: '2026-09-03', reporting_date_override: '2026-09-25' }),
+      ],
+      total: 2,
+    })
+
+    renderWithProviders(
+      <TransactionDrillDown filter={{ title: 'Food', type: 'debit', from: '2026-09-01', to: '2026-09-30' }} onClose={vi.fn()} />,
+    )
+
+    const moved = await screen.findByText('Moved purchase')
+    const late = screen.getByText('Late purchase')
+    expect(moved.compareDocumentPosition(late) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(moved.closest('div[class*="flex"]')!.parentElement!).getByText(new Date('2026-09-25T00:00:00').toLocaleDateString('en-US'))).toBeInTheDocument()
+  })
 })

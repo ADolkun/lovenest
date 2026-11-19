@@ -196,7 +196,7 @@ export function TransactionDrillDown({
       items.push({
         key: tx.id,
         description: tx.description,
-        date: tx.date,
+        date: tx.reporting_date_override ?? tx.date,
         orderDate: transactionOrderDate(tx, isAccrual),
         type: tx.type as 'debit' | 'credit',
         amount,

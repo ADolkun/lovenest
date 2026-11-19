@@ -81,6 +81,7 @@ import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
 import { formatCurrency, ltrAmount } from '@/lib/format'
+import { transactionOrderDate } from '@/lib/transaction-order-date'
 import { shouldShowPendingBadge } from '@/lib/transaction-status'
 import { isTransferTransaction } from '@/lib/transaction-transfer'
 import { readCalendarDateBasis } from '@/lib/transaction-calendar'
@@ -800,7 +801,7 @@ export default function TransactionsPage() {
     const groups: { date: string; label: string; items: Transaction[] }[] = []
     let current: { date: string; label: string; items: Transaction[] } | null = null
     for (const tx of filteredItems) {
-      const reportingDate = tx.reporting_date_override ?? tx.date
+      const reportingDate = transactionOrderDate(tx, isAccrual)
       if (!current || current.date !== reportingDate) {
         current = {
           date: reportingDate,
@@ -817,7 +818,7 @@ export default function TransactionsPage() {
       current.items.push(tx)
     }
     return groups
-  }, [filteredItems, dateLocale])
+  }, [filteredItems, dateLocale, isAccrual])
 
   // Pre-resolve accounts into a Map for O(1) lookup in the mobile card view
   const accountById = useMemo(() => {
