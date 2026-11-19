@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # renovate: datasource=pypi depName=uv
-uvx uv@0.13.7 lock "$@"
+uvx uv@0.13.9 lock "$@"
 
 # The code-intel library capture records the locked dist versions of the
 # packages that build routes (fastapi-users), and CI runs `capture --check`,

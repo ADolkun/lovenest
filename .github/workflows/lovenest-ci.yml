@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: write
+      actions: write # gh run cancel
     outputs:
       backend: ${{ steps.select.outputs.run_backend }}
       frontend: ${{ steps.select.outputs.run_frontend }}
@@ -37,7 +37,7 @@ jobs:
             --jq ".[] | select(.databaseId < $GITHUB_RUN_ID and .status != \"completed\") | .databaseId" \
             | while read -r id; do gh run cancel "$id" --repo "$GITHUB_REPOSITORY" || true; done
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -59,20 +59,21 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: backend/.python-version
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.7"
+          version: "0.13.9"
           enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/lovenest' }}
           cache-dependency-glob: |
             backend/uv.lock
             backend/pyproject.toml
@@ -140,20 +141,21 @@ jobs:
         working-directory: backend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: backend/.python-version
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.7"
+          version: "0.13.9"
           enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/lovenest' }}
           cache-dependency-glob: |
             backend/uv.lock
             backend/pyproject.toml
@@ -182,19 +184,32 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      # setup-node's own cache would save on every pull request; this saves on lovenest only.
+      - name: Restore the npm cache
+        id: npm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: Save the npm cache
+        if: github.ref == 'refs/heads/lovenest' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
 
       - name: Lint
         run: npm run lint -- --max-warnings=0
@@ -217,22 +232,37 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      # setup-node's own cache would save on every pull request; this saves on lovenest only.
+      - name: Restore the npm cache
+        id: npm-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Save the npm cache
+        if: github.ref == 'refs/heads/lovenest' && steps.npm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ steps.npm-cache.outputs.cache-primary-key }}
+
       - name: Run tests
-        run: npm test -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        env:
+          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npm test -- --shard="$SHARD"
 
   dev-scripts:
     name: Dev scripts self-check
@@ -240,7 +270,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # These stdlib-only tests read the production Compose and Dockerfile
           # contracts too. Non-cone mode includes those files, not the full app.
@@ -265,19 +295,20 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.7"
+          version: "0.13.9"
           enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/lovenest' }}
           cache-dependency-glob: .code-intel/requirements.txt
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
 
@@ -295,15 +326,16 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.7"
+          version: "0.13.9"
           enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/lovenest' }}
           cache-dependency-glob: |
             .code-intel/requirements.txt
             backend/uv.lock
@@ -313,7 +345,7 @@ jobs:
         run: uv sync --locked
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
 
@@ -323,8 +355,41 @@ jobs:
       - name: Verify the analyzers
         run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel verify
 
+  code-intel-summary:
+    name: Code-intel summary
+    needs: changes
+    if: needs.changes.outputs.backend != 'false' || needs.changes.outputs.frontend != 'false'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: true
+          save-cache: ${{ github.ref == 'refs/heads/lovenest' }}
+          cache-dependency-glob: |
+            .code-intel/requirements.txt
+            backend/uv.lock
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+
+      - name: Set up code-intel
+        run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel setup
+
       - name: Summarize the analysis
-        if: ${{ !cancelled() }}
         run: uv run --no-project --python 3.14 --with-requirements .code-intel/requirements.txt code-intel summary >> "$GITHUB_STEP_SUMMARY"
 
   helm:
@@ -338,12 +403,12 @@ jobs:
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: v4.3.1
 
@@ -363,6 +428,31 @@ jobs:
         shell: bash
         run: helm template securo-test charts/securo | kubeconform -summary -strict
 
+  # The fork's own workflows only: upstream's files are not ours to change, and they
+  # would fail this audit. List a new fork-only workflow here when adding one.
+  workflow-audit:
+    name: Workflow audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/workflows
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.9"
+          enable-cache: false
+
+      # The token enables the online audits (impostor commits, known-vulnerable actions).
+      - name: Audit the fork's workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uvx zizmor@1.32.0 --quiet .github/workflows/lovenest-ci.yml .github/workflows/clean-pr-caches.yml
+
   # The one required check. A job skipped because its area did not change counts
   # as passing; a failed, cancelled or never-run job does not.
   # !cancelled() rather than always(): a superseded run ends without a red gate.
@@ -378,9 +468,12 @@ jobs:
       - dev-scripts
       - docs-check
       - code-intel-verify
+      - code-intel-summary
       - helm
+      - workflow-audit
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions: {}
 
     steps:
       - name: Require every job to have passed or been skipped

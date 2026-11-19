@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [closed]
 
-permissions:
-  actions: write
+permissions: {}
 
 jobs:
   clean:
@@ -13,6 +12,8 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: write # gh cache delete
 
     steps:
       # A PR's caches live under its merge ref and cannot be restored by any other
