@@ -5,17 +5,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { CURRENCIES } from '@/lib/currencies'
 import { cn } from '@/lib/utils'
 
-import { CURRENCIES } from '@/lib/currencies'
-
+// Shared across the setup and register flows. A compact dropdown keeps these
+// forms short instead of rendering one button per currency in a tall grid.
 interface CurrencySelectProps {
   value: string
   onChange: (code: string) => void
   id?: string
   className?: string
 }
-
 
 export function CurrencySelect({ value, onChange, id, className }: CurrencySelectProps) {
   return (

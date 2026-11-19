@@ -76,6 +76,8 @@ The following is **Securo's feature set**, inherited unchanged by lovenest:
 - Two-factor authentication (TOTP) with brute-force protection, plus passkey support
 - OIDC login for Authentik, Pocket ID, and other standard providers, including OIDC-only deployments
 - AI Agents (optional): self-hosted LLM chat with tool-use over your data, plus a per-agent RAG knowledge base
+- Plugins (optional): install data plugins from the plugin catalog into a workspace, with a preview before anything changes
+- Attachments and invoice logos on local disk, or in a private S3-compatible bucket with `STORAGE_PROVIDER=s3` (see `.env.example`)
 
 For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exchange rates, and AI Agents, follow **[Securo's documentation](https://docs.usesecuro.com/)** — the underlying configuration keys are unchanged in this fork.
 
@@ -96,50 +98,17 @@ Parts of this codebase were built with help of AI. All code is human-reviewed an
 
 Contributing with AI is welcome. We review the author, not the tool: whatever wrote the diff, you own its quality, its fit with where lovenest is going, and everything that happens after it merges. See [Using AI](CONTRIBUTING.md#using-ai).
 
-## Development
+## Support Securo
 
-```bash
-# Run backend tests with the Python version in backend/.python-version
-cd backend
-uv sync --locked --group dev
-uv run --no-sync pytest
+lovenest is built on Securo, which is free and open source. If lovenest helps you, a coffee keeps Securo's development going:
 
-# Rebuild after dependency changes
-docker compose up --build
-```
-
-The backend installs editably into `.venv`; after changing dependencies, run
-`backend/scripts/lock.sh` and commit `backend/uv.lock`. See
-[Contributing](CONTRIBUTING.md#running-the-checks-ci-runs) for the full checks and
-[tax planner development](extras/tax/README.md) for its separate uv project.
-
-If you've [mise](https://mise.jdx.dev/) installed, you can install backend/frontend directly with it:
-
-```
-# Install the Python version specified in .python-version,
-# and create a project virtual environment using that Python.
-# Install all tools and dependencies (include Python with dedicated venv)
-mise //...:install
-
-# Install only backend tools/deps
-mise backend:install
-
-# Run backend tests
-mise backend:test
-
-# Install frontend dependencies
-mise frontend:install
-
-# Run frontend linting
-mise frontend:lint
-
-# Run frontend build
-mise frontend:build
-```
+<p align="center">
+  <a href="https://www.buymeacoffee.com/usesecuro"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="160" alt="Buy Me a Coffee" /></a>
+</p>
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 
 ## License
 

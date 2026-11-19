@@ -24,8 +24,11 @@ backend environment to API/worker/beat processes. Restart processes after changi
 configuration. This setting applies to all bank providers, not just Enable Banking.
 
 This is a spacing policy, **not a strict rolling request quota**: failures and
-rate-limited runs do not advance `last_sync_at`, so they remain eligible on later
-hourly checks. Manual syncs, multiple connections to the same bank and paginated
+rate-limited runs do not advance `last_sync_at`. The scheduler then backs off a
+connection whose scheduled syncs keep failing, doubling the wait per failure up
+to a day, never earlier than a provider's `Retry-After`, and six hours after a
+rate limit that names none (`app/tasks/sync_tasks.py`); any successful sync
+clears the backoff. Plugin connections follow their plugin's schedule. Manual syncs, multiple connections to the same bank and paginated
 or retried provider requests may also consume access. A six-hour interval alone
 does not guarantee compliance with every bank's per-resource accounting policy.
 There is no change to provider refresh strategy or transaction fetch windows.
@@ -67,3 +70,15 @@ Legitimate long holds that remain in the feed are never retired merely because o
 The migration only adds nullable audit storage; it does not repair historical
 transactions. Existing stale rows need subsequent qualifying observations, or a
 separately reviewed manual ignore. Posted purchases and refunds are not expired.
+
+## Synchronized transaction edits
+
+Synchronized amounts and booking dates remain provider-owned: changing either
+through a transaction edit is rejected with HTTP 400; supplying its existing value
+is allowed. Resubmitting unchanged amount, currency, or date values preserves the
+stored FX conversion; actual currency edits and explicit FX overrides still apply.
+Installment-scoped edits validate every affected row before updating.
+Editing a manual transfer leg cannot change its synchronized counterpart's amount,
+date, derived FX values, or effective date. Description, notes, and explicitly
+requested category propagation remain available. The "post today" action rejects
+synchronized anchors; a synchronized counterpart only receives the posted status.

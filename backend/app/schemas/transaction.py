@@ -3,9 +3,14 @@ from datetime import date as _Date
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.currency import normalize_currency_code
 from app.schemas.category import CategoryRead
+from app.schemas.transaction_category_line import (
+    TransactionCategoryLineRead,
+    TransactionCategoryLinesInput,
+)
 from app.schemas.transaction_split import (
     TransactionSplitInput,
     TransactionSplitRead,
@@ -22,6 +27,13 @@ class TransactionBase(BaseModel):
     fx_rate: Optional[Decimal] = None
     payee_raw: Optional[str] = None  # raw payee string from import (OFX/QIF)
 
+    # `currency` is declared on each subclass (Read narrows it to `str`), so the
+    # validator is inherited without a base field to check against.
+    @field_validator("currency", mode="before", check_fields=False)
+    @classmethod
+    def normalize_currency(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_currency_code(value)
+
 
 class TransactionCreate(TransactionBase):
     account_id: uuid.UUID
@@ -33,6 +45,9 @@ class TransactionCreate(TransactionBase):
     fx_rate_used: Optional[Decimal] = None
     effective_bill_date: Optional[_Date] = None
     splits: Optional[TransactionSplitsInput] = None
+    # Split the amount across several categories instead of one
+    # `category_id`. Mutually exclusive with `category_id` and `splits`.
+    category_lines: Optional[TransactionCategoryLinesInput] = None
     # Manual status override. When omitted the transaction is created as
     # "posted" (settled), matching the model default. Pass "pending"
     # (not yet settled) to record an entry that isn't settled yet. Only
@@ -108,14 +123,25 @@ class TransactionUpdate(BaseModel):
     # CC bucketing override (issue #92). Empty string / explicit null clears
     # it back to auto. Only meaningful for credit-card accounts.
     effective_bill_date: Optional[_Date] = None
+    # Optional period-attribution correction. This intentionally does not alter
+    # bank-date/credit-card-cycle behavior without mutating provider truth.
+    reporting_date_override: Optional[_Date] = None
     # When provided, replaces the transaction's splits wholesale. Pass
     # an object with an empty `splits` list to clear them.
     splits: Optional[TransactionSplitsInput] = None
+    # When provided, replaces the category split wholesale; an empty `lines`
+    # list undoes it. Required alongside a new `amount` on a split row.
+    category_lines: Optional[TransactionCategoryLinesInput] = None
     # Installment-series scope for edits. "this" (default) only touches the
     # target row; "future" touches it plus all later installments of the
     # same series; "all" touches every row in the series. Ignored when the
     # transaction has no installment fingerprint.
     apply_to: Literal["this", "future", "all"] = "this"
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def normalize_currency(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_currency_code(value)
 
 
 class InstallmentSeriesCreate(BaseModel):
@@ -199,6 +225,8 @@ class TransactionRead(TransactionBase):
     #: ordinary case, not the exotic one.
     invoice_links: list[TransactionInvoiceLink] = []
     reimbursement_links: list[ReimbursementLinkRead] = []
+    # A stored transaction always has a currency, so the read model narrows
+    # the optional input field on purpose.
     currency: str = "USD"
     source: str
     sync_metadata: Optional[dict] = None
@@ -213,8 +241,9 @@ class TransactionRead(TransactionBase):
     # The paginated list fills it per page (issue #810); other endpoints
     # leave it null.
     transfer_counterpart: Optional[TransactionTransferCounterpart] = None
-    # Whether P&L leaves this row out as a transfer (`is_transfer` in
-    # `_query_filters`), which a pair id or category alone cannot tell.
+    # Whether P&L leaves this row, or for a row split across categories any
+    # of its parts, out as a transfer (`is_transfer_row` in `_query_filters`),
+    # which a pair id or category alone cannot tell.
     # Filled by the paginated list and the single-row reads; null where an
     # endpoint did not compute it.
     is_transfer: Optional[bool] = None
@@ -229,8 +258,18 @@ class TransactionRead(TransactionBase):
     installment_series_id: Optional[uuid.UUID] = None
     bill_id: Optional[uuid.UUID] = None
     effective_bill_date: Optional[_Date] = None
+    reporting_date_override: Optional[_Date] = None
     recurring_transaction_id: Optional[uuid.UUID] = None
     splits: list[TransactionSplitRead] = []
+    # Set when the amount is split across several categories; `category_id`
+    # is then null and the categories live in `category_lines`.
+    has_category_lines: bool = False
+    category_lines: list[TransactionCategoryLineRead] = []
+    # Set by the paginated list when it is filtered by category: the part of
+    # a split row that falls in the filtered categories, so a drill-down
+    # total adds up to the report it came from. Null on plain rows.
+    matched_amount: Optional[Decimal] = None
+    matched_amount_primary: Optional[Decimal] = None
     # Shared-transaction view fields. Set per-request when the viewer
     # is a linked member of one of this transaction's splits but not
     # its owner. The viewer sees their share amount instead of the
@@ -330,10 +369,21 @@ class TransferRead(BaseModel):
     transfer_pair_id: uuid.UUID
 
 
+class ImportCategoryLine(BaseModel):
+    """One part of a split read back from a CSV export."""
+
+    category_name: str
+    amount: Decimal = Field(gt=Decimal(0), decimal_places=2)
+
+
 class TransactionImport(TransactionBase):
     """TransactionBase extended with import-only fields not exposed in read responses."""
     currency: Optional[str] = None
     category_name: Optional[str] = None
+    # Set when a CSV carried a split across categories (`split_group` /
+    # `split_index` columns, as the export writes them). The import recreates
+    # the parts; a part whose category is missing imports the row unsplit.
+    category_lines: Optional[list[ImportCategoryLine]] = None
     suggested_category_id: Optional[uuid.UUID] = None
     suggested_category_name: Optional[str] = None
     excluded: bool = False

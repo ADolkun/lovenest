@@ -10,7 +10,12 @@ import { toast } from 'sonner'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import type { ImportPreviewTransaction, ImportReviewTransaction, FailedRow } from '@/types'
+import type {
+  AccountType,
+  ImportPreviewTransaction,
+  ImportReviewTransaction,
+  FailedRow,
+} from '@/types'
 import { Upload, FileText, X, CheckCircle2, AlertCircle, Settings2, Download } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/page-header'
@@ -24,11 +29,13 @@ import { ImportHistory } from '@/components/import-history'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 
-const TYPE_LABELS: Record<string, string> = {
+const TYPE_LABELS: Record<AccountType, string> = {
   checking: 'accounts.typeChecking',
   savings: 'accounts.typeSavings',
   credit_card: 'accounts.typeCreditCard',
+  loan: 'accounts.typeLoan',
   investment: 'accounts.typeInvestment',
+  wallet: 'accounts.typeWallet',
 }
 
 // Securo fields a CSV column can be mapped to, in display order.
@@ -133,6 +140,7 @@ function TransactionImportPanel() {
         payee_raw: rt.payee_raw ?? undefined,
         notes: rt.notes ?? undefined,
         category_name: rt.category_name ?? undefined,
+        category_lines: rt.category_lines ?? undefined,
         excluded: rt.excluded,
         category_id: rt.selected_category_id !== undefined
           ? (rt.selected_category_id ?? undefined)
@@ -391,7 +399,7 @@ function TransactionImportPanel() {
               >
                 <option value="">{t('import.selectAccount')}</option>
                 {sortAccountsByDisplayName(accountsList ?? []).map((acc) => (
-                  <option key={acc.id} value={acc.id}>{getAccountName(acc)} ({t(TYPE_LABELS[acc.type] || acc.type)})</option>
+                  <option key={acc.id} value={acc.id}>{getAccountName(acc)} ({t(TYPE_LABELS[acc.type as AccountType] || acc.type)})</option>
                 ))}
               </select>
               {!selectedAccount && (
@@ -429,7 +437,7 @@ function TransactionImportPanel() {
                     </span>
                     <button
                       type="button"
-                      className="ml-2 font-semibold underline hover:text-amber-800 focus:outline-none"
+                      className="ms-2 font-semibold underline hover:text-amber-800 focus:outline-none"
                       onClick={() => setIsFailedRowsOpen(true)}
                     >
                       {t('import.viewDetails')}
@@ -607,7 +615,7 @@ function TransactionImportPanel() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card text-foreground mt-4 max-h-[50vh] overflow-y-auto">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full text-start text-xs border-collapse">
               <thead>
                 <tr className="bg-muted text-muted-foreground border-b border-border sticky top-0">
                   <th className="px-3 py-2 font-semibold w-16">{t('import.lineNumber')}</th>

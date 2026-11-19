@@ -4,7 +4,7 @@ import { useInfiniteQuery } from '@tanstack/react-query'
 import { getAccountName, sortAccountsByDisplayName } from '@/lib/account-utils'
 import { isInvalidDescriptionAction, parseRulePriority, previewableActions } from '@/lib/rule-form-utils'
 import { rules as rulesApi } from '@/lib/api'
-import { formatCurrency } from '@/lib/format'
+import { formatSignedAmount } from '@/lib/format'
 import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { Input } from '@/components/ui/input'
@@ -131,7 +131,7 @@ function ConditionRow({
 }) {
   const { t } = useTranslation()
   return (
-    <div className="relative grid min-w-0 grid-cols-2 gap-2 pr-7 sm:flex sm:items-center sm:pr-0">
+    <div className="relative grid min-w-0 grid-cols-2 gap-2 pe-7 sm:flex sm:items-center sm:pe-0">
       <select
         className={`${SELECT_CLASS} w-full sm:w-32 sm:shrink-0`}
         value={condition.field}
@@ -202,7 +202,7 @@ function ConditionRow({
       <button
         type="button"
         aria-label={`${t('common.delete')} ${t('rules.conditions')}`}
-        className="absolute right-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
+        className="absolute end-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
         onClick={onRemove}
       >
         <X size={13} />
@@ -346,30 +346,34 @@ function RulePreviewPanel({
               <div className="max-h-56 overflow-y-auto overflow-x-auto overscroll-contain">
                 <table className="w-full table-fixed text-xs">
                   <thead className="sticky top-0 bg-card text-muted-foreground">
-                    <tr className="border-b border-border text-left">
-                      <th className="w-24 py-1.5 pr-2 font-medium">{t('transactions.date')}</th>
-                      <th className="py-1.5 pr-2 font-medium">{t('transactions.description')}</th>
-                      <th className="w-24 py-1.5 pr-2 text-right font-medium">{t('transactions.amount')}</th>
+                    <tr className="border-b border-border text-start">
+                      <th className="w-24 py-1.5 pe-2 font-medium">{t('transactions.date')}</th>
+                      <th className="py-1.5 pe-2 font-medium">{t('transactions.description')}</th>
+                      <th className="w-24 py-1.5 pe-2 text-end font-medium">{t('transactions.amount')}</th>
                       <th className="w-[35%] py-1.5 font-medium">{t('transactions.category')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {sample.map(item => (
                       <tr key={item.id} className={cn(!item.will_change && 'text-muted-foreground')}>
-                        <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums">
+                        <td className="whitespace-nowrap py-1.5 pe-2 tabular-nums">
                           {new Date(item.date + 'T00:00:00').toLocaleDateString(dateLocale)}
                         </td>
-                        <td className="truncate py-1.5 pr-2" title={item.description}>
+                        <td className="truncate py-1.5 pe-2" title={item.description}>
                           {item.description}
                         </td>
                         <td className={cn(
-                          'whitespace-nowrap py-1.5 pr-2 text-right tabular-nums',
-                          item.will_change && item.type === 'credit' && 'text-emerald-600',
+                          'whitespace-nowrap py-1.5 pe-2 text-end tabular-nums',
+                          item.will_change && (item.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'),
                         )}>
-                          {mask(formatCurrency(Math.abs(item.amount), item.currency, locale))}
+                          {mask(formatSignedAmount(item.amount, item.type, item.currency, locale))}
                         </td>
                         <td className="py-1.5">
-                          {item.will_change ? (
+                          {item.will_change && item.current_has_category_lines ? (
+                            // A rule never recategorizes a split row; it can
+                            // still change its payee or notes.
+                            <span className="truncate">{t('categoryLines.badgeShort')}</span>
+                          ) : item.will_change ? (
                             <span className="flex items-center gap-1">
                               <span className="min-w-0 truncate">
                                 {item.current_category_name ?? t('transactions.uncategorized')}
@@ -382,7 +386,9 @@ function RulePreviewPanel({
                           ) : (
                             <span className="flex items-center gap-1">
                               <span className="min-w-0 truncate">
-                                {item.current_category_name ?? t('transactions.uncategorized')}
+                                {item.current_has_category_lines
+                                  ? t('categoryLines.badgeShort')
+                                  : item.current_category_name ?? t('transactions.uncategorized')}
                               </span>
                               <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-semibold">
                                 {t('rules.previewNoChange')}
@@ -464,6 +470,13 @@ export function RuleDialog({
     initialData?.overwriteExistingCategories ?? false
   )
   const [previewOpen, setPreviewOpen] = useState(false)
+
+  // Signed amounts are not obvious from a bare number box, so say it once,
+  // right where the threshold is typed: income positive, expenses negative.
+  const hasAmountCondition = useMemo(
+    () => flattenConditions(conditions).some(c => c.field === 'amount'),
+    [conditions],
+  )
 
   function updateCondition(i: number, field: keyof RuleCondition, val: string | number) {
     setConditions(prev => prev.map((node, idx) => (
@@ -672,6 +685,9 @@ export function RuleDialog({
                   <Plus size={12} /> {t('rules.addGroup')}
                 </button>
               </div>
+              {hasAmountCondition && (
+                <p className="text-xs text-muted-foreground">{t('rules.amountSignHint')}</p>
+              )}
             </div>
           </div>
 
@@ -683,7 +699,7 @@ export function RuleDialog({
                 const invalidDescription = isInvalidDescriptionAction(action)
                 return (
                   <div key={i} className="space-y-1">
-                    <div className="relative grid min-w-0 gap-2 pr-7 sm:flex sm:items-center sm:pr-0">
+                    <div className="relative grid min-w-0 gap-2 pe-7 sm:flex sm:items-center sm:pe-0">
                       <select
                         className={`${SELECT_CLASS} w-full sm:w-40 sm:shrink-0`}
                         value={action.op}
@@ -745,7 +761,7 @@ export function RuleDialog({
                       <button
                         type="button"
                         aria-label={`${t('common.delete')} ${t('rules.actions')}`}
-                        className="absolute right-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
+                        className="absolute end-0 top-1 shrink-0 p-1 text-muted-foreground transition-colors hover:text-rose-500 sm:static"
                         onClick={() => removeAction(i)}
                       >
                         <X size={13} />
@@ -791,7 +807,7 @@ export function RuleDialog({
           </label>
 
           {applyToExisting && (
-            <label className="flex items-center gap-2 cursor-pointer pl-6">
+            <label className="flex items-center gap-2 cursor-pointer ps-6">
               <input
                 type="checkbox"
                 checked={overwriteExistingCategories}

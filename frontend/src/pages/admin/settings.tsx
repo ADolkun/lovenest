@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useTheme } from 'next-themes'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { admin as adminApi, currencies as currenciesApi } from '@/lib/api'
 import { resolveDisplayLocale, resolveDateLocale, type NumberFormat, type DateFormat } from '@/lib/format'
@@ -30,7 +29,8 @@ import {
 } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { TimezoneSettings } from '@/components/timezone-settings'
-import { setThemeBasedOnSystem } from '@/lib/theme-utils'
+import { ProviderSettings } from '@/components/provider-settings'
+import { DEFAULT_COLORS_QUERY_KEY } from '@/hooks/use-app-theme'
 import { useLocalAuthEnabled } from '@/hooks/use-local-auth'
 import { Search, Plus, Trash2, Shield, ShieldOff, UserCog, Users, Scale, Tag, Palette, Save, Hash, CalendarDays } from 'lucide-react'
 import type { AdminUser } from '@/types'
@@ -39,7 +39,6 @@ export default function AdminSettingsPage() {
   const { t, i18n } = useTranslation()
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
-  const { resolvedTheme } = useTheme()
 
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -108,9 +107,11 @@ export default function AdminSettingsPage() {
     },
   })
 
-  const { data: regSetting, isLoading: settingsLoading } = useQuery({
+  // The effective state, not the saved row: with nothing saved,
+  // REGISTRATION_ENABLED decides.
+  const { data: regStatus, isLoading: settingsLoading } = useQuery({
     queryKey: ['admin', 'settings', 'registration_enabled'],
-    queryFn: () => adminApi.getSetting('registration_enabled'),
+    queryFn: () => adminApi.registrationStatus(),
   })
 
   const updateSettingMutation = useMutation({
@@ -246,7 +247,8 @@ export default function AdminSettingsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
-      setThemeBasedOnSystem(localLight, localDark, resolvedTheme)
+      // The page re-reads the accent colors and keeps each person's theme on top.
+      queryClient.invalidateQueries({ queryKey: DEFAULT_COLORS_QUERY_KEY })
       toast.success(t('admin.settings.updated'))
     },
     onError: () => {
@@ -275,7 +277,7 @@ export default function AdminSettingsPage() {
 
   const users = usersData?.items ?? []
   const isSelf = (u: AdminUser) => u.id === currentUser?.id
-  const isEnabled = regSetting?.value === 'true'
+  const isEnabled = regStatus?.enabled === true
 
   const filteredUsers = users
 
@@ -287,7 +289,7 @@ export default function AdminSettingsPage() {
         action={
           localAuthEnabled ? (
             <Button onClick={() => { resetCreateForm(); setCreateOpen(true) }}>
-              <Plus size={16} className="mr-1.5" />
+              <Plus size={16} className="me-1.5" />
               {t('admin.users.add')}
             </Button>
           ) : undefined
@@ -296,12 +298,12 @@ export default function AdminSettingsPage() {
 
       {/* Search */}
       <div className="relative max-w-md mb-5">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('admin.users.searchPlaceholder')}
-          className="pl-9 h-10 bg-card border-border/60 rounded-xl"
+          className="ps-9 h-10 bg-card border-border/60 rounded-xl"
         />
       </div>
 
@@ -322,7 +324,7 @@ export default function AdminSettingsPage() {
               <button
                 key={u.id}
                 onClick={() => openEdit(u)}
-                className="flex items-center gap-4 w-full px-5 py-3.5 text-left hover:bg-muted/40 transition-colors"
+                className="flex items-center gap-4 w-full px-5 py-3.5 text-start hover:bg-muted/40 transition-colors"
               >
                 <Avatar className="h-9 w-9 shrink-0">
                   <AvatarFallback className={u.is_superuser ? 'bg-primary/15 text-primary text-xs font-semibold' : 'bg-muted text-muted-foreground text-xs font-semibold'}>
@@ -371,6 +373,7 @@ export default function AdminSettingsPage() {
       </div>
 
       <TimezoneSettings />
+      <ProviderSettings />
 
       {/* Theme and Customization Section */}
       <div className="grid grid-cols-1 gap-6 mb-8">
@@ -444,7 +447,7 @@ export default function AdminSettingsPage() {
             type="button"
             onClick={() => updateAccountingModeMutation.mutate('cash')}
             disabled={updateAccountingModeMutation.isPending}
-            className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+            className="flex items-start gap-3 w-full px-5 py-4 text-start hover:bg-muted/40 transition-colors"
           >
             <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${accountingMode === 'cash' ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
               {accountingMode === 'cash' && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
@@ -458,7 +461,7 @@ export default function AdminSettingsPage() {
             type="button"
             onClick={() => updateAccountingModeMutation.mutate('accrual')}
             disabled={updateAccountingModeMutation.isPending}
-            className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+            className="flex items-start gap-3 w-full px-5 py-4 text-start hover:bg-muted/40 transition-colors"
           >
             <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${accountingMode === 'accrual' ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
               {accountingMode === 'accrual' && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
@@ -491,7 +494,7 @@ export default function AdminSettingsPage() {
             className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${useProviderCats ? 'bg-primary' : 'bg-muted-foreground/20'}`}
           >
             <span
-              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${useProviderCats ? 'translate-x-6' : 'translate-x-1'}`}
+              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${useProviderCats ? 'translate-x-6 rtl:-translate-x-6' : 'translate-x-1 rtl:-translate-x-1'}`}
             />
           </button>
         </div>
@@ -524,7 +527,7 @@ export default function AdminSettingsPage() {
                 type="button"
                 onClick={() => updateNumberFormatMutation.mutate(opt.value)}
                 disabled={updateNumberFormatMutation.isPending}
-                className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+                className="flex items-start gap-3 w-full px-5 py-4 text-start hover:bg-muted/40 transition-colors"
               >
                 <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${numberFormat === opt.value ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
                   {numberFormat === opt.value && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
@@ -572,7 +575,7 @@ export default function AdminSettingsPage() {
                 type="button"
                 onClick={() => updateDateFormatMutation.mutate(opt.value)}
                 disabled={updateDateFormatMutation.isPending}
-                className="flex items-start gap-3 w-full px-5 py-4 text-left hover:bg-muted/40 transition-colors"
+                className="flex items-start gap-3 w-full px-5 py-4 text-start hover:bg-muted/40 transition-colors"
               >
                 <div className={`mt-0.5 h-4 w-4 rounded-full border-2 shrink-0 ${dateFormat === opt.value ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`}>
                   {dateFormat === opt.value && <div className="h-full w-full rounded-full bg-primary ring-2 ring-background ring-inset" />}
@@ -620,7 +623,7 @@ export default function AdminSettingsPage() {
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isEnabled ? 'bg-primary' : 'bg-muted-foreground/20'}`}
             >
               <span
-                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`}
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isEnabled ? 'translate-x-6 rtl:-translate-x-6' : 'translate-x-1 rtl:-translate-x-1'}`}
               />
             </button>
           </div>
@@ -687,7 +690,7 @@ export default function AdminSettingsPage() {
                 className={`flex items-center gap-2 w-full px-3.5 py-2.5 rounded-lg border text-sm font-medium transition-all ${formIsAdmin ? 'bg-primary/8 border-primary/30 text-primary' : 'border-border text-muted-foreground hover:border-border/80'}`}
               >
                 {formIsAdmin ? <Shield size={15} /> : <ShieldOff size={15} />}
-                <span className="flex-1 text-left">{t('admin.users.adminRole')}</span>
+                <span className="flex-1 text-start">{t('admin.users.adminRole')}</span>
                 <span className={`text-xs ${formIsAdmin ? 'text-primary' : 'text-muted-foreground/60'}`}>
                   {formIsAdmin ? t('admin.users.enabled') : t('admin.users.disabled')}
                 </span>

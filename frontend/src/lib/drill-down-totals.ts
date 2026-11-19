@@ -16,6 +16,8 @@ export type DrillDownTotalsItem = {
 
 export type DrillDownTotals = {
   total: number
+  /** Credits minus debits, for panels that open a net figure. */
+  netTotal: number
   postedTotal: number
   pendingTotal: number
   projectedTotal: number
@@ -62,12 +64,13 @@ export function sumDrillDownTotals(
       const amount = netOf && item.type !== netOf ? -magnitude : magnitude
 
       totals.total += amount
+      totals.netTotal += item.type === 'credit' ? magnitude : -magnitude
       if (item.isProjected) totals.projectedTotal += amount
       else if (item.isPending) totals.pendingTotal += amount
       else totals.postedTotal += amount
       return totals
     },
-    { total: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
+    { total: 0, netTotal: 0, postedTotal: 0, pendingTotal: 0, projectedTotal: 0 },
   )
 }
 

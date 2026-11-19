@@ -73,7 +73,7 @@ class Asset(Base):
         UUID(as_uuid=True), ForeignKey("bank_connections.id", ondelete="SET NULL"), nullable=True
     )
     external_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    source: Mapped[str] = mapped_column(String(50), default="manual")
+    source: Mapped[str] = mapped_column(String(128), default="manual")
     # The provider account this holding sits in, when the provider reports the
     # relationship. NULL means unattributable (Pluggy's investments are
     # item-level), never "no account" — it is the record of which brokerage

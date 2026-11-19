@@ -86,6 +86,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
   TWD: 'zh-TW',
   ZAR: 'en-ZA',
   GEL: 'en-GE',
+  ILS: 'en-IL',
 }
 
 /**
@@ -188,12 +189,45 @@ function currencyFormatter(currency: string, locale: string): Intl.NumberFormat 
   }
 }
 
+function compactCurrencyFormatter(currency: string, locale: string): Intl.NumberFormat {
+  const options: Intl.NumberFormatOptions = {
+    style: 'currency',
+    currency: currency || 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }
+  try {
+    return new Intl.NumberFormat(locale, options)
+  } catch {
+    return new Intl.NumberFormat('en-US', { ...options, currency: 'USD' })
+  }
+}
+
 /**
  * Format a numeric value as currency using Intl.NumberFormat.
  *
  * Fraction digits are left to Intl so each currency keeps its own precision:
  * pinning two would render JPY as "￥1,000.00" and CLP as "$1.000,00".
  */
+/**
+ * Keep a signed amount reading left to right inside right-to-left text.
+ *
+ * In a Hebrew (RTL) paragraph the bidi algorithm treats a leading "-" or "+"
+ * as neutral and moves it to the far end, so "-₪110.00" renders as
+ * "₪110.00-". Wrapping the amount in a left-to-right isolate (LRI ... PDI)
+ * keeps the sign in front of the number. Left-to-right pages get the string
+ * untouched.
+ */
+export function ltrAmount(text: string): string {
+  if (typeof document === 'undefined' || document.documentElement.dir !== 'rtl') return text
+  return `\u2066${text}\u2069`
+}
+
+/** "→" for left-to-right pages, "←" for right-to-left ones: for arrows inside plain strings. */
+export function forwardArrow(): string {
+  return typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? '\u2190' : '\u2192'
+}
+
 export function formatCurrency(
   value: number | null | undefined,
   currency = 'USD',
@@ -206,12 +240,54 @@ export function formatCurrency(
     // with a stray minus ("-R$ 0,00"), which covers -0 as well as the sub-cent
     // residue that summed balances and FX conversions leave behind.
     const factor = 10 ** (formatter.resolvedOptions().maximumFractionDigits ?? 2)
-    return formatter.format(Math.round(value * factor) === 0 ? 0 : value)
+    return ltrAmount(formatter.format(Math.round(value * factor) === 0 ? 0 : value))
   } catch {
     // Intl rejects anything that isn't a 3-letter ISO 4217 code, and providers
     // report crypto units that aren't (USDT, MATIC).
-    return `${value.toFixed(2)} ${currency}`
+    return ltrAmount(`${value.toFixed(2)} ${currency}`)
   }
+}
+
+/**
+ * Format a value as currency in compact notation ("-R$340 mil", "$1.2M").
+ *
+ * Chart axes give a tick a fixed width, and a full amount outgrows it as soon
+ * as the balance reaches six figures: the label then renders past the axis and
+ * the browser clips its leading characters, which costs a negative balance its
+ * minus sign. Compact notation keeps the tick inside its width at any
+ * magnitude, and the tooltip still carries the exact amount.
+ */
+export function formatCompactCurrency(
+  value: number | null | undefined,
+  currency = 'USD',
+  locale = 'en-US',
+): string {
+  if (value == null) return '\u2014'
+  return ltrAmount(compactCurrencyFormatter(currency, locale).format(value))
+}
+
+/**
+ * Format a transaction amount with its direction: `+` for a credit, `-` for
+ * a debit, in front of the magnitude. Amounts that round to zero at the
+ * currency's precision carry no sign, so a zero debit never reads "-$0.00".
+ */
+export function formatSignedAmount(
+  amount: number,
+  type: string,
+  currency = 'USD',
+  locale = 'en-US',
+): string {
+  const magnitude = Math.abs(amount)
+  const formatted = formatCurrency(magnitude, currency, locale)
+  let fractionDigits = 2
+  try {
+    fractionDigits = currencyFormatter(currency, locale).resolvedOptions().maximumFractionDigits ?? 2
+  } catch {
+    // Non-ISO unit: formatCurrency already fell back to two decimals.
+  }
+  if (Math.round(magnitude * 10 ** fractionDigits) === 0) return formatted
+  // Same rule as the backend rule engine: only a debit is negative.
+  return ltrAmount(`${type === 'debit' ? '-' : '+'}${formatted}`)
 }
 
 /**

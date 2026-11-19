@@ -34,6 +34,10 @@ Good ways to align first:
 
 Once there's a shared understanding, go ahead and build. Large PRs that arrive without any prior discussion are harder to review and sometimes don't align with where the project is heading, so a quick conversation up front is the best way to make your contribution count.
 
+## Architecture Decisions
+
+The rules the code keeps, and where each feature lives, are in [`AGENTS.md`](AGENTS.md). The reasons behind them are in [`docs/adr/`](docs/adr/README.md): short records of each decision, the code that carries it and the tests that keep it true. Read the ones that touch the area you are changing; if your change makes or changes an architecture decision, add an ADR in the same pull request.
+
 ## Using AI
 
 Use it. We do. Parts of this codebase were written with AI. This isn't a policy against the tools.
@@ -117,6 +121,17 @@ prek install --config tools/dev/git-hooks.yaml -t pre-commit -t post-checkout -t
 tools/dev/sync-deps.sh
 ```
 
+If you have [mise](https://mise.jdx.dev/) installed, it can set up and drive both sides for you:
+
+```bash
+mise //...:install    # installs the pinned Python (.python-version) plus all backend and frontend deps
+mise backend:install  # backend tools and deps only
+mise backend:test     # backend tests
+mise frontend:install # frontend deps
+mise frontend:lint    # frontend lint
+mise frontend:build   # frontend type check + build
+```
+
 The hooks are per clone and shared by worktrees. A normal `prek install` preserves
 an enabled Lovenest pull hook through legacy chaining; `--force` removes legacy
 hooks. Pull deployment is off until explicitly enabled and never runs from a
@@ -194,7 +209,8 @@ uv run --no-sync python -m unittest discover -v
 ```
 
 Commit `extras/tax/uv.lock` with dependency changes to its `pyproject.toml`.
-Each Python project keeps its own `.venv` and `.python-version`.
+Each Python project keeps its own `.venv` and `.python-version`. See
+[tax planner development](extras/tax/README.md) for more.
 
 ### Adding a migration
 
@@ -211,6 +227,12 @@ migrations, so an upstream migration arriving in a sync is renumbered onto
 lovenest's head rather than kept at the number Securo gave it. CI catches a
 clash: the Migration Chain job runs against your branch merged with the base,
 so it fails there rather than on someone's `alembic upgrade head`.
+
+In the Docker stacks, migrations run in the one-shot `migrate` service, and
+the backend, workers and MCP server refuse to start until the database is at
+head. Restarting the backend does not apply a new migration; `up` (and
+`tools/deploy/deploy.sh`) runs `migrate` first, or run
+`docker compose -f docker-compose.prod.yml run --rm migrate`.
 
 ### Frontend (Node 26 LTS, from `frontend/`)
 

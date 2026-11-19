@@ -16,5 +16,6 @@ export function useFeatureFlags() {
     isLoading,
     agentsEnabled: !!data?.features?.agents,
     onchainEnabled: !!data?.features?.onchain,
+    pluginsEnabled: !!data?.features?.plugins,
   }
 }

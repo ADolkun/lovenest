@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Dispatched by the fast lane after a squash merge: a push made with
+  # GITHUB_TOKEN starts no workflow run, so main would otherwise go unchecked.
+  workflow_dispatch:
+
+# The workflow only reads the repository: no job pushes a commit,
+# publishes a release or writes a label, so every token it gets is
+# read-only whatever the repository default is.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -40,6 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Check CI selection and detect changes
@@ -98,6 +108,7 @@ jobs:
         if: steps.backend-changes.outputs.run_backend != 'false'
         env:
           EVIDENCE_TEST_DATABASE_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
+          POSTGRES_TEST_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0
         run: |
           uv run --no-sync pytest -n auto --dist loadfile --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=60 -ra -W error
@@ -138,12 +149,28 @@ jobs:
       # base branch. That is the whole point: a revision id that only clashes
       # once both sides are together is visible here and nowhere else.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Test CI change selection
         run: python3 .github/ci/test_changes.py
 
       - name: Check the Alembic revision chain
         run: python3 backend/scripts/check_migration_chain.py
+
+  doc-paths:
+    name: Doc Paths
+    runs-on: ubuntu-latest
+
+    steps:
+      # Runs on every pull request, whatever it touches: a frontend-only rename
+      # can break the map in AGENTS.md just as well as a backend one.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the paths AGENTS.md and the ADRs cite
+        run: python3 .github/ci/check_doc_paths.py
 
   frontend-checks:
     name: Frontend Checks
@@ -155,6 +182,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Detect frontend-relevant changes
@@ -196,6 +224,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Detect helm-relevant changes

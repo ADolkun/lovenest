@@ -1,15 +1,16 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, SmallInteger, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Numeric, SmallInteger, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.account_reserved_balance import AccountReservedBalance
     from app.models.bank_connection import BankConnection
     from app.models.institution import Institution
     from app.models.transaction import Transaction
@@ -52,6 +53,15 @@ class Account(Base):
         index=True,
     )
     balance: Mapped[Decimal] = mapped_column(Numeric(precision=15, scale=2), default=Decimal("0.00"))
+    # Loan accounts only: the contract terms, all optional. The payment
+    # schedule is computed from them on read (app/services/loan_schedule.py).
+    loan_kind: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    loan_original_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
+    loan_interest_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=9, scale=6), nullable=True)
+    loan_rate_period: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    loan_term_months: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    loan_first_payment_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    loan_amortization: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     balance_primary: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
     credit_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(precision=15, scale=2), nullable=True)
@@ -77,3 +87,9 @@ class Account(Base):
         back_populates="accounts", lazy="selectin"
     )
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account", cascade="all, delete-orphan")
+    # Provider-owned reserved funds held inside this account (Pluggy
+    # `bankData.reservedBalances`). Eager (selectin) because serialization
+    # reads them in an async session, like `institution`.
+    reserved_balances: Mapped[list["AccountReservedBalance"]] = relationship(
+        back_populates="account", cascade="all, delete-orphan", lazy="selectin"
+    )

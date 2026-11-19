@@ -630,7 +630,7 @@ _TIE_BREAKS = ("closest_date",)
 #: The kinds of account a rule may name. Closed rather than free text:
 #: a typo in a condition is a rule that silently never fires, and the one
 #: place that is unforgivable is matching, where nobody is watching.
-_ACCOUNT_TYPES = ("checking", "savings", "credit_card", "investment", "cash")
+_ACCOUNT_TYPES = ("checking", "savings", "credit_card", "loan", "investment", "cash")
 
 
 def _validate_account_types(rule: Any) -> list[str]:
