@@ -856,6 +856,43 @@ async def owner_split_offset_by_category(
     return out
 
 
+def owner_share_of_row():
+    """SQL expression: the fraction of a row that is its owner's own cost.
+
+    `1 - others' shares / |amount|`, the posted owner offset expressed per
+    row and judged from the row owner's side, for workspace-level figures
+    that have no viewer. Signed and unclamped like
+    `forecast_owner_share_fractions`; 1 for a row without group splits.
+    """
+    from app.models.group import Group, GroupMember
+    from app.models.transaction_split import TransactionSplit
+
+    owner_member_ids = (
+        select(GroupMember.id)
+        .outerjoin(Group, Group.id == GroupMember.group_id)
+        .where(
+            or_(
+                GroupMember.linked_user_id == Transaction.user_id,
+                and_(GroupMember.is_self.is_(True), Group.user_id == Transaction.user_id),
+            )
+        )
+        .correlate(Transaction)
+    )
+    others = (
+        select(func.sum(TransactionSplit.share_amount))
+        .where(
+            TransactionSplit.transaction_id == Transaction.id,
+            TransactionSplit.group_member_id.not_in(owner_member_ids),
+        )
+        .correlate(Transaction)
+        .scalar_subquery()
+    )
+    return type_coerce(
+        1 - func.coalesce(others / func.nullif(func.abs(Transaction.amount), 0), 0),
+        Numeric(),
+    )
+
+
 async def forecast_owner_share_fractions(
     session: AsyncSession,
     user_id: uuid.UUID,

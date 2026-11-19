@@ -77,7 +77,7 @@ _SAME_BILL_AMOUNT_TOLERANCE = Decimal("0.10")
 
 # Accounts whose balance can pay a bill today. Investments and loans are not
 # spendable, and card debt is reported apart from the runway.
-_LIQUID_ACCOUNT_TYPES = ("checking", "savings", "wallet")
+_LIQUID_ACCOUNT_TYPES = ("checking", "savings", "cash")
 
 # The discretionary burn is always the spending of this window, however little
 # of it there is: one recent purchase is not a daily habit.
@@ -295,7 +295,7 @@ async def generate_cashflow_forecast(
         hist_start = today - timedelta(days=_BURN_WINDOW_DAYS)
         reportable = recurring_detector_service.pnl_transaction_amounts(workspace_id)
         hist_query = (
-            select(Transaction, reportable.c.amount)
+            select(Transaction, reportable.c.expense)
             .join(reportable, reportable.c.transaction_id == Transaction.id)
             .where(
                 and_(
@@ -303,8 +303,8 @@ async def generate_cashflow_forecast(
                     Transaction.source != "opening_balance",
                     Transaction.date >= hist_start,
                     Transaction.date < today,
-                    Transaction.type == "debit",
                     Transaction.status == "posted",
+                    reportable.c.expense != 0,
                 )
             )
         )
@@ -318,17 +318,21 @@ async def generate_cashflow_forecast(
             if item.direction == FlowDirectionEnum.OUTFLOW
         }
         burn_total = Decimal("0.00")
-        for t, pnl_amount in hist_txs:
+        for t, expense in hist_txs:
             if t.recurring_transaction_id in manual_recurring_ids:
                 continue
             name_key = recurring_detector_service.normalize_merchant_name(t.payee or t.description).lower()
             if name_key in detected_outflow_keys:
                 continue
             amount = await recurring_detector_service.amount_in_currency(
-                session, t, base_currency, Decimal(str(pnl_amount))
+                session, t, base_currency, Decimal(str(expense))
             )
             if amount is None:
                 unconverted_currencies.add(t.currency)
+                continue
+            if expense < 0:
+                # Money back on spending lowers the burn, as it lowers expenses.
+                burn_total -= amount
                 continue
             if any(_is_manual_bill_payment(name_key, amount, rule) for rule in manual_rules):
                 continue

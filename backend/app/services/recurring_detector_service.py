@@ -20,7 +20,15 @@ from app.schemas.forecast import (
     RecurringDetectionResponse,
     SubscriptionStatusEnum,
 )
-from app.services._query_filters import counts_as_pnl, line_amount, line_category_id, with_category_lines
+from app.services._query_filters import (
+    counts_as_user_pnl,
+    line_amount,
+    line_category_id,
+    owner_share_of_row,
+    user_pnl_expense_amount,
+    user_pnl_income_amount,
+    with_category_lines,
+)
 from app.services.fx_rate_service import convert_or_none
 
 # Common subscription & utility indicators
@@ -137,15 +145,28 @@ def compute_next_occurrence(
 
 
 def pnl_transaction_amounts(workspace_id: uuid.UUID):
-    """One reportable amount per transaction, excluding only non-P/L category parts."""
+    """Per transaction, the user-P&L `income` and `expense` the reports count,
+    in the row's own currency.
+
+    Parts are judged by their own category, a credit filed under a spending
+    category is a negative expense rather than income (fork ADR 0011), a
+    reimbursement link takes its amount out of both rows (fork ADR 0012),
+    settlements stay out, and a group-split row counts only its owner's
+    share. Rows that count for nothing are absent.
+    """
+    category = line_category_id()
+    owner_share = owner_share_of_row()
     return (
         with_category_lines(
             select(
                 Transaction.id.label("transaction_id"),
-                func.sum(line_amount()).label("amount"),
+                func.sum(user_pnl_income_amount(line_amount(), category) * owner_share)
+                .label("income"),
+                func.sum(user_pnl_expense_amount(line_amount(), category) * owner_share)
+                .label("expense"),
             ).select_from(Transaction)
         )
-        .where(Transaction.workspace_id == workspace_id, counts_as_pnl(line_category_id()))
+        .where(Transaction.workspace_id == workspace_id, counts_as_user_pnl(category))
         .group_by(Transaction.id)
         .subquery()
     )
@@ -201,7 +222,7 @@ async def detect_recurring_patterns(
     # month apart would otherwise look like a monthly bill.
     reportable = pnl_transaction_amounts(workspace_id)
     query = (
-        select(Transaction, reportable.c.amount)
+        select(Transaction, reportable.c.income, reportable.c.expense)
         .join(reportable, reportable.c.transaction_id == Transaction.id)
         .where(
             and_(
@@ -216,19 +237,25 @@ async def detect_recurring_patterns(
     )
     result = await session.execute(query)
     rows = result.all()
-    transactions = [tx for tx, _ in rows]
-    reportable_amounts = {tx.id: Decimal(str(amount)) for tx, amount in rows}
-
-    # Cluster transactions by (normalized_name, direction)
+    # A row recurs as income when P&L counts it as income, and as a bill when
+    # it counts as spending. Money back on spending (a refund) is neither.
+    reportable_amounts: dict[uuid.UUID, Decimal] = {}
     clusters: dict[tuple[str, FlowDirectionEnum], list[Transaction]] = {}
-    for tx in transactions:
+    for tx, income, expense in rows:
         if exclude_recurring_ids and tx.recurring_transaction_id in exclude_recurring_ids:
             continue
         raw_name = tx.payee or tx.description
         if not raw_name:
             continue
+        income, expense = Decimal(str(income or 0)), Decimal(str(expense or 0))
+        if income > 0:
+            direction, amount = FlowDirectionEnum.INFLOW, income
+        elif expense > 0:
+            direction, amount = FlowDirectionEnum.OUTFLOW, expense
+        else:
+            continue
+        reportable_amounts[tx.id] = amount
         norm_name = normalize_merchant_name(raw_name)
-        direction = FlowDirectionEnum.INFLOW if tx.type == "credit" else FlowDirectionEnum.OUTFLOW
         key = (norm_name.lower(), direction)
         clusters.setdefault(key, []).append(tx)
 

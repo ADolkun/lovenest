@@ -294,3 +294,66 @@ async def test_detector_needs_more_than_two_charges_for_a_weekly_pattern(session
         session, ws.id, min_occurrences=2, reference_date=date(2026, 7, 10)
     )
     assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_a_subscription_others_repay_costs_its_owners_share(session):
+    """A 30.00 subscription split evenly with a friend costs the owner 15.00
+    a month, and the friend's monthly settlement is not recurring income."""
+    from app.models.group import Group, GroupMember
+    from app.models.transaction_split import TransactionSplit
+
+    user_id, ws, account = await _detector_workspace(session, "Shared Subscription WS")
+    group = Group(id=uuid.uuid4(), user_id=user_id, workspace_id=ws.id, name="Streaming")
+    session.add(group)
+    await session.flush()
+    me = GroupMember(id=uuid.uuid4(), group_id=group.id, workspace_id=ws.id, name="Me", is_self=True)
+    friend = GroupMember(id=uuid.uuid4(), group_id=group.id, workspace_id=ws.id, name="Friend")
+    session.add_all([me, friend])
+    for month in (4, 5, 6, 7):
+        charge = _posted_tx(user_id, ws.id, account.id, "Netflix", "30.00", date(2026, month, 1))
+        session.add_all([
+            charge,
+            _posted_tx(
+                user_id, ws.id, account.id, "Friend", "15.00", date(2026, month, 3),
+                type="credit", source="settlement",
+            ),
+        ])
+        await session.flush()
+        session.add_all([
+            TransactionSplit(transaction_id=charge.id, workspace_id=ws.id,
+                             group_member_id=member.id, share_amount=Decimal("15.00"))
+            for member in (me, friend)
+        ])
+    await session.commit()
+
+    result = await detect_recurring_patterns(
+        session, ws.id, min_occurrences=2, reference_date=date(2026, 7, 15)
+    )
+    [item] = result.items
+    assert item.direction == FlowDirectionEnum.OUTFLOW
+    assert item.average_amount == Decimal("15.00")
+    assert result.total_monthly_subscription_cost == Decimal("15.00")
+
+
+@pytest.mark.asyncio
+async def test_refunds_are_not_recurring_income(session):
+    """A credit filed under a spending category gives money back on that
+    spending (fork ADR 0011); a monthly one is not a paycheck."""
+    from app.models.category import Category
+
+    user_id, ws, account = await _detector_workspace(session, "Monthly Refund WS")
+    groceries = Category(id=uuid.uuid4(), user_id=user_id, workspace_id=ws.id,
+                         name="Groceries", is_income=False)
+    session.add(groceries)
+    for month in (4, 5, 6, 7):
+        session.add(_posted_tx(
+            user_id, ws.id, account.id, "Cashback Club", "5.00", date(2026, month, 2),
+            type="credit", category_id=groceries.id,
+        ))
+    await session.commit()
+
+    result = await detect_recurring_patterns(
+        session, ws.id, min_occurrences=2, reference_date=date(2026, 7, 15)
+    )
+    assert result.items == []
