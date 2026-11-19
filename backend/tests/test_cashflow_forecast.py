@@ -890,7 +890,7 @@ async def test_cashflow_forecast_liquid_balance_counts_spendable_account_types(s
     user_id, ws, checking = await _forecast_workspace(session, "Forecast Liquid Types WS")
     for name, account_type, amount, tx_type in (
         ("Savings", "savings", "1000.00", "credit"),
-        ("Wallet", "wallet", "200.00", "credit"),
+        ("Cash", "cash", "200.00", "credit"),
         ("Brokerage", "investment", "9000.00", "credit"),
         ("Car Loan", "loan", "7000.00", "debit"),
     ):

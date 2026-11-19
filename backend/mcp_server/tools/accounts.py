@@ -18,7 +18,7 @@ from mcp_server.tools._helpers import num, parse_date, parse_uuid, resolve_works
 from mcp_server.tools.proposals import _APPLY_FIELD, _PROPOSAL_PREFACE, _can_apply
 
 
-_MANUAL_ACCOUNT_TYPES = frozenset({"checking", "savings", "wallet", "investment"})
+_MANUAL_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash", "investment"})
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
 
