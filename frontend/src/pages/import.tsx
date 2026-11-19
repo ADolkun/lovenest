@@ -35,7 +35,7 @@ const TYPE_LABELS: Record<AccountType, string> = {
   credit_card: 'accounts.typeCreditCard',
   loan: 'accounts.typeLoan',
   investment: 'accounts.typeInvestment',
-  wallet: 'accounts.typeWallet',
+  cash: 'accounts.typeCash',
 }
 
 // Securo fields a CSV column can be mapped to, in display order.

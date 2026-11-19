@@ -44,7 +44,7 @@ function asset(currency: string): Asset {
     value_count: 0, source: 'manual', connection_id: null, isin: null, maturity_date: null,
     group_id: null, ticker: null, ticker_exchange: null, last_price: null, last_price_at: null,
     logo_url: null, average_price: null, total_invested: null, realized_gain: null,
-    transaction_count: 0,
+    transaction_count: 0, external_id: null, value_updated_at: null,
   }
 }
 

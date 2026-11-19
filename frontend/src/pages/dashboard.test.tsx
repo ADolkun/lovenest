@@ -280,6 +280,7 @@ it('shows the mortgage breakdown editor for a payment opened from the dashboard'
       installment_number: null, total_installments: null, installment_total_amount: null,
       installment_purchase_date: null, installment_series_id: null, bill_id: null,
       effective_bill_date: null, splits: [], is_ignored: false,
+      reimbursement_links: [], effective_date: '2026-10-05',
     }],
     total: 1,
     page: 1,

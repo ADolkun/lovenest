@@ -98,6 +98,7 @@ const crowded: Transaction = {
   installment_purchase_date: '2025-05-08', installment_series_id: 'series-1',
   bill_id: null, effective_bill_date: null, reporting_date_override: null,
   splits: [], is_ignored: false, exclude_from_pnl: true,
+  reimbursement_links: [], effective_date: '2026-10-08',
 }
 
 beforeEach(() => {

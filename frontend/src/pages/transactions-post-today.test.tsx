@@ -74,7 +74,7 @@ function pendingTx(over: Partial<Transaction> & { id: string; description: strin
     fx_rate_used: null, fx_fallback: false, installment_number: null,
     total_installments: null, installment_total_amount: null,
     installment_purchase_date: null, installment_series_id: null, bill_id: null,
-    effective_bill_date: null, splits: [], is_ignored: false, reimbursement_links: [],
+    effective_bill_date: null, reporting_date_override: null, splits: [], is_ignored: false, reimbursement_links: [],
     effective_date: '2026-10-08',
     ...over,
   }

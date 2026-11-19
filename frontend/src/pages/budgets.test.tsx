@@ -36,7 +36,7 @@ vi.mock('@/hooks/use-privacy-mode', () => ({
 }))
 
 function category(id: string, name: string, is_hidden = false): Category {
-  return { id, user_id: 'u', group_id: 'g', name, icon: 'circle-help', color: '#000', is_system: false, is_hidden, treat_as_transfer: false, is_ignored: false }
+  return { id, user_id: 'u', group_id: 'g', name, icon: 'circle-help', color: '#000', is_system: false, is_hidden, treat_as_transfer: false, is_ignored: false, is_income: false }
 }
 
 function comparisonRow(categoryId: string, actual: number): BudgetVsActual {
@@ -278,6 +278,7 @@ describe('Budget spending in the inline editor', () => {
     api.transactions.list.mockResolvedValue({ items: [{
       id: 'tx-rent', description: 'October rent payment', date: selectedMonth,
       type: 'debit', amount: 450, currency: 'USD', status: 'posted',
+      reimbursement_links: [], effective_date: selectedMonth,
     }], total: 1 })
     const { user } = renderWithProviders(<BudgetsPage />)
     await screen.findByText('$450.00')
@@ -411,6 +412,7 @@ describe('Budget spending in the inline editor', () => {
     api.transactions.list.mockResolvedValue({ items: [{
       id: 'split', description: 'Shared rent', date: selectedMonth, type: 'debit',
       amount: 120, amount_primary: 240, viewer_share: 30, currency: 'EUR', status: 'posted',
+      reimbursement_links: [], effective_date: selectedMonth,
     }], total: 1 })
     const { user } = renderWithProviders(<BudgetsPage />)
     await screen.findByRole('textbox', { name: t('budgets.budgetFor', { category: 'Rent' }) })
@@ -428,6 +430,7 @@ describe('Budget spending in the inline editor', () => {
     api.transactions.list.mockResolvedValue({ items: [{
       id: 'private-rent', description: 'Private rent payment', date: selectedMonth,
       type: 'debit', amount: 123.45, currency: 'USD', status: 'posted',
+      reimbursement_links: [], effective_date: selectedMonth,
     }], total: 1 })
     const { user } = renderWithProviders(<BudgetsPage />)
     await waitFor(() => expect(api.mask).toHaveBeenCalledWith('$123.45'))

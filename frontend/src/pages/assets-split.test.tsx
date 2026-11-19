@@ -93,6 +93,8 @@ function makeHolding(overrides: Partial<Asset> = {}): Asset {
     total_invested: 489,
     realized_gain: 0,
     transaction_count: 2,
+    external_id: null,
+    value_updated_at: null,
     ...overrides,
   }
 }
