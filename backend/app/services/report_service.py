@@ -31,6 +31,8 @@ from app.services._query_filters import (
     user_pnl_expense_amount,
     user_pnl_group,
     user_pnl_income_amount,
+    user_pnl_share_expense,
+    user_pnl_share_income,
     with_category_lines,
 )
 from app.services.admin_service import get_credit_card_accounting_mode
@@ -588,8 +590,8 @@ async def get_income_expenses_report(
         select(
             label_expr,
             Transaction.currency,
-            func.sum(user_pnl_income_amount(_TS_.share_amount)),
-            func.sum(user_pnl_expense_amount(_TS_.share_amount)),
+            func.sum(user_pnl_share_income(_TS_.share_amount)),
+            func.sum(user_pnl_share_expense(_TS_.share_amount)),
         )
         .select_from(_TS_)
         .join(Transaction, _TS_.transaction_id == Transaction.id)
@@ -640,8 +642,8 @@ async def get_income_expenses_report(
         select(
             label_expr,
             Transaction.currency,
-            func.sum(user_pnl_income_amount(TransactionSplit.share_amount)),
-            func.sum(user_pnl_expense_amount(TransactionSplit.share_amount)),
+            func.sum(user_pnl_share_income(TransactionSplit.share_amount)),
+            func.sum(user_pnl_share_expense(TransactionSplit.share_amount)),
         )
         .select_from(TransactionSplit)
         .join(Transaction, TransactionSplit.transaction_id == Transaction.id)
@@ -997,7 +999,7 @@ async def get_income_expenses_report(
             label_expr,
             Transaction.category_id,
             Transaction.currency,
-            func.sum(user_pnl_expense_amount(_TS_.share_amount)),
+            func.sum(user_pnl_share_expense(_TS_.share_amount)),
         )
         .select_from(_TS_)
         .join(Transaction, _TS_.transaction_id == Transaction.id)
