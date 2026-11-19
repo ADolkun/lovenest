@@ -1,4 +1,4 @@
-"""Real row-lock checks in a disposable schema; set EVIDENCE_TEST_DATABASE_URL."""
+"""Real row-lock checks in a disposable schema; set POSTGRES_TEST_URL."""
 import asyncio
 from decimal import Decimal
 

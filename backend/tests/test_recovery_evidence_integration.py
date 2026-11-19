@@ -459,10 +459,10 @@ async def test_postgres_recovery_migration_roundtrip_preserves_existing_user():
     import asyncio
     from pathlib import Path
 
-    configured = os.environ.get("EVIDENCE_TEST_DATABASE_URL")
+    configured = os.environ.get("POSTGRES_TEST_URL")
     if not configured:
         if os.environ.get("CI"):
-            pytest.fail("CI must supply EVIDENCE_TEST_DATABASE_URL for migration integration")
+            pytest.fail("CI must supply POSTGRES_TEST_URL for migration integration")
         pytest.skip("isolated PostgreSQL not configured")
     database = f"recovery_migration_{uuid.uuid4().hex}"
     url = make_url(configured).set(database=database)

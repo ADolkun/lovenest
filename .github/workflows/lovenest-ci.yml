@@ -164,7 +164,6 @@ jobs:
 
       - name: Run tests
         env:
-          EVIDENCE_TEST_DATABASE_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           # Upstream's PostgreSQL tests read this name; without it they fail under CI.
           POSTGRES_TEST_URL: postgresql+asyncpg://securo_test:securo_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/securo_test
           REDIS_TEST_URL: redis://127.0.0.1:${{ job.services.redis.ports['6379'] }}/0

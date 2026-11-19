@@ -135,10 +135,10 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture
 async def postgres_sessions():
     """Give each PostgreSQL test its own schema, including under xdist."""
-    url = os.environ.get("EVIDENCE_TEST_DATABASE_URL")
+    url = os.environ.get("POSTGRES_TEST_URL")
     if not url:
         if os.environ.get("CI"):
-            pytest.fail("CI must supply EVIDENCE_TEST_DATABASE_URL for PostgreSQL tests")
+            pytest.fail("CI must supply POSTGRES_TEST_URL for PostgreSQL tests")
         pytest.skip("isolated PostgreSQL not configured")
     schema = f"postgres_test_{uuid.uuid4().hex}"
     pg_engine = create_async_engine(url)

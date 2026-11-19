@@ -110,13 +110,12 @@ prek install --config tools/dev/git-hooks.yaml -t pre-commit -t post-checkout -t
 (cd frontend && npx vitest run src/<path>.test.ts)
 ```
 
-Postgres-backed backend tests need `EVIDENCE_TEST_DATABASE_URL`. They isolate themselves (a schema per test through `postgres_sessions`, a temporary database per migration test in `backend/tests/test_recovery_evidence_integration.py`), so one disposable container serves every worktree. Never point it at the `securo` stack's database. Some upstream tests read `POSTGRES_TEST_URL` instead, and CI sets both to the same database; of those, the PostgreSQL cases in `backend/tests/test_instance_secrets.py` drop and recreate tables in the `public` schema, so do not run that file from two worktrees at once.
+Postgres-backed backend tests need `POSTGRES_TEST_URL`. They isolate themselves (a schema per test through `postgres_sessions`, a temporary database per migration test in `backend/tests/test_recovery_evidence_integration.py`), so one disposable container serves every worktree. Never point it at the `securo` stack's database. The PostgreSQL cases in `backend/tests/test_instance_secrets.py` drop and recreate tables in the `public` schema, so do not run that file from two worktrees at once.
 
 ```bash
 docker run -d --rm --name lovenest-test-pg -e POSTGRES_USER=securo_test -e POSTGRES_PASSWORD=securo_test \
   -e POSTGRES_DB=securo_test -p 127.0.0.1:55433:5432 pgvector/pgvector:pg18
-export EVIDENCE_TEST_DATABASE_URL=postgresql+asyncpg://securo_test:securo_test@127.0.0.1:55433/securo_test
-export POSTGRES_TEST_URL=$EVIDENCE_TEST_DATABASE_URL
+export POSTGRES_TEST_URL=postgresql+asyncpg://securo_test:securo_test@127.0.0.1:55433/securo_test
 ```
 
 Before a PR, run the smallest relevant check and report it clearly:
