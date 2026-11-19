@@ -51,7 +51,7 @@ Route a question to the source that owns that kind of fact. This is not a preced
 - Path-scoped guidance: `.claude/rules/`.
 - Task workflows and tool reference: `.claude/skills/`.
 - Domain vocabulary: `CONTEXT.md`.
-- Decisions: `docs/adr/`.
+- Decisions: `docs/lovenest/adr/` (the fork's, cited as "Lovenest ADR NNNN"), `docs/adr/` (upstream's, cited as "ADR NNNN"; upstream-owned).
 - Doc routing: `docs/README.md`.
 - Upstream-owned versus fork-owned files: `git diff --stat upstream/main...HEAD -- <path>` is empty for a file that is still upstream's. Each edit to an upstream-owned file costs a conflict on every sync.
 - Advisory, verify before acting: plans, `HANDOFF.md`, `CONTINUE-HERE.md`, agent memory.
@@ -173,7 +173,7 @@ Below is upstream Securo's `AGENTS.md`, kept verbatim in one block so each sync 
 - `docker compose up --build` from any checkout or worktree starts the live `securo` stack; see Development Commands above.
 - Installs and type checks follow this fork: `uv sync --locked --group dev` and `uv run --no-sync pyrefly check`, not `uv sync --all-extras` and `ty check`.
 - The fork's CI is `.github/workflows/lovenest-ci.yml`. It shards the backend suite its own way, without `pytest-split`.
-- The ADR numbers it cites are upstream's.
+- The ADR numbers it cites are upstream's, in `docs/adr/`. The fork's own decisions are in `docs/lovenest/adr/`, with numbers that overlap upstream's.
 
 # Securo
 
