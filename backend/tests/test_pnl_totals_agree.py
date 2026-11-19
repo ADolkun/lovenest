@@ -175,9 +175,10 @@ async def test_the_statement_and_burn_queries_run_on_postgresql(postgres_session
 SPLIT_EXPENSES = {"payer": 45.0, "member": 30.0, "bystander": 90.0, "outsider": 15.0}
 
 
-async def _shared_workspace_split(session: AsyncSession) -> dict:
-    """Seed the split; return {seat: (user_id, workspace_id)} and the shared
-    workspace's Dining category under "dining"."""
+async def _shared_workspace_split(session: AsyncSession, creator: str = "payer") -> dict:
+    """Seed the split in a group `creator` ("payer" or "member") made, so
+    that seat holds the group's self-member; return {seat: (user_id,
+    workspace_id)} and the shared workspace's Dining category under "dining"."""
 
     def user(name):
         return User(
@@ -208,17 +209,18 @@ async def _shared_workspace_split(session: AsyncSession) -> dict:
         id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, name="Payer's",
         type="checking", balance=Decimal("0"), currency="BRL",
     )
-    group = Group(id=uuid.uuid4(), user_id=payer.id, workspace_id=shared.id, name="Dinners")
+    group = Group(
+        id=uuid.uuid4(), user_id=(payer if creator == "payer" else member).id,
+        workspace_id=shared.id, name="Dinners",
+    )
     session.add_all([dining, checking, group])
     await session.flush()
     members = [
         GroupMember(
             id=uuid.uuid4(), group_id=group.id, workspace_id=shared.id, name=name,
-            is_self=is_self, linked_user_id=linked.id,
+            is_self=name.lower() == creator, linked_user_id=linked.id,
         )
-        for name, is_self, linked in (
-            ("Payer", True, payer), ("Member", False, member), ("Outsider", False, outsider),
-        )
+        for name, linked in (("Payer", payer), ("Member", member), ("Outsider", outsider))
     ]
     session.add_all(members)
     rows = [
@@ -310,23 +312,27 @@ def _expected(readers: dict, expenses: float) -> dict:
     }
 
 
+@pytest.mark.parametrize("creator", ["payer", "member"])
 @pytest.mark.parametrize("seat", list(SPLIT_EXPENSES))
-async def test_a_split_reads_the_viewers_part_in_every_reader(session, clean_db, seat):
+async def test_a_split_reads_the_viewers_part_in_every_reader(session, clean_db, seat, creator):
     connection = await session.connection()
     await connection.run_sync(
         lambda conn: conn.connection.dbapi_connection.create_function(
             "to_char", 2, lambda value, _fmt: None if value is None else str(value)[:7]
         )
     )
-    seats = await _shared_workspace_split(session)
+    seats = await _shared_workspace_split(session, creator)
     user_id, workspace_id = seats[seat]
     readers = await _expenses_by_reader(session, user_id, workspace_id, seats["dining"])
     assert readers == _expected(readers, SPLIT_EXPENSES[seat])
 
 
-async def test_a_split_reads_the_viewers_part_in_every_reader_on_postgresql(postgres_sessions):
+@pytest.mark.parametrize("creator", ["payer", "member"])
+async def test_a_split_reads_the_viewers_part_in_every_reader_on_postgresql(
+    postgres_sessions, creator,
+):
     async with postgres_sessions() as session:
-        seats = await _shared_workspace_split(session)
+        seats = await _shared_workspace_split(session, creator)
     for seat, expenses in SPLIT_EXPENSES.items():
         user_id, workspace_id = seats[seat]
         async with postgres_sessions() as session:

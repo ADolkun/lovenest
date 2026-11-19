@@ -725,8 +725,8 @@ def viewer_share_of_row(viewer_id: Optional[uuid.UUID] = None):
       viewer's own members are those linked to them and the self-member of
       a group they created, so a payer in someone else's group keeps their
       own share, not the creator's;
-    - someone else owns the row and the viewer holds a share in it as an
-      invited (linked, non-self) member: that share alone;
+    - someone else owns the row and the viewer holds a share in it, through
+      the same members: that share alone;
     - anyone else, including every row without group splits: the whole row.
 
     A row of another workspace reaches a reader only as a Split Projection
@@ -769,11 +769,11 @@ def viewer_share_of_row(viewer_id: Optional[uuid.UUID] = None):
     owned = 1 - func.coalesce(others / magnitude, 0)
     if viewer_id is None:
         return type_coerce(owned, Numeric())
-    invited_share = (
+    viewer_share = (
         select(func.sum(TransactionSplit.share_amount))
         .where(
             TransactionSplit.transaction_id == Transaction.id,
-            TransactionSplit.group_member_id.in_(invited_group_member_ids(viewer_id)),
+            TransactionSplit.group_member_id.in_(viewer_member_ids),
         )
         .correlate(Transaction)
         .scalar_subquery()
@@ -781,7 +781,7 @@ def viewer_share_of_row(viewer_id: Optional[uuid.UUID] = None):
     return type_coerce(
         case(
             (Transaction.user_id == viewer_id, owned),
-            else_=func.coalesce(invited_share / magnitude, 1),
+            else_=func.coalesce(viewer_share / magnitude, 1),
         ),
         Numeric(),
     )
