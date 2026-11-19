@@ -357,19 +357,22 @@ async def test_aggregate_exclude_transfers_drops_treat_as_transfer_categories(
     session.add_all([investing, groceries])
     await session.commit()
 
-    def tx(amount: str, category_id=None, transfer_pair_id=None) -> Transaction:
+    def tx(amount: str, category_id=None, transfer_pair_id=None, type="debit") -> Transaction:
         return Transaction(
             id=uuid.uuid4(), user_id=test_user.id, account_id=test_account.id,
             category_id=category_id, transfer_pair_id=transfer_pair_id,
             description="row", amount=Decimal(amount), date=date(2026, 3, 10),
-            type="debit", source="manual", created_at=datetime.now(timezone.utc),
+            type=type, source="manual", created_at=datetime.now(timezone.utc),
         )
 
+    # Both legs: a pair id whose second leg is missing is not a transfer.
+    pair_id = uuid.uuid4()
     session.add_all([
         tx("500", investing.id),  # unpaired, in a treat_as_transfer category
         tx("40", groceries.id),
         tx("15"),  # uncategorized
-        tx("200", transfer_pair_id=uuid.uuid4()),  # paired leg
+        tx("200", transfer_pair_id=pair_id),
+        tx("200", transfer_pair_id=pair_id, type="credit"),
     ])
     await session.commit()
 
@@ -380,7 +383,7 @@ async def test_aggregate_exclude_transfers_drops_treat_as_transfer_categories(
     assert [(i["value"], i["count"]) for i in excluded["items"]] == [(55.0, 2)]
 
     included = await handler(session=session, ctx=ctx, exclude_transfers=False, **period)
-    assert [(i["value"], i["count"]) for i in included["items"]] == [(755.0, 4)]
+    assert [(i["value"], i["count"]) for i in included["items"]] == [(955.0, 5)]
 
 
 async def test_list_transactions_account_types_filter(

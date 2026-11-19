@@ -10,17 +10,19 @@ Two things these tests exist to pin down, beyond the usual CRUD:
      UI does, computed from allocations and the due date.
 """
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from urllib.parse import quote
 
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
 from app.models.fx_rate import FxRate
+from app.models.invoice import InvoiceAllocation
 from app.models.payee import Payee
 from app.models.transaction import Transaction
 
@@ -917,16 +919,16 @@ async def test_summary_adds_invoices_in_the_reader_currency(
     The only stored rate is a few days old, as on a day the provider has
     not published yet: the summary uses the latest stored rate."""
     session.add(FxRate(
-        base_currency="USD", quote_currency="BRL", date=date.today() - timedelta(days=3),
+        base_currency="USD", quote_currency="BRL", date=_TEST_TODAY - timedelta(days=3),
         rate=Decimal("5"), source="test",
     ))
     await session.commit()
     await client.patch("/api/invoices/settings", headers=biz_headers, json={"preset": "tracking"})
     await _create(client, biz_headers, total="200.00", currency="BRL",
-                  due_date=str(date.today() + timedelta(days=5)))
+                  due_date=str(_TEST_TODAY + timedelta(days=5)))
     await _create(client, biz_headers, total="100.00", currency="USD",
-                  issue_date=str(date.today() - timedelta(days=60)),
-                  due_date=str(date.today() - timedelta(days=45)))
+                  issue_date=str(_TEST_TODAY - timedelta(days=60)),
+                  due_date=str(_TEST_TODAY - timedelta(days=45)))
     paid = await _create(client, biz_headers, total="3000.00", currency="USD")
     resp = await client.post(
         f"/api/invoices/{paid['id']}/allocations",
@@ -934,6 +936,13 @@ async def test_summary_adds_invoices_in_the_reader_currency(
         json={"transaction_id": str(inflow.id)},
     )
     assert resp.status_code == 201, resp.text
+    # The service clock is pinned; date the receipt on that pinned day too.
+    await session.execute(
+        update(InvoiceAllocation)
+        .where(InvoiceAllocation.invoice_id == uuid.UUID(paid["id"]))
+        .values(allocated_at=datetime.combine(_TEST_TODAY, time(12), tzinfo=timezone.utc))
+    )
+    await session.commit()
 
     summary = (await client.get("/api/invoices/summary", headers=biz_headers)).json()
     assert summary["outstanding"] == "700.00"
