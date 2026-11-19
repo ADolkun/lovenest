@@ -50,7 +50,7 @@ from app.services._query_filters import (
     in_user_pnl_group_row,
     is_not_ignored,
     is_transfer,
-    is_transfer_row,
+    has_transfer_part_row,
     line_category_id,
     line_primary_or_amount,
     reporting_date_col,
@@ -337,7 +337,7 @@ async def get_transactions(
     if txn_type == "transfer":
         # Not a value of the `type` column: a transfer is still stored as a
         # credit or a debit, so this narrows to the transfer family instead.
-        base_query = base_query.where(is_transfer_row())
+        base_query = base_query.where(has_transfer_part_row())
     elif txn_type:
         base_query = base_query.where(Transaction.type == txn_type)
     if status:

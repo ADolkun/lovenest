@@ -485,8 +485,36 @@ def is_not_transfer(category_id=None, entity: TransactionEntity = Transaction):
 
 def is_transfer_row():
     """SQL filter for a transaction *list*: `is_transfer` for the whole row,
-    or for any of its category lines. A list shows whole rows, so it cannot
-    join the lines."""
+    or, for a row split across categories, for every one of its parts. A
+    list shows whole rows, so it cannot join the lines.
+
+    The row flag says the row is out of the P&L totals. A split row with a
+    transfer part and a spending part still counts its spending part, so it
+    is not a transfer row; its transfer part still leaves the totals on its
+    own wherever amounts are summed part by part.
+    """
+    non_transfer_line = exists().where(
+        TransactionCategoryLine.transaction_id == Transaction.id,
+        or_(
+            TransactionCategoryLine.category_id.is_(None),
+            TransactionCategoryLine.category_id.not_in(_transfer_category_ids()),
+        ),
+    )
+    return or_(
+        is_transfer(Transaction.category_id),
+        and_(
+            Transaction.has_category_lines.is_(True),
+            not_(non_transfer_line),
+            not_(credit_card_refund_filter()),
+        ),
+    )
+
+
+def has_transfer_part_row():
+    """SQL filter for the Type=Transfer *list*: `is_transfer` for the whole
+    row, or for any of its category lines. Wider than `is_transfer_row`, so a
+    split row's transfer part can be found; the list's footer then sums only
+    the parts that are transfers."""
     return or_(
         is_transfer(Transaction.category_id),
         and_(

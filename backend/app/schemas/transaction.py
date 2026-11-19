@@ -241,9 +241,9 @@ class TransactionRead(TransactionBase):
     # The paginated list fills it per page (issue #810); other endpoints
     # leave it null.
     transfer_counterpart: Optional[TransactionTransferCounterpart] = None
-    # Whether P&L leaves this row, or for a row split across categories any
-    # of its parts, out as a transfer (`is_transfer_row` in `_query_filters`),
-    # which a pair id or category alone cannot tell.
+    # Whether P&L leaves this row, or for a row split across categories every
+    # one of its parts, out as a transfer (`is_transfer_row` in
+    # `_query_filters`), which a pair id or category alone cannot tell.
     # Filled by the paginated list and the single-row reads; null where an
     # endpoint did not compute it.
     is_transfer: Optional[bool] = None

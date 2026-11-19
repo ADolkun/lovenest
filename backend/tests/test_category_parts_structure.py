@@ -22,8 +22,10 @@ FILTERS = {"counts_as_pnl", "counts_as_user_pnl", "is_transfer", "is_not_transfe
 
 #: (file, enclosing function) -> why judging the whole row is right there.
 WHOLE_ROW: dict[tuple[str, str], str] = {
-    ("app/services/_query_filters.py", "is_transfer_row"):
+    ("app/services/_query_filters.py", "has_transfer_part_row"):
         "list filter; split rows are matched through any_line_in",
+    ("app/services/_query_filters.py", "is_transfer_row"):
+        "row flag; a split row is a transfer when all its lines are",
     ("app/services/_query_filters.py", "counts_as_user_pnl_row"):
         "list filter; split rows are matched through their lines",
     ("app/services/_query_filters.py", "owner_split_offset_pnl"):
