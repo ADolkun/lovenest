@@ -415,7 +415,7 @@ async def test_reimporting_the_same_file_creates_nothing(client, auth_headers, w
 async def test_two_identical_rows_in_one_file_are_two_contributions(
     client, auth_headers, session, wallet
 ):
-    # ADR 0005: the fingerprint is content, and repeats are counted rather than
+    # Lovenest ADR 0005: the fingerprint is content, and repeats are counted rather than
     # collapsed — someone really can pay the same amount in twice on one day.
     twice = _history(
         _row("03/14/2025", "CASH CONTRIBUTION CURRENT YEAR", "250.00"),

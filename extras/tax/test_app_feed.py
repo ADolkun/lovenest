@@ -164,13 +164,34 @@ class WorkspaceGateTest(unittest.TestCase):
                 self._auth("ws-other")
         self.assertEqual(caught.exception.status_code, 403)
 
-    def test_unconfigured_sidecar_skips_the_check_and_probes_the_user(self):
+    def test_unconfigured_sidecar_still_verifies_membership_of_the_workspace(self):
         urlopen = _urlopen_status(200)
         with mock.patch.object(app, "HUB_WORKSPACE_ID", ""), \
              mock.patch.object(app, "INVESTMENT_WORKSPACE_ID", ""), \
              mock.patch("urllib.request.urlopen", urlopen):
-            app.require_auth(authorization="Bearer t", workspace_id="anything")
-        self.assertIn("/api/users/me", urlopen.call_args.args[0].full_url)
+            app.require_auth(authorization="Bearer t", workspace_id="ws-any")
+        request = urlopen.call_args.args[0]
+        self.assertIn("/api/workspaces/current", request.full_url)
+        self.assertEqual(request.get_header("X-workspace-id"), "ws-any")
+
+    def test_a_workspace_the_caller_does_not_belong_to_is_refused(self):
+        not_found = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        for configured in ("", "ws-hub"):
+            with mock.patch.object(app, "HUB_WORKSPACE_ID", configured), \
+                 mock.patch.object(app, "INVESTMENT_WORKSPACE_ID", ""), \
+                 mock.patch("urllib.request.urlopen", side_effect=not_found):
+                with self.assertRaises(HTTPException) as caught:
+                    app.require_auth(authorization="Bearer t", workspace_id="ws-hub")
+            self.assertEqual(caught.exception.status_code, 403)
+
+    def test_an_expired_session_is_unauthorized(self):
+        expired = urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
+        with mock.patch.object(app, "HUB_WORKSPACE_ID", ""), \
+             mock.patch.object(app, "INVESTMENT_WORKSPACE_ID", ""), \
+             mock.patch("urllib.request.urlopen", side_effect=expired):
+            with self.assertRaises(HTTPException) as caught:
+                app.require_auth(authorization="Bearer t", workspace_id="ws-any")
+        self.assertEqual(caught.exception.status_code, 401)
 
 
 class WorkspaceClauseTest(unittest.TestCase):

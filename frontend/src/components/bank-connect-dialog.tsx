@@ -82,6 +82,9 @@ function BankConnectSession({
   const handleSuccess = async (data: { item: { id: string } }) => {
     try {
       if (reconnectConnectionId) {
+        // The callback stores the item again and marks the connection active,
+        // which a connection that was disconnected needs before it can sync.
+        await connections.handleCallback(data.item.id, provider, undefined, undefined, reconnectConnectionId)
         await connections.sync(reconnectConnectionId)
       } else {
         const connection = await connections.handleCallback(
@@ -97,11 +100,13 @@ function BankConnectSession({
         if (needsAccountReview(connection)) onReviewAccounts?.(connection)
       }
       invalidateFinancialQueries(queryClient)
-      queryClient.invalidateQueries({ queryKey: ['connections'] })
       toast.success(t('accounts.connected'))
     } catch {
       toast.error(t('accounts.connectError'))
     } finally {
+      // Also after a failure: the callback may have reactivated the
+      // connection before the sync failed, and the list must show that.
+      queryClient.invalidateQueries({ queryKey: ['connections'] })
       handleClose()
     }
   }

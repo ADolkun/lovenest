@@ -12,6 +12,7 @@ from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue, latest_value_first
 from app.models.bank_connection import BankConnection
 from app.schemas.balance_explanation import BalanceExplanation, BalanceHolding
+from app.services.account_service import LIABILITY_ACCOUNT_TYPES
 from app.services.asset_valuation import current_value_amount
 
 
@@ -96,9 +97,14 @@ async def explain_balance(
     account: Account | None = None,
     connection: BankConnection | None = None,
     current_balance: Decimal | float | None = None,
+    unconverted_count: int = 0,
     group: AssetGroup | None = None,
 ) -> BalanceExplanation:
-    """One account or wallet scope, joined only through persisted identities."""
+    """One account or wallet scope, joined only through persisted identities.
+
+    `unconverted_count` is how many foreign rows a manual account's
+    `current_balance` counted as zero for want of a converted amount (#1302).
+    """
     if account is not None and account.workspace_id != workspace_id:
         account = None
     if connection is not None and (
@@ -134,17 +140,27 @@ async def explain_balance(
         detail.unreadable_count = count if type(count) is int and count >= 0 else None
         if detail.refresh_status in {"error", "sync_error"}:
             detail.reason_codes.append("refresh_failed")
+        elif detail.refresh_status == "disconnected":
+            # The user ended the link: the values are the last sync's and
+            # will not refresh again.
+            detail.reason_codes.append("refresh_disconnected")
     if account is None:
         detail.reason_codes.append("no_account_association")
     else:
         detail.association = "resolved"
         detail.currency = account.currency
         detail.amount = _number(account.balance if account.connection_id else current_balance)
-        if account.connection_id and account.type == "credit_card" and detail.amount is not None:
+        if account.connection_id and account.type in LIABILITY_ACCOUNT_TYPES and detail.amount is not None:
             detail.amount = -detail.amount
         if account.connection_id is None:
             detail.basis = "cash_ledger"
-            detail.coverage = "complete" if current_balance is not None else "unknown"
+            if current_balance is None:
+                detail.coverage = "unknown"
+            elif unconverted_count:
+                detail.coverage = "partial"
+                detail.reason_codes.append("unconverted_rows")
+            else:
+                detail.coverage = "complete"
             detail.refresh_status = "active"
         elif connection is not None:
             if connection.provider == "onchain" or (

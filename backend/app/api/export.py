@@ -11,6 +11,7 @@ from app.core.app_clock import app_today
 from app.core.database import get_async_session
 from app.core.workspace_context import WorkspaceContext, current_workspace
 from app.models.account import Account
+from app.models.account_reserved_balance import AccountReservedBalance
 from app.models.asset import Asset
 from app.models.asset_value import AssetValue
 from app.models.budget import Budget
@@ -18,8 +19,10 @@ from app.models.category import Category
 from app.models.category_group import CategoryGroup
 from app.models.import_log import ImportLog
 from app.models.recurring_transaction import RecurringTransaction
+from app.models.recurring_transaction_category_line import RecurringTransactionCategoryLine
 from app.models.rule import Rule
 from app.models.transaction import Transaction
+from app.models.transaction_category_line import TransactionCategoryLine
 from app.schemas.export import BackupRequest
 from app.services.backup_service import build_backup_archive
 
@@ -47,6 +50,28 @@ async def _collect(ctx: WorkspaceContext, session: AsyncSession) -> dict[str, ob
 
     accounts = (await session.execute(select(Account).where(Account.workspace_id == ws_id))).scalars().all()
     transactions = (await session.execute(select(Transaction).where(Transaction.workspace_id == ws_id))).scalars().all()
+    # How each split transaction's amount is spread across categories; a
+    # split row's own category_id is null, so without these the backup
+    # would lose its categories.
+    category_lines = (
+        await session.execute(
+            select(TransactionCategoryLine)
+            .where(TransactionCategoryLine.workspace_id == ws_id)
+            .order_by(TransactionCategoryLine.transaction_id, TransactionCategoryLine.position)
+        )
+    ).scalars().all()
+    # The same for split recurring bills: the template's own category_id is
+    # null while it is split.
+    recurring_category_lines = (
+        await session.execute(
+            select(RecurringTransactionCategoryLine)
+            .where(RecurringTransactionCategoryLine.workspace_id == ws_id)
+            .order_by(
+                RecurringTransactionCategoryLine.recurring_transaction_id,
+                RecurringTransactionCategoryLine.position,
+            )
+        )
+    ).scalars().all()
     categories = (await session.execute(select(Category).where(Category.workspace_id == ws_id))).scalars().all()
     category_groups = (await session.execute(select(CategoryGroup).where(CategoryGroup.workspace_id == ws_id))).scalars().all()
     rules = (await session.execute(select(Rule).where(Rule.workspace_id == ws_id))).scalars().all()
@@ -54,6 +79,11 @@ async def _collect(ctx: WorkspaceContext, session: AsyncSession) -> dict[str, ob
     budgets = (await session.execute(select(Budget).where(Budget.workspace_id == ws_id))).scalars().all()
     assets = (await session.execute(select(Asset).where(Asset.workspace_id == ws_id))).scalars().all()
     import_logs = (await session.execute(select(ImportLog).where(ImportLog.workspace_id == ws_id))).scalars().all()
+    reserved_balance_rows = (
+        await session.execute(
+            select(AccountReservedBalance).where(AccountReservedBalance.workspace_id == ws_id)
+        )
+    ).scalars().all()
 
     asset_ids = [a.id for a in assets]
     if asset_ids:
@@ -64,13 +94,16 @@ async def _collect(ctx: WorkspaceContext, session: AsyncSession) -> dict[str, ob
     entities = {
         "accounts": accounts,
         "transactions": transactions,
+        "transaction_category_lines": category_lines,
         "categories": categories,
         "category_groups": category_groups,
         "rules": rules,
         "recurring_transactions": recurring_transactions,
+        "recurring_transaction_category_lines": recurring_category_lines,
         "budgets": budgets,
         "assets": assets,
         "asset_values": asset_values,
+        "account_reserved_balances": reserved_balance_rows,
         "import_logs": import_logs,
     }
 

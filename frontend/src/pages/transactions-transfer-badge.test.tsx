@@ -85,6 +85,7 @@ function tx(over: Partial<Transaction> & { id: string; description: string }): T
     effective_bill_date: null, splits: [], is_ignored: false, reimbursement_links: [],
     effective_date: '2026-10-20',
     ...over,
+    reporting_date_override: over.reporting_date_override ?? null,
   }
 }
 

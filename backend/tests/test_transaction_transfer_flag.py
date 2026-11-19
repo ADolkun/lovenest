@@ -6,7 +6,10 @@ shapes: a pair id whose second leg is gone is not a transfer, and a card
 credit that is not a repayment is a refund that stays in P&L under any
 category. The row flag, the Type=Transfer filter and the calendar read the
 same `is_transfer` predicate `counts_as_pnl` excludes, so a row the footer
-counts never reads as a transfer.
+counts never reads as a transfer. A row split across categories is a
+transfer only when every part is: a spending part keeps it in the totals.
+The Type=Transfer list also finds a split row by a transfer part, and its
+footer sums only that part.
 """
 
 import uuid
@@ -21,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.account import Account
 from app.models.category import Category
 from app.models.transaction import Transaction
+from app.models.transaction_category_line import TransactionCategoryLine
 from app.models.workspace import Workspace
 from app.services.transaction_calendar_service import get_transaction_calendar
 
@@ -55,7 +59,15 @@ async def rows(session: AsyncSession, test_user, test_workspace, test_account) -
         id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
         name="Transfers", icon="repeat", color="#0ea5e9", treat_as_transfer=True,
     )
-    session.add_all([savings, card, transfers])
+    broker = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Broker", icon="repeat", color="#0ea5e9", treat_as_transfer=True,
+    )
+    fees = Category(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        name="Fees", icon="tag", color="#000000",
+    )
+    session.add_all([savings, card, transfers, broker, fees])
     await session.flush()
 
     pair_id = uuid.uuid4()
@@ -67,13 +79,29 @@ async def rows(session: AsyncSession, test_user, test_workspace, test_account) -
         "card_payment": _tx(test_user, card, "AUTOPAY PAYMENT - THANK YOU", "credit"),
         "transfer_category": _tx(test_user, test_account, "BROKER APPLICATION", "debit", category=transfers),
         "regular": _tx(test_user, test_account, "GROCERIES", "debit"),
+        "split_all_transfer": _tx(test_user, test_account, "TWO BROKERS", "debit"),
+        "split_mixed": _tx(test_user, test_account, "BROKER AND FEE", "debit"),
     }
     session.add_all(by_name.values())
+    await session.flush()
+    for name, parts in (
+        ("split_all_transfer", ((transfers, "60.00"), (broker, "40.00"))),
+        ("split_mixed", ((transfers, "90.00"), (fees, "10.00"))),
+    ):
+        row = by_name[name]
+        row.has_category_lines = True
+        session.add_all([
+            TransactionCategoryLine(
+                workspace_id=test_workspace.id, transaction_id=row.id,
+                category_id=category.id, amount=Decimal(amount), position=position,
+            )
+            for position, (category, amount) in enumerate(parts)
+        ])
     await session.commit()
     return {name: str(tx.id) for name, tx in by_name.items()}
 
 
-_TRANSFERS = {"pair_out", "pair_in", "card_payment", "transfer_category"}
+_TRANSFERS = {"pair_out", "pair_in", "card_payment", "transfer_category", "split_all_transfer"}
 
 
 @pytest.mark.asyncio
@@ -103,9 +131,9 @@ async def test_type_transfer_filter_lists_exactly_the_flagged_rows(
 ):
     resp = await client.get("/api/transactions?type=transfer&limit=500", headers=auth_headers)
     assert resp.status_code == 200
-    listed = {t["id"] for t in resp.json()["items"]}
-    assert {name for name, tx_id in rows.items() if tx_id in listed} == _TRANSFERS
-    assert all(t["is_transfer"] for t in resp.json()["items"])
+    flags = {t["id"]: t["is_transfer"] for t in resp.json()["items"]}
+    assert {name for name, tx_id in rows.items() if tx_id in flags} == _TRANSFERS | {"split_mixed"}
+    assert {name for name, tx_id in rows.items() if flags.get(tx_id) is False} == {"split_mixed"}
 
 
 @pytest.mark.asyncio

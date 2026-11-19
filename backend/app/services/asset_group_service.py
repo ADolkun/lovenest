@@ -94,21 +94,21 @@ def _group_to_read(
 
 
 async def _balance_explanation_for_group(session: AsyncSession, group: AssetGroup) -> BalanceExplanation:
-    from app.services.account_service import get_accounts
+    from app.services.account_service import get_cash_balance
     from app.services.balance_explanation_service import explain_balance
 
     account = await _account_for_group(session, group)
     connection_id = account.connection_id if account is not None else group.connection_id
     connection = await session.get(BankConnection, connection_id) if connection_id else None
     cash_balance = None
+    unconverted_count = 0
     if account is not None and account.connection_id is None:
-        rows = await get_accounts(
-            session, group.workspace_id, include_closed=True, account_id=account.id,
-        )
-        cash_balance = rows[0]["current_balance"] if rows else None
+        cash = await get_cash_balance(session, group.workspace_id, account.id)
+        if cash is not None:
+            cash_balance, unconverted_count = cash
     return await explain_balance(
         session, group.workspace_id, account=account, connection=connection,
-        current_balance=cash_balance, group=group,
+        current_balance=cash_balance, unconverted_count=unconverted_count, group=group,
     )
 
 

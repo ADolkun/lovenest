@@ -55,6 +55,7 @@ function makeTx(overrides: Partial<Transaction> = {}): Transaction {
     reimbursement_links: [],
     effective_date: '2026-10-20',
     ...overrides,
+    reporting_date_override: overrides.reporting_date_override ?? null,
   }
 }
 

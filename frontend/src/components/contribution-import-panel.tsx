@@ -20,7 +20,7 @@ const SELECT_CLASS =
 const ROWS_GRID = '3rem 1fr 0.7fr 1.1fr 0.9fr 1fr 1.1fr'
 
 /**
- * The contributions half of the import page (ADR 0001's 2026-08-23 amendment:
+ * The contributions half of the import page (Lovenest ADR 0001's 2026-08-23 amendment:
  * views live on `/assets`, files are uploaded here). A brokerage history file
  * names its own wallet nowhere, so the destination is picked before the file
  * is read — which is also what makes duplicate detection possible.

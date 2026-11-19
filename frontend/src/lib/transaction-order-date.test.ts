@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { transactionOrderDate } from './transaction-order-date'
 
 describe('transactionOrderDate', () => {
+  it('uses the reporting date override before anything else', () => {
+    expect(transactionOrderDate({
+      date: '2026-06-02',
+      effective_date: '2026-07-10',
+      effective_bill_date: '2026-08-10',
+      reporting_date_override: '2026-05-31',
+    }, true)).toBe('2026-05-31')
+    expect(transactionOrderDate({
+      date: '2026-06-02',
+      reporting_date_override: '2026-05-31',
+    }, false)).toBe('2026-05-31')
+  })
+
   it('uses manual bill override first', () => {
     expect(transactionOrderDate({
       date: '2026-06-02',

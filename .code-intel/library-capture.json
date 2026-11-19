@@ -24,8 +24,8 @@
  },
  "dependencies": [
   {
-   "binding": "app.core.auth:current_active_user",
-   "bound_to": "fastapi_users.current_user(active=True)",
+   "binding": "app.core.auth:_session_user",
+   "bound_to": "fastapi_users.current_user(active=True, optional=True)",
    "id": "fastapi_users.authentication.authenticator:Authenticator.current_user",
    "sub": [
     {

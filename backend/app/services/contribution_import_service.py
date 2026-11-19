@@ -274,7 +274,7 @@ def _amount(row: ContributionImportRow) -> Decimal:
 
 
 def _fingerprint(kind: str, party: str, amount: Decimal, when, tax_year: int) -> tuple:
-    """What makes two contributions the same contribution (ADR 0005).
+    """What makes two contributions the same contribution (Lovenest ADR 0005).
 
     The wallet is not in the key because the count is only ever taken within
     one wallet. `tax_year` is, because it is the one field the parser derives
@@ -309,7 +309,7 @@ async def _already_imported(
 
 
 def _mark_duplicates(matched: list[ContributionImportRow], stored: Counter) -> int:
-    """Flag the rows the wallet already holds, counting repeats (ADR 0005).
+    """Flag the rows the wallet already holds, counting repeats (Lovenest ADR 0005).
 
     A matched row consumes one stored occurrence rather than merely testing for
     one, and an accepted row is deliberately *not* added back: two identical

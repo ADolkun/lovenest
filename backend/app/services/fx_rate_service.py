@@ -13,21 +13,22 @@ from app.core.config import get_settings
 from app.models.fx_rate import FxRate
 from app.models.user import User
 from app.providers.openexchangerates import OpenExchangeRatesProvider
+from app.services.provider_settings import resolve_settings
 
 logger = logging.getLogger(__name__)
-
-_provider = OpenExchangeRatesProvider()
 
 # Owned by one bank import, never by the process or a pooled session.
 FetchedRateCache = dict[date, dict[str, Decimal]]
 
 
-async def _fetch_supported_rates(target: date) -> dict[str, Decimal]:
+async def _fetch_supported_rates(
+    provider: OpenExchangeRatesProvider, target: date,
+) -> dict[str, Decimal]:
     supported = set(get_settings().supported_currencies.split(","))
     if target == app_today():
-        rates = await _provider.fetch_latest()
+        rates = await provider.fetch_latest()
     else:
-        rates = await _provider.fetch_historical(target)
+        rates = await provider.fetch_historical(target)
     return {currency: rate for currency, rate in rates.items() if currency in supported}
 
 
@@ -41,12 +42,13 @@ async def sync_rates(
     Returns the number of rates synced. This standalone cache refresh commits;
     atomic bank imports use a non-persisting, import-local rate cache instead.
     """
+    provider = OpenExchangeRatesProvider(await resolve_settings(session))
     requested_target = target_date or app_today()
     # Providers cannot return a historical rate for a date that has not
     # happened yet. Treat a future request as a request for today's latest
     # published rate and store it under today's date.
     target = min(requested_target, app_today())
-    rates = await _fetch_supported_rates(target)
+    rates = await _fetch_supported_rates(provider, target)
 
     count = 0
     # Standalone refreshes write one date per transaction. Keep currency locks
@@ -57,11 +59,11 @@ async def sync_rates(
             quote_currency=currency_code,
             date=target,
             rate=rate,
-            source=_provider.name,
+            source=provider.name,
         )
         stmt = stmt.on_conflict_do_update(
             constraint="uq_fx_rate_base_quote_date",
-            set_={"rate": rate, "source": _provider.name},
+            set_={"rate": rate, "source": provider.name},
         )
         await session.execute(stmt)
         count += 1
@@ -117,7 +119,8 @@ async def _resolve_rate(
             else:
                 assert fetched_rates is not None
                 if target not in fetched_rates:
-                    fetched_rates[target] = await _fetch_supported_rates(target)
+                    provider = OpenExchangeRatesProvider(await resolve_settings(session))
+                    fetched_rates[target] = await _fetch_supported_rates(provider, target)
                 synced = len(fetched_rates[target])
             if synced > 0:
                 logger.info("On-demand sync fetched %d rates for %s", synced, target)

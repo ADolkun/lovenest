@@ -135,10 +135,10 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 @pytest_asyncio.fixture
 async def postgres_sessions():
     """Give each PostgreSQL test its own schema, including under xdist."""
-    url = os.environ.get("EVIDENCE_TEST_DATABASE_URL")
+    url = os.environ.get("POSTGRES_TEST_URL")
     if not url:
         if os.environ.get("CI"):
-            pytest.fail("CI must supply EVIDENCE_TEST_DATABASE_URL for PostgreSQL tests")
+            pytest.fail("CI must supply POSTGRES_TEST_URL for PostgreSQL tests")
         pytest.skip("isolated PostgreSQL not configured")
     schema = f"postgres_test_{uuid.uuid4().hex}"
     pg_engine = create_async_engine(url)
@@ -556,6 +556,7 @@ async def test_transactions(
             date=dt,
             type=typ,
             source="manual",
+            currency=test_account.currency,
             created_at=datetime.now(timezone.utc),
         )
         session.add(txn)
@@ -726,11 +727,18 @@ def _mock_redis():
 @pytest.fixture(autouse=True)
 def _no_external_fx_sync():
     """Prevent tests from hitting the real OpenExchangeRates API."""
-    with patch("app.services.fx_rate_service._provider") as mock_provider:
+    with patch("app.services.fx_rate_service.OpenExchangeRatesProvider") as provider_class:
+        mock_provider = provider_class.return_value
         mock_provider.name = "test"
         mock_provider.fetch_latest = AsyncMock(return_value={})
         mock_provider.fetch_historical = AsyncMock(return_value={})
-        yield
+        yield mock_provider
+
+
+@pytest.fixture
+def mock_fx_provider(_no_external_fx_sync):
+    """The provider instance `_no_external_fx_sync` patched in, for tests that stub its rates."""
+    return _no_external_fx_sync
 
 
 @pytest.fixture(autouse=True)

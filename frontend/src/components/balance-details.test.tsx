@@ -54,6 +54,15 @@ it('names missing holdings while retaining quantity and original observation age
   expect(screen.queryByText('$0.00')).not.toBeInTheDocument()
 })
 
+it('explains a disconnected bank link and rows without an exchange rate instead of a generic condition', async () => {
+  const partial = { ...account, balance_explanation: { ...account.balance_explanation!, coverage: 'partial' as const, reason_codes: ['refresh_disconnected', 'unconverted_rows'] } }
+  const { user } = renderWithProviders(<BalanceDetails account={partial} />)
+  await user.click(screen.getByRole('button', { name: 'Balance details: Account A' }))
+  expect(screen.getByText(/bank connection was disconnected/)).toBeInTheDocument()
+  expect(screen.getByText(/foreign-currency transactions have no exchange rate/)).toBeInTheDocument()
+  expect(screen.queryByText(/unresolved balance condition/)).not.toBeInTheDocument()
+})
+
 it('keeps manual ledger and shared derivation distinct from independent matching', async () => {
   const { user, rerender } = renderWithProviders(<BalanceDetails account={{ ...account, balance_explanation: { ...account.balance_explanation!, basis: 'cash_ledger', reconciliation: 'separate_cash_ledger', residual_cash: null } }} />)
   await user.click(screen.getByRole('button', { name: 'Balance details: Account A' }))

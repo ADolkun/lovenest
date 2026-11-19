@@ -11,7 +11,7 @@ const LOCALES = readdirSync(LOCALES_DIR)
 
 // ponytail: these upstream locales fall back to English for Lovenest-only keys;
 // remove a locale once its downstream strings have translations.
-const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['cs', 'el', 'hi', 'hu', 'ja', 'sk'])
+const LOCALES_WITH_DOWNSTREAM_FALLBACK = new Set(['cs', 'el', 'he', 'hi', 'hu', 'ja', 'sk'])
 
 // #146 balance explanations, #133 and #155 ship EN + PT-BR. Other locales use English for these shared labels,
 // while existing common/evidence keys still require translations.
@@ -334,6 +334,32 @@ describe('i18n locale files', () => {
       expect(
         required.filter((key) => !keys.has(key)),
         `Recurrence labels missing in ${locale}:`,
+      ).toEqual([])
+    }
+  })
+
+  // The price-history surface keys are required by both row consumers, so
+  // assert them explicitly in addition to the en-driven parity checks above.
+  it('contains price-history labels in every locale', () => {
+    const required = [
+      'recurring.priceHistory',
+      'recurring.viewPriceHistory',
+      'recurring.priceChangesTitle',
+      'recurring.priceChangesEmpty',
+      'recurring.priceChangeBadge',
+      'recurring.priceChangeIncrease',
+      'recurring.priceChangeDecrease',
+      'recurring.priceChangeAmount',
+      'recurring.priceChangeDelta',
+      'recurring.priceChangeGap',
+      'recurring.priceChangeInsufficient',
+    ]
+
+    for (const locale of LOCALES) {
+      const keys = new Set(flattenKeys(JSON.parse(readRaw(locale))))
+      expect(
+        required.filter((key) => !keys.has(key)),
+        `Price-history labels missing in ${locale}:`,
       ).toEqual([])
     }
   })

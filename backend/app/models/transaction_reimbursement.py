@@ -1,4 +1,4 @@
-"""A reimbursement credit booked against the expense debits it repays (ADR 0012).
+"""A reimbursement credit booked against the expense debits it repays (Lovenest ADR 0012).
 
 N:N with an amount: one employer payment covers a trip's meals, and one
 family-plan subscription is repaid by several Zelles. Reporting reads the

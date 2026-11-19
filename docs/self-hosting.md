@@ -36,7 +36,8 @@ For example, set both `FRONTEND_PORT=3132` and
 `FRONTEND_URL=http://localhost:3132` when changing the frontend port. Set
 `BACKEND_PORT` or `TAX_PLANNER_PORT` if their defaults conflict. For a domain,
 set `FRONTEND_URL` to its HTTPS URL and configure your reverse proxy and OIDC
-callback URLs accordingly. The backend port stays bound to localhost.
+callback URLs accordingly. The backend and tax planner ports stay bound to
+localhost; the frontend reaches the planner over the Compose network at `/tax`.
 
 Bank sync, OIDC and agents remain optional; `.env.example` documents their keys.
 Agents require both `AGENTS_ENABLED=true` and `COMPOSE_PROFILES=agents`, plus a

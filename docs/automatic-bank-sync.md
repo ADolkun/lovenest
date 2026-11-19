@@ -24,8 +24,11 @@ backend environment to API/worker/beat processes. Restart processes after changi
 configuration. This setting applies to all bank providers, not just Enable Banking.
 
 This is a spacing policy, **not a strict rolling request quota**: failures and
-rate-limited runs do not advance `last_sync_at`, so they remain eligible on later
-hourly checks. Manual syncs, multiple connections to the same bank and paginated
+rate-limited runs do not advance `last_sync_at`. The scheduler then backs off a
+connection whose scheduled syncs keep failing, doubling the wait per failure up
+to a day, never earlier than a provider's `Retry-After`, and six hours after a
+rate limit that names none (`app/tasks/sync_tasks.py`); any successful sync
+clears the backoff. Plugin connections follow their plugin's schedule. Manual syncs, multiple connections to the same bank and paginated
 or retried provider requests may also consume access. A six-hour interval alone
 does not guarantee compliance with every bank's per-resource accounting policy.
 There is no change to provider refresh strategy or transaction fetch windows.
@@ -58,8 +61,10 @@ writes prevent a concurrent user ownership change from being overwritten, and
 manual claims merge the latest retirement audit at flush time. The row remains
 available in ledger views and no longer counts in monetary totals. An exact-ID
 posted return or a newer complete feed containing the hold restores only an
-ignore owned by sync. A manual financial edit, ignore toggle or ignore rule takes
-ownership away from automatic reconciliation. Legacy rows whose bank evidence
+ignore owned by sync. A manual financial edit (status, type, currency,
+account, FX override, bill cycle, P&L exclusion or splits; amounts and dates are
+provider-owned, see below), ignore toggle or ignore rule takes ownership away from automatic
+reconciliation. Legacy rows whose bank evidence
 disagrees with their stored financial fields are left for review. Downgrading
 restores sync-owned ignores before removing audit storage; user ignores remain.
 Legitimate long holds that remain in the feed are never retired merely because of age.
@@ -67,3 +72,15 @@ Legitimate long holds that remain in the feed are never retired merely because o
 The migration only adds nullable audit storage; it does not repair historical
 transactions. Existing stale rows need subsequent qualifying observations, or a
 separately reviewed manual ignore. Posted purchases and refunds are not expired.
+
+## Synchronized transaction edits
+
+Synchronized amounts and booking dates remain provider-owned: changing either
+through a transaction edit is rejected with HTTP 400; supplying its existing value
+is allowed. Resubmitting unchanged amount, currency, or date values preserves the
+stored FX conversion; actual currency edits and explicit FX overrides still apply.
+Installment-scoped edits validate every affected row before updating.
+Editing a manual transfer leg cannot change its synchronized counterpart's amount,
+date, derived FX values, or effective date. Description, notes, and explicitly
+requested category propagation remain available. The "post today" action rejects
+synchronized anchors; a synchronized counterpart only receives the posted status.

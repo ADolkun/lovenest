@@ -90,10 +90,12 @@ image_fingerprint() {
 }
 
 # Require exactly the configured services to be running and healthy where a
-# healthcheck exists. Container IDs detect manual replacements/config changes;
-# the HTTP probe additionally checks frontend/tax services without healthchecks.
+# healthcheck exists. A one-shot job (restart: "no", like `migrate`) must have
+# exited 0 instead; a failed one fails the check. Container IDs detect manual
+# replacements/config changes; the HTTP probe additionally checks frontend/tax
+# services without healthchecks.
 stack_fingerprint() {
-  local expected running='' managed_ids='' ids id details oneoff service status health
+  local expected running='' managed_ids='' ids id details oneoff service status health exit_code restart
   local services=()
   expected=$("${COMPOSE[@]}" config --services | sort -u) || return 1
   [[ -n "$expected" ]] || return 1
@@ -101,12 +103,13 @@ stack_fingerprint() {
   ids=$("${COMPOSE[@]}" ps --all --quiet "${services[@]}" | sort -u) || return 1
   [[ -n "$ids" ]] || return 1
   while IFS= read -r id; do
-    details=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.oneoff"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id") || return 1
-    IFS='|' read -r oneoff service status health <<< "$details"
+    details=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.oneoff"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.State.ExitCode}}|{{.HostConfig.RestartPolicy.Name}}' "$id") || return 1
+    IFS='|' read -r oneoff service status health exit_code restart <<< "$details"
     # `compose run` containers may be stopped or running alongside the service.
     # They neither invalidate its receipt nor substitute for a missing service.
     case "$oneoff" in True|true) continue ;; esac
-    [[ "$status" == running && ( "$health" == healthy || "$health" == none ) ]] || return 1
+    [[ "$status" == exited && "$exit_code" == 0 && ( "$restart" == no || -z "$restart" ) ]] \
+      || [[ "$status" == running && ( "$health" == healthy || "$health" == none ) ]] || return 1
     running+="$service"$'\n'
     managed_ids+="$id"$'\n'
   done <<< "$ids"

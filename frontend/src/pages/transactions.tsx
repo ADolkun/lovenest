@@ -53,7 +53,7 @@ import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog
 import { PageHeader } from '@/components/page-header'
 import { calculateRangeSelection } from '@/lib/selection-utils'
 import { isManualInstallmentSeriesRow } from '@/lib/installment-series'
-import { CategoryIcon } from '@/components/category-icon'
+import { TransactionCategoryIcon, TransactionCategoryLabel } from '@/components/category-lines-display'
 import { CategorySelect } from '@/components/category-select'
 import { CategoryPicker } from '@/components/category-picker'
 import { TransactionDialog, type SaveAction, type TransactionSavePayload } from '@/components/transaction-dialog'
@@ -80,9 +80,12 @@ import { MobileTransactionRow } from '@/components/mobile-transaction-row'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { useCollectionFilter } from '@/contexts/collection-filter-context'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, ltrAmount } from '@/lib/format'
+import { transactionOrderDate } from '@/lib/transaction-order-date'
 import { shouldShowPendingBadge } from '@/lib/transaction-status'
 import { isTransferTransaction } from '@/lib/transaction-transfer'
+import { readCalendarDateBasis } from '@/lib/transaction-calendar'
+import { ReportingDateBadge } from '@/components/reporting-date-badge'
 
 type TransactionUpdatePayload = TransactionEditPayload & {
   apply_to_transfer_pair?: boolean
@@ -171,6 +174,7 @@ export default function TransactionsPage() {
     searchParams.get('view') === 'calendar' ? 'calendar' : 'list'
   ))
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<string>(() => searchParams.get('day') ?? '')
+  const [calendarDateBasis, setCalendarDateBasis] = useState(readCalendarDateBasis)
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [filterGroupId, setFilterGroupId] = useState<string>(searchParams.get('group_id') ?? '')
   const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
@@ -437,11 +441,12 @@ export default function TransactionsPage() {
   const calendarMonth = steppedMonth
   const calendarAccountIds = filterAccountIds.length === 1 ? filterAccountIds : []
   const { data: calendarData, isLoading: calendarLoading, isFetching: calendarFetching, refetch: refetchCalendar } = useQuery({
-    queryKey: ['transactions', 'calendar', calendarMonth, calendarAccountIds],
+    queryKey: ['transactions', 'calendar', calendarMonth, calendarAccountIds, calendarDateBasis],
     enabled: viewMode === 'calendar',
     queryFn: () => transactions.calendar({
       month: `${calendarMonth}-01`,
       account_ids: calendarAccountIds.length === 1 ? calendarAccountIds : undefined,
+      date_basis: calendarDateBasis,
     }),
   })
 
@@ -603,10 +608,15 @@ export default function TransactionsPage() {
     mutationFn: ({ ids, categoryId }: { ids: string[]; categoryId: string | null }) =>
       transactions.bulkCategorize(ids, categoryId),
     onSuccess: (result) => {
+      // The backend never overwrites a split across categories; say how many
+      // of the selected rows it left alone, or the count looks wrong.
+      const skipped = result.skipped_split ?? 0
       invalidateAfterTxMutation()
       setSelectedIds(new Set())
       setBulkCategory('')
-      toast.success(t('transactions.bulkSuccess', { count: result.updated }))
+      toast.success(t('transactions.bulkSuccess', { count: result.updated }), {
+        description: skipped > 0 ? t('categoryLines.bulkSkipped', { count: skipped }) : undefined,
+      })
     },
     onError: (error) => {
       toast.error(extractApiError(error))
@@ -791,10 +801,11 @@ export default function TransactionsPage() {
     const groups: { date: string; label: string; items: Transaction[] }[] = []
     let current: { date: string; label: string; items: Transaction[] } | null = null
     for (const tx of filteredItems) {
-      if (!current || current.date !== tx.date) {
+      const reportingDate = transactionOrderDate(tx, isAccrual)
+      if (!current || current.date !== reportingDate) {
         current = {
-          date: tx.date,
-          label: new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale, {
+          date: reportingDate,
+          label: new Date(reportingDate + 'T00:00:00').toLocaleDateString(dateLocale, {
             weekday: 'short',
             day: 'numeric',
             month: 'short',
@@ -807,7 +818,7 @@ export default function TransactionsPage() {
       current.items.push(tx)
     }
     return groups
-  }, [filteredItems, dateLocale])
+  }, [filteredItems, dateLocale, isAccrual])
 
   // Pre-resolve accounts into a Map for O(1) lookup in the mobile card view
   const accountById = useMemo(() => {
@@ -1021,10 +1032,12 @@ export default function TransactionsPage() {
     e.preventDefault()
     e.stopPropagation()
     resizingRef.current = { id: col.id, startX: e.clientX, startWidth: grid.widthOf(col.id) }
+    // The handle is on the column's end edge: the left one in right-to-left layouts.
+    const towardEnd = getComputedStyle(e.currentTarget).direction === 'rtl' ? -1 : 1
     const onMove = (ev: PointerEvent) => {
       const r = resizingRef.current
       if (!r) return
-      grid.setWidth(r.id, r.startWidth + (ev.clientX - r.startX))
+      grid.setWidth(r.id, r.startWidth + towardEnd * (ev.clientX - r.startX))
     }
     const onUp = () => {
       resizingRef.current = null
@@ -1038,12 +1051,12 @@ export default function TransactionsPage() {
   const renderHeaderCell = (col: ColumnDef) => {
     const isSorted = grid.sortBy === col.id
     const sortIndicator = isSorted ? (grid.sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : null
-    const alignClass = col.align === 'right' ? 'text-right' : 'text-left'
+    const alignClass = col.align === 'right' ? 'text-end' : 'text-start'
     const justify = col.align === 'right' ? 'justify-end' : 'justify-start'
     const cursorClass = col.sortable ? 'cursor-pointer select-none hover:text-foreground' : ''
-    // Match the amount/attachments body cells' pr-5 so right-aligned
+    // Match the amount/attachments body cells' pe-5 so right-aligned
     // headers line up with their values (issue #161 polish).
-    const padX = col.align === 'right' ? 'pr-5' : ''
+    const padX = col.align === 'right' ? 'pe-5' : ''
     const mobileClass = col.id === 'description'
       ? 'max-md:!w-auto max-md:!min-w-0'
       : col.id === 'amount'
@@ -1064,7 +1077,7 @@ export default function TransactionsPage() {
           onPointerDown={(e) => startResize(e, col)}
           onClick={(e) => e.stopPropagation()}
           aria-hidden="true"
-          className="absolute right-0 top-0 h-full w-2 -mr-1 cursor-col-resize select-none hover:bg-primary/40 active:bg-primary/60"
+          className="absolute end-0 top-0 h-full w-2 -me-1 cursor-col-resize select-none hover:bg-primary/40 active:bg-primary/60"
         />
       </TableHead>
     )
@@ -1084,11 +1097,11 @@ export default function TransactionsPage() {
           }`}
         >
           {mask(
-            `${tx.is_ignored ? ' ' : tx.type === 'credit' ? '+' : '−'}${formatCurrency(
+            ltrAmount(`${tx.is_ignored ? ' ' : tx.type === 'credit' ? '+' : '−'}${formatCurrency(
               Math.abs(displayAmount),
               tx.currency,
               locale,
-            )}`,
+            )}`),
           )}
         </span>
         {tx.is_shared && (
@@ -1128,25 +1141,39 @@ export default function TransactionsPage() {
     const noteTags = tx.notes ? parseHashtags(tx.notes) : []
     const account = accountsList?.find((a) => a.id === tx.account_id)
     const accountName = account ? getAccountName(account) : null
+    // A long group or author name truncates inside its badge, so the label
+    // doubles as its own tooltip and stays readable on hover.
+    const groupBadgeLabel = tx.group_id
+      ? tx.is_shared && tx.parent_owner_name
+        ? t('splitGroups.sharedRowBadgeAuthor', {
+            author: tx.parent_owner_name,
+            group: groupNameById.get(tx.group_id) ?? '',
+          })
+        : t('splitGroups.ownerRowBadge', {
+            group: groupNameById.get(tx.group_id) ?? '',
+          })
+      : ''
     return (
       <div className="flex min-w-0 items-center gap-2 md:gap-3">
-        <CategoryIcon icon={tx.category?.icon} color={tx.category?.color} size="lg" />
+        <TransactionCategoryIcon tx={tx} size="lg" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" title={tx.description}>{tx.description}</p>
+          {/* The column has a fixed width, so a row carrying several badges
+              (transfer with its counterpart account, report exclusion, an
+              installment counter) runs past the cell and paints over the
+              Category column next to it (issue #1306). Wrapping keeps every
+              badge inside the cell: they move to a second line instead of
+              escaping, and the description keeps its own width rather than
+              being squeezed to nothing. The overflow guard is the backstop:
+              the column can be dragged down to 41px, narrower than a single
+              badge, and there the badges clip at the cell edge instead. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden">
+            <p className="max-w-full text-sm font-semibold text-foreground truncate" title={tx.description}>{tx.description}</p>
             {tx.group_id && (
               <span
-                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1.5 py-0.5 rounded-full"
+                className="inline-flex max-w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1.5 py-0.5 rounded-full"
                 title={t('splitGroups.sharedRowTooltip')}
               >
-                {tx.is_shared && tx.parent_owner_name
-                  ? t('splitGroups.sharedRowBadgeAuthor', {
-                      author: tx.parent_owner_name,
-                      group: groupNameById.get(tx.group_id) ?? '',
-                    })
-                  : t('splitGroups.ownerRowBadge', {
-                      group: groupNameById.get(tx.group_id) ?? '',
-                    })}
+                <span className="truncate" title={groupBadgeLabel}>{groupBadgeLabel}</span>
               </span>
             )}
             {/* The invoice this settles. Same badge shape as the split
@@ -1166,10 +1193,10 @@ export default function TransactionsPage() {
                 to="/rules?tab=queue"
                 onClick={(e) => e.stopPropagation()}
                 title={t('transactions.suggestionBadgeTooltip')}
-                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900 px-1.5 py-0.5 rounded-full hover:bg-amber-100 dark:hover:bg-amber-950/70 transition-colors"
+                className="inline-flex max-w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900 px-1.5 py-0.5 rounded-full hover:bg-amber-100 dark:hover:bg-amber-950/70 transition-colors"
               >
-                <HelpCircle className="h-3 w-3" />
-                {t('transactions.suggestionBadge')}
+                <HelpCircle className="h-3 w-3 shrink-0" />
+                <span className="truncate">{t('transactions.suggestionBadge')}</span>
               </Link>
             )}
             {(tx.invoice_links ?? []).map((link) => (
@@ -1178,21 +1205,28 @@ export default function TransactionsPage() {
                 to={`/invoices/${link.invoice_id}`}
                 onClick={(e) => e.stopPropagation()}
                 title={t('transactions.invoiceBadgeTooltip')}
-                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900 px-1.5 py-0.5 rounded-full hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition-colors"
+                className="inline-flex max-w-full items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900 px-1.5 py-0.5 rounded-full hover:bg-emerald-100 dark:hover:bg-emerald-950/70 transition-colors"
               >
-                <Receipt className="h-3 w-3" />
-                {link.external_number
-                  ? t('transactions.invoiceBadge', { number: link.external_number })
-                  : link.number != null
-                    ? t('transactions.invoiceBadge', { number: link.number })
-                    : t('transactions.invoiceBadgeNoNumber')}
+                <Receipt className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {link.external_number
+                    ? t('transactions.invoiceBadge', { number: link.external_number })
+                    : link.number != null
+                      ? t('transactions.invoiceBadge', { number: link.number })
+                      : t('transactions.invoiceBadgeNoNumber')}
+                </span>
               </Link>
             ))}
             <ReimbursementBadge transaction={tx} />
+            {/* The label and the two icons keep their size, so that a
+                narrow column shortens the counterpart account name and
+                not the word that says what the badge is. Past the point
+                where even that no longer fits, the badge clips at the
+                cell edge rather than carrying on into the next column. */}
             {isTransferTransaction(tx) && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
-                <ArrowLeftRight className="h-3 w-3" />
-                {t('transactions.transfer')}
+              <span className="inline-flex max-w-full items-center gap-1 overflow-hidden text-[10px] font-semibold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full">
+                <ArrowLeftRight className="h-3 w-3 shrink-0" />
+                <span className="shrink-0">{t('transactions.transfer')}</span>
                 {tx.transfer_counterpart && (
                   <Link
                     to={`/accounts/${tx.transfer_counterpart.account_id}`}
@@ -1203,15 +1237,15 @@ export default function TransactionsPage() {
                     {tx.transfer_counterpart.account_name}
                   </Link>
                 )}
-                <span title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
+                <span className="shrink-0" title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
               </span>
             )}
             {tx.is_ignored &&
               (
-              <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-600 font-normal bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
-                <EyeClosed className="h-3 w-3" />
-                {t('transactions.ignored')}
-                <span title={t('transactions.ignoreTransferHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
+              <span className="inline-flex max-w-full items-center gap-1 text-xs text-gray-600 font-normal bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
+                <EyeClosed className="h-3 w-3 shrink-0" />
+                <span className="truncate">{t('transactions.ignored')}</span>
+                <span className="shrink-0" title={t('transactions.ignoreTransferHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
               </span>
                             )
             }
@@ -1219,24 +1253,24 @@ export default function TransactionsPage() {
                 balance, so its amount keeps its colour and sign and only
                 the badge marks it. Ignored greys the amount out instead. */}
             {tx.exclude_from_pnl && !tx.is_ignored && (
-              <span className="ml-2 inline-flex items-center gap-1 text-xs text-slate-600 font-normal bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 dark:text-slate-300 dark:bg-slate-500/15 dark:border-slate-500/30">
-                <ChartNoAxesColumn className="h-3 w-3" />
-                {t('transactions.excludedFromReports')}
-                <span title={t('transactions.excludeFromReportsHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
+              <span className="inline-flex max-w-full items-center gap-1 text-xs text-slate-600 font-normal bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 dark:text-slate-300 dark:bg-slate-500/15 dark:border-slate-500/30">
+                <ChartNoAxesColumn className="h-3 w-3 shrink-0" />
+                <span className="truncate">{t('transactions.excludedFromReports')}</span>
+                <span className="shrink-0" title={t('transactions.excludeFromReportsHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
               </span>
             )}
             {tx.recurring_transaction_id != null && (
               <span
-                className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full"
+                className="inline-flex max-w-full items-center text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full"
                 title={t('transactions.recurringLinkedTooltip')}
               >
-                {t('transactions.recurringBadge')}
+                <span className="truncate">{t('transactions.recurringBadge')}</span>
               </span>
             )}
             {tx.installment_number != null && tx.total_installments != null && (
               <Badge
                 variant="warning"
-                className="px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                className="shrink-0 px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
                 title={tx.installment_total_amount != null
                   ? t('transactions.installmentTooltip', { count: tx.total_installments, total: tx.installment_total_amount })
                   : undefined}
@@ -1263,12 +1297,13 @@ export default function TransactionsPage() {
               <Paperclip size={12} className="text-muted-foreground shrink-0" />
             )}
           </div>
+          <ReportingDateBadge tx={tx} locale={dateLocale} />
           <p className="mt-0.5 truncate text-xs text-muted-foreground md:hidden" title={accountName ?? undefined}>
-            {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
+            {new Date((tx.reporting_date_override ?? tx.date) + 'T00:00:00').toLocaleDateString(dateLocale)}
             {accountName ? ` · ${accountName}` : ''}
           </p>
           {showInlineDate && (
-            <p className="mt-0.5 hidden text-xs text-muted-foreground md:block">{new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}</p>
+            <p className="mt-0.5 hidden text-xs text-muted-foreground md:block">{new Date((tx.reporting_date_override ?? tx.date) + 'T00:00:00').toLocaleDateString(dateLocale)}</p>
           )}
           {(showInlineNotes || showInlineTags) && tx.notes && (
             <div className="mt-1 space-y-0.5">
@@ -1297,7 +1332,7 @@ export default function TransactionsPage() {
 
   const renderBodyCell = (col: ColumnDef, tx: Transaction) => {
     const widthStyle = { width: grid.widthOf(col.id), minWidth: grid.widthOf(col.id) }
-    const alignClass = col.align === 'right' ? 'text-right' : ''
+    const alignClass = col.align === 'right' ? 'text-end' : ''
     const baseClass = `py-2.5 ${alignClass}`
     const mobileClass = col.id === 'description'
       ? 'max-md:!w-auto max-md:!min-w-0'
@@ -1308,23 +1343,19 @@ export default function TransactionsPage() {
       case 'date':
         return (
           <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} text-sm text-muted-foreground tabular-nums`}>
-            {new Date(tx.date + 'T00:00:00').toLocaleDateString(dateLocale)}
+            {new Date((tx.reporting_date_override ?? tx.date) + 'T00:00:00').toLocaleDateString(dateLocale)}
           </TableCell>
         )
       case 'description':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 overflow-hidden pl-2`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} max-w-0 overflow-hidden ps-2`}>
             {renderDescriptionCell(tx)}
           </TableCell>
         )
       case 'category':
         return (
           <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass}`}>
-            {tx.category ? (
-              <span className="block truncate text-sm text-muted-foreground" title={tx.category.name}>{tx.category.name}</span>
-            ) : (
-              <span className="text-xs text-muted-foreground italic">{t('transactions.noCategory')}</span>
-            )}
+            <TransactionCategoryLabel tx={tx} />
           </TableCell>
         )
       case 'account': {
@@ -1344,7 +1375,7 @@ export default function TransactionsPage() {
       }
       case 'amount':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pr-5`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pe-5`}>
             {renderAmountCell(tx)}
           </TableCell>
         )
@@ -1388,7 +1419,7 @@ export default function TransactionsPage() {
       }
       case 'attachments':
         return (
-          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pr-5 text-sm text-muted-foreground tabular-nums`}>
+          <TableCell key={col.id} style={widthStyle} className={`${baseClass} ${mobileClass} pe-5 text-sm text-muted-foreground tabular-nums`}>
             {(tx.attachment_count ?? 0) > 0 ? (
               <span className="inline-flex items-center gap-1 justify-end w-full">
                 <Paperclip size={12} />{tx.attachment_count}
@@ -1545,7 +1576,7 @@ export default function TransactionsPage() {
             {t('splitGroups.title')}: {filterGroup?.name ?? '…'}
             <button
               onClick={() => { setFilterGroupId(''); setPage(1) }}
-              className="ml-0.5 text-primary/60 hover:text-primary"
+              className="ms-0.5 text-primary/60 hover:text-primary"
               aria-label={t('transactions.clearGroupFilter')}
             >
               ×
@@ -1563,7 +1594,7 @@ export default function TransactionsPage() {
               <span>{tag}</span>
               <button
                 onClick={() => removeTagFilter(tag)}
-                className="ml-0.5 text-primary/60 hover:text-primary"
+                className="ms-0.5 text-primary/60 hover:text-primary"
                 aria-label={`Remove ${tag} filter`}
               >
                 <X size={12} />
@@ -1591,6 +1622,8 @@ export default function TransactionsPage() {
           onOpenTransaction={handleOpenCalendarTransaction}
           accounts={accountsList}
           userCurrency={userCurrency}
+          dateBasis={calendarDateBasis}
+          onDateBasisChange={setCalendarDateBasis}
         />
       )}
 
@@ -1625,6 +1658,7 @@ export default function TransactionsPage() {
                     highlighted={tx.id === highlightId}
                     highlightedRowRef={tx.id === highlightId ? highlightedRowRef : undefined}
                     locale={locale}
+                    dateLocale={dateLocale}
                     userCurrency={userCurrency}
                     onSelect={toggleSelect}
                     onClick={(t) => {
@@ -1651,7 +1685,7 @@ export default function TransactionsPage() {
           <Table style={{ tableLayout: 'fixed' }}>
             <TableHeader>
               <TableRow className="border-b border-border hover:bg-transparent">
-                <TableHead style={{ width: 40, minWidth: 40 }} className="py-3 pl-4 pr-0">
+                <TableHead style={{ width: 40, minWidth: 40 }} className="py-3 ps-4 pe-0">
                   {canWrite && (
                     <input
                       type="checkbox"
@@ -1691,7 +1725,7 @@ export default function TransactionsPage() {
                         setDialogOpen(true)
                       }}
                     >
-                      <TableCell style={{ width: 40, minWidth: 40 }} className="py-2.5 pl-4 pr-0">
+                      <TableCell style={{ width: 40, minWidth: 40 }} className="py-2.5 ps-4 pe-0">
                         {/* Bulk operations are scoped to user.id so they
                             silently skip shared rows — hide the checkbox
                             on those to avoid the dead-end UX. */}
@@ -1717,13 +1751,13 @@ export default function TransactionsPage() {
                         disabled={!canOpenLinkDialog}
                         onSelect={() => setLinkTransferDialogOpen(true)}
                       >
-                        <ArrowLeftRight className="mr-2 h-4 w-4" />
+                        <ArrowLeftRight className="me-2 h-4 w-4" />
                         {t('transactions.linkAsTransfer')}
                       </ContextMenuItem>
 
                       <ContextMenuSub>
                         <ContextMenuSubTrigger>
-                          <TagIcon className="mr-2 h-4 w-4" />
+                          <TagIcon className="me-2 h-4 w-4" />
                           {t('transactions.selectCategory')}
                         </ContextMenuSubTrigger>
                         <ContextMenuPortal>
@@ -1752,18 +1786,18 @@ export default function TransactionsPage() {
                       </ContextMenuSub>
 
                       <ContextMenuItem onSelect={() => setBulkAddToGroupOpen(true)}>
-                        <Users className="mr-2 h-4 w-4" />
+                        <Users className="me-2 h-4 w-4" />
                         {t('transactions.addToGroup')}
                       </ContextMenuItem>
 
                       <ContextMenuItem onSelect={handleFocusTagInput}>
-                        <TagIcon className="mr-2 h-4 w-4" />
+                        <TagIcon className="me-2 h-4 w-4" />
                         {t('transactions.bulkAddTags')}
                       </ContextMenuItem>
 
                       {selectedSingleTx && (
                         <ContextMenuItem onSelect={() => handleCreateRuleFromTransaction(selectedSingleTx)}>
-                          <SlidersHorizontal className="mr-2 h-4 w-4" />
+                          <SlidersHorizontal className="me-2 h-4 w-4" />
                           {t('transactions.createRule')}
                         </ContextMenuItem>
                       )}
@@ -1774,7 +1808,7 @@ export default function TransactionsPage() {
                         disabled={bulkDeleteMutation.isPending}
                         onSelect={() => setBulkDeleteConfirmOpen(true)}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
+                        <Trash2 className="me-2 h-4 w-4" />
                         {t('common.delete')}
                       </ContextMenuItem>
                     </ContextMenuContent>
@@ -1837,7 +1871,7 @@ export default function TransactionsPage() {
               </span>
             )}
             {/* Desktop: original horizontal layout */}
-            <span className="mr-auto text-xs text-muted-foreground hidden sm:inline">
+            <span className="me-auto text-xs text-muted-foreground hidden sm:inline">
               {t('transactions.summaryCount', { count: data.total })}
             </span>
             {data.summary.excluded > 0 && (
@@ -1941,9 +1975,9 @@ export default function TransactionsPage() {
           centered when the nav is collapsed (issue #1027). */}
       {viewMode === 'list' && selectedIds.size > 0 && (
         <div className={cn(
-          "fixed bottom-0 left-0 right-0 z-50",
+          "fixed bottom-0 start-0 end-0 z-50",
           "transition-[left] duration-300 ease-in-out motion-reduce:transition-none",
-          sidebarCollapsed ? 'lg:left-16' : 'lg:left-60',
+          sidebarCollapsed ? 'lg:start-16' : 'lg:start-60',
         )}>
         <div className="mx-auto max-w-7xl px-3 md:px-6 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2 transition-all duration-500">
@@ -1980,7 +2014,7 @@ export default function TransactionsPage() {
                 sum (issue #185) adds no horizontal width to an already
                 crowded bar. The sum is hidden below sm where only the
                 count pill shows. */}
-            <div className="flex items-center gap-2.5 pl-3 pr-4 whitespace-nowrap">
+            <div className="flex items-center gap-2.5 ps-3 pe-4 whitespace-nowrap">
               <span className="inline-flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
                 {selectedIds.size}
               </span>
@@ -1994,11 +2028,11 @@ export default function TransactionsPage() {
                   }`}
                 >
                   {mask(
-                    `${selectedNet >= 0 ? '+' : '−'}${formatCurrency(
+                    ltrAmount(`${selectedNet >= 0 ? '+' : '−'}${formatCurrency(
                       Math.abs(selectedNet),
                       userCurrency,
                       locale,
-                    )}`,
+                    )}`),
                   )}
                 </span>
               </div>
@@ -2036,7 +2070,7 @@ export default function TransactionsPage() {
               title={t('transactions.addToGroup')}
               className="h-8 px-3 shrink-0 text-sm"
             >
-              <Users size={15} className="lg:mr-1.5" />
+              <Users size={15} className="lg:me-1.5" />
               <span className="hidden lg:inline">{t('transactions.addToGroup')}</span>
             </Button>
 
@@ -2103,7 +2137,7 @@ export default function TransactionsPage() {
               onClick={() => setLinkTransferDialogOpen(true)}
               className="h-8 px-3 shrink-0 text-sm"
             >
-              <ArrowLeftRight size={15} className="mr-1.5" />
+              <ArrowLeftRight size={15} className="me-1.5" />
               <span className="hidden lg:inline">{t('transactions.linkAsTransfer')}</span>
             </Button>
 
@@ -2121,7 +2155,7 @@ export default function TransactionsPage() {
                   className="h-8 px-3 shrink-0 text-sm"
                   title={t('transactions.createRule')}
                 >
-                  <SlidersHorizontal size={15} className="lg:mr-1.5" />
+                  <SlidersHorizontal size={15} className="lg:me-1.5" />
                   <span className="hidden lg:inline">{t('transactions.createRule')}</span>
                 </Button>
               )
@@ -2135,11 +2169,11 @@ export default function TransactionsPage() {
               disabled={bulkDeleteMutation.isPending}
               className="h-8 px-3 shrink-0 text-sm"
             >
-              <Trash2 size={15} className="lg:mr-1.5" />
+              <Trash2 size={15} className="lg:me-1.5" />
               <span className="hidden lg:inline">{t('common.delete')}</span>
             </Button>
 
-            <div className="ml-auto" />
+            <div className="ms-auto" />
 
             {/* Close */}
             <button
@@ -2251,16 +2285,16 @@ export default function TransactionsPage() {
           <p className="text-sm text-muted-foreground">
             {t('transactions.confirmTransferCategoryDesc')}
           </p>
-          <DialogFooter className="flex-row flex-nowrap items-center justify-end gap-2 sm:space-x-0">
+          <DialogFooter className="flex-col sm:flex-row sm:flex-wrap sm:justify-end gap-2">
             <Button
-              className="shrink-0"
+              className="w-full sm:w-auto"
               variant="outline"
               onClick={() => setPendingTransferCategoryUpdate(null)}
             >
               {t('common.cancel')}
             </Button>
             <Button
-              className="min-w-0 flex-1 truncate"
+              className="w-full sm:w-auto"
               variant="outline"
               onClick={() => submitPendingTransferCategoryUpdate(false)}
               disabled={updateMutation.isPending}
@@ -2268,7 +2302,7 @@ export default function TransactionsPage() {
               {t('transactions.confirmTransferCategorySingle')}
             </Button>
             <Button
-              className="min-w-0 flex-1 truncate"
+              className="w-full sm:w-auto"
               onClick={() => submitPendingTransferCategoryUpdate(true)}
               disabled={updateMutation.isPending}
             >

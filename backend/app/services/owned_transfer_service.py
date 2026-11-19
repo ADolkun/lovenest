@@ -392,9 +392,17 @@ def _lot_read(asset_id, lot):
                    basis_complete=lot.get("acquisition_cost") is not None)
 
 
+def replay_holding(state, asset_id):
+    """`movement_replay` of one holding, refused with `split_in_ledger` (422)
+    rather than replayed through a split it has no rule for."""
+    if _has_split(state, asset_id):
+        raise _error(422, "split_in_ledger", "Reviewed movements cannot be replayed through a stock split",
+                     asset_id=str(asset_id))
+    return movement_replay.replay([tx for tx in state["transactions"].values() if tx.asset_id == asset_id])
+
+
 def _effect(state, asset_id):
-    txs = [tx for tx in state["transactions"].values() if tx.asset_id == asset_id]
-    pos = movement_replay.replay(txs)
+    pos = replay_holding(state, asset_id)
     return HoldingEffect(asset_id=asset_id, quantity=pos["units"],
                          known_basis_quantity=pos["known_basis_quantity"], unknown_basis_quantity=pos["unknown_basis_quantity"],
                          known_acquisition_cost=pos["known_acquisition_cost"], performance_basis=pos["cost_basis"],
@@ -404,13 +412,23 @@ def _effect(state, asset_id):
                          lots=[_lot_read(asset_id, lot) for lot in pos["lots"]])
 
 
+def _has_split(state, asset_id):
+    # `movement_replay` has no split rule: its recorded lot allocations are
+    # quantities from one side of the split. The ledger refuses a split once
+    # movements are recorded, so a movement is refused once a split is.
+    return any(tx.asset_id == asset_id and tx.kind == "split" for tx in state["transactions"].values())
+
+
 def _selection(state, selection, ordering_reviewed=False):
     from app.services.option_contract import is_option
     rows, ambiguous = _prefix(state, selection.asset_id, selection.leg_id, ordering_reviewed)
-    pos = movement_replay.replay(rows)
+    split = _has_split(state, selection.asset_id)
+    pos = movement_replay.replay([] if split else rows)
     _, _, item = _facts(state, selection.leg_id)
     quantity = Decimal(item["quantity"]) if item.get("quantity") is not None else None
     reasons = _movement_reasons(state, selection.leg_id) + _ownership_reasons(state, selection.ownership_id, selection.asset_id, selection.leg_id)
+    if split:
+        reasons.append("split_in_ledger")
     if is_option(_get(state, "assets", selection.asset_id).type):
         reasons.append("unsupported_transfer_asset")
     if item.get("direction") not in {"in", "out"}:
@@ -420,7 +438,7 @@ def _selection(state, selection, ordering_reviewed=False):
     lots = []
     if len({part.lot_id for part in selection.allocations}) != len(selection.allocations):
         reasons.append("duplicate_lot_selection")
-    for part in selection.allocations:
+    for part in [] if split else selection.allocations:
         lot = next((lot for lot in pos["lots"] if lot["lot_id"] == part.lot_id), None)
         if lot is None or part.quantity > lot["quantity"]:
             reasons.append("recorded_lot_unavailable")
@@ -446,6 +464,8 @@ def _selection(state, selection, ordering_reviewed=False):
 async def available_lots(session, workspace_id, asset_id, before_leg_id=None):
     state = await prepare_replay(session, workspace_id)
     _get(state, "assets", asset_id)
+    if _has_split(state, asset_id):
+        return LotsRead(revision=state["revision"], asset_id=asset_id, lots=[], missing_links=["split_in_ledger"])
     rows = _prefix(state, asset_id, before_leg_id, True)[0] if before_leg_id else [tx for tx in state["transactions"].values() if tx.asset_id == asset_id]
     pos = movement_replay.replay(rows)
     return LotsRead(revision=state["revision"], asset_id=asset_id,
@@ -464,6 +484,8 @@ def _preview_transfer_exact(state, data):
                                   ownership_id=data.source_ownership_id, allocations=data.allocations, reason=data.reason)
     reasons, pos, lots, perf, _ = _selection(state, selection, data.ordering_reviewed)
     reasons += _movement_reasons(state, data.in_leg_id) + _ownership_reasons(state, data.destination_ownership_id, data.destination_asset_id, data.in_leg_id)
+    if _has_split(state, data.destination_asset_id):
+        reasons.append("split_in_ledger")
     left = _get(state, "ownership", data.source_ownership_id)
     right = _get(state, "ownership", data.destination_ownership_id)
     if left.payload["beneficial_owner"] != right.payload["beneficial_owner"]:

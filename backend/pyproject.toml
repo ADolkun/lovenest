@@ -1,6 +1,6 @@
 [project]
 name = "securo-backend"
-version = "0.16.6"
+version = "0.20.0"
 description = "Securo API - Personal Finance Manager"
 requires-python = ">=3.14"
 # These ranges express intent; CI and Docker install uv.lock with uv sync --locked.
@@ -48,6 +48,9 @@ dependencies = [
     "fastembed>=0.9.1",
     # Resolve the host's IANA timezone when no app setting or TZ override exists.
     "tzlocal>=5.4.5",
+    # S3-compatible attachment storage. Only imported when STORAGE_PROVIDER=s3,
+    # so installs on local storage pay nothing at runtime (ADR 0019).
+    "aiobotocore>=3.10.0",
 ]
 
 [dependency-groups]
@@ -73,7 +76,7 @@ module-root = ""
 [tool.setuptools.package-data]
 # Ship the category taxonomy in wheels/non-editable installs; without this it
 # only exists in editable (-e) installs and the backend crashes at import.
-app = ["data/*.json"]
+app = ["data/*.json", "data/rule_packs/*.json"]
 
 [tool.pytest.ini_options]
 # Fail on configuration/marker typos, duplicate parameter IDs and unexpected

@@ -19,15 +19,15 @@ def test_a_builder_returns_the_same_expression_for_the_same_entity():
     own = aliased(Transaction)
 
     assert counts_as_user_pnl() is counts_as_user_pnl()
-    assert counts_as_user_pnl(own) is counts_as_user_pnl(own)
-    assert counts_as_user_pnl(own) is not counts_as_user_pnl()
+    assert counts_as_user_pnl(entity=own) is counts_as_user_pnl(entity=own)
+    assert counts_as_user_pnl(entity=own) is not counts_as_user_pnl()
     assert credit_card_payment_filter() is credit_card_payment_filter()
     assert reimbursement_unlinked_share() is reimbursement_unlinked_share()
 
 
 def _build_for_a_fresh_alias() -> weakref.ref:
     own = aliased(Transaction)
-    counts_as_user_pnl(own)
+    counts_as_user_pnl(entity=own)
     return weakref.ref(own)
 
 

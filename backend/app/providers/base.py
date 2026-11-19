@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 if TYPE_CHECKING:
     from app.schemas.investment_evidence import EvidenceObservationInput
 
+from app.core.config import Settings
+
 
 # Outcome of asking a provider to pull fresh data from the underlying institution
 # before we read accounts/transactions.
@@ -107,6 +109,24 @@ def normalize_ticker(value: Any) -> Optional[str]:
 
 
 @dataclass
+class ReservedBalanceData:
+    """Funds an institution holds reserved/earmarked inside an account.
+
+    Mercado Pago cofrinhos, "saldo reservado", caixinhas. Providers report
+    these beside the account balance without guaranteeing whether they are
+    included, so they are stored and shown without changing totals (ADR 0022).
+    `external_id` is the provider's identification, stable across syncs and
+    scoped to its account. One instance per currency: `amount` sums the
+    reservation's remuneration bands in that currency.
+    """
+
+    external_id: str
+    name: Optional[str]
+    currency: str
+    amount: Decimal
+
+
+@dataclass
 class AccountData:
     # The provider's identifier for this account. It is expected to be stable
     # across re-syncs, and the sync matches an incoming account on it first. A
@@ -155,12 +175,18 @@ class AccountData:
     balance_metadata: Optional[dict] = None
     # Part of `balance` that the bank has auto-applied to an investment which
     # the provider also reports as a holding (Pluggy
-    # `bankData.automaticallyInvestedBalance`, issue #843). Zero when unknown.
+    # `bankData.automaticallyInvestedBalance`, issue #843; a SimpleFIN
+    # brokerage, whose balance is the whole portfolio while its positions
+    # arrive as holdings, issue #343). Zero when unknown.
     # The sync subtracts it only when a live holding is counted for this
     # account (see connection_service._auto_invested_deductions), so the
     # money is counted once: as the asset when one mirrors it, as cash
     # otherwise.
     auto_invested_balance: Decimal = Decimal(0)
+    # Provider-owned reserves, shown separately and never added to totals
+    # (ADR 0022). None = unreported or incomplete; keep stored rows.
+    # [] = explicitly reported, none active.
+    reserved_balances: Optional[list[ReservedBalanceData]] = None
 
 
 @dataclass(frozen=True)
@@ -270,6 +296,28 @@ class HoldingData:
     # Provider display name for the owning account, used as the synced wallet's
     # default name. Users can still rename the wallet after it is created.
     account_name: Optional[str] = None
+    # Buys and sells of this holding, for providers that report them (plugin
+    # contract 1). None: not reported, the stored ledger is left alone.
+    trades: Optional[list["HoldingTradeData"]] = None
+    # What kind of investment it is ("stock", "etf", "fund", "crypto"), for
+    # providers that know. None: the generic "investment".
+    asset_type: Optional[str] = None
+
+
+@dataclass
+class HoldingTradeData:
+    """One buy or sell the provider reports for a holding.
+
+    `quantity` is always positive; `kind` gives the direction. `price` is per
+    unit in the asset's currency, and `fee` what executing the trade cost.
+    """
+
+    external_id: str
+    kind: Literal["buy", "sell"]
+    date: date
+    quantity: Decimal
+    price: Decimal
+    fee: Decimal = Decimal("0")
 
 
 #: The phrase a provider puts in ``TradeData.notes`` to mark a buy as Income at
@@ -384,7 +432,14 @@ class ProviderRateLimited(Exception):
     access (commonly ~4/day per resource), so a burst of syncs returns HTTP
     429. The connection is healthy; callers should skip this run and retry
     later rather than flag it as errored.
+
+    ``retry_after`` is the wait the provider asked for, in seconds, when it
+    sent one (``Retry-After``); None when it did not.
     """
+
+    def __init__(self, message: str = "", retry_after: Optional[float] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ProviderNotConfiguredError(Exception):
@@ -425,6 +480,15 @@ class BankProvider(ABC):
     to enable bank account syncing via OAuth or widget flow.
     """
 
+    def __init__(self, settings: Settings | None = None):
+        self._configured_settings = settings
+
+    @property
+    def settings(self) -> Settings:
+        from app.core.config import get_settings
+
+        return self._configured_settings or get_settings()
+
     @property
     def transaction_coverage(self) -> dict[str, TransactionCoverage]:
         """No absence evidence unless a provider explicitly supplies it."""
@@ -440,6 +504,12 @@ class BankProvider(ABC):
     def flow_type(self) -> str:
         """Connection flow type: 'oauth' for redirect-based, 'widget' for embedded widget."""
         return "oauth"
+
+    @property
+    def rereads_by_date(self) -> bool:
+        """Whether ``get_transactions_by_date`` is implemented. The sync skips
+        the pending re-read, and the query behind it, when it is not."""
+        return False
 
     @property
     def redirect_uri(self) -> str:
@@ -514,6 +584,20 @@ class BankProvider(ABC):
     ) -> list[TransactionData]:
         """Fetch transactions for an account."""
         ...
+
+    async def get_transactions_by_date(
+        self, credentials: dict, account_external_id: str,
+        date_from: date, payee_source: str = "auto",
+    ) -> list[TransactionData]:
+        """Fetch every transaction dated on or after ``date_from``.
+
+        Providers whose ``get_transactions`` filters on something other than
+        the transaction date (Pluggy filters on ingestion time) override this
+        so the sync layer can re-read pending rows the incremental listing no
+        longer returns. The default returns nothing, which leaves the sync of
+        every other provider as it was.
+        """
+        return []
 
     @abstractmethod
     async def refresh_credentials(self, credentials: dict) -> dict:

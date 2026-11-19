@@ -94,7 +94,7 @@ def classify_flow(action: str, amount: Optional[Decimal]) -> Optional[str]:
     `"distribution"`, or `None` for a row that does not cross the boundary.
 
     Direction is the **sign of the amount**, never the wording — the same
-    decision ADR 0007 makes for trade direction, and for the same reason. A
+    decision Lovenest ADR 0007 makes for trade direction, and for the same reason. A
     single real transfer is filed twice, once in each account, and both rows
     read "TRANSFERRED TO VS ... CURRENT CONTRIBUTION": the one that says
     -6,535.95 is the account paying out and the one that says +6,535.95 is the
@@ -102,7 +102,7 @@ def classify_flow(action: str, amount: Optional[Decimal]) -> Optional[str]:
     deposits and double-count the money.
 
     `None` is a row this does not model, not a malformed one. Declining is the
-    safe direction here, unlike the trade ledger (ADR 0008), because a missed
+    safe direction here, unlike the trade ledger (Lovenest ADR 0008), because a missed
     contribution understates deposits and so *understates* return, while a
     dividend read as a deposit silently erases real growth.
     """

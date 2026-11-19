@@ -420,7 +420,8 @@ async def preview_evidence(
         pool.append((leg.id, leg.event_id, source, EvidenceLegInput.model_validate(leg.payload), leg))
     wrapped = {leg.asset_transaction_id for leg in legs}
     for tx in txs:
-        if tx.id not in wrapped:
+        # A split moves no units in or out, so it is not evidence of either.
+        if tx.id not in wrapped and tx.kind != "split":
             source = _legacy(tx, asset_by_id[tx.asset_id])
             pool.append((tx.id, tx.id, source, source.legs[0], None))
     records = []
@@ -597,7 +598,8 @@ async def preview_evidence(
         "observations": sorted((identities[o.reference], _fingerprint(o)) for o in inputs.values()),
         "legs": sorted((str(leg.id), str(leg.asset_transaction_id), str(leg.applied_at)) for leg in legs),
         "links": sorted((str(link.id), str(link.reversed_at)) for link in links),
-        "ledger": sorted((str(tx.id), str(tx.asset_id), tx.kind, str(tx.quantity), str(tx.price), str(tx.fee), str(tx.date)) for tx in txs),
+        "ledger": sorted((str(tx.id), str(tx.asset_id), tx.kind, str(tx.quantity), str(tx.price), str(tx.fee), str(tx.date),
+                          str(tx.old_units), str(tx.new_units)) for tx in txs),
         "assets": sorted((str(a.id), str(a.units), str(a.group_id), str(a.connection_id)) for a in assets),
         "source_reviews": [(str(row.id), row.fingerprint) for row in correction_reviews],
         "opening_boundary": opening_boundary.model_dump(mode="json") if opening_boundary else None,
@@ -827,6 +829,8 @@ async def _link(session, workspace_id, user_id, row, item, decision, group_id, l
             ))
             if tx is None:
                 raise HTTPException(404, "Target leg not found")
+            if tx.kind == "split":
+                raise HTTPException(422, "A stock split moves no units and cannot be a link target")
             asset = await session.get(Asset, tx.asset_id)
             legacy = _legacy(tx, asset)
             retained, _ = await _retain(session, workspace_id, group_id, row.connection_id, [legacy])

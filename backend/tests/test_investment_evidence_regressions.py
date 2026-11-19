@@ -602,7 +602,7 @@ async def test_sync_writer_obeys_canonical_version_and_link_barrier(
             return_value=InvestmentActivity(trades=[trade], observations=[first, second])
         ),
     )
-    monkeypatch.setattr("app.services.connection_service.get_provider", lambda _: provider)
+    monkeypatch.setattr("app.services.connection_service.get_provider", lambda *_, **__: provider)
     if mode == "corroborating":
         saved = await save(
             session, test_workspace, test_user, wallet, [first, observation("csv-canonical")]

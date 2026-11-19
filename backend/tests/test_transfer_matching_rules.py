@@ -599,3 +599,52 @@ async def test_accepting_a_question_about_rows_that_changed_is_refused(
 
     await session.refresh(arriving)
     assert arriving.transfer_pair_id is None
+
+
+@pytest.mark.asyncio
+async def test_accepting_a_question_about_a_mortgage_payment_is_refused(
+    client: AsyncClient, auth_headers, session: AsyncSession, test_user, test_workspace
+):
+    """A breakdown saved while the question waited already moves the
+    principal to the loan; pairing the payment as a transfer would move it
+    a second time."""
+    from app.models.mortgage_payment_allocation import MortgagePaymentAllocation
+
+    ws = test_workspace
+    source = await _account(session, test_user.id, ws.id, "Mortgage A")
+    target = await _account(session, test_user.id, ws.id, "Mortgage B")
+    loan = await _account(session, test_user.id, ws.id, "Loan", kind="loan")
+    debits = [
+        await _txn(
+            session, test_user.id, ws.id, source,
+            amount="300.00", kind="debit", when=TODAY,
+            description=f"VIREMENT TRANSFER REF {ref}",
+        )
+        for ref in ("333300001", "444400001")
+    ]
+    arriving = await _txn(
+        session, test_user.id, ws.id, target,
+        amount="300.00", kind="credit", when=TODAY,
+        description="RECU TRANSFER REF 00001",
+    )
+    assert await detect_transfer_pairs(session, ws.id) == 0
+    await session.commit()
+    queue = await _pending(session, ws.id)
+    assert queue, "expected the ambiguous pair to be queued"
+
+    session.add_all([
+        MortgagePaymentAllocation(
+            workspace_id=ws.id, payment_transaction_id=debit.id, loan_account_id=loan.id,
+            principal_amount=Decimal("200.00"), interest_amount=Decimal("100.00"),
+        )
+        for debit in debits
+    ])
+    await session.commit()
+
+    resp = await client.post(
+        f"/api/reconciliation/suggestions/{queue[0].id}/accept", headers=auth_headers
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["code"] == "mortgage_linked"
+    await session.refresh(arriving)
+    assert arriving.transfer_pair_id is None

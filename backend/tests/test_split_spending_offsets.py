@@ -1,6 +1,6 @@
 """Group split shares follow the same income-or-offset rule as their parent.
 
-ADR 0011. A refund on a shared expense nets against spending, and only the
+Lovenest ADR 0011. A refund on a shared expense nets against spending, and only the
 user's part of it: the owner's figures subtract the others' shares of the
 refund from the netting, and a linked member's figures net only their own.
 Also pins that a category whose money back outweighs its spending stays in
@@ -22,7 +22,6 @@ from app.models.transaction_split import TransactionSplit
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.schemas.budget import BudgetCreate
-from app.services._query_filters import owner_split_offset_pnl
 from app.services.budget_service import create_budget, get_budget_vs_actual
 from app.services.dashboard_service import (
     get_monthly_trend,
@@ -181,9 +180,6 @@ async def test_owner_nets_only_their_share_of_a_shared_refund(
     )
 
     # Owner's share: 50 of the dinner less 20 of the refund.
-    assert await owner_split_offset_pnl(
-        session, test_user.id, MONTH, NEXT_MONTH, workspace_id=test_workspace.id,
-    ) == (pytest.approx(0.0), pytest.approx(30.0))
     summary = await get_summary(session, test_workspace.id, test_user.id, month=MONTH)
     assert summary.monthly_expenses == pytest.approx(30.0)
     assert summary.monthly_income == pytest.approx(0.0)

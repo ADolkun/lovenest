@@ -178,7 +178,9 @@ def _association(state, request):
 def _dependencies(state, asset, tx):
     # ponytail: reject any disposal/movement on this holding; lot-specific dependency proofs can narrow this later.
     reasons = []
-    if any(row.asset_id == asset.id and row.kind != "buy" for row in state["transactions"]):
+    # A split disposes of nothing and moves no units: `_recompute` scales a
+    # corrected buy through it like any other.
+    if any(row.asset_id == asset.id and row.kind not in {"buy", "split"} for row in state["transactions"]):
         reasons.append("dependent_disposal_or_movement")
     if any(row.asset_id == asset.id or str(tx.id) in row.payload.get("dependency_transactions", {}) for row in state["movements"]):
         reasons.append("retained_movement_dependency")

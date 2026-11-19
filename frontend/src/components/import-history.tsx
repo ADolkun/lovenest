@@ -84,17 +84,17 @@ export function ImportHistory({ entity, onUndo, disabled = false }: ImportHistor
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <th className="px-3 py-3 text-left font-medium text-muted-foreground sm:px-4">{t('import.historyDate')}</th>
-                <th className="px-3 py-3 text-left font-medium text-muted-foreground sm:px-4">{t('import.historyFile')}</th>
-                <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground lg:table-cell">{t('import.historyFormat')}</th>
+                <th className="px-3 py-3 text-start font-medium text-muted-foreground sm:px-4">{t('import.historyDate')}</th>
+                <th className="px-3 py-3 text-start font-medium text-muted-foreground sm:px-4">{t('import.historyFile')}</th>
+                <th className="hidden px-4 py-3 text-start font-medium text-muted-foreground lg:table-cell">{t('import.historyFormat')}</th>
                 {isStatement && (
-                  <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground md:table-cell">{t('import.historyAccount')}</th>
+                  <th className="hidden px-4 py-3 text-start font-medium text-muted-foreground md:table-cell">{t('import.historyAccount')}</th>
                 )}
-                <th className="px-3 py-3 text-right font-medium text-muted-foreground sm:px-4">{t('import.historyCount')}</th>
+                <th className="px-3 py-3 text-end font-medium text-muted-foreground sm:px-4">{t('import.historyCount')}</th>
                 {isStatement && (
                   <>
-                    <th className="hidden px-4 py-3 text-right font-medium text-muted-foreground sm:table-cell">{t('import.historyCredit')}</th>
-                    <th className="hidden px-4 py-3 text-right font-medium text-muted-foreground sm:table-cell">{t('import.historyDebit')}</th>
+                    <th className="hidden px-4 py-3 text-end font-medium text-muted-foreground sm:table-cell">{t('import.historyCredit')}</th>
+                    <th className="hidden px-4 py-3 text-end font-medium text-muted-foreground sm:table-cell">{t('import.historyDebit')}</th>
                   </>
                 )}
                 <th className="px-3 py-3 sm:px-4" aria-label={t('common.more')}></th>
@@ -117,18 +117,18 @@ export function ImportHistory({ entity, onUndo, disabled = false }: ImportHistor
                   {isStatement && (
                     <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{log.account_name || '—'}</td>
                   )}
-                  <td className="px-3 py-3 text-right text-foreground sm:px-4">{log.evidence ? t('evidence.historyCounts', '{{saved}} saved · {{applied}} applied · {{links}} active links', { saved: log.evidence.observations, applied: log.evidence.applications, links: log.evidence.links }) : log.transaction_count}</td>
+                  <td className="px-3 py-3 text-end text-foreground sm:px-4">{log.evidence ? t('evidence.historyCounts', '{{saved}} saved · {{applied}} applied · {{links}} active links', { saved: log.evidence.observations, applied: log.evidence.applications, links: log.evidence.links }) : log.transaction_count}</td>
                   {isStatement && (
                     <>
-                      <td className="hidden px-4 py-3 text-right font-medium text-emerald-600 sm:table-cell">
+                      <td className="hidden px-4 py-3 text-end font-medium text-emerald-600 sm:table-cell">
                         {formatCurrency(log.total_credit, log.account_currency ?? userCurrency, locale)}
                       </td>
-                      <td className="hidden px-4 py-3 text-right font-medium text-rose-600 sm:table-cell">
+                      <td className="hidden px-4 py-3 text-end font-medium text-rose-600 sm:table-cell">
                         {formatCurrency(log.total_debit, log.account_currency ?? userCurrency, locale)}
                       </td>
                     </>
                   )}
-                  <td className="px-3 py-3 text-right sm:px-4">
+                  <td className="px-3 py-3 text-end sm:px-4">
                     {canWrite && (!log.evidence || log.evidence.applications > 0 || log.evidence.links > 0) && (
                       <button
                         disabled={disabled || deleteMutation.isPending}

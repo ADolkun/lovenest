@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import i18n from 'i18next'
+import { beforeAll, describe, expect, it } from 'vitest'
+
+import en from '@/locales/en.json'
+import ptBR from '@/locales/pt-BR.json'
 
 import { extractApiError } from './api-errors'
 import { assetErrorMessage } from './api'
@@ -54,5 +58,49 @@ describe('extractApiError', () => {
     expect(extractApiError(new Error('network failure'), 'Localized fallback')).toBe(
       'Localized fallback',
     )
+  })
+})
+
+describe('localized API errors', () => {
+  beforeAll(async () => {
+    await i18n.init({
+      lng: 'en',
+      fallbackLng: false,
+      resources: {
+        en: { translation: en },
+        'pt-BR': { translation: ptBR },
+      },
+    })
+  })
+
+  it.each([
+    ['en', 'The amount or date of a synchronized transaction cannot be changed'],
+    ['pt-BR', 'Não é possível alterar o valor ou a data de uma transação sincronizada'],
+  ])('shows the synchronized amount/date error in %s', async (language, expected) => {
+    await i18n.changeLanguage(language)
+    const message = 'Cannot change amount or date on a synchronized transaction'
+
+    expect(extractApiError(apiError(message))).toBe(expected)
+    expect(extractApiError(apiError({ message }))).toBe(expected)
+  })
+
+  it.each([
+    ['en', 'Enter a valid http or https endpoint URL'],
+    ['pt-BR', 'Informe uma URL de endpoint http ou https válida'],
+  ])('shows the invalid connection base URL error in %s', async (language, expected) => {
+    await i18n.changeLanguage(language)
+
+    expect(extractApiError(apiError('Enter a valid http or https endpoint URL'))).toBe(expected)
+  })
+
+  it.each([
+    ['en', { code: 'mortgage_linked', message: 'A mortgage payment with a breakdown cannot also be a transfer' }, 'A mortgage payment with a breakdown cannot also be a transfer. Remove its mortgage breakdown first.'],
+    ['pt-BR', { code: 'mortgage_linked', message: 'A mortgage payment with a breakdown cannot also be a transfer' }, 'Um pagamento de financiamento com divisão não pode ser também uma transferência. Remova primeiro a divisão do financiamento.'],
+    ['pt-BR', { message: 'A budget for this category already exists for this month' }, 'Esta categoria já tem um orçamento neste mês.'],
+    ['pt-BR', { message: 'A budget for one of these categories already exists for this month' }, 'Uma destas categorias já tem um orçamento neste mês.'],
+  ])('translates reconciliation and budget refusals in %s', async (language, detail, expected) => {
+    await i18n.changeLanguage(language)
+
+    expect(extractApiError(apiError(detail))).toBe(expected)
   })
 })

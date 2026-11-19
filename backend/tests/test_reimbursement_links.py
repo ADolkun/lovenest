@@ -1,4 +1,4 @@
-"""A reimbursement is booked against the expense it repays (ADR 0012).
+"""A reimbursement is booked against the expense it repays (Lovenest ADR 0012).
 
 The linked amount leaves both rows in their own months and categories, so the
 reporting figures are checked month by month and against one another: the

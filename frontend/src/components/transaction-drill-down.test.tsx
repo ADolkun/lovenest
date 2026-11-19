@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ReimbursementLink, Transaction } from '@/types'
 
 import { TransactionDrillDown } from '@/components/transaction-drill-down'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { renderWithProviders, t } from '@/test/utils'
 
@@ -14,7 +15,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock('@/lib/api', () => api)
 vi.mock('@/contexts/auth-context', () => ({
-  useAuth: () => ({ user: { preferences: { currency_display: 'USD' } } }),
+  useAuth: () => ({ user: { id: 'me', preferences: { currency_display: 'USD' } } }),
 }))
 vi.mock('@/hooks/use-privacy-mode', () => ({
   usePrivacyMode: () => ({ mask: (value: string) => value }),
@@ -24,9 +25,35 @@ vi.mock('@/hooks/use-display-locale', () => ({
   useDateLocale: () => 'en-US',
 }))
 
+const outsideClickFilter = { title: 'Uncategorized', uncategorized: true }
+
+function renderPanel({ dialogOpen }: { dialogOpen: boolean }) {
+  const onClose = vi.fn()
+  const result = renderWithProviders(
+    <>
+      <TransactionDrillDown filter={outsideClickFilter} onClose={onClose} />
+      <Dialog open={dialogOpen}>
+        <DialogContent>
+          <DialogTitle>Edit transaction</DialogTitle>
+          <button type="button">Category</button>
+        </DialogContent>
+      </Dialog>
+    </>,
+  )
+  return { ...result, onClose }
+}
+
+// The outside-click listener is attached after a short delay so the click
+// that opened the panel does not close it.
+async function waitForOutsideClickListener() {
+  await new Promise(resolve => setTimeout(resolve, 150))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   api.admin.accountingMode.mockResolvedValue({ mode: 'cash' })
+  api.transactions.list.mockResolvedValue({ items: [], total: 0 })
+  api.dashboard.projectedTransactions.mockResolvedValue([])
 })
 
 describe('TransactionDrillDown', () => {
@@ -131,8 +158,8 @@ describe('TransactionDrillDown', () => {
     )
 
     const credit = await screen.findByText('+$45.00')
-    expect(credit).toHaveClass('text-emerald-600')
-    expect(screen.getByText('-$120.00')).toHaveClass('text-rose-500')
+    expect(credit.parentElement).toHaveClass('text-emerald-600')
+    expect(screen.getByText('-$120.00').parentElement).toHaveClass('text-rose-500')
     expect(screen.queryByText('Projected refund')).not.toBeInTheDocument()
 
     const label = await screen.findByText(t('dashboard.drillDownShownTotal'))
@@ -267,5 +294,139 @@ describe('TransactionDrillDown', () => {
 
     expect(await screen.findByText(t('dashboard.drillDownTotal', { count: 1, total: '$120.00' }))).toBeInTheDocument()
     expect(screen.queryByText(t('transactions.reimbursedAmount', { amount: '$45.00' }))).not.toBeInTheDocument()
+  })
+
+  it('preserves the expense share of recurring category splits in the Overview panel', async () => {
+    api.dashboard.projectedTransactions.mockResolvedValue([{
+      recurring_id: 'split-bill', account_id: 'account-1', description: 'Split recurring bill',
+      amount: 100, amount_primary: 200, currency: 'EUR', type: 'debit', date: '2026-11-10',
+      category_id: null, has_category_lines: true, category_lines: [
+        { category_id: 'food', category_name: 'Food', category_icon: null, category_color: null, amount: 80, treat_as_transfer: false },
+        { category_id: 'investment', category_name: 'Investment', category_icon: null, category_color: null, amount: 20, treat_as_transfer: true },
+      ],
+    }])
+    renderWithProviders(<TransactionDrillDown filter={{ title: 'Expenses', type: 'debit', from: '2026-11-01', to: '2026-11-30' }} onClose={vi.fn()} />)
+    expect(await screen.findByText('Split recurring bill')).toBeInTheDocument()
+    expect(screen.getByText('-€80.00')).toBeInTheDocument()
+    expect(screen.getAllByText('$160.00').length).toBeGreaterThan(0)
+    expect(screen.queryByText('$200.00')).not.toBeInTheDocument()
+    expect(screen.getByText(/part of €100.00/)).toBeInTheDocument()
+  })
+
+  it('closes on a click outside the panel', async () => {
+    const { onClose } = renderPanel({ dialogOpen: false })
+    await waitForOutsideClickListener()
+
+    fireEvent.mouseDown(document.body)
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays open while the user clicks inside a dialog opened from it', async () => {
+    const { onClose } = renderPanel({ dialogOpen: true })
+    await waitForOutsideClickListener()
+
+    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Category' }))
+
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('leaves Escape to the open dialog', async () => {
+    const { onClose } = renderPanel({ dialogOpen: true })
+    await screen.findByRole('dialog')
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes on Escape when no dialog is open', async () => {
+    const { onClose } = renderPanel({ dialogOpen: false })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('totals only the user share of a split expense and asks for posted rows', async () => {
+    const tx = (overrides: Record<string, unknown>) => ({
+      id: 'tx', description: 'Dinner', date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null,
+      type: 'debit', amount: 100, amount_primary: 100, currency: 'USD', status: 'posted', category: null,
+      attachment_count: 0, reimbursement_links: [], splits: [], viewer_share: null, is_shared: false, user_id: 'me', ...overrides,
+    })
+    api.transactions.list.mockResolvedValue({
+      items: [
+        // Owner of a 50/50 split keeps their half.
+        tx({ id: 'owned', splits: [{ share_amount: 50 }, { share_amount: 50 }], viewer_share: 50 }),
+        // A member sees only their own share of someone else's expense.
+        tx({ id: 'shared', amount: 80, amount_primary: 80, is_shared: true, viewer_share: 20 }),
+        tx({ id: 'refund', type: 'credit', amount: 10, amount_primary: 10 }),
+        // Another member's split the user is not part of counts in full.
+        tx({ id: 'other', amount: 30, amount_primary: 30, user_id: 'other', splits: [{ share_amount: 15 }] }),
+      ],
+      total: 4,
+    })
+
+    renderWithProviders(
+      <TransactionDrillDown
+        filter={{ title: 'Food', from: '2026-09-01', to: '2026-09-12', realizedOnly: true, ownShare: true, netTotal: true }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect((await screen.findAllByText('-$90.00')).length).toBeGreaterThan(0)
+    expect(api.transactions.list).toHaveBeenCalledWith(expect.objectContaining({ status: 'posted', to: '2026-09-12' }))
+  })
+
+  it('counts only the owner share of a split refund in the expense group', async () => {
+    api.transactions.list.mockResolvedValue({
+      items: [
+        {
+          id: 'purchase', description: 'Groceries', date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null,
+          type: 'debit', amount: 100, amount_primary: 100, currency: 'USD', status: 'posted', category: null,
+          attachment_count: 0, reimbursement_links: [], splits: [], viewer_share: null, is_shared: false, user_id: 'me',
+        },
+        {
+          id: 'refund', description: 'Card refund', date: '2026-09-06', effective_date: '2026-09-06', effective_bill_date: null,
+          type: 'credit', amount: 40, amount_primary: 40, currency: 'USD', status: 'posted', category: null,
+          attachment_count: 0, reimbursement_links: [], splits: [{ share_amount: 20 }, { share_amount: 20 }], viewer_share: 20,
+          is_shared: false, user_id: 'me',
+        },
+      ],
+      total: 2,
+    })
+
+    renderWithProviders(
+      <TransactionDrillDown
+        filter={{ title: 'Uncategorized', uncategorized: true, pnl_group: 'expenses', from: '2026-09-01', to: '2026-09-30', realizedOnly: true, ownShare: true, netTotal: true }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect((await screen.findAllByText('-$80.00')).length).toBeGreaterThan(0)
+  })
+
+  it('shows and orders a row by its reporting date override', async () => {
+    const tx = (overrides: Record<string, unknown>) => ({
+      date: '2026-09-05', effective_date: '2026-09-05', effective_bill_date: null, reporting_date_override: null,
+      type: 'debit', amount: 10, amount_primary: 10, currency: 'USD', status: 'posted', category: null,
+      attachment_count: 0, reimbursement_links: [], splits: [], ...overrides,
+    })
+    api.transactions.list.mockResolvedValue({
+      items: [
+        tx({ id: 'late', description: 'Late purchase', date: '2026-09-20' }),
+        tx({ id: 'moved', description: 'Moved purchase', date: '2026-09-03', reporting_date_override: '2026-09-25' }),
+      ],
+      total: 2,
+    })
+
+    renderWithProviders(
+      <TransactionDrillDown filter={{ title: 'Food', type: 'debit', from: '2026-09-01', to: '2026-09-30' }} onClose={vi.fn()} />,
+    )
+
+    const moved = await screen.findByText('Moved purchase')
+    const late = screen.getByText('Late purchase')
+    expect(moved.compareDocumentPosition(late) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(moved.closest('div[class*="flex"]')!.parentElement!).getByText(new Date('2026-09-25T00:00:00').toLocaleDateString('en-US'))).toBeInTheDocument()
   })
 })

@@ -65,7 +65,7 @@ gain of a disposal that was never that large. An import requires a usable stated
 unit price or total cost basis, including an explicit numeric zero. Without
 either, it rejects the row with `invalid_price`. A sync records nothing when
 value cannot be established rather than quietly understate a basis it would
-then be believed on (ADR 0008).
+then be believed on (Lovenest ADR 0008).
 
 **Transfer** — the same person's coins moving between their own wallets. Basis
 travels with them, so a transfer is neither an acquisition nor a disposal, and

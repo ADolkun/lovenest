@@ -54,10 +54,10 @@ checks = ["links"]
 reason = "Upstream-owned docs: fixing their code references would edit upstream files on every sync."
 
 [[docs.ignore]]
-file = "README.md"
+file = "AGENTS.md"
 kind = "path"
-text = "tools/deps"
-reason = "Shorthand for tools and dependencies in a mise comment, not a path; the line is upstream's."
+text = "alembic/versions/NNN_name.py"
+reason = "Upstream's migration naming pattern in its verbatim contributor guide, not a file."
 
 [agents]
 rules_dir = ".claude/rules"

@@ -1,5 +1,5 @@
-// Shared across the setup and register flows. A compact dropdown keeps these
-// forms short instead of rendering one button per currency in a tall grid.
+// Shared across the setup and register flows. Kept out of the component file so
+// the dropdown module exports only components, which fast refresh relies on.
 export const CURRENCIES = [
   { code: 'USD', flag: '\u{1F1FA}\u{1F1F8}', symbol: '$' },
   { code: 'EUR', flag: '\u{1F1EA}\u{1F1FA}', symbol: '€' },
@@ -23,6 +23,8 @@ export const CURRENCIES = [
   { code: 'CRC', flag: '\u{1F1E8}\u{1F1F7}', symbol: '₡' },
   { code: 'IDR', flag: '\u{1F1EE}\u{1F1E9}', symbol: 'Rp' },
   { code: 'COP', flag: '\u{1F1E8}\u{1F1F4}', symbol: '$' },
+  { code: 'PEN', flag: '\u{1F1F5}\u{1F1EA}', symbol: 'S/' },
+  { code: 'UYU', flag: '\u{1F1FA}\u{1F1FE}', symbol: '$U' },
   { code: 'CLP', flag: '\u{1F1E8}\u{1F1F1}', symbol: '$' },
   { code: 'DOP', flag: '\u{1F1E9}\u{1F1F4}', symbol: 'RD$' },
   { code: 'KZT', flag: '\u{1F1F0}\u{1F1FF}', symbol: '₸' },
@@ -50,4 +52,5 @@ export const CURRENCIES = [
   { code: 'TWD', flag: '\u{1F1F9}\u{1F1FC}', symbol: 'NT$' },
   { code: 'ZAR', flag: '\u{1F1FF}\u{1F1E6}', symbol: 'R' },
   { code: 'GEL', flag: '\u{1F1EC}\u{1F1EA}', symbol: '₾' },
+  { code: 'ILS', flag: '\u{1F1EE}\u{1F1F1}', symbol: '₪' },
 ] as const

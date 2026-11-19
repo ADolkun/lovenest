@@ -352,3 +352,15 @@ async def test_receipt_round_conflicts_requalify_relations_and_allow_supported_r
     replay = await review(session, test_workspace, test_user, wallet, *links, candidate, correction, supported, alias_link)
     assert replay.revision == package.revision
     assert await session.scalar(select(func.count()).select_from(AssetTransaction)) == 0
+
+
+def test_csv_export_neutralises_formula_cells():
+    class Package:
+        def model_dump(self, mode):
+            return {'entries': [{'id': 'e1', 'case_key': '=HYPERLINK("x")', 'role': '+1'}], 'reviews': []}
+
+    rows = list(csv.DictReader(io.StringIO(service.export_recovery(Package(), 'csv', {}))))
+    entry_row = next(item for item in rows if item['record_type'] == 'entry')
+    assert entry_row['case_key'] == '\'=HYPERLINK("x")'
+    assert entry_row['role'] == "'+1"
+    assert json.loads(entry_row['payload_json'])['case_key'] == '=HYPERLINK("x")'

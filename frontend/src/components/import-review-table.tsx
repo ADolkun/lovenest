@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChartPie } from 'lucide-react'
 import type { ImportReviewTransaction, Category, CategoryGroup } from '@/types'
 import { formatCurrency } from '@/lib/format'
 import {
@@ -86,13 +87,50 @@ export function ImportReviewTable({
   const selectAllRef = useRef<HTMLInputElement>(null)
   const hasCategoryFilter = filterCategoryIds.length > 0 || filterUncategorized
 
+  // A split read back from an export names its categories; resolve them the
+  // way the import will (by name, case-insensitively). A name missing here,
+  // or shared by two categories, cannot be resolved and the row imports
+  // without its split.
+  const categoryIdsByName = useMemo(() => {
+    const byName = new Map<string, string[]>()
+    for (const c of categories) {
+      const key = c.name.trim().toLowerCase()
+      byName.set(key, [...(byName.get(key) ?? []), c.id])
+    }
+    return byName
+  }, [categories])
+  const splitPartIds = (tx: ImportReviewTransaction): string[] =>
+    (tx.category_lines ?? []).flatMap((line) => {
+      const ids = categoryIdsByName.get(line.category_name.trim().toLowerCase()) ?? []
+      return ids.length === 1 ? ids : []
+    })
+  // Part names that match no category here, or more than one: either way the
+  // row imports without its split, but the fix differs (create vs rename).
+  const unresolvedParts = (tx: ImportReviewTransaction, ambiguous: boolean): string[] =>
+    (tx.category_lines ?? [])
+      .filter((line) => {
+        const matches = (categoryIdsByName.get(line.category_name.trim().toLowerCase()) ?? []).length
+        return ambiguous ? matches > 1 : matches === 0
+      })
+      .map((line) => line.category_name)
+
+  // Two parts that resolve to the same category: a split holds each once.
+  const repeatsCategory = (tx: ImportReviewTransaction): boolean => {
+    const ids = splitPartIds(tx)
+    return new Set(ids).size !== ids.length
+  }
+
   const filtered = useMemo(() => {
     return transactions.filter(tx => {
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
         if (!tx.description.toLowerCase().includes(q)) return false
       }
-      if (hasCategoryFilter) {
+      if (hasCategoryFilter && tx.category_lines?.length) {
+        // A split row is categorized; a category filter matches any part.
+        const partIds = splitPartIds(tx)
+        if (!filterCategoryIds.some((id) => partIds.includes(id))) return false
+      } else if (hasCategoryFilter) {
         const catId = tx.selected_category_id !== undefined ? tx.selected_category_id : tx.suggested_category_id
         if (filterUncategorized && !filterCategoryIds.length) {
           if (catId) return false
@@ -106,7 +144,8 @@ export function ImportReviewTable({
       if (statusFilter === 'excluded' && !tx.excluded) return false
       return true
     })
-  }, [transactions, searchQuery, filterCategoryIds, filterUncategorized, hasCategoryFilter, statusFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, searchQuery, filterCategoryIds, filterUncategorized, hasCategoryFilter, statusFilter, categoryIdsByName])
 
   const allFilteredIncluded = filtered.length > 0 && filtered.every(tx => !tx.excluded)
   const someFilteredIncluded = filtered.some(tx => !tx.excluded)
@@ -134,6 +173,40 @@ export function ImportReviewTable({
       className="w-full border border-border rounded-md px-2 py-1 text-xs bg-background focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
     />
   )
+  // A split from an export comes back as it was; the parts are listed on hover.
+  const renderCategoryCell = (tx: ImportReviewTransaction) => {
+    if (!tx.category_lines?.length) return renderCategorySelect(tx)
+    const unresolved = unresolvedParts(tx, false)
+    const ambiguous = unresolvedParts(tx, true)
+    return (
+      <span className="flex flex-col gap-1">
+        <span
+          title={tx.category_lines
+            .map((line) => `${line.category_name}: ${formatCurrency(Number(line.amount), tx.currency ?? userCurrency, locale)}`)
+            .join('\n')}
+          className="inline-flex w-fit items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1.5 py-0.5 rounded-full"
+        >
+          <ChartPie size={10} />
+          {t('categoryLines.badge', { count: tx.category_lines.length })}
+        </span>
+        {unresolved.length > 0 && (
+          <span className="text-[11px] text-amber-600 dark:text-amber-400">
+            {t('categoryLines.importUnresolved', { names: unresolved.join(', ') })}
+          </span>
+        )}
+        {ambiguous.length > 0 && (
+          <span className="text-[11px] text-amber-600 dark:text-amber-400">
+            {t('categoryLines.importAmbiguous', { names: ambiguous.join(', ') })}
+          </span>
+        )}
+        {repeatsCategory(tx) && (
+          <span className="text-[11px] text-amber-600 dark:text-amber-400">
+            {t('categoryLines.errors.duplicateCategory')}
+          </span>
+        )}
+      </span>
+    )
+  }
 
   return (
     <div>
@@ -170,7 +243,7 @@ export function ImportReviewTable({
         <Table className="table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-transparent bg-transparent border-b border-border">
-              <TableHead className="text-xs font-medium text-muted-foreground py-3 pl-4 w-[40px]">
+              <TableHead className="text-xs font-medium text-muted-foreground py-3 ps-4 w-[40px]">
                 <input
                   ref={selectAllRef}
                   type="checkbox"
@@ -190,13 +263,13 @@ export function ImportReviewTable({
               <TableHead className="text-xs font-medium text-muted-foreground py-3">
                 {t('transactions.description')}
               </TableHead>
-              <TableHead className="w-24 py-3 text-right text-xs font-medium text-muted-foreground sm:w-[120px]">
+              <TableHead className="w-24 py-3 text-end text-xs font-medium text-muted-foreground sm:w-[120px]">
                 {t('transactions.amount')}
               </TableHead>
               <TableHead className="hidden w-[160px] py-3 text-xs font-medium text-muted-foreground sm:table-cell">
                 {t('import.category')}
               </TableHead>
-              <TableHead className="hidden w-[90px] py-3 pr-4 text-xs font-medium text-muted-foreground sm:table-cell">
+              <TableHead className="hidden w-[90px] py-3 pe-4 text-xs font-medium text-muted-foreground sm:table-cell">
                 {t('transactions.status')}
               </TableHead>
             </TableRow>
@@ -208,7 +281,7 @@ export function ImportReviewTable({
                   key={tx._id}
                   className={`border-b border-border last:border-0 hover:bg-muted ${tx.excluded ? 'opacity-50' : ''}`}
                 >
-                  <TableCell className="py-2.5 pl-4">
+                  <TableCell className="py-2.5 ps-4">
                     <input
                       type="checkbox"
                       checked={!tx.excluded}
@@ -223,16 +296,16 @@ export function ImportReviewTable({
                     <span className={`block truncate ${tx.excluded ? 'line-through' : ''}`} title={tx.description}>{tx.description}</span>
                     <span className="mt-0.5 block text-[11px] text-muted-foreground sm:hidden">{formatLocalDate(tx.date, dateLocale)}</span>
                     <div className="mt-1.5 sm:hidden" onClick={(e) => e.stopPropagation()}>
-                      {renderCategorySelect(tx)}
+                      {renderCategoryCell(tx)}
                     </div>
                   </TableCell>
-                  <TableCell className={`py-2.5 text-right text-sm font-bold tabular-nums ${tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
-                    {tx.type === 'credit' ? '+' : '−'}{formatCurrency(Math.abs(Number(tx.amount)), userCurrency, locale)}
+                  <TableCell className={`py-2.5 text-end text-sm font-bold tabular-nums ${tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                    <span dir="ltr">{tx.type === 'credit' ? '+' : '−'}{formatCurrency(Math.abs(Number(tx.amount)), userCurrency, locale)}</span>
                   </TableCell>
                   <TableCell className="hidden py-2.5 sm:table-cell">
-                    {renderCategorySelect(tx)}
+                    {renderCategoryCell(tx)}
                   </TableCell>
-                  <TableCell className="hidden py-2.5 pr-4 sm:table-cell">
+                  <TableCell className="hidden py-2.5 pe-4 sm:table-cell">
                     {tx.excluded ? (
                       <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
                         {t('import.excluded')}
@@ -260,7 +333,7 @@ export function ImportReviewTable({
                 disabled={safePage <= 1}
                 onClick={() => onPageChange(safePage - 1)}
               >
-                ← {t('common.previous', 'Previous')}
+                <span aria-hidden="true" className="rtl-mirror">←</span> {t('common.previous', 'Previous')}
               </button>
               <span className="text-xs text-muted-foreground">
                 {t('import.page', { current: safePage, total: totalPages })}
@@ -270,7 +343,7 @@ export function ImportReviewTable({
                 disabled={safePage >= totalPages}
                 onClick={() => onPageChange(safePage + 1)}
               >
-                {t('common.next', 'Next')} →
+                {t('common.next', 'Next')} <span aria-hidden="true" className="rtl-mirror">→</span>
               </button>
             </div>
           ) : (

@@ -6,6 +6,7 @@ endpoints and read-only Postgres reporting for the write-off tab.
 """
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -18,6 +19,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import tax_engine
+
+logger = logging.getLogger(__name__)
 
 PORT = int(os.environ.get("PORT", "8088"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -122,7 +125,7 @@ def _counts_as_user_pnl_sql(t, a, c):
 
 _CARD_PAYMENT_SQL = _card_payment_sql("t", "a")
 
-# ADR 0011: a credit filed under a non-income category, or an uncategorized
+# Lovenest ADR 0011: a credit filed under a non-income category, or an uncategorized
 # card refund, is money back on spending rather than income.
 _SPENDING_OFFSET_SQL = f"""(
     t.type = 'credit' AND NOT {_CARD_PAYMENT_SQL} AND (
@@ -132,7 +135,7 @@ _SPENDING_OFFSET_SQL = f"""(
 )"""
 
 
-# ADR 0012: a link is in effect only while both of its rows are in user P&L on
+# Lovenest ADR 0012: a link is in effect only while both of its rows are in user P&L on
 # open accounts. The backend checks only the row's own account, since every
 # report there already drops a row outside user P&L; write-offs keep such
 # rows, so here both sides are checked in full.
@@ -243,15 +246,16 @@ def require_auth(
         "Authorization": authorization,
         **({"X-Workspace-Id": workspace_id} if workspace_id else {}),
     }
-    request = urllib.request.Request(
-        f"{BACKEND_URL}/api/workspaces/current" if allowed else f"{BACKEND_URL}/api/users/me",
-        headers=headers,
-    )
+    # The ledger queries trust X-Workspace-Id, so the backend must confirm the
+    # caller belongs to it whether or not an allowlist is configured.
+    request = urllib.request.Request(f"{BACKEND_URL}/api/workspaces/current", headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             if response.status != 200:
                 raise HTTPException(status_code=401, detail="Invalid Lovenest session")
     except urllib.error.HTTPError as exc:
+        if exc.code in (400, 403, 404):
+            raise HTTPException(status_code=403, detail="Select a workspace you belong to") from exc
         raise HTTPException(status_code=401, detail="Invalid Lovenest session") from exc
     except urllib.error.URLError as exc:
         raise HTTPException(status_code=503, detail="Lovenest authentication unavailable") from exc
@@ -404,8 +408,9 @@ def writeoffs(auth=Depends(require_auth)):
                 "ded_total": round(sum(r["total"] for r in deduction_tags), 2),
             },
         }
-    except Exception as exc:  # DB down / driver missing — stay up, report it.
-        empty["error"] = f"database unavailable: {exc}"
+    except Exception:  # DB down / driver missing — stay up, report it.
+        logger.exception("Tax summary query failed")
+        empty["error"] = "database unavailable"
         return empty
 
 
@@ -439,7 +444,8 @@ def _reportable_gain(auth):
     except (OSError, ValueError) as exc:
         # OSError covers URLError and the bare TimeoutError a read timeout
         # raises: a slow backend must degrade to a hint, not 500 the whole form.
-        return {"gain_error": f"capital gains unavailable: {exc}"}
+        logger.warning("Capital gains feed failed", exc_info=exc)
+        return {"gain_error": "capital gains unavailable"}
 
 
 def _reportable_income(auth):
@@ -466,7 +472,8 @@ def _reportable_income(auth):
             "non_reportable_income": float(data.get("non_reportable_income") or 0.0),
         }
     except (OSError, ValueError) as exc:
-        return {"income_error": f"investment income unavailable: {exc}"}
+        logger.warning("Investment income feed failed", exc_info=exc)
+        return {"income_error": "investment income unavailable"}
 
 
 def _projection_feed(auth):
@@ -488,7 +495,8 @@ def _projection_feed(auth):
     except (OSError, ValueError) as exc:
         # A zero balance is a real answer the engine would act on, so degrade to
         # a hint and let every value key stay absent.
-        return {"projection_error": f"live balances unavailable: {exc}"}
+        logger.warning("Projection feed failed", exc_info=exc)
+        return {"projection_error": "live balances unavailable"}
 
 
 @app.get("/api/projection-prefill")
@@ -573,11 +581,13 @@ def prefill(auth=Depends(require_auth)):
             result["interest_income"] = round(cur.fetchone()[0], 2)
 
         return result
-    except Exception as exc:
-        result["error"] = f"database unavailable: {exc}"
+    except Exception:
+        logger.exception("Projection feed query failed")
+        result["error"] = "database unavailable"
         return result
 
 
 @app.exception_handler(Exception)
 def unhandled(_request, exc):
-    return JSONResponse(status_code=500, content={"error": str(exc)})
+    logger.error("Unhandled error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"error": "internal error"})

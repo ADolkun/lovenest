@@ -48,7 +48,7 @@ from app.schemas.asset_import import (
     AssetImportWarning,
     AssetOrderImport,
 )
-from app.services import asset_transaction_service
+from app.services import asset_service, asset_transaction_service
 from app.services.asset_group_service import ensure_group_in_workspace
 from app.services.import_service import (
     DATE_FORMAT_MAP,
@@ -845,9 +845,9 @@ async def _holdings_in_other_wallets(
 async def _already_imported(
     session: AsyncSession,
     asset_ids: list[uuid.UUID],
-) -> tuple[Counter, set[uuid.UUID]]:
+) -> tuple[Counter, set[uuid.UUID], dict[uuid.UUID, list[AssetTransaction]]]:
     """How many ledger rows of each fingerprint these holdings already carry,
-    and which of them have a ledger at all.
+    which of them have a ledger at all, and each one's splits oldest first.
 
     Re-uploading the same file is the normal way people fix a mapping mistake,
     so a repeat run should add nothing rather than double the position. Counted
@@ -857,18 +857,33 @@ async def _already_imported(
     imported after the first.
     """
     if not asset_ids:
-        return Counter(), set()
+        return Counter(), set(), {}
     result = await session.execute(
-        select(AssetTransaction).where(AssetTransaction.asset_id.in_(asset_ids))
+        select(AssetTransaction)
+        .where(AssetTransaction.asset_id.in_(asset_ids))
+        .order_by(AssetTransaction.date)
     )
     seen: Counter = Counter()
     with_ledger: set[uuid.UUID] = set()
+    splits: dict[uuid.UUID, list[AssetTransaction]] = {}
     for tx in result.scalars().all():
         with_ledger.add(tx.asset_id)
+        if tx.kind == 'split':
+            splits.setdefault(tx.asset_id, []).append(tx)
         if tx.external_id:
             seen[('external', tx.asset_id, tx.external_id)] += 1
         seen[('row', tx.asset_id, tx.date, tx.kind, tx.quantity, tx.price)] += 1
-    return seen, with_ledger
+    return seen, with_ledger, splits
+
+
+def _in_todays_units(quantity: Decimal, on: date_type, splits: list[AssetTransaction]) -> Decimal:
+    """An order's quantity in the units its holding counts today: scaled through
+    every split after it. A split applies before the trades on its own date."""
+    for split in splits:
+        if split.date > on:
+            assert split.old_units is not None and split.new_units is not None
+            quantity = asset_service.split_units(quantity, split.old_units, split.new_units)
+    return quantity
 
 
 class ImportSummary(TypedDict):
@@ -912,7 +927,7 @@ async def import_orders(
     await ensure_group_in_workspace(session, group_id, workspace_id)
 
     # A wallet carries the tax treatment, and `tax_lots.asset_tax_lots` reports
-    # nothing for a holding without one (ADR 0002). A wallet-less import would
+    # nothing for a holding without one (Lovenest ADR 0002). A wallet-less import would
     # therefore write a complete ledger and an empty Lots view, with no error to
     # explain the gap — so it is refused here, at the one function both the
     # preview and the commit endpoints route through.
@@ -931,12 +946,12 @@ async def import_orders(
 
     holdings = await _existing_holdings(session, workspace_id, group_id, tickers)
     from app.services.owned_transfer_service import guard_asset_mutation
-    seen, with_ledger = await _already_imported(session, [a.id for a in holdings.values()])
+    seen, with_ledger, splits = await _already_imported(session, [a.id for a in holdings.values()])
 
     elsewhere = await _holdings_in_other_wallets(session, workspace_id, group_id, tickers)
     warnings: list[AssetImportWarning] = []
     if elsewhere:
-        seen_elsewhere, _ = await _already_imported(session, [a.id for a, _ in elsewhere.values()])
+        seen_elsewhere, _, _ = await _already_imported(session, [a.id for a, _ in elsewhere.values()])
         for ticker, (other, wallet_name) in sorted(elsewhere.items()):
             # Same orders already on the other holding is the strong signal:
             # this is the same position about to be counted twice.
@@ -959,14 +974,16 @@ async def import_orders(
 
     # Units per ticker as the file is replayed, so a sell that would leave the
     # position negative is caught here rather than by the ledger halfway
-    # through the write.
+    # through the write. Counted in the units the holding has today, so an
+    # order from before a split is scaled through it first.
     reported: dict[str, Decimal] = {
         ticker: Decimal(str(asset.units or 0)) for ticker, asset in holdings.items()
     }
     units = dict(reported)
 
     for order in ordered:
-        if order.kind == 'expire':
+        expiry = order.kind == 'expire'
+        if expiry:
             held = units.get(order.ticker, Decimal('0'))
             if held == 0:
                 errors.append(AssetImportRowError(
@@ -1006,21 +1023,26 @@ async def import_orders(
                 continue
 
         held = units.get(order.ticker, Decimal('0'))
+        # An expiry's quantity was read off `units`, so it is in today's units already.
+        quantity = order.quantity if expiry or asset is None else _in_todays_units(
+            order.quantity, order.date, splits.get(asset.id, []),
+        )
         # Selling a contract the file has not bought is writing it, which is a
         # position rather than a mistake. Judged on the symbol because the
         # holding may not exist yet.
         if (
             order.kind == 'sell'
-            and order.quantity > held
+            and quantity > held
             and not is_option_symbol(order.ticker)
         ):
+            scaled = '' if quantity == order.quantity else f' ({_plain(quantity)} after later splits)'
             errors.append(AssetImportRowError(
                 row=order.row, reason='oversell', ticker=order.ticker,
-                detail=f'selling {order.quantity} with {held} held',
+                detail=f'selling {order.quantity}{scaled} with {held} held',
             ))
             continue
 
-        units[order.ticker] = held + (order.quantity if order.kind == 'buy' else -order.quantity)
+        units[order.ticker] = held + (quantity if order.kind == 'buy' else -quantity)
         accepted.append(order)
 
     warnings.extend(_reconciliation_warnings(accepted, holdings, with_ledger, reported, units))

@@ -1348,6 +1348,64 @@ async def test_a_share_sold_beyond_the_position_is_still_an_over_sell(
     assert [(e.row, e.reason) for e in summary["errors"]] == [(3, "oversell")]
 
 
+async def _split_holding(session, test_user, test_workspace, provider) -> Asset:
+    """10 AAPL bought, then a 1 -> 2 split: 20 units held today."""
+    from app.services.asset_transaction_service import recompute_and_cache
+
+    await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-01-15,10,100.00",
+    ), provider)
+    asset = await _only_asset(session, test_workspace)
+    session.add(AssetTransaction(
+        asset_id=asset.id, workspace_id=test_workspace.id, kind="split",
+        quantity=Decimal("0"), price=Decimal("0"), fee=Decimal("0"),
+        date=date(2026, 3, 1), old_units=1, new_units=2, source="manual",
+    ))
+    await session.flush()
+    await recompute_and_cache(session, asset)
+    await session.commit()
+    assert asset.units == Decimal("20")
+    return asset
+
+
+@pytest.mark.asyncio
+async def test_a_sale_from_before_a_split_is_checked_in_todays_units(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    """15 pre-split units are 30 today, more than the 20 held, though fewer
+    than 20 read as they stand in the file."""
+    asset = await _split_holding(session, test_user, test_workspace, provider)
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-02-15,-15,120.00",
+    ), provider, dry_run=True, group_id=asset.group_id)
+
+    assert [(e.row, e.reason) for e in summary["errors"]] == [(2, "oversell")]
+    assert "30 after later splits" in (summary["errors"][0].detail or "")
+
+
+@pytest.mark.asyncio
+async def test_a_cost_basis_import_before_a_split_replays_through_it(
+    session: AsyncSession, test_user: User, test_workspace: Workspace, provider
+):
+    asset = await _split_holding(session, test_user, test_workspace, provider)
+    summary = await _import(session, test_workspace, test_user, _csv(
+        "ticker,date,quantity,price",
+        "AAPL,2026-01-20,5,110.00",
+        "AAPL,2026-02-15,-8,120.00",
+    ), provider)
+
+    assert summary["errors"] == []
+    assert summary["imported"] == 2
+    await session.refresh(asset)
+    # 10 + 5 - 8 = 7 before the split, 14 after it. The split moves neither
+    # the cost of what is held (7 at an average of 1550 / 15) nor the gain.
+    assert asset.units == Decimal("14")
+    assert asset.purchase_price == Decimal("723.33")
+    assert asset.realized_gain == Decimal("133.33")
+
+
 # ---------------------------------------------------------------------------
 # Fee and explicit date-format validation (issue #850)
 # ---------------------------------------------------------------------------

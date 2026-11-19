@@ -36,7 +36,7 @@ from typing import Any, AsyncGenerator, Iterable, Optional, TypeIs
 
 import httpx
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.providers.coinbase import usd_spot_prices
 from app.providers.onchain_reads import MAX_HISTORY_PAGES, ReadPending, TraceReads, interruption_code
 from app.providers.onchain_transport import (
@@ -2198,7 +2198,8 @@ class OnChainProvider(BankProvider):
     for the same reason.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings=settings)
         self._holdings_memo: tuple[str, asyncio.Task | None, HoldingsObservation] | None = None
         self.holdings_observation: dict[str, Any] | None = None
         self.account_holdings_observation: dict[str, Any] | None = None

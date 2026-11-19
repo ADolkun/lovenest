@@ -818,7 +818,7 @@ async def test_export_rules_serializes_category_actions_by_name(client: AsyncCli
     assert response.headers["content-disposition"].startswith("attachment;")
     payload = response.json()
     assert payload["format"] == "securo-categorization-rules"
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     exported = {rule["name"]: rule for rule in payload["rules"]}
     assert set(exported) == {"UBER rule", "IFOOD rule", "SALARIO rule"}
     uber_action = exported["UBER rule"]["actions"][0]
@@ -1240,7 +1240,9 @@ async def test_preview_rule_pages_through_the_matches(
     """
     body = {
         "conditions_op": "and",
-        "conditions": [{"field": "amount", "op": "gt", "value": "0"}],
+        # Amount conditions compare the signed value, so a floor below every
+        # expense in the fixture is what matches debits and credits alike.
+        "conditions": [{"field": "amount", "op": "gt", "value": "-100000"}],
         "actions": [{"op": "set_category", "value": str(test_categories[0].id)}],
         "limit": 2,
     }

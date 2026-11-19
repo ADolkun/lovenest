@@ -463,8 +463,11 @@ class TestFxRatesAPI:
     async def test_refresh_calls_sync(
         self, client: AsyncClient, auth_headers
     ):
+        from app.core.config import get_settings
+
         mock_sync = AsyncMock(return_value=150)
-        with patch("app.api.fx_rates.sync_rates", mock_sync):
+        with patch.object(get_settings(), "openexchangerates_app_id", "test-app-id"), \
+             patch("app.api.fx_rates.sync_rates", mock_sync):
             response = await client.post(
                 "/api/fx-rates/refresh", headers=auth_headers
             )
@@ -698,6 +701,14 @@ class TestOpenExchangeRatesProvider:
 class TestSyncRates:
     """Tests for fx_rate_service.sync_rates() with mocked provider."""
 
+    @pytest.fixture(autouse=True)
+    def _resolved_settings(self):
+        from app.core.config import get_settings
+
+        with patch("app.services.fx_rate_service.resolve_settings", new_callable=AsyncMock) as resolve:
+            resolve.return_value = get_settings()
+            yield
+
     @pytest.mark.asyncio
     async def test_sync_rates_calls_provider_latest(self):
         from app.services.fx_rate_service import sync_rates
@@ -713,7 +724,7 @@ class TestSyncRates:
         mock_session.execute = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        with patch("app.services.fx_rate_service._provider", mock_provider):
+        with patch("app.services.fx_rate_service.OpenExchangeRatesProvider", return_value=mock_provider):
             count = await sync_rates(mock_session, date.today())
 
         mock_provider.fetch_latest.assert_awaited_once()
@@ -736,7 +747,7 @@ class TestSyncRates:
         mock_session.execute = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        with patch("app.services.fx_rate_service._provider", mock_provider):
+        with patch("app.services.fx_rate_service.OpenExchangeRatesProvider", return_value=mock_provider):
             count = await sync_rates(mock_session, target)
 
         mock_provider.fetch_historical.assert_awaited_once_with(target)
@@ -754,7 +765,7 @@ class TestSyncRates:
         mock_session.execute = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        with patch("app.services.fx_rate_service._provider", mock_provider):
+        with patch("app.services.fx_rate_service.OpenExchangeRatesProvider", return_value=mock_provider):
             await sync_rates(mock_session)
 
         # Should call fetch_latest (not fetch_historical) when no date given
@@ -773,7 +784,7 @@ class TestSyncRates:
         mock_session.execute = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        with patch("app.services.fx_rate_service._provider", mock_provider):
+        with patch("app.services.fx_rate_service.OpenExchangeRatesProvider", return_value=mock_provider):
             await sync_rates(mock_session, date.today() + timedelta(days=10))
 
         mock_provider.fetch_latest.assert_awaited_once()
@@ -1713,7 +1724,7 @@ class TestFxFallbackFlag:
 
 @pytest.mark.parametrize("missing_response", [{}, RuntimeError("offline")])
 async def test_import_fx_cache_retains_closest_fallback_without_persisting(
-    session, clean_db, missing_response,
+    session, clean_db, missing_response, mock_fx_provider,
 ):
     from app.services import fx_rate_service
     from sqlalchemy import func, select
@@ -1721,7 +1732,7 @@ async def test_import_fx_cache_retains_closest_fallback_without_persisting(
     earlier, missing = date(2025, 6, 15), date(2025, 6, 16)
     cache = {}
     with patch.object(
-        fx_rate_service._provider, "fetch_historical",
+        mock_fx_provider, "fetch_historical",
         new=AsyncMock(side_effect=[{"EUR": Decimal("2")}, missing_response]),
     ) as fetch:
         for target in (earlier, missing, missing):
@@ -1757,12 +1768,12 @@ async def test_import_fx_cache_merges_closest_stored_and_local_rates(
     assert rate == expected
 
 
-async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(session, clean_db):
+async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(session, clean_db, mock_fx_provider):
     from app.services import fx_rate_service
 
     cache = {}
     with patch.object(
-        fx_rate_service._provider, "fetch_latest",
+        mock_fx_provider, "fetch_latest",
         new=AsyncMock(return_value={"EUR": Decimal("2"), "ZZZ": Decimal("9")}),
     ) as fetch:
         assert await fx_rate_service._resolve_rate(
@@ -1780,12 +1791,12 @@ async def test_import_fx_cache_filters_currencies_and_normalizes_future_dates(se
     assert cache == {date.today(): {"EUR": Decimal("2")}}
 
 
-async def test_import_fx_cache_does_not_leak_to_next_import(session, clean_db):
+async def test_import_fx_cache_does_not_leak_to_next_import(session, clean_db, mock_fx_provider):
     from app.services import fx_rate_service
 
     target = date(2025, 6, 15)
     with patch.object(
-        fx_rate_service._provider, "fetch_historical",
+        mock_fx_provider, "fetch_historical",
         new=AsyncMock(side_effect=[RuntimeError("offline"), {"EUR": Decimal("4")}]),
     ) as fetch:
         assert await fx_rate_service._resolve_rate(

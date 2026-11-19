@@ -295,6 +295,66 @@ async def test_connected_credit_card_explanation_preserves_display_sign(
     assert read["current_balance"] == read["balance_explanation"]["amount"] == -120
 
 
+async def test_connected_loan_explanation_preserves_display_sign(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    account, _, _, _ = await _portfolio(session, test_user, test_workspace, values=())
+    account.type = "loan"
+    await session.commit()
+    read = (await client.get(f"/api/accounts/{account.id}", headers=auth_headers)).json()
+    assert read["current_balance"] == read["balance_explanation"]["amount"] == -120
+
+
+async def test_disconnected_connection_says_values_will_not_refresh(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    account, _, _, _ = await _portfolio(session, test_user, test_workspace)
+    connection = await session.get(BankConnection, account.connection_id)
+    connection.status = "disconnected"
+    await session.commit()
+    explanation = (await client.get(f"/api/accounts/{account.id}", headers=auth_headers)).json()[
+        "balance_explanation"
+    ]
+    assert explanation["refresh_status"] == "disconnected"
+    assert "refresh_disconnected" in explanation["reason_codes"]
+    assert explanation["residual_cash"] is None
+
+
+async def test_manual_balance_with_an_unconverted_foreign_row_is_partial(
+    session, client, auth_headers, test_user, test_workspace,
+):
+    """A foreign row without a converted amount counts as zero in the manual
+    balance (#1302), so the balance does not cover everything — in the
+    account's read and in the wallet linked to it alike."""
+    from datetime import date
+
+    from app.models.transaction import Transaction
+
+    account = await account_service.create_account(
+        session, test_workspace.id, test_user.id,
+        AccountCreate(name="Cash ledger", type="investment", balance=45, currency="BRL"),
+    )
+    group = (await client.post("/api/asset-groups", headers=auth_headers,
+                               json={"name": "Manual holdings", "account_id": str(account.id)})).json()
+    complete = (await client.get(f"/api/accounts/{account.id}", headers=auth_headers)).json()
+    assert complete["balance_explanation"]["coverage"] == "complete"
+    assert group["balance_explanation"]["coverage"] == "complete"
+
+    session.add(Transaction(
+        id=uuid.uuid4(), user_id=test_user.id, workspace_id=test_workspace.id,
+        account_id=account.id, description="Abroad", amount=Decimal("10"), currency="USD",
+        date=date(2024, 1, 2), type="debit", source="manual", status="posted",
+    ))
+    await session.commit()
+    read = (await client.get(f"/api/accounts/{account.id}", headers=auth_headers)).json()
+    assert read["current_balance"] == 45
+    wallets = (await client.get("/api/asset-groups", headers=auth_headers)).json()
+    wallet = next(w for w in wallets if w["id"] == group["id"])
+    for explanation in (read["balance_explanation"], wallet["balance_explanation"]):
+        assert explanation["coverage"] == "partial"
+        assert "unconverted_rows" in explanation["reason_codes"]
+
+
 async def test_coinbase_all_unpriced_reports_omitted_values_not_known_zero(monkeypatch):
     provider = CoinbaseProvider()
     monkeypatch.setattr(provider, "_walk_accounts", AsyncMock(return_value=[{

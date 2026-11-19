@@ -82,7 +82,7 @@ function tx(index: number, date: string, runningBalance: number | null): Transac
     fx_rate_used: null, fx_fallback: false, installment_number: null,
     total_installments: null, installment_total_amount: null,
     installment_purchase_date: null, installment_series_id: null, bill_id: null,
-    effective_bill_date: null, splits: [], reimbursement_links: [], is_ignored: false,
+    effective_bill_date: null, reporting_date_override: null, splits: [], reimbursement_links: [], is_ignored: false,
     running_balance: runningBalance, running_balance_primary: null,
   }
 }
@@ -132,6 +132,13 @@ describe('a non-credit-card account with more rows than one page', () => {
   beforeEach(() => {
     api.accounts.get.mockResolvedValue(checking)
     api.transactions.list.mockImplementation(async (args) => listPage(ledger, args))
+    api.accounts.runningBalance.mockResolvedValue(
+      Array.from({ length: 30 }, (_, i) => ({
+        date: `2026-09-${String(i + 1).padStart(2, '0')}`,
+        balance: 9000,
+        balance_primary: null,
+      })),
+    )
     api.dashboard.projectedTransactions.mockResolvedValue([{
       recurring_id: 'rec-1', account_id: 'acc-1', description: 'Rent', amount: 500,
       amount_primary: null, currency: 'BRL', type: 'debit', date: '2026-09-28',
@@ -154,12 +161,36 @@ describe('a non-credit-card account with more rows than one page', () => {
     }))
   })
 
-  it('takes the Projected Balance card from the newest row', async () => {
+  it('includes recurring commitments in the period-end Projected Balance card', async () => {
     await renderPage()
 
     const card = (await screen.findByText('Projected Balance')).parentElement!
     await waitFor(() => expect(within(card).getByText('R$8,500.00')).toBeVisible())
     expect(within(card).getByText('Not settled: R$500.00')).toBeVisible()
+  })
+
+  it.each([
+    ['outside the reporting range', []],
+    ['ordered by reporting date', [
+      { ...tx(0, '2026-08-31', 9100), reporting_date_override: '2026-09-30' },
+      tx(1, '2026-09-15', 8900),
+    ]],
+  ])('keeps the projected balance on the bank ledger when rows are %s', async (_name, rows) => {
+    api.accounts.summary.mockResolvedValue({
+      opening_balance: 9000, current_balance: 8900, monthly_income: 0, monthly_expenses: 0,
+      projected_income: 0, projected_expenses: 0,
+    })
+    api.transactions.list.mockImplementation(async (args) => listPage(rows, args))
+    api.dashboard.projectedTransactions.mockResolvedValue([])
+    api.accounts.runningBalance.mockResolvedValue([
+      { date: '2026-09-30', balance: 8900, balance_primary: null },
+    ])
+
+    await renderPage()
+
+    const card = (await screen.findByText('Projected Balance')).parentElement!
+    await waitFor(() => expect(within(card).getByText('R$8,900.00')).toBeVisible())
+    expect(within(card).queryByText(/Not settled/)).not.toBeInTheDocument()
   })
 
   it('appends the next page when asked to show more', async () => {
@@ -186,7 +217,9 @@ describe('a non-credit-card account with more rows than one page', () => {
 
     await renderPage()
 
-    expect(await screen.findByText('R$20,000')).toBeInTheDocument()
+    // The axis ticks are compact. Whether a whole thousand prints as "R$20K" or
+    // "R$20.0K" depends on the ICU version bundled with Node, so accept both.
+    expect(await screen.findByText(/^R\$20(\.0)?K$/)).toBeInTheDocument()
     expect(api.accounts.runningBalance).toHaveBeenCalledWith('acc-1', '2026-09-01', '2026-09-30')
   })
 })

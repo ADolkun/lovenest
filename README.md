@@ -76,10 +76,43 @@ The following is **Securo's feature set**, inherited unchanged by lovenest:
 - Two-factor authentication (TOTP) with brute-force protection, plus passkey support
 - OIDC login for Authentik, Pocket ID, and other standard providers, including OIDC-only deployments
 - AI Agents (optional): self-hosted LLM chat with tool-use over your data, plus a per-agent RAG knowledge base
+- Reporting-date override on synced transactions: report a transaction in another period without changing the bank's booking date (see [Reporting dates](#reporting-dates-and-bank-balances))
+- Plugins (optional, off by default): install community plugins from the plugin catalog into a workspace, with a preview before anything changes (see [Optional capabilities](#optional-capabilities))
+- Attachments and invoice logos on local disk, or in a private S3-compatible bucket (see [Attachment storage](#attachment-storage))
 
 For provider setup (Pluggy, Enable Banking, SimpleFIN), OIDC configuration, exchange rates, and AI Agents, follow **[Securo's documentation](https://docs.usesecuro.com/)** — the underlying configuration keys are unchanged in this fork.
 
 See [automatic bank synchronization](docs/automatic-bank-sync.md) to configure the minimum polling interval (including PSD2 four-access-per-day limits).
+
+### Optional capabilities
+
+Everything beyond the core is off by default, switched on with one setting, and costs nothing until then. `.env.example` documents each key.
+
+- **Plugins**: set `PLUGINS_ENABLED=true` to let workspace members install data plugins (categories and rules). Plugins with code, such as sync from a service you use, also need `plugins` in `COMPOSE_PROFILES`, plus `PLUGINS_RUNNER_URL`, `PLUGINS_RUNNER_TOKEN` and `PLUGINS_EGRESS_SECRET`; they run in their own containers without the core secrets or the database. See [bank provider plugins](docs/plugins/bank-provider-plugins.md).
+- **AI Agents**: `AGENTS_ENABLED=true` and `COMPOSE_PROFILES=agents` ([self-hosting](docs/self-hosting.md)).
+- **Bank providers and exchange rates**: environment variables, or in the app under **Admin Settings → Bank connections** and **Exchange rates** without a restart ([provider settings](docs/provider-settings.md)).
+
+### Attachment storage
+
+Attachments and invoice logos use local disk by default. Set `STORAGE_PROVIDER=s3` to keep them in a private Amazon S3 or S3-compatible bucket (Garage, MinIO). Create the bucket first; Lovenest does not create buckets or change their policies, and downloads still go through the authorized API, so the bucket stays private.
+
+```dotenv
+STORAGE_PROVIDER=s3
+STORAGE_S3_BUCKET=attachments
+STORAGE_S3_REGION=garage
+STORAGE_S3_ENDPOINT_URL=https://s3.example.com
+STORAGE_S3_ADDRESSING_STYLE=path
+STORAGE_S3_ACCESS_KEY=your-access-key
+STORAGE_S3_SECRET_KEY=your-secret-key
+```
+
+For Amazon S3, omit the endpoint, use the bucket's region and leave the addressing style at `auto`. The key needs `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on the objects and `s3:ListBucket` on the bucket; omit both keys to use an IAM role, and set `STORAGE_S3_SESSION_TOKEN` for temporary credentials. `http://` endpoints are refused unless `STORAGE_S3_ALLOW_INSECURE_HTTP=true` (local development only). The S3 client ships in the regular image and loads only in S3 mode.
+
+The setting applies to every attachment. To move existing files, stop the backend and workers, copy the contents of the attachments directory into the bucket keeping relative paths, verify, then switch the setting. Back up both PostgreSQL and the bucket. The design is upstream's [ADR 0019](docs/adr/0019-s3-storage.md).
+
+### Reporting dates and bank balances
+
+A synchronized transaction can carry a reporting-date override without changing the bank's booking date. Clear it to restore automatic attribution; later bank syncs keep the override. Reporting periods and transaction-list dates follow the override; account running balances and posted cash-flow balance movements still follow the bank date (the effective movement date in accrual mode). A posted expense attributed to a future period shows in that period's cash-flow outflow without being deducted from the projected balance a second time. The calendar offers separate reporting-date and bank-date views.
 
 ### Tech stack
 
@@ -96,50 +129,17 @@ Parts of this codebase were built with help of AI. All code is human-reviewed an
 
 Contributing with AI is welcome. We review the author, not the tool: whatever wrote the diff, you own its quality, its fit with where lovenest is going, and everything that happens after it merges. See [Using AI](CONTRIBUTING.md#using-ai).
 
-## Development
+## Support Securo
 
-```bash
-# Run backend tests with the Python version in backend/.python-version
-cd backend
-uv sync --locked --group dev
-uv run --no-sync pytest
+lovenest is built on Securo, which is free and open source. If lovenest helps you, a coffee keeps Securo's development going:
 
-# Rebuild after dependency changes
-docker compose up --build
-```
-
-The backend installs editably into `.venv`; after changing dependencies, run
-`backend/scripts/lock.sh` and commit `backend/uv.lock`. See
-[Contributing](CONTRIBUTING.md#running-the-checks-ci-runs) for the full checks and
-[tax planner development](extras/tax/README.md) for its separate uv project.
-
-If you've [mise](https://mise.jdx.dev/) installed, you can install backend/frontend directly with it:
-
-```
-# Install the Python version specified in .python-version,
-# and create a project virtual environment using that Python.
-# Install all tools and dependencies (include Python with dedicated venv)
-mise //...:install
-
-# Install only backend tools/deps
-mise backend:install
-
-# Run backend tests
-mise backend:test
-
-# Install frontend dependencies
-mise frontend:install
-
-# Run frontend linting
-mise frontend:lint
-
-# Run frontend build
-mise frontend:build
-```
+<p align="center">
+  <a href="https://www.buymeacoffee.com/usesecuro"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="160" alt="Buy Me a Coffee" /></a>
+</p>
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 
 ## License
 
